@@ -2,7 +2,7 @@
 
 From-scratch Rust runtime for Assassin's Creed (2007, PC). It reads data from the user's own install. It is **not** a port of the original code: IK, locomotion and climbing are recreations of behavior seen in-game.
 
-Full format notes and status table are in `README.md`. Read it before touching a format. Keep its status table and format notes up to date when something changes.
+Full format notes and status table are in `docs/NOTES.md` (the README is the short public page). Read it before touching a format. Keep its status table and format notes up to date when something changes.
 
 ## Hard rules
 - Never commit or publish game files, extracted data, IDBs, or decompiler output. `out/` is git-ignored. Check `git status` before committing.
@@ -19,12 +19,12 @@ Full format notes and status table are in `README.md`. Read it before touching a
 ## Commands
 - Run: `cargo run -p ac1` (`AC1_GAME_DIR` overrides the install path; `AC1_LEVEL=masyaf` / `damascus` loads a city)
 - List an archive: `cargo run --release -p forge --bin forge -- list "<game>/DataPC_Masyaf.forge"`
-- Class histogram: `cargo run --release -p forge --bin catalog -- "<game>"` (class ids are CRC32 of class names; it names them from the game's exe, see README "Class names")
+- Class histogram: `cargo run --release -p forge --bin catalog -- "<game>"` (class ids are CRC32 of class names; it names them from the game's exe, see docs/NOTES.md "Class names")
 - Check before finishing: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`
 
 ## Conventions
 - Game data is Z-up. Characters face +X. Mesh space is skeleton model space turned 90° about Z. Animation clips face +Y with the Reference bone turned 90°. Convert to Bevy's Y-up only in one place, in the `game` crate.
-- Format work is measured by pass rate over every file (for example 9357/9373 data files decode). A change must not lower a pass rate. Update the README table when a number changes.
+- Format work is measured by pass rate over every file (for example 9357/9373 data files decode). A change must not lower a pass rate. Update the docs/NOTES.md table when a number changes.
 - Parsers never panic on bad data. Return errors with the file offset.
 - Unknown fields stay documented as `?` with their offset until proven.
 
@@ -34,8 +34,8 @@ Use them for format reversing, parser/runtime Rust work, and Bevy work.
 
 ## Open work
 Driving which move plays from the move graph itself (`forge::graph::MoveGraph` is loaded and checks every chain step;
-the code's action requests are found: 2035 action ids used in code, see README "What the executable's code asks for";
+the code's action requests are found: 2035 action ids used in code, see docs/NOTES.md "What the executable's code asks for";
 the ladder plays its table, the other systems' tables are next), the robe from AC1's own `DynamicMesh`/`ClothActionSettings`, combat (removed 2026-10-05; rebuild it
 on `HumanGround_Fight*` once movement is right), the 11 other mesh types, real hold data for climbing,
 Acre/Jerusalem/Kingdom checks, 64-bit quats and camera channels in animation, the 16 data files that fail to decode,
-the 16 clips that fail to parse. Details are in the README status table and its Research section.
+the 16 clips that fail to parse. Details are in the docs/NOTES.md status table and its Research section.

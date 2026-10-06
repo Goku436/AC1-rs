@@ -108,7 +108,7 @@
 //! onto it (+1 m up and forward; high: `xx_h_ladder_climb_up_<l|r>_tr_freestep_foot<l|r>_a/b` runs off); at the
 //! bottom `xx_<l|h>_ladder_climb_down_<l|r>_tr_<l|h>_wait_hipm_foot<r|l>` steps off. The legs with the stick pulled
 //! back rebound off it backwards (`xx_h_ladder_wait_<l|r>_tr_rebound_foot<l|r>`). This is `HumanLadderData`'s table
-//! of the actions AC1's code asks for (README "What the executable's code asks for").
+//! of the actions AC1's code asks for (docs/NOTES.md "What the executable's code asks for").
 //! From the top, Space at the ladder's edge turns and climbs down onto it
 //! (`xx_h_wait_hipm_footl_tr_ladder_pulldown`, `xx_ladder_pulldown_tr_l_ladder_wait_r_a/b`). Space on the
 //! ladder lets go (`xx_l_ladder_wait_<l|r>_tr_falling`).

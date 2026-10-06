@@ -5,7 +5,7 @@ description: Rust practices for ac1-rs, the from-scratch Rust runtime that reads
 
 # Rust practices for ac1-rs
 
-Read `CLAUDE.md` and `README.md` first. They win over this skill if they conflict.
+Read `CLAUDE.md` and `docs/NOTES.md` first. They win over this skill if they conflict.
 
 ## What kind of project this is
 A runtime that reads the user's own game install and recreates behavior. It is not a recompilation. Code is one of two kinds, and each file should say which:
@@ -34,7 +34,7 @@ A runtime that reads the user's own game install and recreates behavior. It is n
 - Handle degenerate input (zero-length bones, unreachable targets, parallel pole vectors) with defined fallbacks and tests for each.
 
 ## Testing
-1. **Pass rate is the main metric** for format work. A command should report N/M for each format over the whole install. Record the numbers in the README status table. A change must not lower any number.
+1. **Pass rate is the main metric** for format work. A command should report N/M for each format over the whole install. Record the numbers in the docs/NOTES.md status table. A change must not lower any number.
 2. **Known failures are explicit.** Keep a list of the files that fail today (for example the 16 data files, the 16 clips) so a regression stands out from a known gap.
 3. **Unit tests use synthetic data** built in the test. Never commit game bytes as fixtures.
 4. Tests that need the install check for it and skip with a clear message when it isn't there. They must not fail on a machine without the game.
@@ -45,7 +45,7 @@ A runtime that reads the user's own game install and recreates behavior. It is n
 - No game files, extracted data, IDBs or decompiled code in git. `out/` stays ignored.
 - CI/local: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`.
 - One format feature per commit, for example `forge(anim): decode 64-bit quats`.
-- Update the README status table and format notes in the same commit as the code.
+- Update the docs/NOTES.md status table and format notes in the same commit as the code.
 
 ## When unsure
 Say what's unknown. Add a `?` in the notes and an `#[ignore]`d test or a clear error. Don't invent a layout to make a file pass.

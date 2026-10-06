@@ -28,7 +28,7 @@ Bevy's API changes almost every release. Read the version in `Cargo.toml`, copy 
 ## Animation
 - Clips are sampled at 60 fps, with per-track keys. Decode in `forge`, convert to Bevy `AnimationClip` or sample manually; pick one approach and keep it consistent.
 - Locomotion picks idle/walk/jog/run half-cycles and rate-matches by root-motion speed. Keep that selection logic pure and tested.
-- Climbing: a move is taken only if its end pose puts both hands on real holds; IK then snaps hands and feet. The move graph and rules are in the README.
+- Climbing: a move is taken only if its end pose puts both hands on real holds; IK then snaps hands and feet. The move graph and rules are in docs/NOTES.md.
 - Apply IK after animation sampling and before skinning, in an explicit system order.
 
 ## Plugins and ordering
