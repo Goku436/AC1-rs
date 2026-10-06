@@ -1,0 +1,10 @@
+[package]
+name = "ac1"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+bevy = "0.19.1"
+forge = { version = "0.1.0", path = "../forge" }
+ik = { version = "0.1.0", path = "../ik" }

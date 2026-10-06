@@ -1,0 +1,14 @@
+target/
+out/
+
+# Never commit game files, extracted data, IDBs or decompiler output (see CLAUDE.md).
+*.forge
+*.idb
+*.i64
+*.gzf
+
+# Local builds, screenshots and flight recordings.
+*.exe
+*.zip
+ac1-shot-*.png
+ac1-recording-*

@@ -1,0 +1,303 @@
+//! Scripted scenarios: the game run with its test hooks (see the header of `src/main.rs`) through climbs,
+//! jumps, the course, hiding and the ragdoll, each checked against what it logs. They open a window
+//! and take a few minutes, so they run only with `AC1_SCENARIOS=1` and the game installed (`AC1_GAME_DIR` or
+//! the default Steam path); otherwise the test passes without running them.
+//!
+//!     AC1_SCENARIOS=1 cargo test -p ac1 --test scenarios -- --nocapture
+
+use std::path::PathBuf;
+use std::process::Command;
+
+const DEFAULT_GAME_DIR: &str = "P:/SteamLibrary/steamapps/common/Assassins Creed";
+
+struct Scenario {
+    name: &'static str,
+    env: &'static [(&'static str, &'static str)],
+    secs: f32,
+    /// Every one of these must appear in the log.
+    want: &'static [&'static str],
+    /// None of these may.
+    never: &'static [&'static str],
+}
+
+const QUIET: &[(&str, &str)] = &[("AC1_NO_CROWD", "1")];
+
+const SCENARIOS: &[Scenario] = &[
+    Scenario {
+        name: "standing turn round in high profile breaks off into the run",
+        env: &[("AC1_START", "-5,-5,0"), ("AC1_WALK", "4.5"), ("AC1_STEER", "180"), ("AC1_HIGH", "0-5")],
+        secs: 3.0,
+        want: &["waitturn_right_180", "turn broken off into the run"],
+        never: &["_tr_h_jog_hipm_"],
+    },
+    Scenario {
+        name: "standing turn round with the stick sweeping: one turn, then the walk",
+        env: &[("AC1_START", "-5,-5,0"), ("AC1_WALK", "1.5"), ("AC1_STEER", "180"), ("AC1_CURVE", "1.5")],
+        secs: 4.5,
+        want: &["resume into gait"],
+        never: &["_tr_l_walk_hipm_"],
+    },
+    Scenario {
+        name: "up block L's ladder in high profile, off the top into a free step",
+        env: &[("AC1_START", "23.5,-5.4,0"), ("AC1_CLIMB", "up=8"), ("AC1_HIGH", "0-9")],
+        secs: 6.0,
+        want: &["via xx_h_ladder_climb_up_", "via xx_h_ladder_climb_up_l_tr_freestep_footl_b"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "rebound off block L's ladder: the legs with the stick pulled back",
+        env: &[("AC1_START", "23.5,-5.4,0"), ("AC1_CLIMB", "up=2.5,down=3"), ("AC1_LEGS", "4.2-4.3")],
+        secs: 7.0,
+        want: &["rebound off the ladder", "via xx_h_rebound_footr_tr_fall", "land -> ground"],
+        never: &["EMBED", "landing_damage_footl_roll"],
+    },
+    Scenario {
+        name: "free running through both swing bars, the legs only held",
+        env: &[("AC1_START", "50.3,0,-90"), ("AC1_WALK", "6"), ("AC1_HIGH", "0-7"), ("AC1_LEGS", "0-7")],
+        secs: 6.0,
+        want: &["caught bar 0", "caught bar 1", "swing -> leap via xx_h_swing_cycle_front_300cm_to_air", "land -> ground"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "across the wall onto E's ladder, up it, off it onto the wall",
+        env: &[("AC1_START", "11.3,16.7,0"), ("AC1_CLIMB", "left=2.5,up=2,right=3")],
+        secs: 10.0,
+        want: &["across onto ladder 0", "off ladder 0 onto the wall"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "climb wall A to the top",
+        env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "up=14")],
+        secs: 14.0,
+        want: &["-> top via"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "free hang on C, drop",
+        env: &[("AC1_START", "6.5,4.0,180"), ("AC1_CLIMB", "up=1.6,left=3.5,drop=4")],
+        secs: 9.5,
+        want: &["free_1m", "land -> ground"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "wall run on A to a ledge hang",
+        env: &[("AC1_START", "0,0.5,180"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-1.5"), ("AC1_LEGS", "0-1.5")],
+        secs: 3.0,
+        want: &["wallingfront", "hangwall_open"],
+        never: &["EMBED"],
+    },
+    Scenario { name: "jump up to hang on G", env: &[("AC1_START", "-14.5,-11.4,0"), ("AC1_JUMP", "0.5")], secs: 4.0, want: &["hangwall"], never: &[] },
+    Scenario {
+        name: "jump onto 1.75 m with a blend",
+        env: &[("AC1_START", "-2,-11.4,0"), ("AC1_JUMP", "0.5")],
+        secs: 4.0,
+        want: &["mixing xx_h_jumpstraight_footl_to_hangknee_footl_150cm", "-> top via"],
+        never: &[],
+    },
+    Scenario {
+        name: "leap of faith into hay",
+        env: &[("AC1_START", "13.5,-5.5,0"), ("AC1_WALK", "1.6"), ("AC1_JUMP", "0.8")],
+        secs: 5.0,
+        want: &["-> hay via xx_h_faith_jump_landing"],
+        never: &[],
+    },
+    Scenario {
+        name: "the free-run course reaches the bars",
+        env: &[("AC1_START", "18,0,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-14"), ("AC1_LEGS", "0-14")],
+        secs: 14.0,
+        want: &["jump onto", "caught bar"],
+        never: &[],
+    },
+    Scenario {
+        name: "the flow lane: jump onto 0.6 and 1.2 m, on to the last wall",
+        env: &[("AC1_START", "-20,-24.5,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-14"), ("AC1_LEGS", "0-14")],
+        secs: 12.0,
+        want: &["jump onto 0.60 m", "jump onto 1.00 m"],
+        never: &["EMBED", "passover"],
+    },
+    Scenario {
+        name: "running into the 0.6 m block stops against it, the legs step up onto it",
+        env: &[("AC1_START", "-20,-24.5,-90"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-8"), ("AC1_LEGS", "3.0-3.1")],
+        secs: 5.0,
+        want: &["stopped against a 0.60 m obstacle", "xx_h_collide_full_footl_050cm_wait=0.50", "step up from against the obstacle"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "running at the 0.6 m block at an angle glances off it",
+        env: &[("AC1_START", "-17.5,-23.6,-90"), ("AC1_STEER", "40"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-5")],
+        secs: 3.0,
+        want: &["glance off a 0.60 m obstacle"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "standing, steering left turns a quarter; letting go ends it standing",
+        env: &[("AC1_START", "-25,-8,0"), ("AC1_WALK", "1.9"), ("AC1_STEER", "90"), ("AC1_STOP", "0.25")],
+        secs: 2.5,
+        want: &["waitturn_left_090", "let go mid-turn: ends in xx_l_waitturn_left_090_footl_tr_l_wait_hipm_footl"],
+        never: &[],
+    },
+    Scenario {
+        name: "ladder to the top",
+        env: &[("AC1_START", "23.5,-4.8,0"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,up=14")],
+        secs: 14.0,
+        want: &["ladder", "-> top via"],
+        never: &[],
+    },
+    Scenario {
+        name: "pole P to its perch",
+        env: &[("AC1_START", "-1.2,10.9,180"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,up=8")],
+        secs: 8.0,
+        want: &["-> perch via"],
+        never: &[],
+    },
+    Scenario {
+        name: "sit on the bench",
+        env: &[("AC1_START", "-9.7,-6.6,0"), ("AC1_WALK", "1.0"), ("AC1_STOP", "0.6"), ("AC1_LEGS", "0.9-0.95")],
+        secs: 4.0,
+        want: &["bench_sit -> bench"],
+        never: &[],
+    },
+    Scenario {
+        name: "stop from a run, blended",
+        env: &[("AC1_START", "-25,-8,0"), ("AC1_WALK", "4.3"), ("AC1_STOP", "1.5")],
+        secs: 3.0,
+        want: &["mixing xx_h_jogstop"],
+        never: &[],
+    },
+    Scenario {
+        name: "free running up a wall leaps hold to hold and climbs over the top",
+        env: &[("AC1_START", "0,0.5,180"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-14"), ("AC1_LEGS", "0-14"), ("AC1_CLIMB", "nograb,wait=3,leap-up=11")],
+        secs: 9.0,
+        want: &["climb1m_up_r_hand_2", "1m -> hangknee via xx_l_climb_1m_tr_hangknee_footl_a", "-> top via"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "risky leap from a low row of E catches the slab with one hand",
+        env: &[("AC1_START", "8.6,11.3,180"), ("AC1_CLIMB", "up=0.8,wait=5,leap-right=5")],
+        secs: 10.5,
+        want: &["leap -> free_1m via xx_h_climbing_climb1m_tr_hangfree_right_3_c"],
+        never: &["climb1m_tr_hangfree_right_2"],
+    },
+    Scenario {
+        name: "jump to pole Q hangs hands together, then pulls up onto its cap",
+        env: &[("AC1_START", "1.2,11.1,180"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,wait=3.5,up=4")],
+        secs: 9.0,
+        want: &["-> hangwall via xx_h_jumpstraight_footl_to_hangwall_250cm", "xx_h_hangwall_onehand_to_hangknee_onehand_footl_a", "-> perch via"],
+        never: &["hangfree"],
+    },
+    Scenario {
+        name: "leap of faith off tower V's beam into the hay",
+        env: &[("AC1_START", "23.5,17.7,180"), ("AC1_LEGS", "1.5-1.6")],
+        secs: 6.0,
+        want: &["onto perch", "leap of faith off the perch", "-> hay via xx_h_faith_jump_landing"],
+        never: &[],
+    },
+    Scenario {
+        name: "free running past block L stops at it, not through it onto the kiosk",
+        env: &[("AC1_START", "14,-7.5,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-8"), ("AC1_LEGS", "0-8")],
+        secs: 6.0,
+        want: &["wallrun"],
+        never: &["onto kiosk frame", "EMBED"],
+    },
+    Scenario {
+        name: "standing at block A's edge in high profile, pull down and climb down to the ground",
+        env: &[
+            ("AC1_START", "0,5.6,0"),
+            ("AC1_WALK", "1.5"),
+            ("AC1_STOP", "1.2"),
+            ("AC1_HIGH", "0-6"),
+            ("AC1_LEGS", "2.6-2.7"),
+            ("AC1_CLIMB", "nograb,wait=4,down=6"),
+        ],
+        secs: 11.0,
+        want: &["pull down onto the ledge", "stepdown -> ground"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "reversing on block A's top in high profile does not run off it",
+        env: &[("AC1_START", "0,6.6,0"), ("AC1_WALK", "4.5"), ("AC1_HIGH", "0-5"), ("AC1_TURN", "0.55")],
+        secs: 4.0,
+        want: &["ledge stop"],
+        never: &["landed from 6"],
+    },
+    Scenario {
+        name: "reversing a jog turns round with AC1's run turn-around",
+        env: &[("AC1_START", "-25,-8,0"), ("AC1_WALK", "4.0"), ("AC1_TURN", "1.2")],
+        secs: 2.8,
+        want: &["via xx_h_runturn180_", "_tr_walk_hipm_"],
+        never: &["waitturn"],
+    },
+    Scenario {
+        name: "reversing while free running swings round without stopping",
+        env: &[("AC1_START", "-25,-8,0"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-5"), ("AC1_TURN", "1.2")],
+        secs: 2.6,
+        want: &[],
+        never: &["runturn180", "runstop", "waitturn"],
+    },
+    Scenario {
+        name: "go limp and settle",
+        env: &[("AC1_START", "-25,-8,0"), ("AC1_LIMP", "1.0")],
+        secs: 5.0,
+        want: &["went limp", "settled limp"],
+        never: &[],
+    },
+];
+
+fn game_dir() -> Option<PathBuf> {
+    let d = PathBuf::from(std::env::var("AC1_GAME_DIR").unwrap_or_else(|_| DEFAULT_GAME_DIR.into()));
+    d.join("DataPC.forge").exists().then_some(d)
+}
+
+fn run(exe: &str, s: &Scenario) -> Result<(), String> {
+    let shot = std::env::temp_dir().join(format!("ac1-scenario-{}.png", std::process::id()));
+    let mut c = Command::new(exe);
+    c.env("RUST_LOG", "ac1=debug,wgpu=error").env("NO_COLOR", "1").env("AC1_SHOT", &shot).env("AC1_SHOT_SECS", s.secs.to_string()).env("AC1_EMBED_CHECK", "1");
+    c.envs(QUIET.iter().copied());
+    c.envs(s.env.iter().copied());
+    // (At idle priority, so whatever else runs on the machine comes first; its window opens in the background.)
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const IDLE_PRIORITY_CLASS: u32 = 0x40;
+        c.creation_flags(IDLE_PRIORITY_CLASS);
+    }
+    let out = c.output().map_err(|e| format!("could not run the game: {e}"))?;
+    let log = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    if log.contains("panicked") {
+        return Err("the game panicked".into());
+    }
+    // Steps between clips that AC1's move graph does not have (see `forge::graph`): reported, not failed.
+    let mut off_graph: Vec<&str> = log.lines().filter(|l| l.contains("not in AC1's move graph")).filter_map(|l| l.split_once("graph: ").map(|x| x.1)).collect();
+    off_graph.sort();
+    off_graph.dedup();
+    for l in off_graph {
+        eprintln!("  off the move graph: {l}");
+    }
+    let missing: Vec<&str> = s.want.iter().copied().filter(|w| !log.contains(w)).collect();
+    let present: Vec<&str> = s.never.iter().copied().filter(|w| log.contains(w)).collect();
+    if missing.is_empty() && present.is_empty() { Ok(()) } else { Err(format!("missing {missing:?}, unwanted {present:?}")) }
+}
+
+#[test]
+fn scenarios() {
+    if std::env::var("AC1_SCENARIOS").is_err() {
+        eprintln!("scenarios skipped (set AC1_SCENARIOS=1 to run them)");
+        return;
+    }
+    let Some(dir) = game_dir() else {
+        eprintln!("scenarios skipped: no game install found");
+        return;
+    };
+    // SAFETY: set before any thread of this test starts a game.
+    unsafe { std::env::set_var("AC1_GAME_DIR", &dir) };
+    let exe = env!("CARGO_BIN_EXE_ac1");
+    let mut failed = vec![];
+    for s in SCENARIOS {
+        let r = run(exe, s);
+        eprintln!("{} {}{}", if r.is_ok() { "PASS" } else { "FAIL" }, s.name, r.as_ref().err().map_or(String::new(), |e| format!(": {e}")));
+        if r.is_err() {
+            failed.push(s.name);
+        }
+    }
+    assert!(failed.is_empty(), "{} of {} scenarios failed: {failed:?}", failed.len(), SCENARIOS.len());
+}

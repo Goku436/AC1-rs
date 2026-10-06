@@ -1,0 +1,12 @@
+[package]
+name = "forge"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+crc32fast = "1.5.2"
+lzokay-native = "0.1.0"
+memmap2 = "0.9.11"
+png = "0.18.1"
+texpresso = "2.0.2"

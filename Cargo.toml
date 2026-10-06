@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+# Bevy is slow unoptimized; keep our code debuggable but optimize dependencies.
+[profile.dev]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
