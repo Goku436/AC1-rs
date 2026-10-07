@@ -39,7 +39,8 @@ Rules learned on the way here:
 ### 2. AC1's own data and code (decomp, move graph)
 The move graph is the big one: with it the game itself says which move follows which.
 - [~] **AC1's jump system** (first step done 2026-10-07: running jumps onto tops play AC1's takeoff, flight and
-      reception blends, `jump.rs`; still to do: the five side directions, free-step takeoffs from beams and posts,
+      reception blends, `jump.rs`; then the vault, jumps onto posts and beams, at holds and with no target: no scenario plays a step off AC1's move
+      graph any more; still to do: the five side directions, free-step takeoffs from beams and posts,
       flights to passover/surface/swing/assassinate, holds (`hangwall_reception_*`), posts and beams as targets, the
       ground landings by stick and speed) (found 2026-10-07, see the run log): our running jump takes off with
       `xx_h_sprint_impultion_footl`, which is a stride of the locomotion blend (`HumanGround` 0x5923bdb), not a jump.
@@ -193,3 +194,5 @@ Research:
     every move, even standing ones (stops, turns), popping the feet at each seam.
   - The leap of faith's dive (`xx_h_faith_jump_100cm_long_3000cm_down`, 10 in one leap) and the climbing leaps up
     (`xx_h_climbing_climb1m_tr_climb1m_up_l_hand_2_a/b`): check the dive's stretch over the fall and the leap's IK.
+- Jumps onto a post hold about 0.17 s on it while the quick reception plays out before the next jump: AC1's graph
+  goes from `_tr_freestep_entry` straight on (`freestep_entry_*_tr_h_sprint_impultion`): cut it short when running on.

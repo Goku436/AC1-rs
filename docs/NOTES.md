@@ -248,7 +248,10 @@ by how far and how high the top is (bands: up to 1.3 m up, 3 m down, near 2.5 m,
 reception `..._tr_freestep_entry_footr`, blended into its `_fast` version by the run's speed; the root follows the
 clips' own motion with the difference to the target spread over the flight (as AC1 moves it), and runs on at the run's
 speed. It falls back to the planned arc below when the clips' own way is more than half off the target or the way
-over is not clear at the chest. Otherwise a running jump's takeoff (about 1.7 m of root motion) starts partway in when pressed
+over is not clear at the chest. The free-run vault onto a low top, jumps onto posts and beams, jumps at holds and
+jumps with no target (weighted for a level top 2.5 m ahead) take their clips from the same tables, so every step the
+scenarios play is one AC1's move graph has (the sprint stride into the hop, which it lacks, is only a fallback now).
+Otherwise a running jump's takeoff (about 1.7 m of root motion) starts partway in when pressed
 near the edge, so it leaves the ground at the edge rather than running on over the drop. It is planned at running
 speed (lengthening the flight instead made jumps float in slow motion); the push up is at least 1.5 m/s, and up onto a
 higher top enough to cross the edge with the feet 0.25 m clear (lower, the knees met the edge and the body snapped up

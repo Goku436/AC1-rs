@@ -29,9 +29,11 @@
 //! (release) plays, `_b` gives the falling pose while gravity moves the root, and
 //! `xx_h_landing_straight_<soft|hard>_footr_tr_h_wait_footr_a/b` plays on touchdown.
 //!
-//! Running jump (from the ground): `xx_h_sprint_impultion_footl` takes off, the first frame of
-//! `xx_h_air_front_050cm_footl_to_freestep` is held in the air while gravity moves the root (walls
-//! stop the horizontal speed), and `xx_h_landing_forward_<soft|hard>_footr_tr_h_jog_footl_a/b` lands
+//! Running jump (from the ground): AC1's takeoff and flight blends (`crate::jump`, weighted by how far and how high
+//! the target is: `xx_h_run_<front|down|up>_<dist>_footl_to_air`, `xx_h_air_<...>_footl_to_freestep*`). Onto a top, a
+//! post or a beam the root follows the clips' own motion onto it, then the reception `_tr_freestep_entry_footr[_fast]`
+//! (`jump_ac1`); at a hold, or with no target (weighted for a level one 2.5 m ahead), the takeoff plays, then the
+//! flight over the air while gravity moves the root (walls stop the horizontal speed), and `xx_h_landing_forward_<soft|hard>_footr_tr_h_jog_footl_a/b` lands
 //! into a jog. A running jump at a wall catches a hold on the way down, when the catch clip's end pose
 //! puts both hands within reach of holds: `xx_fall_tr_climb_<min|max>_a/b` (hands up, drop 0.5 m into
 //! the wide wall hang "2m") or, with no wall under the feet, `xx_fall_tr_hangfree_min_a/b` (into a free
@@ -442,6 +444,8 @@ const JUMP_UP_MIN: f32 = 1.5;
 /// A jump up onto a top crosses its edge with the feet this far over it (m).
 /// AC1's jump clips are used while the correction onto the target is at most this share of the distance.
 const JUMP_AC1_SLACK: f32 = 0.5;
+/// A jump with no target is weighted for a level one this far ahead (m).
+const FREE_JUMP_DIST: f32 = 2.5;
 /// At this speed (m/s, the sprint) the reception is all its quick version.
 const JUMP_AC1_FAST_SPEED: f32 = 6.2;
 const JUMP_EDGE_CLEAR: f32 = 0.25;
@@ -1199,7 +1203,19 @@ impl WallClimb {
     /// Running jump from the ground along the way the root faces. `from` is the pose shown now, to
     /// fade from.
     pub fn jump(lib: &mut AnimLib, root: &Transform, dir: Vec3, from: Option<Pose>) -> Option<WallClimb> {
-        let (takeoff, air) = (lib.get(JUMP_TAKEOFF)?, lib.get(JUMP_AIR)?);
+        // AC1 always jumps at a target; with none in reach, AC1's takeoff and flight weighted for a level one
+        // `FREE_JUMP_DIST` ahead, played out, then the fall (as Banned445's repo has it). Our sprint stride and air clip
+        // if those are missing.
+        let j = crate::jump::running(0.0, FREE_JUMP_DIST, true, dir.with_y(0.0).length() / JUMP_AC1_FAST_SPEED);
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let ac1 = mix(&j.takeoff).zip(mix(&j.flight));
+        let (takeoff, air) = match ac1 {
+            Some(pair) => pair,
+            None => (lib.get(JUMP_TAKEOFF)?, lib.get(JUMP_AIR)?),
+        };
         let planned = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir.with_y(0.0).normalize_or(Vec3::NEG_Z)), ..*root };
         let mut w = WallClimb::new(JUMP, planned.rotation * Vec3::Z);
         // The air clip runs from the takeoff tuck to reaching for the ground over the flight.
@@ -1231,7 +1247,16 @@ impl WallClimb {
         if !at_hold && let Some(w) = Self::jump_ac1(lib, level, root, to, aim, speed, from.clone()) {
             return Some(w);
         }
-        let (takeoff, air) = (lib.get(JUMP_TAKEOFF)?, lib.get(JUMP_AIR)?);
+        // (At a hold: the planned arc, to catch it, with AC1's takeoff and flight for that height and distance.)
+        let j = crate::jump::running(to.y - p.y, (to - p).with_y(0.0).length(), true, speed / JUMP_AC1_FAST_SPEED);
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, air) = match mix(&j.takeoff).zip(mix(&j.flight)) {
+            Some(pair) => pair,
+            None => (lib.get(JUMP_TAKEOFF)?, lib.get(JUMP_AIR)?),
+        };
         let planned = Transform { rotation: facing(aim), ..*root };
         // The arc starts where the takeoff leaves the ground: at the edge at the latest. The takeoff clip runs on about
         // 1.7 m; pressed closer to the edge than that, it starts partway in (at its own pace), not run on over the drop.
