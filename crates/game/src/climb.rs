@@ -451,6 +451,8 @@ const TOP_OUT_JOG: f32 = 3.5;
 const RECEPTION_RATE_MAX: f32 = 2.0;
 /// A jump with no target is weighted for a level one this far ahead (m).
 const FREE_JUMP_DIST: f32 = 2.5;
+/// The way over a jump must be clear this high (m) above the higher of its two ends.
+const JUMP_AC1_CLEAR: f32 = 0.6;
 /// At this speed (m/s, the sprint) the reception is all its quick version.
 const JUMP_AC1_FAST_SPEED: f32 = 6.2;
 const JUMP_EDGE_CLEAR: f32 = 0.25;
@@ -1336,8 +1338,11 @@ impl WallClimb {
             debug!("climb: AC1's jump clips land {:.2} m off; the planned arc instead", correct.length());
             return None;
         }
-        // The way over must be clear at the chest (the clips do not climb over what is in between).
-        if level.raycast(p + Vec3::Y * 1.2, (to - p).with_y(0.0).normalize_or_zero(), (to - p).with_y(0.0).length()).is_some() {
+        // The way over must be clear above the higher of the two (the clips do not climb over what is in between; from
+        // the chest, up onto a higher top met its wall).
+        let over = p.with_y(p.y.max(to.y) + JUMP_AC1_CLEAR);
+        if level.raycast(over, (to - p).with_y(0.0).normalize_or_zero(), (to - p).with_y(0.0).length()).is_some() {
+            debug!("climb: AC1's jump clips: the way over is not clear");
             return None;
         }
         let mut w = WallClimb::new(VAULT, -aim);

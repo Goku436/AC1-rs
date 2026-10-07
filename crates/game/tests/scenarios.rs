@@ -66,6 +66,20 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        name: "two-step lane met 20 degrees off its line: fence, then both posts",
+        env: &[("AC1_START", "38.5,-28.6,-70"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-5")],
+        secs: 4.5,
+        want: &["jump onto 1.00 m", "aimed at [45.00, 1.80", "aimed at [47.60, 1.80"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "rooftops: B4 up to B5 with AC1's up jump (not the long planned arc)",
+        env: &[("AC1_START", "66.5,34,0,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
+        secs: 3.0,
+        want: &["aimed at [66.50, 5.69, 27.0", "AC1's jump tables: xx_h_run_up_300cm_footl_to_air"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "standing turn round with the stick sweeping: one turn, then the walk",
         env: &[("AC1_START", "-5,-5,0"), ("AC1_WALK", "1.5"), ("AC1_STEER", "180"), ("AC1_CURVE", "1.5")],
         secs: 4.5,

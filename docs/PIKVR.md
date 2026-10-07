@@ -24,8 +24,8 @@ Rules learned on the way here:
 - [ ] (Needs a play test, feel) Run turn rate: ours 9 rad/s, AC1's 360 deg/s (2 pi). Try AC1's and the high profile turn hold back together.
 - [ ] (Needs a play test, feel) Walk stop: AC1 stops a walk-band move at once (to the wait with a 0.2 s blend); ours eases the velocity down.
 - [ ] Hands catch up fast as they leave a hold (fade window 6-20 cm): widen if it reads as a snap in play.
-- [ ] B4 to B5 jump: 0.88 s in the air (a 1.2 m rise needs it); offered: catch the edge and pull up instead.
-- [ ] Two-step lane from an angle: a scripted start at (38.5, -28.6) yaw -115 did nothing (check the start spot).
+- [x] (AC1's up jump now: run_up/air_up 300 cm, quick) B4 to B5 jump: 0.88 s in the air (a 1.2 m rise needs it); offered: catch the edge and pull up instead.
+- [x] (Was the start facing away; 20 degrees off works, scenario) Two-step lane from an angle: a scripted start at (38.5, -28.6) yaw -115 did nothing (check the start spot).
 - [ ] Capsule: no ceiling handling, no stick-to-ground cast (0.58 m), no fall-off-support rule (rim past 45 degrees);
       the air, climb and fall states don't use it. Bring in what play shows is missing.
 - [ ] Scabbard angle and the hood (lead: in Banned445's repo the hood follows the head through Altaïr's authored
@@ -205,3 +205,5 @@ Research:
     (`xx_h_climbing_climb1m_tr_climb1m_up_l_hand_2_a/b`): check the dive's stretch over the fall and the leap's IK.
 - Jumps onto a post hold about 0.17 s on it while the quick reception plays out before the next jump: AC1's graph
   goes from `_tr_freestep_entry` straight on (`freestep_entry_*_tr_h_sprint_impultion`): cut it short when running on.
+- Swing bars: AC1 stops a swing (`xx_h_swing_stop_<front|back>_a..d`, after the back or front swing) into a still hang
+  on the bar, which nothing here has yet (the swing goes on until the legs fling or drop). Needs the bar hang state.
