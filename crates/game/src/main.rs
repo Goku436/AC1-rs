@@ -40,6 +40,7 @@ mod character;
 mod city;
 mod climb;
 mod crowd;
+mod gait;
 mod gallery;
 mod level;
 mod nav;
@@ -621,6 +622,11 @@ fn player_input(
     let moving = input.length() > 0.1;
     ctl.free_run = high && legs;
     ctl.blend_walk = !high && legs;
+    // The speed comes from AC1's speed value (`gait`) by profile and how far the stick is pushed; blending walks at
+    // the crowd's pace.
+    ctl.stick = (!ctl.blend_walk).then_some(input.length().min(1.0));
+    // (The profile's full speed, which the moves off the ground go by: sprinting along a beam, the speed a climb hands
+    // back to the gait. On the ground the speed value replaces it.)
     ctl.speed = if ctl.free_run {
         SPRINT
     } else if high {
@@ -825,8 +831,9 @@ fn eagle(
 /// The empty hand within this of a scholar (m) picks its pocket.
 const PICKPOCKET_REACH: f32 = 1.2;
 
-/// Ground speeds (m/s), those of AC1's gait clips (root motion over the half-cycle): low profile walk
-/// (`xx_l_walk_hipm`, 1.9), high profile run (`xx_h_run_hipm`, 5.2), free-run sprint (`xx_h_sprint_hipm`, 6.2).
+/// The profiles' full speeds (m/s), the gait clips' (root motion over the half-cycle): low profile walk
+/// (`xx_l_walk_hipm`), high profile run (`xx_h_run_hipm`), free-run sprint (`xx_h_sprint_hipm`). On the ground the
+/// player's speed comes from `gait`.
 const WALK: f32 = 1.9;
 const RUN: f32 = 5.2;
 const SPRINT: f32 = 6.2;
@@ -840,6 +847,7 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
         let dir = Quat::from_rotation_y(script.curve * t) * dir;
         ctl.move_dir = if script.turn.is_some_and(|at| t > at) { -dir } else { dir };
         ctl.speed = speed;
+        ctl.stick = None;
         if script.stop.is_some_and(|at| t > at) {
             ctl.move_dir = Vec3::ZERO;
         }
@@ -872,6 +880,7 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
         }
         if ctl.free_run {
             ctl.speed = SPRINT;
+            ctl.stick = None;
         } else if ctl.blend_walk {
             ctl.speed = crowd::BLEND_SPEED;
         }
@@ -1102,12 +1111,10 @@ fn hud(
         contexts.1 = std::mem::replace(&mut contexts.0, context.clone());
     }
     let speed = ch.velocity.with_y(0.0).length();
-    let gait = match speed {
-        s if s < 0.2 => "idle",
-        s if s < 2.6 => "walk",
-        s if s < 4.3 => "jog",
-        s if s < 5.7 => "run",
-        _ => "sprint",
+    // AC1's speed band and value (`gait`).
+    let gait = match gait::band(ch.gait.value) {
+        gait::Band::Stand if speed >= 0.2 => "moving".to_string(),
+        b => format!("{} {:.2}", format!("{b:?}").to_lowercase(), ch.gait.value),
     };
     let clip = ch.wall.as_ref().and_then(|w| w.clip_name()).map_or("-".to_string(), |n| n.to_string());
     let air = ch.wall.as_ref().and_then(|w| w.air_velocity()).map_or("-".to_string(), |v| format!("{:.1} m/s up {:.1}", v.with_y(0.0).length(), v.y));

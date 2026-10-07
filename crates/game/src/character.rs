@@ -178,6 +178,10 @@ pub struct Character {
     pub ragdoll: Option<(ik::ragdoll::Ragdoll, Pose)>,
     ragdoll_def: Option<std::sync::Arc<ik::ragdoll::RagdollDef>>,
     /// Test hook: go limp now (`AC1_LIMP`).
+    /// The ground speed value (see `gait`).
+    pub gait: crate::gait::Gait,
+    /// Climbing: each foot's smoothed distance onto the wall (see the climbing IK).
+    pub wall_feet: [Option<f32>; 2],
     pub limp: bool,
     /// Model-space height of the soles in the idle pose.
     floor: f32,
@@ -212,6 +216,9 @@ pub struct Controller {
     /// Desired world-space horizontal velocity.
     pub move_dir: Vec3,
     pub speed: f32,
+    /// The stick (0..1) when the speed comes from the speed model (`gait`): the player's input. `None`: `speed` as
+    /// given (scripts, the crowd).
+    pub stick: Option<f32>,
     /// Climb input: x = right, y = up.
     pub climb_dir: Vec2,
     /// Leap modifier held: climb moves become leaps.
@@ -402,6 +409,8 @@ pub fn spawn_character(
         ragdoll: None,
         ragdoll_def: None,
         limp: false,
+        gait: Default::default(),
+        wall_feet: [None; 2],
         mirror: ik::mirror::Mirror::new(&rig),
         rig,
         bones,
@@ -653,27 +662,13 @@ fn ragdoll_collide(level: &Level, prev: Vec3, p: Vec3, r: f32) -> (Vec3, bool) {
 
 /// A palm on a wall: the wrist this far out from it (m).
 const PALM_OFF: f32 = 0.05;
-/// The body's radius against walls (m).
-const BODY_RADIUS: f32 = 0.32;
+/// Climbing feet follow the wall's distance at this rate (1/s).
+const WALL_FOOT_RATE: f32 = 12.0;
+/// The capsule moves in steps no longer than this (m).
+const CAPSULE_STEP: f32 = 0.15;
 
-/// How far to move the root out of walls closer than `BODY_RADIUS` around it (probed in 8 directions at knee
-/// and chest height).
-fn push_out(level: &Level, root: Vec3) -> Vec3 {
-    let mut push = Vec3::ZERO;
-    for k in 0..8 {
-        let dir = Quat::from_rotation_y(k as f32 * std::f32::consts::FRAC_PI_4) * Vec3::Z;
-        for h in [0.5, 1.3] {
-            if let Some(hit) = level.raycast(root + Vec3::Y * h, dir, BODY_RADIUS).filter(|h| h.normal.y.abs() < 0.5) {
-                let n = hit.normal.with_y(0.0).normalize_or_zero();
-                let need = (BODY_RADIUS - hit.dist) * n.dot(-dir).max(0.0);
-                if need > push.dot(n) {
-                    push += n * (need - push.dot(n));
-                }
-            }
-        }
-    }
-    push.with_y(0.0)
-}
+/// The speed value starts over (from standing) when it asks for this much more speed (m/s) than the body has.
+const GAIT_RESYNC: f32 = 1.5;
 
 /// Free running grabs or runs up a wall this close ahead (m).
 const FREE_RUN_REACH: f32 = 1.3;
@@ -915,6 +910,17 @@ pub fn locomotion(
             continue;
         }
 
+        // The player's speed: AC1's speed value (`gait`). After a climb, a vault or a wall stopping him it picks up
+        // from the speed he has, not the one he had.
+        if let Some(stick) = ctl.stick {
+            let have = ch.velocity.with_y(0.0).length();
+            if crate::gait::speed(ch.gait.value) > have + GAIT_RESYNC {
+                ch.gait.value = 0.0;
+            }
+            let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+            let off = if ctl.move_dir.length() > 0.01 { facing.angle_between(ctl.move_dir.with_y(0.0)) } else { 0.0 };
+            ctl.speed = ch.gait.update(stick, off, ctl.high, ctl.free_run, dt);
+        }
         // Blending into a crowd: walk at its pace.
         if ch.blend && ctl.speed <= 2.0 {
             ctl.speed = ctl.speed.min(crate::crowd::BLEND_SPEED);
@@ -983,20 +989,22 @@ pub fn locomotion(
             use crate::climb::WallClimb;
             let dir = v.normalize();
             let on_ground = level.ground(tf.translation, 0.3, 0.3).is_some();
-            // Sprinting off an edge jumps. Free running along a top that ends in a drop of any size (a fence, a low
+            // Sprinting (or free running at any speed, as AC1 does) off an edge jumps. Free running along a top that ends in a drop of any size (a fence, a low
             // wall run onto) with something to jump to ahead springs on to it straight away (AC1's two-step: onto the
             // fence, on to the post).
             let edge = on_ground
-                && v.length() > SPRINT_SPEED
+                && (v.length() > SPRINT_SPEED || ctl.free_run)
                 && (level.ground(tf.translation + dir * 0.6, 0.8, 1.2).is_none()
                     || (ctl.free_run
                         && level.ground(tf.translation + dir * 0.6, 0.3, 0.4).is_none()
                         && WallClimb::jump_target_ahead(&level, tf.translation, dir)));
             // Free running steps or jumps onto a low obstacle; otherwise running stops against it or glances off.
+            // (Toward where the stick points: sliding along a wall, the body's own velocity runs along it.)
+            let toward = target_v.with_y(0.0).try_normalize().map_or(v, |d| d * v.length());
             let low = if ctl.free_run {
-                WallClimb::vault(lib, &level, &tf, v, v.length(), Some(ch.pose.clone()))
+                WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.pose.clone()))
             } else {
-                WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, Some(ch.pose.clone()))
+                WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.pose.clone()))
             };
             ch.wall = low
                 .or_else(|| edge.then(|| WallClimb::leap_of_faith(lib, &level, &tf, v, Some(ch.pose.clone()))).flatten())
@@ -1006,20 +1014,24 @@ pub fn locomotion(
                 continue;
             }
         }
-        let next = tf.translation + v * dt;
-        // Block walking into walls (chest-height probe).
-        let blocked =
-            v.length() > 0.01 && level.raycast(tf.translation + Vec3::Y * 1.0, v.normalize(), 0.35 + v.length() * dt).is_some_and(|h| h.normal.y.abs() < 0.5);
-        if !blocked {
-            tf.translation.x = next.x;
-            tf.translation.z = next.z;
-        } else {
-            ch.velocity = Vec3::ZERO;
+        // Move with the body's capsule (AC1's character proxy, `Level::capsule_push`): out of walls, sliding along
+        // them, in steps short enough not to pass through a thin one.
+        let steps = ((v.with_y(0.0).length() * dt) / CAPSULE_STEP).ceil().max(1.0) as usize;
+        let mut pushed = Vec3::ZERO;
+        for _ in 0..steps {
+            tf.translation += v.with_y(0.0) * (dt / steps as f32);
+            let out = level.capsule_push(tf.translation);
+            tf.translation += out;
+            pushed += out;
+        }
+        // Into a wall: the speed into it stops, the rest slides on.
+        if let Some(n) = pushed.try_normalize() {
+            let into = ch.velocity.dot(n);
+            if into < 0.0 {
+                ch.velocity -= n * into;
+            }
         }
         embed_check(&level, tf.translation, "ground");
-        // Keep the body out of walls all round (sliding along one, into a corner).
-        let out = push_out(&level, tf.translation);
-        tf.translation += out;
         if let Some(g) = level.ground(tf.translation, 0.6, 20.0) {
             if tf.translation.y > g.point.y + 0.6
                 && ch.fall_v == 0.0
@@ -1372,18 +1384,39 @@ pub fn animate(
             for i in 0..2 {
                 let leg = b.legs[i];
                 let ankle = world_from_model.transform_point3(pose.model_of(rig, leg.foot).pos);
-                if let Some(hit) = level.raycast(ankle + n * 0.3, -n, 0.8) {
-                    let target = hit.point + n * 0.11;
-                    let d = (target - ankle).dot(-n);
-                    // Only pull feet that are near the wall onto it (not dangling ones).
-                    if d.abs() < 0.3 {
-                        let t = ankle - n * d;
-                        ch.debug_targets.push((t, Color::srgb(0.2, 0.9, 0.3)));
-                        let knee = pose.model_of(rig, leg.lower).pos;
-                        two_bone_ik(&mut pose, rig, leg.upper, leg.lower, leg.foot, to_model(t), Some(knee + Vec3::new(0.3, 0.0, 0.2)), None, 0.8);
-                    }
+                let Some(hit) = level.raycast(ankle + n * 0.3, -n, 0.8) else {
+                    ch.wall_feet[i] = None;
+                    continue;
+                };
+                // How far to move the foot onto the wall, smoothed: a foot passing a hold meets its front 12 cm out
+                // from the wall for a moment, and a target jumping out and back twitches the leg.
+                let raw = (hit.point + n * 0.11 - ankle).dot(-n);
+                let d = match ch.wall_feet[i] {
+                    Some(prev) => prev + (raw - prev) * (1.0 - (-WALL_FOOT_RATE * dt).exp()),
+                    None => raw,
+                };
+                ch.wall_feet[i] = Some(d);
+                // Only pull feet that are near the wall onto it (not dangling ones), faded in by distance.
+                let wgt = 0.8 * (1.0 - ((d.abs() - 0.2) / 0.1).clamp(0.0, 1.0));
+                if wgt > 0.0 {
+                    let t = ankle - n * d;
+                    ch.debug_targets.push((t, Color::srgb(0.2, 0.9, 0.3)));
+                    let knee = pose.model_of(rig, leg.lower).pos;
+                    two_bone_ik(
+                        &mut pose,
+                        rig,
+                        leg.upper,
+                        leg.lower,
+                        leg.foot,
+                        to_model(t),
+                        Some(knee + Vec3::new(0.3, 0.0, 0.2)),
+                        None,
+                        smooth(wgt / 0.8) * 0.8,
+                    );
                 }
             }
+        } else {
+            ch.wall_feet = [None; 2];
         }
 
         // --- Animated: AC1 clip + foot placement onto the level.

@@ -276,6 +276,8 @@ const HAY_DIVE_REACH: f32 = 2.2;
 static HAY_DIVES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 /// Standing within this of a viewpoint (m), the leap of faith goes to its hay.
 const VIEWPOINT_REACH: f32 = 2.0;
+/// A beam this far to the side of the way ahead (m) is taken rather than leaping past it.
+const FAITH_BEAM_SIDE: f32 = 0.45;
 /// The hands may land this much further apart or closer together than the move puts them (m).
 const HANDS_APART_SLACK: f32 = 0.35;
 /// Falling faster than this (m/s) uses the hard catch clips.
@@ -499,6 +501,9 @@ const MONKEY_HANG: f32 = 1.9;
 const VAULT_HEIGHT: std::ops::RangeInclusive<f32> = 0.35..=1.3;
 const VAULT_REACH: f32 = 2.3;
 const STEP_UP_MAX: f32 = 0.85;
+/// Stepping off a perch onto ground ahead: the speed it walks (or, free running, runs) off at (m/s).
+const PERCH_OFF_WALK: f32 = 1.9;
+const PERCH_OFF_RUN: f32 = 5.2;
 const STEP_ONTO_IN: f32 = 0.35;
 
 #[derive(Clone, Copy)]
@@ -820,6 +825,13 @@ pub fn wide_wall(level: &Level, from: Vec3, fwd: Vec3, dist: f32) -> bool {
 }
 
 /// Would moving the root by `slide` (horizontal) walk it into a wall? Probed at knee and chest height.
+/// How far a top at height `top` met `dist` ahead along `dir` stands above the floor just in front of it: up stairs
+/// or a ramp the floor rises toward the face, and a riser met at shin height is one step, not an obstacle.
+fn rise(level: &Level, p: Vec3, dir: Vec3, dist: f32, top: f32) -> f32 {
+    let before = level.ground(p + dir * (dist - 0.1).max(0.0), 0.5, 0.3).map_or(p.y, |g| g.point.y.max(p.y));
+    top - before
+}
+
 fn blocked(level: &Level, root: Vec3, slide: Vec3) -> bool {
     let dir = slide.normalize();
     [0.5, 1.2].iter().any(|&h| level.raycast(root + Vec3::Y * h, dir, slide.length() + 0.35).is_some_and(|hit| hit.normal.y.abs() < 0.5))
@@ -1211,8 +1223,8 @@ impl WallClimb {
         let top = jump_target(level, p, dir, None);
         let at_hold = top.is_none();
         let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, root, dir, from) };
-        let (takeoff, air) = (lib.get(JUMP_TAKEOFF)?, lib.get(JUMP_AIR)?);
         let aim = (to - p).with_y(0.0).normalize_or(dir);
+        let (takeoff, air) = (lib.get(JUMP_TAKEOFF)?, lib.get(JUMP_AIR)?);
         let planned = Transform { rotation: facing(aim), ..*root };
         // The arc starts where the takeoff leaves the ground: at the edge at the latest. The takeoff clip runs on about
         // 1.7 m; pressed closer to the edge than that, it starts partway in (at its own pace), not run on over the drop.
@@ -1248,9 +1260,10 @@ impl WallClimb {
         }
         // Always a jump up first, even down to a lower top (it lands further on); off an edge it would fall back onto it.
         up = up.max(JUMP_UP_MIN);
-        let v = (to - lift).with_y(0.0) / flight + Vec3::Y * up;
-        // The air clip plays over the real airtime, down to the target's height.
+        // The real airtime, down to the target's height: the air clip plays over it, and the way across is spread over it
+        // (a push raised to clear an edge stays up longer; at the run's speed it overshot a post onto the next one).
         let airtime = ((up + (up * up - 2.0 * GRAVITY * dy).max(0.0).sqrt()) / GRAVITY).max(flight);
+        let v = (to - lift).with_y(0.0) / airtime + Vec3::Y * up;
         let mut w = WallClimb::new(JUMP, -aim);
         w.queue = vec![Queued { rate: air.anim.duration / airtime, ..Queued::new(air, FALL) }];
         w.fall_with = Some(v);
@@ -1705,7 +1718,7 @@ impl WallClimb {
         }
         let top = level.ground(hit.point.with_y(p.y + STEP_UP_MAX + 0.2) - normal * 0.08, 0.0, STEP_UP_MAX + 0.2)?;
         let h = top.point.y - p.y;
-        if !(*VAULT_HEIGHT.start()..=STEP_UP_MAX).contains(&h) || top.normal.y < 0.8 {
+        if !(*VAULT_HEIGHT.start()..=STEP_UP_MAX).contains(&h) || top.normal.y < 0.8 || rise(level, p, dir, hit.dist, top.point.y) < *VAULT_HEIGHT.start() {
             return None;
         }
         let mix = ((h - 0.5) / 0.2).clamp(0.0, 1.0);
@@ -1957,10 +1970,29 @@ impl WallClimb {
                 return;
             }
         }
-        if self.sprint && self.perch_jump(lib, level, root, dir) {
+        // At a beam's end (or a post) with ground carrying on at this height ahead: step off onto it, as walking
+        // off the end does; no jump.
+        if level.ground(root.translation + dir * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8) {
+            debug!("climb: stepped off the perch onto the ground at {:.2}", root.translation);
+            self.exit_velocity = dir * if self.sprint { PERCH_OFF_RUN } else { PERCH_OFF_WALK };
+            self.finished = true;
+            return;
+        }
+        if self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir)) {
             return;
         }
         root.rotation = root.rotation.slerp(facing(dir), 1.0 - (-6.0 * dt).exp());
+    }
+
+    /// Free running off a perch over hay: the leap of faith (a tower's beam), rather than a jump to the next post.
+    fn perch_faith(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3) -> bool {
+        match Self::leap_of_faith(lib, level, root, dir, self.last.clone()) {
+            Some(w) => {
+                *self = w;
+                true
+            }
+            None => false,
+        }
     }
 
     fn start_beam_walk(&mut self, lib: &mut AnimLib, dir: Vec3) {
@@ -1990,15 +2022,17 @@ impl WallClimb {
         let next = root.translation + cy.dir * cy.speed * dt;
         let q = line.closest(next);
         root.rotation = root.rotation.slerp(facing(cy.dir), 1.0 - (-10.0 * dt).exp());
-        if (q - next).with_y(0.0).length() > 0.02 {
+        // (Any step past the end: a fixed margin pinned a slow walk at high frame rates, each step shorter than it.)
+        if (q - next).with_y(0.0).length() > 1e-3 {
             // Off the end: onto ground that carries on at this height, else wait there.
             let (dir, speed) = (cy.dir, cy.speed);
             root.translation = q;
             if level.ground(q + dir * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8) {
+                debug!("climb: off the beam's end onto the ground at {q:.2}");
                 self.cycle = None;
                 self.exit_velocity = dir * speed;
                 self.finished = true;
-            } else if !(self.sprint && self.perch_jump(lib, level, root, dir)) {
+            } else if !(self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir))) {
                 stop(self);
             }
             return;
@@ -2157,7 +2191,11 @@ impl WallClimb {
         // Its top just past the face, in range, walkable, with room above to stand on it.
         let top = level.ground(hit.point.with_y(p.y + VAULT_HEIGHT.end() + 0.2) + fwd * 0.08, 0.0, VAULT_HEIGHT.end() + 0.2)?;
         let h = top.point.y - p.y;
-        if !VAULT_HEIGHT.contains(&h) || top.normal.y < 0.8 || level.raycast(p.with_y(top.point.y + 0.3), fwd, hit.dist + 1.0).is_some() {
+        if !VAULT_HEIGHT.contains(&h)
+            || top.normal.y < 0.8
+            || rise(level, p, fwd, hit.dist, top.point.y) < *VAULT_HEIGHT.start()
+            || level.raycast(p.with_y(top.point.y + 0.3), fwd, hit.dist + 1.0).is_some()
+        {
             return None;
         }
         let names = [JUMP_ONTO_TOP.to_string(), format!("{JUMP_ONTO_TOP}_tr_freestep_entry_footr")];
@@ -2468,6 +2506,14 @@ impl WallClimb {
         // An edge just ahead (no floor under it); at a viewpoint the hay's way is taken below.
         let at_viewpoint = level.viewpoints.iter().any(|v| v.distance(root.translation) < VIEWPOINT_REACH);
         if !at_viewpoint && level.ground(root.translation + fwd * 1.2, 0.5, 2.0).is_some() {
+            return None;
+        }
+        // A beam going on from this edge (run at a little off its line, the floor probe misses it): out along it,
+        // and the leap from its end; not through it from here.
+        let p = root.translation;
+        if level.perch_at(p, 0.3).is_none()
+            && (1..=4).any(|k| level.perch_at(p + fwd * (0.3 * k as f32), FAITH_BEAM_SIDE).is_some_and(|(_, q)| (q - p).dot(fwd) > 0.2))
+        {
             return None;
         }
         // (At a viewpoint, its hay whichever way he faces: AC1 builds each viewpoint facing the hay below it.)
@@ -3594,9 +3640,11 @@ impl WallClimb {
                         root.translation.y = root.translation.y.max(g.point.y);
                     }
                 }
-                // Landing and getting up (a running landing carries on forward): follow the ground.
+                // Landing and getting up (a running landing carries on forward), a run stop: follow the ground, kept
+                // for the rest of the move (up a ramp the clip's flat path would end inside it).
                 LAND | GROUND => {
                     if let Some(g) = level.ground(root.translation, 0.5, 0.6) {
+                        m.start.y += g.point.y - root.translation.y;
                         root.translation.y = g.point.y;
                     }
                 }

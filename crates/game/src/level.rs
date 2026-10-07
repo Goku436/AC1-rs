@@ -503,6 +503,74 @@ impl Level {
         self.raycast(p + Vec3::Y * up, Vec3::NEG_Y, up + down)
     }
 
+    /// The triangles that may touch the box `lo`..`hi` (each once).
+    fn tris_near(&self, lo: Vec3, hi: Vec3) -> Vec<u32> {
+        if self.grid.is_empty() {
+            return (0..self.tris.len() as u32).collect();
+        }
+        let mut out = self.big.clone();
+        for x in cell(lo.x)..=cell(hi.x) {
+            for z in cell(lo.z)..=cell(hi.z) {
+                out.extend(self.grid.get(&(x, z)).into_iter().flatten());
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// How far (horizontally) to move the feet at `feet` so the body's capsule (`BODY_RADIUS`, `BODY_HEIGHT`,
+    /// lifted `BODY_LIFT` off the feet) touches no wall. Floors and ceilings are the ground follow's; a contact
+    /// below the bottom sphere's centre within 45 degrees of straight up is a step, walked up and not pushed against
+    /// (AC1's proxy slides up those: a 0.45 m step is climbed, a 0.6 m block is a wall).
+    pub fn capsule_push(&self, feet: Vec3) -> Vec3 {
+        let r = BODY_RADIUS;
+        let reach = Vec3::new(r, 0.0, r) + Vec3::splat(0.6);
+        let near = self.tris_near(feet - reach, feet + reach + Vec3::Y * BODY_HEIGHT);
+        let mut push = Vec3::ZERO;
+        for _ in 0..4 {
+            let a = feet + push + Vec3::Y * (BODY_LIFT + r);
+            let b = feet + push + Vec3::Y * (BODY_HEIGHT - r);
+            let mut deepest: Option<(f32, Vec3)> = None;
+            for &i in &near {
+                let t = &self.tris[i as usize];
+                let n = (t.b - t.a).cross(t.c - t.a).normalize_or_zero();
+                if n.y.abs() > WALL_MAX_UP {
+                    continue;
+                }
+                let (p, q) = segment_triangle(a, b, t);
+                let d = p - q;
+                let dist = d.length();
+                if dist >= r {
+                    continue;
+                }
+                // Touching (or crossing) the face itself: out along its normal, toward the segment's side.
+                let dir = if dist > 1e-4 {
+                    d / dist
+                } else if n.dot((a + b) * 0.5 - t.a) >= 0.0 {
+                    n
+                } else {
+                    -n
+                };
+                // (Judged by the contact on first touch, at the radius: by the height of what it touches.)
+                if q.y < a.y - r * std::f32::consts::FRAC_1_SQRT_2 && dir.y > 0.0 {
+                    continue;
+                }
+                let flat = dir.with_y(0.0);
+                if flat.length() < 0.2 {
+                    continue;
+                }
+                let need = (r - dist) / flat.length();
+                if deepest.is_none_or(|(k, _)| need > k) {
+                    deepest = Some((need, flat.normalize()));
+                }
+            }
+            let Some((need, out)) = deepest else { break };
+            push += out * (need + 1e-3);
+        }
+        push
+    }
+
     /// Is `p` inside a solid? Three of four level rays from it meet faces from behind (AC1's collision shapes are
     /// closed and wound outward; a beam or ledge piece can stick into a building's wall, its top inside it).
     pub fn inside_solid(&self, p: Vec3) -> bool {
@@ -1192,6 +1260,104 @@ pub fn spawn_level(
 /// Where the prop zone is (test world).
 const PROPS: Vec3 = Vec3::new(20.0, 0.0, -33.0);
 
+/// The body's collision capsule, as AC1's character proxy: radius 0.4 m (0.35 and its 0.05 m keep distance), 1.8 m
+/// tall, lifted 0.37 m off the feet on the ground so lower things pass under it. (From Banned445's
+/// AC1-Movement-Rewritten, MIT, Copyright (c) 2026 Banned445.)
+pub const BODY_RADIUS: f32 = 0.4;
+pub const BODY_HEIGHT: f32 = 1.8;
+pub const BODY_LIFT: f32 = 0.37;
+/// Faces whose normal is further than this from level (its up component) are floors or ceilings, not walls.
+const WALL_MAX_UP: f32 = 0.7;
+
+/// Closest point on triangle `t` to `p`.
+fn closest_on_triangle(p: Vec3, t: &Tri) -> Vec3 {
+    let (a, b, c) = (t.a, t.b, t.c);
+    let (ab, ac, ap) = (b - a, c - a, p - a);
+    let (d1, d2) = (ab.dot(ap), ac.dot(ap));
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+    let bp = p - b;
+    let (d3, d4) = (ab.dot(bp), ac.dot(bp));
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        return a + ab * (d1 / (d1 - d3));
+    }
+    let cp = p - c;
+    let (d5, d6) = (ab.dot(cp), ac.dot(cp));
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        return a + ac * (d2 / (d2 - d6));
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
+        return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    }
+    let den = 1.0 / (va + vb + vc);
+    a + ab * (vb * den) + ac * (vc * den)
+}
+
+/// Closest points between segments `p1`-`q1` and `p2`-`q2`.
+fn segment_segment(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> (Vec3, Vec3) {
+    let (d1, d2, r) = (q1 - p1, q2 - p2, p1 - p2);
+    let (a, e, f) = (d1.dot(d1), d2.dot(d2), d2.dot(r));
+    let (s, t) = if a <= 1e-8 && e <= 1e-8 {
+        (0.0, 0.0)
+    } else if a <= 1e-8 {
+        (0.0, (f / e).clamp(0.0, 1.0))
+    } else {
+        let c = d1.dot(r);
+        if e <= 1e-8 {
+            ((-c / a).clamp(0.0, 1.0), 0.0)
+        } else {
+            let b = d1.dot(d2);
+            let den = a * e - b * b;
+            let mut s = if den > 1e-8 { ((b * f - c * e) / den).clamp(0.0, 1.0) } else { 0.0 };
+            let mut t = (b * s + f) / e;
+            if t < 0.0 {
+                t = 0.0;
+                s = (-c / a).clamp(0.0, 1.0);
+            } else if t > 1.0 {
+                t = 1.0;
+                s = ((b - c) / a).clamp(0.0, 1.0);
+            }
+            (s, t)
+        }
+    };
+    (p1 + d1 * s, p2 + d2 * t)
+}
+
+/// Closest points between segment `a`-`b` and triangle `t` (segment point, triangle point).
+fn segment_triangle(a: Vec3, b: Vec3, t: &Tri) -> (Vec3, Vec3) {
+    // Crossing the triangle: touching.
+    let n = (t.b - t.a).cross(t.c - t.a);
+    let (da, db) = (n.dot(a - t.a), n.dot(b - t.a));
+    if da * db < 0.0 {
+        let x = a + (b - a) * (da / (da - db));
+        if closest_on_triangle(x, t).distance_squared(x) < 1e-8 {
+            return (x, x);
+        }
+    }
+    let mut best = (a, closest_on_triangle(a, t));
+    let mut keep = |p: Vec3, q: Vec3| {
+        if p.distance_squared(q) < best.0.distance_squared(best.1) {
+            best = (p, q);
+        }
+    };
+    keep(b, closest_on_triangle(b, t));
+    for (u, v) in [(t.a, t.b), (t.b, t.c), (t.c, t.a)] {
+        let (p, q) = segment_segment(a, b, u, v);
+        keep(p, q);
+    }
+    best
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1250,5 +1416,36 @@ mod tests {
         assert!((hit.point.y - 0.5).abs() < 1e-4);
         assert!(hit.normal.y > 0.99);
         assert!(level.ground(Vec3::new(3.0, 0.0, 0.0), 2.0, 2.0).is_none());
+    }
+
+    /// A box from `lo` to `hi` as a level.
+    fn boxed(lo: Vec3, hi: Vec3) -> Level {
+        let mut b = Builder { tris: vec![] };
+        b.cuboid(lo, hi);
+        let mut l = Level { tris: b.tris, ..default() };
+        l.build_grid();
+        l
+    }
+
+    #[test]
+    fn the_capsule_is_pushed_off_walls_but_walks_up_steps() {
+        // A wall 2 m high from x = 1: feet 0.2 m from it are pushed back to the radius.
+        let wall = boxed(Vec3::new(1.0, 0.0, -2.0), Vec3::new(2.0, 2.0, 2.0));
+        let push = wall.capsule_push(Vec3::new(0.8, 0.0, 0.0));
+        assert!((push.x + (BODY_RADIUS - 0.2)).abs() < 0.01 && push.y == 0.0 && push.z.abs() < 1e-4, "{push:?}");
+        assert_eq!(wall.capsule_push(Vec3::new(0.5, 0.0, 0.0)), Vec3::ZERO);
+        // Low things pass under the lifted capsule; a 0.45 m step is walked up; 0.6 m is a wall.
+        for (h, blocks) in [(0.3, false), (0.45, false), (0.6, true)] {
+            let step = boxed(Vec3::new(1.0, 0.0, -2.0), Vec3::new(2.0, h, 2.0));
+            let push = step.capsule_push(Vec3::new(0.85, 0.0, 0.0));
+            assert_eq!(push.length() > 0.01, blocks, "{h} m: {push:?}");
+        }
+        // Into a corner: out of both walls.
+        let mut corner = boxed(Vec3::new(1.0, 0.0, -2.0), Vec3::new(2.0, 2.0, 2.0));
+        let other = boxed(Vec3::new(-2.0, 0.0, 1.0), Vec3::new(2.0, 2.0, 2.0));
+        corner.tris.extend(other.tris);
+        corner.build_grid();
+        let push = corner.capsule_push(Vec3::new(0.8, 0.0, 0.8));
+        assert!(push.x < -0.15 && push.z < -0.15, "{push:?}");
     }
 }

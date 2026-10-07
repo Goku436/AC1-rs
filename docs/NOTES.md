@@ -58,15 +58,34 @@ is kept outside the repo; see "Combat" below.
 - Shift (empty hand): a gentle push (`xx_l_push_attemp_<hand>`, upper body only, layered over the walk: the spine and
   up from the clip, hips and legs from the gait); next to a scholar, a pickpocket; on a wall, let go. Sprinting into
   scholars shoves through (`xx_h_charge_run_shove_front_b`).
-- Speeds are AC1's gait clips' (root motion over the half-cycle): low profile walks at 1.9 m/s (`xx_l_walk_hipm`), high
-  profile runs at 5.2 (`xx_h_run_hipm`; the jog, 3.5, in between), free running sprints at 6.2 (`xx_h_sprint_hipm`). Wall
-  runs, side runs and jumping off edges on their own need the sprint (over 5.5 m/s). Pressing Space to start free
-  running is not a jump: a press while running jumps only with a drop within 1.2 m ahead.
+- Speed (`gait.rs`, AC1's model as Banned445's AC1-Movement-Rewritten reads it, MIT): one speed value from 0 to 1 in bands,
+  walk up to 0.25, jog to 0.5, run to 0.75, sprint above. The wanted value is a base by profile (low 0, high 0.5, free
+  running 0.75) plus a quarter of the stick, so a full stick walks (low), runs (high) or sprints (free running) and a
+  half stick (a controller) goes a band slower, down to the slow walk. It rises at 1/s and falls along AC1's response
+  curve (quick out of the walk and the sprint, slow through the jog and run); starting from standing it jumps straight
+  to the walk (low) or jog (high); letting go zeroes it (the stop clip carries the slide). In high profile, steering
+  more than 45 degrees off the facing holds it back while turning. The value maps onto the gait clips' speeds (root
+  motion over the half-cycle): slow walk 1.0 m/s, walk 1.9 (`xx_l_walk_hipm`), jog 3.5, run 5.2 (`xx_h_run_hipm`),
+  sprint 6.2 (`xx_h_sprint_hipm`). The HUD shows the band and value. Scripted walks (`AC1_WALK`) keep a fixed speed.
+  Wall runs and side runs need the sprint (over 5.5 m/s, so about 0.4 s of free running from a run); free running
+  jumps off edges on its own at any speed (as AC1 does: after a landing the speed starts over below the sprint). Pressing Space to start free running is not a jump: a press while running jumps only with a
+  drop within 1.2 m ahead.
+- Body collision (`Level::capsule_push`): AC1's character proxy as a capsule, radius 0.4 m (0.35 and the 0.05 keep
+  distance), 1.8 m tall, lifted 0.37 m off the feet on the ground, so lower things pass under it. A contact low on the
+  bottom sphere (within 45 degrees of straight up at first touch: a top under 0.49 m) is a step and walked up; a 0.6 m
+  block is a wall. The body moves in steps of at most 15 cm, is pushed out of walls and slides along them (the speed
+  into a wall stops). Running into a low obstacle (collide, glance, vault) is judged along the stick's direction, as
+  the body's own velocity runs along the wall once sliding. (Dimensions from Banned445's repo.)
 - Running into scholars charges through them: Altaïr shoulders them aside (`xx_h_charge_run_shove_<left_handl|right_handr>_b`,
   upper body) and they stumble out of the way (`xx_stumble_soft_50cm_<back|front>_footl`), then walk back to their places.
 - P free camera.
 
-Ground moves (AC1's `HumanGround`, played as clip chains with root motion, then back to walking):
+Low obstacles (collide, glance, vault) are measured from the floor just in front of them, not from the feet: up
+stairs, a riser two steps up is one step, not a 0.42 m wall. A beam's end with ground going on at its height (a roof)
+is walked or stepped off onto it, standing at the end too.
+
+Ground moves (AC1's `HumanGround`, played as clip chains with root motion, then back to walking; the clips' paths are
+flat, so the stops and landings follow the ground's height, kept for the rest of the move, up a ramp too):
 - letting go of the direction while running stops (`xx_h_runstop_<foot>` + `_tr_h_wait_hipm`, sprinting
   `xx_h_sprintstop_<foot>`; steering again breaks it off); reversing while running turns round with AC1's run
   turn-around (actions 0x5e/0x5f, `xx_h_runturn180_<foot>`: the facing flips as it starts and the body comes round in
@@ -132,8 +151,8 @@ Momentum (the flow lane, south of the test area, x -20 to 40 at z -26..-23, wall
 and 1.0 m walls to jump onto, a ramp
 to a 2 m walkway, a 2.5 m gap, a jump down across a gap to a 1 m walkway, a drop): free running holds the 6.2 m/s
 sprint all the way. Running landings from under 2 m carry on at speed without the landing clip (the crossfade from
-the air pose covers it); landings and jumps leave at up to 6.5 m/s; aimed running jumps fly at the run's speed, a
-short hop landing further on where the ground goes on.
+the air pose covers it); landings and jumps leave at up to 6.5 m/s; aimed running jumps land on their target (see the
+running jump below), a short hop landing further on where the ground goes on.
 
 Collision: triangles too big for the raycast grid (the test world's ground plane around the blocks) are tested by
 every raycast; they used to be skipped, so the ground outside the 40 m block area had no collision (cities have none).
@@ -209,7 +228,9 @@ or hanging from holds at 2-3 m), a wall run when sprinting at a wall met up to 6
 at 1.3-2.5 m, into a free hang, or back down), and a running jump on the ground (sprint takeoff, ballistic flight, forward
 landing into a jog, catching wall holds on the way down with `xx_fall_tr_climb_*` / `xx_fall_tr_hangfree_*`); a move
 is only taken if its end pose puts both hands on real holds and the feet on the wall (or, for free hang,
-clear of it), and IK snaps hands to holds and feet to the wall. Block C in the test level has an overhang
+clear of it), and IK puts hands on holds and feet on the wall. Every correction fades in by distance (a hand from 20 cm
+of its hold, the shoulder's reach toward it too; a foot from 30 cm of the wall), and each foot's distance onto the wall
+is smoothed (12/s), since a foot passing a hold meets its front 12 cm out: switched on at once, these twitched the limbs. Block C in the test level has an overhang
 for free hang, block D a roof slab to top out from a free hang, and A, C, D stand 1.5 m apart for leaps
 and roof jumps (C's side facing D has holds to catch from a jump off D's roof: with no top in reach, a running jump
 aims at the nearest hold within AC1's 45 degree cone, 1 m below to 2.6 m above the feet, 0.35 m in from its ends; a
@@ -217,10 +238,11 @@ top needs 1.7 m of room over it and must not be inside a block, which a probe st
 under it). A mid-air catch pulls the body in to the wall too (caught further out, he hung that far off it after), and
 looks for the wall at the chest or lower (at a roof's edge the chest is level with the roof); a hold is aimed at with
 the root arriving 0.9 m under it. A running jump's takeoff (about 1.7 m of root motion) starts partway in when pressed
-near the edge, so it leaves the ground at the edge rather than running on over the drop. It crosses at running speed
-(lengthening the flight instead made jumps float in slow motion); only the push up varies: at least 1.5 m/s (even down
-to a lower top, which it then lands further onto), and up onto a higher top enough to cross the edge with the feet
-0.25 m clear (lower, the knees met the edge and the body snapped up onto it). The air clip plays over the real airtime. Moves between hangs of one kind keep
+near the edge, so it leaves the ground at the edge rather than running on over the drop. It is planned at running
+speed (lengthening the flight instead made jumps float in slow motion); the push up is at least 1.5 m/s, and up onto a
+higher top enough to cross the edge with the feet 0.25 m clear (lower, the knees met the edge and the body snapped up
+onto it). The way across is spread over the real airtime, down to the target's height (kept at the run's speed, a
+push raised to clear an edge overshot the first fence post onto the second), and the air clip plays over it. Moves between hangs of one kind keep
 the body as far out from the wall as it was (a free-hang leap drifts in; under a cornice it went into the stone). Behind the stairs, blocks
 with tops at 1.5, 2 and 2.5 m and block G (holds from 2.39 m) are for jumping up to ledges. Without animation data the old procedural climb is used.
 Space again during a wall run rebounds off the wall (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`; from the
@@ -253,8 +275,9 @@ without free running, a top up to 0.85 m stops the body against it (`HumanGround
 up on it) and it waits there (`_wait`); pushing into it with the legs (or free running) steps up (`_to_freestep_<050|
 070>cm`, up 0.51 / 0.71 m, `_tr_freestep_entry_footl`), steering away pushes off and runs back (`_backleft_run` /
 `_backright_run`). Met at more than about 30 degrees it glances off and runs on along it (`_<left|right>_run`, `_tr_h_run_
-hipm_<foot>`). Sprinting off an edge jumps (a leap of faith if a
-haystack is below); running jumps are steered onto the first post or beam along the way whose arc there is clear of
+hipm_<foot>`). Sprinting (or free running) off an edge jumps (a leap of faith if a
+haystack is below; not where a beam goes on from the edge, even run at a little off its line: the run hops onto the
+beam, and free running off the beam's end over hay is the leap of faith); running jumps are steered onto the first post or beam along the way whose arc there is clear of
 walls (`arc_clear`), land on it with
 `xx_h_beam_landing_soft_tr_pilotis_wait_a/b` and balance in `xx_h_beam_pilotis_wait`; from a post, Space or sprint +
 a direction jumps a ballistic arc to the next post or top that way (`xx_h_beam_pilotis_tr_impultionstraight_a`); on a
@@ -283,6 +306,11 @@ steady climb with each foot set on its own step by the foot IK (which also drops
 tilts the feet to slopes), instead of the body jumping 17 cm a step.
 Moves started from the ground ease in (pose crossfade, root slides and turns into place over the first clip).
 These IK layers are recreations of the behaviour seen in-game, not ports of the original code.
+
+## Fix later
+- The face pokes through the side of the hood when the head turns while climbing (head look over a climb clip; the hood is
+  skinned to the head without AC1's hood modifiers; Banned445's repo now ports "authored hood and sword-tag modifiers",
+  worth reading for this and the scabbard angle). Shot: `out/shots/hood-clip-climb.png` (local).
 
 ## Usage
     cargo run --release -p forge --bin forge -- list     "<game>/DataPC_Masyaf.forge"
@@ -452,6 +480,7 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
 `cmma`/`cfaa`.
 
 ## Tools for bugs and tests
+The PIKVR test campaign (parkour, IK, visuals, research) is planned in `docs/PIKVR.md`.
 - `AC1_SURFACES="x,z,..."` logs every collision surface down a vertical line at each point and `AC1_RAYS` what rays
   hit (and whether from behind); `AC1_START="x,z,yaw,y"` starts on the ground under height y (not the highest roof).
   Used to replay a recording's spot.
