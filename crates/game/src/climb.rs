@@ -447,6 +447,13 @@ const JUMP_AC1_SLACK: f32 = 0.5;
 /// Topping out into the walk or the jog hands over at their speeds (m/s).
 const TOP_OUT_WALK: f32 = 1.9;
 const TOP_OUT_JOG: f32 = 3.5;
+/// A rebound goes to a side when the stick leans along the wall at least this much.
+const REBOUND_SIDE_MIN: f32 = 0.3;
+/// The directional grab in the air: the stick more than this far off the facing (cos) and not behind it (cos) looks for
+/// a wall that way, this far (m).
+const CATCH_SIDE_COS: f32 = 0.94;
+const CATCH_BEHIND_COS: f32 = -0.5;
+const CATCH_SIDE_REACH: f32 = 1.2;
 /// A jump's reception plays at most this much faster, to keep the run's pace.
 const RECEPTION_RATE_MAX: f32 = 2.0;
 /// A jump with no target is weighted for a level one this far ahead (m).
@@ -624,6 +631,10 @@ pub struct WallClimb {
     launch: f32,
     /// Airborne from a jump: grab holds within reach on the way down.
     can_catch: bool,
+    /// A fall off an edge walked off: it catches what is in reach while the legs are held (AC1's grab request).
+    grab_on_legs: bool,
+    /// The legs held now (set each update).
+    legs_held: bool,
     /// Pose clip to switch to once the jump starts coming down.
     descend: Option<Arc<Clip>>,
     /// Velocity to start the next fall with, instead of the previous clip's (rebound, leap of faith).
@@ -1132,6 +1143,8 @@ impl WallClimb {
             fall_v: None,
             launch: 0.0,
             can_catch: false,
+            grab_on_legs: false,
+            legs_held: false,
             descend: None,
             fall_with: None,
             faith: false,
@@ -1728,6 +1741,12 @@ impl WallClimb {
 
     /// This move, broken off when the stick leaves `dir` (see `steer`); letting go of the stick before its last
     /// clip plays swaps that clip for `stop` (a turn's exit into its stand).
+    /// The root's facing on the move's first frame, as `update` sets it, for a move that does not ease into its facing.
+    pub fn start_facing(&self) -> Option<Quat> {
+        let m = self.mv.as_ref().filter(|m| m.ease_rot == Quat::IDENTITY)?;
+        Some(m.start_rot * root_delta(root_rotation_at(&m.clip, m.t * FPS)))
+    }
+
     pub fn steered(mut self, dir: Vec3, stop: Option<String>) -> Self {
         self.steer = Some(dir.with_y(0.0).normalize_or_zero());
         self.steer_stop = stop;
@@ -2581,6 +2600,7 @@ impl WallClimb {
         let mut w = WallClimb::new(FALL, root.rotation * Vec3::Z);
         w.start(pose, FALL.into(), root);
         w.fall_v = Some(velocity);
+        w.grab_on_legs = true;
         w.ease_in(from, root);
         Some(w)
     }
@@ -2673,8 +2693,8 @@ impl WallClimb {
         true
     }
 
-    /// Rebound during a wall run: kick off the wall back, or to the side `input` leans to, and fly.
-    fn try_rebound(&mut self, lib: &mut AnimLib, root: &Transform, input: Vec2) -> bool {
+    /// Rebound during a wall run: kick off the wall back, or to the side the stick leans to, and fly.
+    fn try_rebound(&mut self, lib: &mut AnimLib, root: &Transform) -> bool {
         let Some(m) = &self.mv else { return false };
         let phase = if m.clip.name == WALL_RUN[0] || m.clip.name == WALL_RUN[1] {
             "entryrebound"
@@ -2685,15 +2705,32 @@ impl WallClimb {
         } else {
             return false;
         };
-        let side = if input.x > 0.3 {
-            "right"
-        } else if input.x < -0.3 {
-            "left"
-        } else {
-            "back"
-        };
+        // The way the stick points on screen (the camera's): of the rebounds back, left and right, the one whose kick-off
+        // heads nearest it (by the stick's own left and right, a side camera turned them: left took the stick back).
         let foot = if phase == "entryrebound" { "footr" } else { "footl" };
-        let Some(clip) = lib.get(&format!("xx_h_wallingfront_{phase}_{side}_{foot}")) else { return false };
+        // (Pushing into the wall says nothing about the way off it: only the stick's part along the wall counts then.)
+        let stick = self.move_dir.with_y(0.0);
+        let out = self.normal.with_y(0.0).normalize_or_zero();
+        let along = stick - out * stick.dot(out);
+        let want = if stick.dot(out) >= 0.0 {
+            stick.normalize_or_zero()
+        } else if along.length() > REBOUND_SIDE_MIN {
+            along.normalize()
+        } else {
+            Vec3::ZERO
+        };
+        let heading = |c: &Arc<Clip>| (world_rot(root.rotation) * root_motion_at(c, c.frames())).with_y(0.0).normalize_or_zero();
+        let options: Vec<(Arc<Clip>, f32)> = ["back", "left", "right"]
+            .iter()
+            .filter_map(|side| lib.get(&format!("xx_h_wallingfront_{phase}_{side}_{foot}")))
+            .map(|c| {
+                let d = heading(&c).dot(want);
+                (c, d)
+            })
+            .collect();
+        let pick = if want == Vec3::ZERO { options.into_iter().next() } else { options.into_iter().max_by(|a, b| a.1.total_cmp(&b.1)) };
+        let Some((clip, _)) = pick else { return false };
+        debug!("climb: rebound {}", clip.name);
         // Fly along the clip's sideways motion; gravity does the falling.
         let motion = world_rot(root.rotation) * root_motion_at(&clip, clip.frames());
         let flat = motion.with_y(0.0) / clip.anim.duration.max(0.1);
@@ -3068,7 +3105,7 @@ impl WallClimb {
             self.swing_off = Some(self.move_dir.dot(root.rotation * Vec3::NEG_Z) > -0.3);
             return true;
         }
-        if self.try_rebound(lib, root, input) || self.hop_out(lib, root) {
+        if self.try_rebound(lib, root) || self.hop_out(lib, root) {
             return true;
         }
         if let Some(sr) = self.side_run.take() {
@@ -3118,7 +3155,7 @@ impl WallClimb {
             self.swing_off = Some(self.move_dir.dot(root.rotation * Vec3::NEG_Z) > -0.3);
             return true;
         }
-        if self.try_rebound(lib, root, input) || self.hop_out(lib, root) {
+        if self.try_rebound(lib, root) || self.hop_out(lib, root) {
             return true;
         }
         if let Some(sr) = self.side_run.take() {
@@ -3463,8 +3500,18 @@ impl WallClimb {
     #[allow(clippy::too_many_arguments)]
     fn try_catch(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig, down_speed: f32) -> bool {
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        // Ahead, or where the stick points (the directional grab: a wall to the side is reached for and caught, turning
+        // to it), not behind.
+        let stick = self.move_dir.with_y(0.0).normalize_or_zero();
+        let side = (stick != Vec3::ZERO && stick.dot(fwd) < CATCH_SIDE_COS && stick.dot(fwd) > CATCH_BEHIND_COS).then_some(stick);
         // (At chest height, or lower: caught at a roof's edge, the chest is level with the roof.)
-        let Some(hit) = [1.2, 0.7].iter().find_map(|h| level.raycast(root.translation + Vec3::Y * *h, fwd, 1.0).filter(|h| h.normal.y.abs() < 0.3)) else {
+        let wall = |dir: Vec3, reach: f32, square: f32| {
+            [1.2, 0.7]
+                .iter()
+                .find_map(|h| level.raycast(root.translation + Vec3::Y * *h, dir, reach).filter(|h| h.normal.y.abs() < 0.3 && h.normal.dot(dir) < square))
+        };
+        // (To the side, a wall met at most 60 degrees off square: one grazed along is not turned to.)
+        let Some(hit) = wall(fwd, 1.0, 1.0).or_else(|| side.and_then(|d| wall(d, CATCH_SIDE_REACH, -0.5))) else {
             return false;
         };
         let normal = hit.normal.with_y(0.0).normalize();
@@ -3520,7 +3567,7 @@ impl WallClimb {
             self.aim_at_perch(level, root);
         }
         if let Some(v) = self.fall_v
-            && self.can_catch
+            && (self.can_catch || (self.grab_on_legs && self.legs_held))
             && v.y < 1.0
             && self.try_catch(lib, level, root, rig, base, cr, -v.y)
         {
@@ -3651,6 +3698,7 @@ impl WallClimb {
     /// is the held leap modifier.
     #[allow(clippy::too_many_arguments)]
     pub fn update(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig, input: Vec2, leap: bool, dt: f32) {
+        self.legs_held = leap;
         // A steered move (a turn round) follows the stick: the facing it will end on is bent toward where the stick
         // points now, at up to `STEER_RATE` on top of the clips' own turn, so the camera and the stick stay free
         // through it. (The move's start is swung round the root too, so the root does not slide.)
@@ -3936,8 +3984,21 @@ impl WallClimb {
             }
         }
         if let Some((from, t, len)) = &self.fade {
+            let w = smoothstep(1.0 - t / len);
             let mut faded = from.clone();
-            faded.blend(&pose, smoothstep(1.0 - t / len));
+            faded.blend(&pose, w);
+            // The root bone turns the body in some clips (a turn round's): blended the shortest way, it switched round
+            // the other way as its gap to the faded-from pose passed half a turn, the body swinging in a frame. It goes
+            // whichever way round stays nearest last frame's.
+            if let (Some(r), Some(last)) = (cr.reference, &self.last) {
+                let (a, b) = (from.local[r].rot, pose.local[r].rot);
+                let (axis, angle) = (a.inverse() * b).to_axis_angle();
+                let other = if angle > 0.0 { angle - std::f32::consts::TAU } else { angle + std::f32::consts::TAU };
+                let way = |ang: f32| (a * Quat::from_axis_angle(axis, ang * w)).normalize();
+                let near = |q: Quat| q.dot(last.local[r].rot).abs();
+                let (short, long) = (way(angle), way(other));
+                faded.local[r].rot = if near(long) > near(short) { long } else { short };
+            }
             pose = faded;
         }
         self.last = Some(pose.clone());

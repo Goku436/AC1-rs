@@ -723,6 +723,11 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     walls.cuboid(Vec3::new(33.8, 0.0, 19.2), Vec3::new(35.5, lintel, 19.8));
     walls.cuboid(Vec3::new(32.2, 2.4, 19.2), Vec3::new(33.8, lintel, 19.8));
     hold_rows(strips, level, up(30.5, 19.8), Vec3::X, 5.0, Vec3::Z, &[top(2.0), lintel]);
+    // Side grab (south, x -6 to 8, z -52 to -49.6): a 6 m wall with holds up its north face, and beside it a 1.79 m ledge
+    // ending at x 1, 0.2 m out from the wall: running off its end, the wall goes on beside the fall, to be grabbed by
+    // pushing the stick toward it.
+    building(walls, strips, level, up(0.0, -52.5), Vec3::new(8.0, 6.0, -51.5), &[Vec3::Z]);
+    walls.cuboid(Vec3::new(-6.0, 0.0, -51.3), Vec3::new(1.0, top(0.0), -49.6));
     vec![
         ("Rooftops: B1 (climb its south or west face)", Vec3::new(43.0, b1 + 0.6, 33.0)),
         ("B2 (2 m gap)", Vec3::new(50.5, b2 + 0.6, 33.0)),
@@ -732,6 +737,7 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("Swing bars to B6", Vec3::new(66.5, bar_y + 0.6, 18.3)),
         ("Tower T2 (jump to its holds; leap of faith)", Vec3::new(60.0, t2 + 0.6, 10.0)),
         ("Wall W (run through the doorway, up the wall, legs: rebound onto the holds over the door)", Vec3::new(33.0, 6.6, 21.0)),
+        ("Side grab (run off the ledge's end, stick toward the wall: grab it in the air)", Vec3::new(1.0, 6.8, -50.5)),
     ]
 }
 

@@ -89,6 +89,15 @@ right>`, then `_tr_h_wait_foot?`), where there is ground near the feet's height 
 Topping out with the stick pushed on (toward the top), Altaïr goes up off the knee straight into the walk, or free
 running the jog (`xx_h_hangknee_foot?_tr_<l_walk|h_jog>_foot?_a/b`), instead of standing up first.
 
+In the air, the stick pointing off to the side (more than 20 degrees off the facing, not behind) looks for a wall that
+way within 1.2 m: met within 60 degrees of square, its holds are caught as ahead, turning to it (the directional
+grab). A fall from walking off an edge catches only while the legs are held (AC1's grab request), ahead or that way.
+
+The run turn-around flips the root under the body as it starts: its fade starts from the shown pose turned with it (a
+little short of half round, so it comes round about the vertical one way), the root's new facing is set in the frame
+the move starts (posed that frame, it showed the body swung round), and fades blend the root bone (which turns the
+body in some clips) whichever way round stays nearest the last frame (the shortest way switched sides mid-fade).
+
 Ground moves (AC1's `HumanGround`, played as clip chains with root motion, then back to walking; the clips' paths are
 flat, so the stops and landings follow the ground's height, kept for the rest of the move, up a ramp too):
 - letting go of the direction while running stops (`xx_h_runstop_<foot>` + `_tr_h_wait_hipm`, sprinting
@@ -264,7 +273,9 @@ onto it). The way across is spread over the real airtime, down to the target's h
 push raised to clear an edge overshot the first fence post onto the second), and the air clip plays over it. Moves between hangs of one kind keep
 the body as far out from the wall as it was (a free-hang leap drifts in; under a cornice it went into the stone). Behind the stairs, blocks
 with tops at 1.5, 2 and 2.5 m and block G (holds from 2.39 m) are for jumping up to ledges. Without animation data the old procedural climb is used.
-Space again during a wall run rebounds off the wall (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`; from the
+Space again during a wall run rebounds off the wall, to the side the stick points on screen (by the camera: of the
+back, left and right kick-offs, the one heading nearest the stick; pushing into the wall counts only by its part along
+the wall) (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`; from the
 step until 60% into its fall back off the wall, as AC1 also rebounds from there), catching holds behind, and at
 the edge of a high roof over a haystack it does the leap of faith (`xx_h_freestep_footr_to_faith_jump_*`, the
 `xx_h_faith_jump_*` dive stretched over the real fall, `xx_h_faith_jump_landing` into the hay, `xx_h_haystack_wait`,
@@ -499,6 +510,10 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
 `cmma`/`cfaa`.
 
 ## Tools for bugs and tests
+- `cargo run -p ac1 --example pops -- <recording.txt>`: pose pops in a flight recording (a bone moving much faster than
+  the frame before, relative to the root; long frames are not counted), by what was playing. `forge` examples
+  `gaitseams` (how a gait's half-cycles join) and `clipjumps` (jumps baked into a clip). `AC1_VEER=secs,deg` turns a
+  scripted walk's direction then (the stick swung mid-move).
 The PIKVR test campaign (parkour, IK, visuals, research) is planned in `docs/PIKVR.md`.
 - `AC1_SURFACES="x,z,..."` logs every collision surface down a vertical line at each point and `AC1_RAYS` what rays
   hit (and whether from behind); `AC1_START="x,z,yaw,y"` starts on the ground under height y (not the highest roof).

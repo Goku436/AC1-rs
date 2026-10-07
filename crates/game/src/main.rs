@@ -24,7 +24,7 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press Q), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STOP=secs lets go, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right/drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press Q), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STOP=secs lets go, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right/drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
@@ -107,6 +107,8 @@ struct Script {
     curve: f32,
     /// Walking: the direction is this far off the start facing (radians, positive to the left; `AC1_STEER`, degrees).
     steer: f32,
+    /// Walking: from this time the direction is turned this far (radians, positive to the left; `AC1_VEER=secs,deg`).
+    veer: Option<(f32, f32)>,
     dir: std::sync::OnceLock<Vec3>,
     climb: Option<String>,
     jump: Vec<f32>,
@@ -128,6 +130,10 @@ fn main() {
         walk: std::env::var("AC1_WALK").ok().and_then(|s| s.parse().ok()),
         curve: std::env::var("AC1_CURVE").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0),
         steer: std::env::var("AC1_STEER").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0).to_radians(),
+        veer: std::env::var("AC1_VEER").ok().and_then(|s| {
+            let (t, d) = s.split_once(',')?;
+            Some((t.parse().ok()?, d.parse::<f32>().ok()?.to_radians()))
+        }),
         stop: std::env::var("AC1_STOP").ok().and_then(|s| s.parse().ok()),
         eagle: std::env::var("AC1_EAGLE").ok().and_then(|s| s.parse().ok()),
         limp: std::env::var("AC1_LIMP").ok().and_then(|s| s.parse().ok()),
@@ -846,6 +852,7 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
         // (The direction first faced, kept: turning round must not follow the body.)
         let dir = *script.dir.get_or_init(|| Quat::from_rotation_y(script.steer) * tf.rotation * Vec3::NEG_Z);
         let dir = Quat::from_rotation_y(script.curve * t) * dir;
+        let dir = script.veer.filter(|(at, _)| t > *at).map_or(dir, |(_, a)| Quat::from_rotation_y(a) * dir);
         ctl.move_dir = if script.turn.is_some_and(|at| t > at) { -dir } else { dir };
         ctl.speed = speed;
         ctl.stick = None;

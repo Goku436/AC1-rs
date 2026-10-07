@@ -555,7 +555,16 @@ fn ground_move(
             let names = vec![format!("xx_h_runturn180_{f}"), format!("xx_h_runturn180_{f}_tr_{gait}_hipm_{f}")];
             let stop = Some(format!("xx_h_runturn180_{f}_tr_h_wait_hipm_{o}"));
             let back = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, -dir), ..*tf };
-            return WallClimb::ground_action(lib, &back, &names, Vec3::ZERO, false, from()).map(|w| (w.steered(-dir, stop), None));
+            // The fade into it starts from the pose shown, turned with the root (it flips round under the body): else
+            // the old pose, now facing the new way, swung the whole body round in one frame. Turned a little short of
+            // half round, so the fade comes round about the vertical one way (at exactly half a turn its way round was
+            // undefined, and the body tipped over with the legs crossed).
+            let shown = ch.rig.find("Reference").map(|r| {
+                let mut p = ch.pose.clone();
+                p.rotate_model(&ch.rig, r, Quat::from_rotation_z(std::f32::consts::PI - TURN_FLIP_SHORT));
+                p
+            });
+            return WallClimb::ground_action(lib, &back, &names, Vec3::ZERO, false, shown.or_else(from)).map(|w| (w.steered(-dir, stop), None));
         }
         if !wants {
             // AC1 mixes its jog, run and sprint stops by speed (`HumanGround`'s stop item).
@@ -669,6 +678,8 @@ fn ragdoll_collide(level: &Level, prev: Vec3, p: Vec3, r: f32) -> (Vec3, bool) {
 
 /// A palm on a wall: the wrist this far out from it (m).
 const PALM_OFF: f32 = 0.05;
+/// A turn round's fade starts from the shown pose turned this much short of half round (rad).
+const TURN_FLIP_SHORT: f32 = 0.08;
 /// Ground foot placement fades in or out over this long (s) as moves off the ground start and end.
 const FOOT_IK_FADE: f32 = 0.2;
 /// Changing profile while standing (slower than this, m/s) fades between the stands over this long (s).
@@ -943,6 +954,11 @@ pub fn locomotion(
             && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
             && let Some((w, lock)) = ground_move(lib, &level, &tf, ch, &ctl)
         {
+            // Facing as the move starts, this frame: it is posed this frame (a turn round flips the root under the body,
+            // and a frame with the new pose on the old facing showed the body swung round).
+            if let Some(r) = w.start_facing() {
+                tf.rotation = r;
+            }
             ch.wall = Some(w);
             ch.edge_lock = lock.or(ch.edge_lock);
             ch.velocity = Vec3::ZERO;

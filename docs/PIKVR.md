@@ -151,6 +151,7 @@ or missing textures, wrong UVs, missing meshes); NPCs. Tool: a shot pass over a 
 - All 49 scenarios pass and no scenario plays a step that AC1's move graph lacks. Last commits: AC1's jump tables for
   every running jump (`jump.rs`), the vault, posts, holds and target-less jumps; topping out into the walk; stepping
   off a wall sideways; stand and foot placement fades; the beam, stairs, ramp, T2 and fence fixes.
+- (2026-10-08: see the second pass below.)
 - Next, in order: (1) play test the feel items (run turn rate, walk stop, the capsule in Damascus) and the new
   jumps; (2) the jump system's remaining parts (side directions, free-step takeoffs from beams and posts, flights to
   passover/surface/swing, `hangwall_reception_*` at holds, landings by stick and speed); (3) the beam detector's five
@@ -226,3 +227,16 @@ Research:
   goes from `_tr_freestep_entry` straight on (`freestep_entry_*_tr_h_sprint_impultion`): cut it short when running on.
 - Swing bars: AC1 stops a swing (`xx_h_swing_stop_<front|back>_a..d`, after the back or front swing) into a still hang
   on the bar, which nothing here has yet (the swing goes on until the legs fling or drop). Needs the bar hang state.
+
+### 2026-10-08: second pass
+- Pops (I): `examples/pops` (the recording pop detector) in the repo. On open ground a stop, a sprint stop, a turn on
+  the spot and a run turn-around now show none past the loading frames. The run turn-around swung the whole body round
+  in one frame (hands 0.75 m), then crossed the legs mid-fade: fixed three ways (see docs/NOTES.md). Gait half-cycles
+  join exactly in AC1's data (`gaitseams`), and the turn clips have no jumps baked in (`clipjumps`).
+- From the user (Banned's Discord notes): the rebound's side now follows the stick on screen (camera), not the body;
+  the directional grab in the air (stick toward a wall to the side: turn and catch it), and AC1's grab request on
+  walk-off falls (legs held). Zone: "Side grab" south of the course. Banned's "half cancel animations for ejections off
+  wall kicks" is not in his pushed code (nothing new on GitHub since 2026-10-06); catching is already allowed through
+  a rebound's flight. Ask him what the half cancel cancels into.
+- Next: the seam pops in vaults, falls and landings (pops tool on the rooftop and flow runs), then the jump system's
+  remaining parts (backlog section 2).
