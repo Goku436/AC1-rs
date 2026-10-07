@@ -210,6 +210,20 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "via xx_l_climb_1m_r_2m at [4"],
     },
     Scenario {
+        name: "running jump at the 1.4 m passover wall (0.3 m deep): a hand on its top, over it (AC1's passover) and down",
+        env: &[("AC1_START", "-18,-34,0"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "0.9")],
+        secs: 3.5,
+        want: &["_to_passover", "via xx_h_passover_handr_030cm_tr_fall", "landed from 1."],
+        never: &["EMBED", "not in AC1's move graph", "landed from -"],
+    },
+    Scenario {
+        name: "running jump at the 1.5 m passover wall (1 m deep): AC1's 1 m passover",
+        env: &[("AC1_START", "-12,-34,0"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "0.9")],
+        secs: 3.5,
+        want: &["via xx_h_passover_handr_100cm_tr_fall", "landed from 1."],
+        never: &["EMBED", "landed from -"],
+    },
+    Scenario {
         name: "running jump at G's lowest ledge (bare wall under it): AC1's flight onto the surface and hangwall reception",
         env: &[("AC1_START", "-14.5,-3,0"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "1.2")],
         secs: 4.0,

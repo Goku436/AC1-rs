@@ -132,6 +132,29 @@ pub fn surface(dz: f32, dist: f32, left: bool, fast: bool) -> Jump {
     Jump { takeoff: j.takeoff, flight, reception }
 }
 
+/// A running jump over a thin wall, the hand on its top (AC1's passover), the root at the touch `dz` above and `dist`
+/// away: the running jump's takeoff and its flight onto the edge (`xx_h_air_<front|up>_<dist>_foot?_to_passover`: front
+/// 050/300/550 and up 300; the flight's down slots fold onto the front ones of their distance, the short up one onto
+/// the short front one, whose AC1 reception steps onto the top rather than going over it).
+pub fn passover(dz: f32, dist: f32, left: bool) -> Jump {
+    let j = running(dz, dist, left, 0.0);
+    let mut flight: Vec<(String, f32)> = vec![];
+    for (n, w) in &j.flight {
+        let n = n
+            .replace("_to_freestep_down", "_to_passover")
+            .replace("_to_freestep_deep", "_to_passover")
+            .replace("_to_freestep", "_to_passover")
+            .replace("_down_", "_front_")
+            .replace("front_800cm", "front_550cm")
+            .replace("up_050cm", "front_050cm");
+        match flight.iter_mut().find(|(m, _)| *m == n) {
+            Some(p) => p.1 += w,
+            None => flight.push((n, *w)),
+        }
+    }
+    Jump { takeoff: j.takeoff, flight, reception: vec![] }
+}
+
 /// A running jump at a swing bar, the hang under it `dz` above and `dist` away: the running jump's takeoff and its flight
 /// onto the bar (`xx_h_air_<front|down|up>_<dist>_foot?_to_swing`; AC1's far ones are front 650 and down 900 cm, the
 /// flight's 550 and 800 cm slots fold onto them).
@@ -273,6 +296,18 @@ mod tests {
 
     fn total(parts: &[(String, f32)]) -> f32 {
         parts.iter().map(|p| p.1).sum()
+    }
+
+    #[test]
+    fn a_passover_flies_only_front_and_up_300() {
+        for (dz, dist) in [(0.0, 1.5), (0.5, 3.5), (-1.0, 4.0), (1.0, 2.0)] {
+            let j = passover(dz, dist, true);
+            for (n, _) in &j.flight {
+                let ok = ["front_050cm", "front_300cm", "front_550cm", "up_300cm"].iter().any(|d| n == &format!("xx_h_air_{d}_footl_to_passover"));
+                assert!(ok, "{n}");
+            }
+            assert!((total(&j.flight) - 1.0).abs() < 1e-3);
+        }
     }
 
     #[test]

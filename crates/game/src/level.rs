@@ -728,6 +728,10 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     // pushing the stick toward it.
     building(walls, strips, level, up(0.0, -52.5), Vec3::new(8.0, 6.0, -51.5), &[Vec3::Z]);
     walls.cuboid(Vec3::new(-6.0, 0.0, -51.3), Vec3::new(1.0, top(0.0), -49.6));
+    // Passover walls (south-west, x -20 to -10, faces at z = -40): too high to jump onto, thin enough to go over with a
+    // hand on the top (AC1's passover), flat ground both sides: 1.4 m high and 0.3 m deep, and 1.5 m high and 1 m deep.
+    walls.cuboid(Vec3::new(-20.0, 0.0, -40.3), Vec3::new(-16.0, 1.4, -40.0));
+    walls.cuboid(Vec3::new(-14.0, 0.0, -41.0), Vec3::new(-10.0, 1.5, -40.0));
     vec![
         ("Rooftops: B1 (climb its south or west face)", Vec3::new(43.0, b1 + 0.6, 33.0)),
         ("B2 (2 m gap)", Vec3::new(50.5, b2 + 0.6, 33.0)),
@@ -738,6 +742,7 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("Tower T2 (jump to its holds; leap of faith)", Vec3::new(60.0, t2 + 0.6, 10.0)),
         ("Wall W (run through the doorway, up the wall, legs: rebound onto the holds over the door)", Vec3::new(33.0, 6.6, 21.0)),
         ("Side grab (run off the ledge's end, stick toward the wall: grab it in the air)", Vec3::new(1.0, 6.8, -50.5)),
+        ("Passover walls (jump over: 0.3 m, 1 m deep)", Vec3::new(-15.0, 2.2, -40.0)),
     ]
 }
 

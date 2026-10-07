@@ -433,6 +433,19 @@ const BEAM_WAIT_ACROSS: &str = "xx_l_beam_crouchwait_90";
 /// Walking to a beam's end with nothing past it: the stop at the edge, then into the crouch on the right foot.
 const BEAM_EDGE_STOP: [&str; 3] = ["xx_l_beam_edge_stop", "xx_l_beam_edge_stop_tr_crouchwait_footr_a", "xx_l_beam_edge_stop_tr_crouchwait_footr_b"];
 
+/// A wall to go over with a hand on it (AC1's passover): its top this high over the feet (m; lower ones are jumped
+/// onto, higher ones caught), at most this deep, under `PASSOVER_THIN` the 30 cm clips (else the 1 m ones); the root
+/// as the hand touches the top is this far under it (the hang's own passover, `xx_h_hangwall_tr_passover_handr`, rises
+/// 1 m from the hang to it: the root about level with the top).
+const PASSOVER_RISE: std::ops::RangeInclusive<f32> = 1.3..=1.9;
+const PASSOVER_DEPTH: f32 = 1.2;
+const PASSOVER_THIN: f32 = 0.65;
+const PASSOVER_ROOT_DOWN: f32 = 0.4;
+/// Over the wall, the root this far past its far edge (m) before falling down the other side.
+const PASSOVER_CLEAR: f32 = 0.3;
+/// Going over it no faster than this (m/s).
+const PASSOVER_SPEED: f32 = 4.0;
+
 /// A swing bar this far ahead (m) and this high over the feet is what a jump flies at.
 const BAR_JUMP_REACH: std::ops::RangeInclusive<f32> = 1.0..=6.5;
 const BAR_JUMP_RISE: std::ops::RangeInclusive<f32> = 0.5..=4.0;
@@ -1069,6 +1082,34 @@ fn jump_hold(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3)> {
         .min_by(|a, b| (a.0 - from).length().total_cmp(&(b.0 - from).length()))
 }
 
+/// A thin wall ahead for a running jump to go over with a hand on its top (AC1's passover): its face met within reach,
+/// its top `PASSOVER_RISE` over the feet (too high to land on), at most `PASSOVER_DEPTH` deep with a drop beyond it. The
+/// point on the top's near edge, the face's normal and the top's depth.
+fn passover_target(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3, f32)> {
+    let dir = dir.with_y(0.0).normalize_or_zero();
+    let hit = [0.4, 0.9].iter().find_map(|h| level.raycast(from + Vec3::Y * *h, dir, *JUMP_TARGET_REACH.end()).filter(|h| h.normal.y.abs() < 0.3))?;
+    let normal = hit.normal.with_y(0.0).normalize_or_zero();
+    if normal.dot(dir) > -JUMP_TARGET_CONE || hit.dist < *JUMP_TARGET_REACH.start() {
+        return None;
+    }
+    let fwd = -normal;
+    let top = level.ground(hit.point.with_y(from.y + PASSOVER_RISE.end() + 0.3) + fwd * 0.05, 0.0, PASSOVER_RISE.end() + 0.3)?;
+    if !PASSOVER_RISE.contains(&(top.point.y - from.y)) || top.normal.y < 0.8 {
+        return None;
+    }
+    // (How deep the top runs before it drops away, at least half a metre, on the far side.)
+    let on_top = |d: f32| level.ground(hit.point.with_y(top.point.y + 0.2) + fwd * d, 0.0, 0.4).is_some_and(|g| (g.point.y - top.point.y).abs() < 0.1);
+    let depth = (1..=(PASSOVER_DEPTH / 0.05) as usize + 1).map(|k| k as f32 * 0.05).find(|&d| !on_top(d))?;
+    if depth > PASSOVER_DEPTH || level.ground(hit.point.with_y(top.point.y) + fwd * (depth + 0.3), 0.0, 10.0).is_some_and(|g| top.point.y - g.point.y < 0.5) {
+        return None;
+    }
+    // (Room over the top for the body going over.)
+    if level.raycast(hit.point.with_y(top.point.y + 0.4) + normal * 0.3, fwd, depth + 1.0).is_some() {
+        return None;
+    }
+    Some((hit.point.with_y(top.point.y), normal, depth))
+}
+
 /// A swing bar a jump along `dir` from `from` would reach: lying across the way, `BAR_JUMP_REACH` ahead and up to
 /// `BAR_JUMP_RISE` over the feet; the point on it.
 fn bar_ahead(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
@@ -1361,6 +1402,12 @@ impl WallClimb {
         let p = root.translation;
         let top = jump_target(level, p, dir, None);
         let at_hold = top.is_none();
+        // A thin wall ahead, too high to land on: over it, a hand on its top (AC1's passover).
+        if top.is_none()
+            && let Some(w) = Self::jump_passover(lib, level, root, rig, base, cr, dir, left, from.clone())
+        {
+            return Some(w);
+        }
         let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, level, root, dir, left, from) };
         let aim = (to - p).with_y(0.0).normalize_or(dir);
         // Onto a top, a post or a beam (not a hold): AC1's own jump clips, when they fit (a post's and a beam's flight is
@@ -1434,6 +1481,80 @@ impl WallClimb {
         }
         w.ease_in(from, root);
         debug!("climb: running jump aimed at {to:.2} (takeoff from frame {:.0}, {airtime:.2} s in the air, up at {up:.1} m/s)", skip.unwrap_or(0.0));
+        Some(w)
+    }
+
+    /// A running jump over a thin wall ahead (`passover_target`): AC1's takeoff, its flight onto the edge
+    /// (`crate::jump::passover`), the hand on the top (`_tr_passover_hand?`, the other hand from the takeoff foot), over it
+    /// (`xx_h_passover_hand?_<030|100>cm` by its depth) and down the far side (`_tr_fall`, then the fall and landing), the
+    /// hand steered onto the edge over the flight.
+    #[allow(clippy::too_many_arguments)]
+    fn jump_passover(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        rig: &Rig,
+        base: &Pose,
+        cr: ClimbRig,
+        dir: Vec3,
+        left: bool,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
+        let p = root.translation;
+        let (edge, normal, depth) = passover_target(level, p, dir)?;
+        let fwd = -normal;
+        let hand = if left { "handr" } else { "handl" };
+        let cm = if depth < PASSOVER_THIN { "030" } else { "100" };
+        // (The root as the hand touches: a little under the top, short of the wall.)
+        let touch = edge - Vec3::Y * PASSOVER_ROOT_DOWN + normal * 0.4;
+        let way = (touch - p).with_y(0.0);
+        let j = crate::jump::passover(touch.y - p.y, way.length(), left);
+        // Each flight's own reception onto the edge (`<flight>_tr_passover_[entry_]hand?`), mixed as the flights are.
+        let reception: Vec<(String, f32)> = j
+            .flight
+            .iter()
+            .filter_map(|(n, w)| {
+                let stem = format!("{n}_tr_passover");
+                lib.names.iter().find(|m| m.starts_with(&stem) && m.ends_with(hand)).map(|m| (m.clone(), *w))
+            })
+            .collect();
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, flight, touch_clip) = (mix(&j.takeoff)?, mix(&j.flight)?, mix(&reception)?);
+        let (over, down) = (lib.get(&format!("xx_h_passover_{hand}_{cm}cm"))?, lib.get(&format!("xx_h_passover_{hand}_{cm}cm_tr_fall"))?);
+        let planned = Transform { rotation: facing(fwd), ..*root };
+        let to_touch = [takeoff.clone(), flight.clone(), touch_clip.clone()];
+        let end = chain_end(&to_touch, rig, base, cr)?.world(&planned);
+        let h = end.hands[usize::from(hand == "handr")];
+        // (Across the wall and up only: the hand is to its side of the body, wherever along the top that falls.)
+        let along = Vec3::Y.cross(normal).normalize_or_zero();
+        let err = edge - h;
+        let err = err - along * err.dot(along);
+        if err.with_y(0.0).length() > JUMP_AC1_SLACK * way.length().max(1.0) + 0.3 || err.y.abs() > 1.0 {
+            debug!("climb: AC1's passover lands the hand {:.2} m off ({err:.2}, hand at {h:.2}, edge {edge:.2}, flight {})", err.length(), flight.name);
+            return None;
+        }
+        // (Over it, the root clear of the far edge before the fall: else it comes down on the top.)
+        let over_end = chain_end(&[takeoff.clone(), flight.clone(), touch_clip.clone(), over.clone()], rig, base, cr)?.world(&planned).pos + err;
+        let short = (edge + fwd * (depth + PASSOVER_CLEAR) - over_end).dot(fwd).max(0.0);
+        let mut w = WallClimb::new(VAULT, normal);
+        w.start_chain_carry(
+            vec![takeoff, flight, touch_clip, over, down],
+            vec![VAULT.into(), VAULT.into(), VAULT.into(), VAULT.into(), FALL.into()],
+            &planned,
+            err,
+            Some(1),
+        );
+        // (At the run's pace: AC1's clip over it is 0.07 s long.)
+        if let Some(q) = w.queue.get_mut(2) {
+            let d = q.clip.anim.duration.max(1e-3);
+            q.correct = fwd * short;
+            q.rate = (d / (short / PASSOVER_SPEED)).min(1.0);
+        }
+        w.ease_in(from, root);
+        debug!("climb: running jump over the wall at {edge:.2} ({cm} cm deep, {hand})");
         Some(w)
     }
 
