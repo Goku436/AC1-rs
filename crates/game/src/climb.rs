@@ -468,9 +468,7 @@ const BAR_ACROSS: f32 = 0.5;
 const BAR_HEIGHT: std::ops::Range<f32> = 1.2..2.7;
 /// Speed flung off a bar: forward and up.
 const SWING_OFF: (f32, f32) = (4.5, 3.0);
-/// Jumping onto a top from a run: the landing on it (see `vault`).
-const JUMP_ONTO_TOP: &str = "xx_h_air_front_050cm_footl_to_freestep";
-/// Jumping onto a top takes off with the sprint takeoff from at least this far from it (m).
+/// Jumping onto a top takes off with AC1's takeoff from at least this far from it (m).
 const VAULT_TAKEOFF_MIN: f32 = 1.3;
 const LADDER_L: &str = "ladder_l";
 const LADDER_R: &str = "ladder_r";
@@ -1228,11 +1226,9 @@ impl WallClimb {
         let at_hold = top.is_none();
         let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, root, dir, from) };
         let aim = (to - p).with_y(0.0).normalize_or(dir);
-        // Onto a top (not a hold, a post or a beam): AC1's own jump clips, when they fit.
-        if !at_hold
-            && level.perch_at(to, 0.4).is_none()
-            && let Some(w) = Self::jump_ac1(lib, level, root, to, aim, speed, from.clone())
-        {
+        // Onto a top, a post or a beam (not a hold): AC1's own jump clips, when they fit (a post's and a beam's flight is
+        // the same free-step one; landed, the ground hands over to balancing on it).
+        if !at_hold && let Some(w) = Self::jump_ac1(lib, level, root, to, aim, speed, from.clone()) {
             return Some(w);
         }
         let (takeoff, air) = (lib.get(JUMP_TAKEOFF)?, lib.get(JUMP_AIR)?);
@@ -2242,12 +2238,18 @@ impl WallClimb {
         {
             return None;
         }
-        let names = [JUMP_ONTO_TOP.to_string(), format!("{JUMP_ONTO_TOP}_tr_freestep_entry_footr")];
-        let mut clips = names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>()?;
         let edge = hit.point.with_y(top.point.y);
         let dist = (edge - p).with_y(0.0).length();
+        // AC1's jump onto a free-step target this high and far (`crate::jump`): its flight and reception, and its takeoff
+        // from far enough off. (The sprint stride `JUMP_TAKEOFF` straight into `JUMP_AIR` is not a step in AC1's move graph.)
+        let j = crate::jump::running(h, dist + STEP_ONTO_IN * 0.5, true, speed / JUMP_AC1_FAST_SPEED);
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let mut clips = vec![mix(&j.flight)?, mix(&j.reception)?];
         if dist >= VAULT_TAKEOFF_MIN {
-            clips.insert(0, lib.get(JUMP_TAKEOFF)?);
+            clips.insert(0, mix(&j.takeoff)?);
         }
         // Up by the landing.
         let up_by: f32 = clips.iter().take(clips.len() - 1).map(|c| c.anim.duration).sum();

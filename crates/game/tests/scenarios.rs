@@ -62,7 +62,7 @@ const SCENARIOS: &[Scenario] = &[
         name: "two-step lane: onto the fence, on to the first post (not past it)",
         env: &[("AC1_START", "37,-30,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-5")],
         secs: 4.0,
-        want: &["jump onto 1.00 m", "aimed at [45.00, 1.80", "pilotis_wait_a at [44."],
+        want: &["jump onto 1.00 m", "aimed at [45.00, 1.80", "aimed at [47.60, 1.80", "via xx_h_air_up_300cm_footl_to_freestep_tr_freestep_entry_footr"],
         never: &["EMBED"],
     },
     Scenario {
