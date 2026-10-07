@@ -178,7 +178,7 @@ fn main() {
         .insert_resource(Debug {
             skeleton: std::env::var("AC1_DEBUG").is_ok(),
             targets: std::env::var("AC1_DEBUG").is_ok(),
-            edges: if std::env::var("AC1_SHOT").is_ok() && std::env::var("AC1_EDGES").is_err() { 3 } else { 0 },
+            edges: if (std::env::var("AC1_SHOT").is_ok() || std::env::var("AC1_FRAMES").is_ok()) && std::env::var("AC1_EDGES").is_err() { 3 } else { 0 },
         })
         .insert_resource(script)
         .add_systems(Startup, (level::spawn_level, setup, grab_cursor).chain())
