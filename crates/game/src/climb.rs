@@ -427,6 +427,18 @@ const PERCH_TAKEOFF: &str = "xx_h_beam_pilotis_tr_impultionstraight_a";
 const PERCH_PUSH: &str = "xx_h_beam_impultionstraight_to_jumpstraight";
 const BEAM_WALK: [&str; 2] = ["xx_l_beam_crouchwalk_footl", "xx_l_beam_crouchwalk_footr"];
 const BEAM_JOG: [&str; 2] = ["xx_h_beam_crouchjog_footl", "xx_h_beam_crouchjog_footr"];
+/// Crouched on a beam (`HumanNarrowObject`): facing along it on the left or right foot ahead, or across it.
+const BEAM_WAIT: [&str; 2] = ["xx_l_beam_crouchwait_footl", "xx_l_beam_crouchwait_footr"];
+const BEAM_WAIT_ACROSS: &str = "xx_l_beam_crouchwait_90";
+/// Walking to a beam's end with nothing past it: the stop at the edge, then into the crouch on the right foot.
+const BEAM_EDGE_STOP: [&str; 3] = ["xx_l_beam_edge_stop", "xx_l_beam_edge_stop_tr_crouchwait_footr_a", "xx_l_beam_edge_stop_tr_crouchwait_footr_b"];
+
+/// How he stands on a beam: facing along it with that foot ahead (0 left, 1 right), or across it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum BeamStance {
+    Along(usize),
+    Across,
+}
 /// Standing on a perch: within this of its top line.
 pub const PERCH_REACH: f32 = 0.3;
 /// Running jumps are steered onto a perch they would land within this of.
@@ -692,6 +704,8 @@ pub struct WallClimb {
     pub high: bool,
     /// Perch stood on, and the walk along it (beams).
     perch: Option<usize>,
+    /// On a beam, crouched: along it or across (`None`: balancing as on a post, just landed).
+    beam_stance: Option<BeamStance>,
     /// The foot the next free-step jump takes off from (the last one's reception lands on the other, so they alternate).
     pub freestep_left: bool,
     cycle: Option<Cycle>,
@@ -1206,6 +1220,7 @@ impl WallClimb {
             sprint: false,
             high: false,
             perch: None,
+            beam_stance: None,
             freestep_left: true,
             cycle: None,
             ladder: None,
@@ -2147,12 +2162,18 @@ impl WallClimb {
         }
         let dir = dir.normalize();
         let axis = line.axis();
+        // On a beam, crouched: turn round on it, or to face across it and back (AC1's beam turns), before walking or
+        // jumping that way.
+        if axis != Vec3::ZERO && self.beam_turn(lib, root, dir, axis) {
+            return;
+        }
         // (Along the beam while the stick leans along it, as the walk keeps going: at an angle to it too.)
         if axis != Vec3::ZERO && dir.dot(axis).abs() > BEAM_WALK_COS {
             let along = axis * dir.dot(axis).signum();
             // Walk unless already at that end.
             let end = if along.dot(axis) > 0.0 { line.b } else { line.a };
-            if (end - root.translation).with_y(0.0).length() > 0.15 {
+            // (Past the edge stop's step back from it, 0.16 m: held on, it would walk up to the edge and stop again.)
+            if (end - root.translation).with_y(0.0).length() > 0.3 {
                 self.start_beam_walk(lib, along);
                 return;
             }
@@ -2171,7 +2192,51 @@ impl WallClimb {
         if self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir)) {
             return;
         }
-        root.rotation = root.rotation.slerp(facing(dir), 1.0 - (-6.0 * dt).exp());
+        // (On a post he turns on the spot; on a beam the turns above face him.)
+        if axis == Vec3::ZERO || self.beam_stance.is_none() {
+            root.rotation = root.rotation.slerp(facing(dir), 1.0 - (-6.0 * dt).exp());
+        }
+    }
+
+    /// A turn on a beam toward `dir` (stick) from how he stands on it, `axis` the beam's: facing along it the other way,
+    /// right round (`xx_l_beam_crouchwait_foot?_turn180`); the stick across it, a quarter turn to face across
+    /// (`_turn_<side>_to_crouchwait_90`); facing across, the stick along it, back to facing along (`xx_l_beam_crouchwait_
+    /// 90_turn_<side>`), or across the other way, round (`_90_turn180`). Free running across it jumps off instead. True
+    /// when a turn started.
+    fn beam_turn(&mut self, lib: &mut AnimLib, root: &Transform, dir: Vec3, axis: Vec3) -> bool {
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let right = fwd.cross(Vec3::Y);
+        let stance = self.beam_stance.unwrap_or(if fwd.dot(axis).abs() > 0.7 { BeamStance::Along(0) } else { BeamStance::Across });
+        let side = if dir.dot(right) > 0.0 { "right" } else { "left" };
+        let feet = ["footl", "footr"];
+        let along = dir.dot(axis).abs() > BEAM_WALK_COS;
+        let (names, to): (Vec<String>, BeamStance) = match (stance, along) {
+            (BeamStance::Along(f), true) if fwd.dot(dir) < 0.0 => {
+                let n = format!("xx_l_beam_crouchwait_{}_turn180", feet[f]);
+                (vec![n.clone(), format!("{n}_tr_{}", feet[1 - f])], BeamStance::Along(1 - f))
+            }
+            (BeamStance::Along(f), false) if !self.sprint => {
+                // (AC1 names the right turns with a space.)
+                let sep = if side == "right" { " " } else { "_" };
+                (vec![format!("xx_l_beam_crouchwait_{}_turn_{side}{sep}to_crouchwait_90", feet[f])], BeamStance::Across)
+            }
+            (BeamStance::Across, true) => {
+                let f = usize::from(side == "right");
+                let n = format!("xx_l_beam_crouchwait_90_turn_{side}");
+                (vec![n.clone(), format!("{n}_tr_crouchwait_{}", feet[f])], BeamStance::Along(f))
+            }
+            (BeamStance::Across, false) if fwd.dot(dir) < -0.5 => {
+                let n = "xx_l_beam_crouchwait_90_turn180".to_string();
+                (vec![n.clone(), format!("{n}_tr_crouchwait_90")], BeamStance::Across)
+            }
+            _ => return false,
+        };
+        let Some(clips) = names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { return false };
+        debug!("climb: turning on the beam ({stance:?} to {to:?})");
+        self.beam_stance = Some(to);
+        let n = clips.len();
+        self.start_chain(clips, vec![PERCH.to_string(); n], root, Vec3::ZERO);
+        true
     }
 
     /// Free running off a perch over hay: the leap of faith (a tower's beam), rather than a jump to the next post.
@@ -2201,12 +2266,17 @@ impl WallClimb {
             return;
         };
         let Some(cy) = &mut self.cycle else { return };
-        let stop = |w: &mut Self| {
-            w.cycle = None;
+        // (Stopped: crouched on the foot it was on.)
+        let stop = |w: &mut Self, lib: &mut AnimLib| {
+            let foot = w.cycle.take().map_or(0, |c| c.foot);
+            w.beam_stance = Some(BeamStance::Along(foot));
+            w.wait = lib.get(BEAM_WAIT[foot]).or(w.wait.take());
+            w.wait_hold = false;
+            w.wait_t = 0.0;
             w.fade = w.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
         };
         if self.move_dir.with_y(0.0).normalize_or_zero().dot(cy.dir) < BEAM_WALK_COS {
-            stop(self);
+            stop(self, lib);
             return;
         }
         let next = root.translation + cy.dir * cy.speed * dt;
@@ -2224,7 +2294,16 @@ impl WallClimb {
                 self.exit_velocity = dir * speed;
                 self.finished = true;
             } else if !(self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir))) {
-                stop(self);
+                // At the edge with nothing past it: AC1's edge stop (else just crouch there).
+                match BEAM_EDGE_STOP.map(|n| lib.get(n)) {
+                    [Some(a), Some(b), Some(c)] => {
+                        self.cycle = None;
+                        self.beam_stance = Some(BeamStance::Along(1));
+                        debug!("climb: stopped at the beam's edge");
+                        self.start_chain(vec![a, b, c], vec![PERCH.into(), PERCH.into(), PERCH.into()], root, Vec3::ZERO);
+                    }
+                    _ => stop(self, lib),
+                }
             }
             return;
         }
@@ -3006,7 +3085,11 @@ impl WallClimb {
             FREE => Some("xx_h_hangfree_waitclose".to_string()),
             FREE_OPEN => Some("xx_h_hangfree_waitopen".to_string()),
             HAY => Some(HAY_WAIT.to_string()),
-            PERCH => Some(PERCH_WAIT.to_string()),
+            PERCH => Some(match self.beam_stance {
+                Some(BeamStance::Along(f)) => BEAM_WAIT[f].to_string(),
+                Some(BeamStance::Across) => BEAM_WAIT_ACROSS.to_string(),
+                None => PERCH_WAIT.to_string(),
+            }),
             LEAN => Some(lean_name(LEAN_WAIT, self.lean_mix)),
             COLLIDE => Some(collide_name("xx_h_collide_full_footl_{h}cm_wait", self.lean_mix)),
             BENCH => Some(BENCH_WAIT.to_string()),

@@ -203,6 +203,27 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "via xx_l_climb_1m_r_2m at [4"],
     },
     Scenario {
+        name: "walking along T2's beam to its end over the hay: AC1's edge stop, then turned round on it and back along",
+        env: &[("AC1_START", "59,10,90,13"), ("AC1_WALK", "1.9"), ("AC1_STOP", "3.5-4.5"), ("AC1_TURN", "4.5")],
+        secs: 7.0,
+        want: &["via xx_l_beam_edge_stop_tr_crouchwait_footr_b", "via xx_l_beam_crouchwait_footr_turn180_tr_footl", "off the beam's end onto the ground"],
+        never: &["EMBED", "not in AC1's move graph"],
+    },
+    Scenario {
+        name: "crouched at T2's beam end, the stick across it: a quarter turn to face across",
+        env: &[("AC1_START", "59,10,90,13"), ("AC1_WALK", "1.9"), ("AC1_STOP", "2.0-3.0"), ("AC1_VEER", "3.0,90")],
+        secs: 5.0,
+        want: &["via xx_l_beam_crouchwait_footr_turn_left_to_crouchwait_90"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "leaping left along A across the 1.5 m gap onto C: AC1's 2 m leap mixed toward its 3 m one",
+        env: &[("AC1_START", "1.6,4.0,180"), ("AC1_CLIMB", "up=1.5,none=1,leap-left=3")],
+        secs: 8.0,
+        want: &["leap mixed", "climb1m_left_2_c at [4.59"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "hanging from B1's bare north face, down held with nowhere to go: he looks down, then back",
         env: &[("AC1_START", "38.9,35.86,-90"), ("AC1_CLIMB", "up=4.1,none=1.5,right=2,none=1,down=2,none=1")],
         secs: 15.0,
