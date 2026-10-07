@@ -8,7 +8,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Layer | State |
 |---|---|
 | `.forge` archives (index, names, FILEDATA records) | done, all 18 archives |
-| Chunked LZO1X decompression | done, 9357/9373 data files decode |
+| Chunked LZO1X decompression | done: 15906/15906 data files decompress (`examples/decodecheck`); 9357 split into objects, the rest are streamed sound (6531 `*_BAO_*`: Ubisoft BAO audio, signatures 01 1b 01 00 / 02 1f 00 10 as the QuickBMS scimitar script names them, not object containers) and each forge's `GlobalMetaFile` (18, its own format, not read) |
 | Object container (class hash, name, id, body) | done |
 | TextureMap -> PNG (DXT1/3/5, BGRA8) | done, verified visually |
 | Mesh (class 415d9568): skinned verts, submeshes, bone palettes, materials | done, 120 skinned (incl. cloth, type 4) + 31 static of 168 in DataPC |
@@ -365,6 +365,11 @@ formation with their hands together (`_cpm_monk_pray_walking`). Walking among th
 running) the player blends: it walks at their pace in the same praying walk (`xx_l_pray_wait` standing still).
 
 ## Research (what is known about AC1 from outside this repo)
+- The QuickBMS scimitar scripts (RetingencyPlan/le_quickbms_script_compendium, `scimitar_new.bms` and
+  `scimitar_compressed_container.bms`, 2026-10-08) read the same archive and compressed container as `forge` does: a
+  chunk's method byte is 1 LZO1X, 2 LZO2A, 3 Xbox LZX (`forge` decodes 1, 2 and 5 with LZO1X; every PC data file
+  decompresses, so method 2 did not come up wrongly), and streamed sound is `.bao` / `.sbao`. They stop at the
+  container: no textures, meshes or other objects (which `forge` already reads).
 Collected 2026-10-05, to check what this project has understood wrong.
 - Nobody has published a decompilation of AC1 or a full spec of its data. The AC1 projects online are patches:
   EaglePatch (Sergeanur) and AC Definitive (HenryPDT): controller, windowing, MSAA and telemetry fixes, no movement or

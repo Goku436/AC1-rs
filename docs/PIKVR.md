@@ -95,7 +95,8 @@ The move graph is the big one: with it the game itself says which move follows w
 - [ ] Hay entries Ground, FreeStep, SideJump (`HumanHayStackData`): only Top is recreated.
 - [ ] Cloth: AC1's `DynamicMesh` `UCMA_Altair_Cloth_SoftBody` and `ClothActionSettings`; the robe runs on our constants.
 - [ ] Side wall run: AC1 has the code (`WallingType_Horizontal`) and no clips; ours is procedural.
-- [ ] Format gaps: 16 of 9373 data files fail to decode; 16 of 22228 clips fail to parse; 64-bit quaternion tracks
+- [ ] Format gaps: (every data file decompresses: the "16 failing" were each forge's `GlobalMetaFile`, its own format, and
+      6531 streamed BAO sound files are audio, not objects); 16 of 22228 clips fail to parse; 64-bit quaternion tracks
       (hips and spine only) and the camera channel; 11 mesh types (foliage, flags, other cloth, the hay's vertex
       format); the cloth-sim object in cloth meshes (class 0x5755de7f); guidance's `Partitioner`; Havok body shapes
       other than the common primitives; the hay meshes' scale (6.2 m across, twice a cart).

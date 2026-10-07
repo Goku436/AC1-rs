@@ -24,7 +24,7 @@ Full format notes and status table are in `docs/NOTES.md` (the README is the sho
 
 ## Conventions
 - Game data is Z-up. Characters face +X. Mesh space is skeleton model space turned 90° about Z. Animation clips face +Y with the Reference bone turned 90°. Convert to Bevy's Y-up only in one place, in the `game` crate.
-- Format work is measured by pass rate over every file (for example 9357/9373 data files decode). A change must not lower a pass rate. Update the docs/NOTES.md table when a number changes.
+- Format work is measured by pass rate over every file (for example 15906/15906 data files decompress). A change must not lower a pass rate. Update the docs/NOTES.md table when a number changes.
 - Parsers never panic on bad data. Return errors with the file offset.
 - Unknown fields stay documented as `?` with their offset until proven.
 
@@ -37,5 +37,5 @@ Driving which move plays from the move graph itself (`forge::graph::MoveGraph` i
 the code's action requests are found: 2035 action ids used in code, see docs/NOTES.md "What the executable's code asks for";
 the ladder plays its table, the other systems' tables are next), the robe from AC1's own `DynamicMesh`/`ClothActionSettings`, combat (removed 2026-10-05; rebuild it
 on `HumanGround_Fight*` once movement is right), the 11 other mesh types, real hold data for climbing,
-Acre/Jerusalem/Kingdom checks, 64-bit quats and camera channels in animation, the 16 data files that fail to decode,
+Acre/Jerusalem/Kingdom checks, 64-bit quats and camera channels in animation, the forges' `GlobalMetaFile` and the streamed BAO audio (not object containers),
 the 16 clips that fail to parse. Details are in the docs/NOTES.md status table and its Research section.
