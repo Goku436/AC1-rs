@@ -433,6 +433,9 @@ const BEAM_WAIT_ACROSS: &str = "xx_l_beam_crouchwait_90";
 /// Walking to a beam's end with nothing past it: the stop at the edge, then into the crouch on the right foot.
 const BEAM_EDGE_STOP: [&str; 3] = ["xx_l_beam_edge_stop", "xx_l_beam_edge_stop_tr_crouchwait_footr_a", "xx_l_beam_edge_stop_tr_crouchwait_footr_b"];
 
+/// A hold this close (m, across) to where he stands on a post is along its top edge, to pull down onto.
+const POST_HOLD_REACH: f32 = 0.6;
+
 /// How he stands on a beam: facing along it with that foot ahead (0 left, 1 right), or across it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum BeamStance {
@@ -2099,8 +2102,75 @@ impl WallClimb {
         if (ledge.closest(edge) - edge).with_y(0.0).length() > 0.45 {
             return None;
         }
+        // The root faces the wall throughout; the body starts turned round, facing the drop, and comes
+        // round as it steps back over the edge (`*_pulldown_front_orientation`, from looking down or from
+        // standing), then lowers (`xx_l_ledge_pulldown_soft_front`) onto the hang.
+        let turn = if looking { "xx_l_ledge_lookdown_front_pulldown_front_orientation" } else { "xx_l_ledge_stop_start_footl_pulldown_front_orientation" };
+        let w = Self::pull_down_onto(lib, level, root, rig, base, cr, ledge, edge, [turn, "xx_l_ledge_pulldown_soft_front"], from)?;
+        debug!("climb: pull down onto the ledge ({})", w.queue.last().map_or("", |q| q.to.as_str()));
+        Some(w)
+    }
+
+    /// Standing on a post, let go: lower over its side onto a hold just under its top, on the side the stick points
+    /// (else the one ahead), AC1's `xx_l_beam_pilotis_to_pulldown_soft_<side>_orientation` (turned toward the wall) and
+    /// `_<side>` (lowering: front, back, left or right of the way he faces), then the ledge pull-down's hang.
+    #[allow(clippy::too_many_arguments)]
+    fn post_pull_down(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        rig: &Rig,
+        base: &Pose,
+        cr: ClimbRig,
+        dir: Vec3,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
+        let p = root.translation;
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let stick = dir.with_y(0.0).length() > 0.3;
+        let want = if stick { dir.with_y(0.0).normalize() } else { fwd };
+        // (A hold along the post's top edge, its side facing the way he wants to go down; with the stick let go, any side,
+        // ahead first.)
+        let near = |l: &&Ledge| (l.closest(p) - p).with_y(0.0).length() < POST_HOLD_REACH && (p.y - l.a.y) > -0.1 && (p.y - l.a.y) < 0.4;
+        let ledge = level.ledges.iter().filter(near).max_by(|a, b| a.out.dot(want).total_cmp(&b.out.dot(want)))?;
+        if stick && ledge.out.dot(want) < 0.3 {
+            return None;
+        }
+        let d = ledge.out;
+        let side = if d.dot(fwd) > 0.7 {
+            "front"
+        } else if d.dot(fwd) < -0.7 {
+            "back"
+        } else if d.dot(fwd.cross(Vec3::Y)) > 0.0 {
+            "right"
+        } else {
+            "left"
+        };
+        let names = [format!("xx_l_beam_pilotis_to_pulldown_soft_{side}_orientation"), format!("xx_l_beam_pilotis_to_pulldown_soft_{side}")];
+        let edge = ledge.closest(p).with_y(p.y);
+        let w = Self::pull_down_onto(lib, level, root, rig, base, cr, ledge, edge, [&names[0], &names[1]], from)?;
+        debug!("climb: down off the post to hang ({side})");
+        Some(w)
+    }
+
+    /// The pull-down's hang from `ledge` at `edge`: `first` (the turn toward the wall and the lowering), then onto the
+    /// hang with the feet on the wall below (`xx_l_ledge_pulldown_soft_to_hangwall_straight_a/b`) or free
+    /// (`_front_to_hangfree_a/b`), steered so the hands end on the hold.
+    #[allow(clippy::too_many_arguments)]
+    fn pull_down_onto(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        rig: &Rig,
+        base: &Pose,
+        cr: ClimbRig,
+        ledge: &Ledge,
+        edge: Vec3,
+        first: [&str; 2],
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
         let normal = ledge.out;
-        let start = Transform { translation: p, rotation: facing(-normal), ..*root };
+        let start = Transform { translation: root.translation, rotation: facing(-normal), ..*root };
         // On a short ledge (a pole's cap) the hands hang together.
         let (wall, wall_rest) =
             if on_narrow_ledge(level, ledge.closest(edge)) { (HANGWALL, "xx_h_hangwall_waitclose") } else { (HANGWALL_OPEN, HANGWALL_REST) };
@@ -2108,12 +2178,8 @@ impl WallClimb {
             (["xx_l_ledge_pulldown_soft_to_hangwall_straight_a", "xx_l_ledge_pulldown_soft_to_hangwall_straight_b"], wall, wall_rest, Feet::Wall),
             (["xx_l_ledge_pulldown_soft_front_to_hangfree_a", "xx_l_ledge_pulldown_soft_front_to_hangfree_b"], FREE, "xx_h_hangfree_waitclose", Feet::Free),
         ];
-        // The root faces the wall throughout; the body starts turned round, facing the drop, and comes
-        // round as it steps back over the edge (`*_pulldown_front_orientation`, from looking down or from
-        // standing), then lowers (`xx_l_ledge_pulldown_soft_front`) onto the hang.
-        let turn = if looking { "xx_l_ledge_lookdown_front_pulldown_front_orientation" } else { "xx_l_ledge_stop_start_footl_pulldown_front_orientation" };
         for (names, to, rest, feet) in options {
-            let Some(clips) = [turn, "xx_l_ledge_pulldown_soft_front"].iter().chain(&names).map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { continue };
+            let Some(clips) = first.iter().chain(&names).map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { continue };
             let (Some(end), Some(rest)) = (chain_end(&clips, rig, base, cr), lib.get(rest)) else { continue };
             let mut pose = base.clone();
             sample(&rest, 0.0, &mut pose, cr.reference);
@@ -2132,7 +2198,7 @@ impl WallClimb {
             let tos = (0..k).map(|i| if i + 1 == k { to } else { DROP }.to_string()).collect();
             w.start_chain(clips, tos, &start, err + hang_offset(to, normal));
             w.ease_in(from, root);
-            debug!("climb: pull down onto the ledge ({to}), steering {:.2} m", err.length());
+            debug!("climb: pulling down ({to}), steering {:.2} m", err.length());
             return Some(w);
         }
         None
@@ -3304,6 +3370,11 @@ impl WallClimb {
             return true;
         }
         if self.state == PERCH && self.mv.is_none() {
+            // Not walking a beam: down over the side to hang (done in `update`, which has the rig), else jump off.
+            if self.cycle.is_none() {
+                self.want_drop = true;
+                return true;
+            }
             let dir =
                 self.cycle.as_ref().map(|c| c.dir).or_else(|| (self.move_dir.length() > 0.3).then_some(self.move_dir)).unwrap_or(root.rotation * Vec3::NEG_Z);
             self.perch_jump(lib, level, root, dir.with_y(0.0).normalize_or(Vec3::NEG_Z));
@@ -4145,6 +4216,15 @@ impl WallClimb {
             return;
         }
         if self.state == PERCH {
+            if self.mv.is_none() && std::mem::take(&mut self.want_drop) {
+                if let Some(w) = Self::post_pull_down(lib, level, root, rig, base, cr, self.move_dir, self.last.clone()) {
+                    *self = w;
+                    return;
+                }
+                let dir = if self.move_dir.length() > 0.3 { self.move_dir } else { root.rotation * Vec3::NEG_Z };
+                self.perch_jump(lib, level, root, dir.with_y(0.0).normalize_or(Vec3::NEG_Z));
+                return;
+            }
             self.perch_step(lib, level, root, dt);
             return;
         }

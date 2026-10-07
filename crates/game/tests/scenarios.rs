@@ -203,6 +203,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "via xx_l_climb_1m_r_2m at [4"],
     },
     Scenario {
+        name: "standing on pillar P facing away from its holds, let go: down over its side to hang (AC1's pilotis pull-down)",
+        env: &[("AC1_START", "-1.2,12.0,90,4"), ("AC1_CLIMB", "nograb,wait=1.5,drop=3")],
+        secs: 4.5,
+        want: &["via xx_l_beam_pilotis_to_pulldown_soft_right_orientation", "drop -> hangwall via xx_l_ledge_pulldown_soft_to_hangwall_straight_b"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "walking along T2's beam to its end over the hay: AC1's edge stop, then turned round on it and back along",
         env: &[("AC1_START", "59,10,90,13"), ("AC1_WALK", "1.9"), ("AC1_STOP", "3.5-4.5"), ("AC1_TURN", "4.5")],
         secs: 7.0,
