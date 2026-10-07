@@ -2976,6 +2976,42 @@ impl WallClimb {
         true
     }
 
+    /// Climb off the wall sideways onto ground just below the feet (from "1m" only):
+    /// `xx_l_climb_1m_to_groundentry_<left|right>`, then its stand.
+    fn try_step_off_side(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, left: bool) -> bool {
+        if self.state != "1m" {
+            return false;
+        }
+        let side = if left { "left" } else { "right" };
+        let foot = if left { "footl" } else { "footr" };
+        let (Some(off), Some(stand)) =
+            (lib.get(&format!("xx_l_climb_1m_to_groundentry_{side}")), lib.get(&format!("xx_l_climb_1m_to_groundentry_{side}_tr_h_wait_{foot}")))
+        else {
+            return false;
+        };
+        // Where it steps to: ground there, near the feet's height, and room to stand.
+        let to = root.translation + world_rot(root.rotation) * root_motion_at(&off, off.frames()).with_z(0.0);
+        let Some(ground) = level.ground(to, 0.3, STEP_OFF_MAX) else { return false };
+        if level.inside_solid(ground.point + Vec3::Y * 0.5)
+            || level
+                .raycast(
+                    root.translation + Vec3::Y * 0.5,
+                    (to - root.translation).with_y(0.0).normalize_or_zero(),
+                    (to - root.translation).with_y(0.0).length(),
+                )
+                .is_some()
+        {
+            return false;
+        }
+        self.queue = vec![Queued::new(stand, GROUND)];
+        self.start(off, STEP_DOWN.into(), root);
+        if let Some(m) = &mut self.mv {
+            m.correct = Vec3::Y * (ground.point.y - to.y);
+        }
+        debug!("climb: stepped off the wall sideways ({side}) onto the ground");
+        true
+    }
+
     /// Let go of the wall now: step down if the ground is close, else push off (or release from a
     /// free hang) and fall.
     fn drop_now(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
@@ -3399,6 +3435,10 @@ impl WallClimb {
         }
         // Down at the bottom of the wall: climb off onto the ground.
         if dir == "d" && self.try_step_off(lib, level, root) {
+            return true;
+        }
+        // At the bottom, sideways with no holds that way: step off sideways onto the ground.
+        if (dir == "l" || dir == "r") && self.try_step_off_side(lib, level, root, dir == "l") {
             return true;
         }
         // Sideways but stuck (end of the holds): settle back to hands level, from where corners start.

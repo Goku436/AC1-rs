@@ -108,6 +108,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        name: "at the bottom of E's wall, sideways past the last hold steps off onto the ground",
+        env: &[("AC1_START", "11.3,16.7,0"), ("AC1_CLIMB", "right=8")],
+        secs: 8.0,
+        want: &["stepped off the wall sideways (right)", "via xx_l_climb_1m_to_groundentry_right_tr_h_wait_footr"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "climb wall A to the top",
         env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "up=14")],
         secs: 14.0,

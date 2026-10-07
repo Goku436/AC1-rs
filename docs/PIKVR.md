@@ -172,7 +172,8 @@ Research:
   - `HumanWalling`: the wall run's hang, knee and free-hang endings are in (`wall_run_options`: names built at run
     time, which a first literal search missed); not yet: `_tr_passover_hand?` (over the top's edge),
     `_step1_tr_h_ladder_up` (onto a ladder), `_tr_hangwallfree_swingstraight`, the entry's `_tr_hangfree_swingback`.
-  - `HumanClimb`: `xx_l_climb_1m_to_groundentry_<side>[_90]` (from the wall down onto the ground), `xx_l_climb_1m_
+  - `HumanClimb`: (done 2026-10-07: `xx_l_climb_1m_to_groundentry_<side>`, sideways off the wall at its bottom; the `_90`
+    turned ones not yet) `xx_l_climb_1m_
     lookaround_<side>`, `xx_h_hangwall_wait_lookaround_<side>` (looking round on a wall), `xx_h_ladder_wait_tr_<hangwall|
     hangfree>_<side>` (used: sideways off a ladder).
   - `HumanNarrowObject`: `xx_l_beam_pilotis_to_pulldown_soft_<side>[_orientation]` (from a post down to a hang),
