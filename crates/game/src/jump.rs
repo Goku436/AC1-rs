@@ -70,11 +70,16 @@ fn takeoff_names(foot: &str) -> Vec<String> {
 }
 
 /// The free-step takeoff's 8 slots in one direction group (`front`, `left`, `right`, `backleft`, `backright`): front
-/// 050/300/550, down 050/300/550, up 050/300. The side groups' far ones are 500 cm.
+/// 050/300/550, down 050/300/550, up 050/300. The side groups' far ones are 500 cm from the left foot, and AC1 names the
+/// right foot's far one to the right without `_to_air`.
 fn freestep_names(group: &str, foot: &str) -> Vec<String> {
-    let far = if group == "left" || group == "right" { "500cm" } else { "550cm" };
+    let side = group == "left" || group == "right";
+    let far = if side && foot == "footl" { "500cm" } else { "550cm" };
     let dists = ["050cm", "300cm", far];
     let mut n: Vec<String> = dists.iter().map(|d| format!("xx_h_freestep_{group}_front_{d}_{foot}_to_air")).collect();
+    if group == "right" && foot == "footr" {
+        n[2] = "xx_h_freestep_right_front_550cm_footr".into();
+    }
     n.extend(dists.iter().map(|d| format!("xx_h_freestep_{group}_down_{d}_{foot}_to_air")));
     n.extend(UP.iter().map(|d| format!("xx_h_freestep_{group}_up_{d}_{foot}_to_air")));
     n
@@ -246,6 +251,9 @@ mod tests {
         // The side groups' far takeoff is 500 cm.
         let far = freestep(0.0, 6.5, std::f32::consts::FRAC_PI_2, true, 0.0);
         assert!(far.takeoff.iter().any(|(n, _)| n == "xx_h_freestep_right_front_500cm_footl_to_air"), "{far:?}");
+        let far_r = freestep(0.0, 6.5, std::f32::consts::FRAC_PI_2, false, 0.0);
+        assert!(far_r.takeoff.iter().any(|(n, _)| n == "xx_h_freestep_right_front_550cm_footr"), "{far_r:?}");
+        assert!(far_r.reception.iter().all(|(n, _)| n.contains("entry_footl")), "{far_r:?}");
     }
 
     #[test]

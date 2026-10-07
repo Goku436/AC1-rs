@@ -688,6 +688,8 @@ pub struct WallClimb {
     pub high: bool,
     /// Perch stood on, and the walk along it (beams).
     perch: Option<usize>,
+    /// The foot the next free-step jump takes off from (the last one's reception lands on the other, so they alternate).
+    pub freestep_left: bool,
     cycle: Option<Cycle>,
     /// Ladder or kiosk frame being climbed.
     ladder: Option<usize>,
@@ -1178,6 +1180,7 @@ impl WallClimb {
             sprint: false,
             high: false,
             perch: None,
+            freestep_left: true,
             cycle: None,
             ladder: None,
             monkey: None,
@@ -1392,13 +1395,13 @@ impl WallClimb {
     /// from the group the jump's way falls in off the facing (it turns the body toward it), then the flight and the
     /// reception, the difference to the target spread over the flight. `None` when the clips are missing, their own way
     /// is too far off, or the way over is not clear.
-    fn jump_freestep(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, from: Option<Pose>) -> Option<WallClimb> {
+    fn jump_freestep(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
         let p = root.translation;
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
         let way = (to - p).with_y(0.0);
         let aim = way.normalize_or_zero();
         let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
-        let j = crate::jump::freestep(to.y - p.y, way.length(), angle, true, 0.0);
+        let j = crate::jump::freestep(to.y - p.y, way.length(), angle, left, 0.0);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -2209,7 +2212,7 @@ impl WallClimb {
         // To a target: AC1's free-step jump, the takeoff group by the way it goes off the facing (sideways or back off a
         // post without turning first: the takeoff turns the body).
         if let Some(to) = to
-            && let Some(w) = Self::jump_freestep(lib, level, root, to, self.last.clone())
+            && let Some(w) = Self::jump_freestep(lib, level, root, to, self.freestep_left, self.last.clone())
         {
             *self = w;
             return true;

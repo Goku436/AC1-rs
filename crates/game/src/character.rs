@@ -168,6 +168,8 @@ pub struct Character {
     foot_ik: Option<ik::placement::FootPlacement>,
     /// Clip-driven wall climbing (used when animation data is available).
     pub wall: Option<crate::climb::WallClimb>,
+    /// The foot the next free-step jump (off a post or beam) takes off from: the other one from the last reception's.
+    freestep_left: bool,
     climb_rig: crate::climb::ClimbRig,
     pub(crate) fall_v: f32,
     /// Pose to fade from after leaving the wall (or changing stand), the time left and the fade's length.
@@ -413,6 +415,7 @@ pub fn spawn_character(
         },
         fall_v: 0.0,
         exit_fade: None,
+        freestep_left: true,
         robe,
         ragdoll: None,
         ragdoll_def: None,
@@ -887,6 +890,14 @@ pub fn locomotion(
                     // picking up on the foot (or into the gait) the last clip ends on.
                     ch.exit_fade = w.last_pose().cloned().map(|p| (p, 0.25, 0.25));
                     ch.velocity = w.exit_velocity;
+                    // (A free-step reception, `..._tr_freestep_entry_<foot>`: the next jump takes off from that foot.)
+                    if let Some(name) = w.last_clip.as_deref() {
+                        if name.contains("freestep_entry_footr") {
+                            ch.freestep_left = false;
+                        } else if name.contains("freestep_entry_footl") {
+                            ch.freestep_left = true;
+                        }
+                    }
                     if let (Some(a), Some(name)) = (ch.animator.as_mut(), w.last_clip.as_deref()) {
                         // (Into a gait: the step and the point in it whose legs match the pose he is in, going on at
                         // its speed the way he faces.)
@@ -1088,7 +1099,8 @@ pub fn locomotion(
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
             {
                 ch.wall = crate::climb::WallClimb::perch(lib, &level, &tf, Some(ch.pose.clone()));
-                if ch.wall.is_some() {
+                if let Some(w) = &mut ch.wall {
+                    w.freestep_left = ch.freestep_left;
                     ch.velocity = Vec3::ZERO;
                     continue;
                 }
