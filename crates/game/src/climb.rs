@@ -433,6 +433,9 @@ const BEAM_WAIT_ACROSS: &str = "xx_l_beam_crouchwait_90";
 /// Walking to a beam's end with nothing past it: the stop at the edge, then into the crouch on the right foot.
 const BEAM_EDGE_STOP: [&str; 3] = ["xx_l_beam_edge_stop", "xx_l_beam_edge_stop_tr_crouchwait_footr_a", "xx_l_beam_edge_stop_tr_crouchwait_footr_b"];
 
+/// A running jump at a wall's ledge this fast or faster (m/s) is received hard (`_max`, swinging in), else softly.
+const JUMP_RECEPTION_HARD_SPEED: f32 = 5.0;
+
 /// A hold this close (m, across) to where he stands on a post is along its top edge, to pull down onto.
 const POST_HOLD_REACH: f32 = 0.6;
 
@@ -1037,6 +1040,12 @@ fn jump_airtime() -> f32 {
 /// Where a running jump along `dir` from `from` flies to catch a hold, when no top is in reach: the nearest hold within
 /// AC1's 45 degree cone and reach, facing the jumper, `JUMP_HOLD_RISE` of the feet; the point the body hangs from it.
 fn jump_hold_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
+    jump_hold(level, from, dir).map(|(q, out)| q + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG)
+}
+
+/// The hold a running jump along `dir` from `from` reaches for (see `jump_hold_target`): the point on it the hands go to,
+/// and its outward normal.
+fn jump_hold(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3)> {
     let dir = dir.with_y(0.0).normalize_or_zero();
     level
         .ledges
@@ -1054,7 +1063,6 @@ fn jump_hold_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
             JUMP_TARGET_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_HOLD_RISE.contains(&(q.y - from.y))
         })
         .min_by(|a, b| (a.0 - from).length().total_cmp(&(b.0 - from).length()))
-        .map(|(q, out)| q + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG)
 }
 
 /// Velocity that flies from `from` to `to` under gravity, and the flight time (longer for longer jumps).
@@ -1310,7 +1318,18 @@ impl WallClimb {
         jump_target(level, from, dir, None).is_some()
     }
 
-    pub fn jump_aimed(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn jump_aimed(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        rig: &Rig,
+        base: &Pose,
+        cr: ClimbRig,
+        dir: Vec3,
+        left: bool,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
         let speed = dir.with_y(0.0).length();
         let p = root.translation;
         let top = jump_target(level, p, dir, None);
@@ -1320,6 +1339,11 @@ impl WallClimb {
         // Onto a top, a post or a beam (not a hold): AC1's own jump clips, when they fit (a post's and a beam's flight is
         // the same free-step one; landed, the ground hands over to balancing on it).
         if !at_hold && let Some(w) = Self::jump_ac1(lib, level, root, to, aim, speed, left, from.clone()) {
+            return Some(w);
+        }
+        // At a lone ledge with the wall under it (no holds for the feet): AC1's flight onto the surface and its reception
+        // on the wall, into the wall hang.
+        if at_hold && let Some(w) = Self::jump_hangwall(lib, level, root, rig, base, cr, dir, left, from.clone()) {
             return Some(w);
         }
         // (At a hold: the planned arc, to catch it, with AC1's takeoff and flight for that height and distance.)
@@ -1383,6 +1407,74 @@ impl WallClimb {
         }
         w.ease_in(from, root);
         debug!("climb: running jump aimed at {to:.2} (takeoff from frame {:.0}, {airtime:.2} s in the air, up at {up:.1} m/s)", skip.unwrap_or(0.0));
+        Some(w)
+    }
+
+    /// A running jump at a lone ledge (`jump_hold`) with the wall under it for the feet and no holds there: AC1's takeoff,
+    /// its flight onto a surface and its reception on the wall (`crate::jump::surface`), into the wall hang, the hands
+    /// steered onto the hold over the flight. `None` when the hold has holds under it (caught into the climb instead), no
+    /// wall for the feet, the clips are missing or land too far off, or the way is not clear.
+    #[allow(clippy::too_many_arguments)]
+    fn jump_hangwall(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        rig: &Rig,
+        base: &Pose,
+        cr: ClimbRig,
+        dir: Vec3,
+        left: bool,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
+        let p = root.translation;
+        let speed = dir.with_y(0.0).length();
+        let (hold, out) = jump_hold(level, p, dir)?;
+        if footholds(level, hold, out) {
+            return None;
+        }
+        // (Wall under it for the feet.)
+        let under = hold - Vec3::Y * 1.2 + out * 0.4;
+        level.raycast(under, -out, 0.8).filter(|h| h.normal.dot(out) > 0.7)?;
+        let hang = hold + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG;
+        let way = (hang - p).with_y(0.0);
+        // (Nothing in the way at the chest before the wall.)
+        if level.raycast(p + Vec3::Y * 1.2, way.normalize_or_zero(), (way.length() - 0.8).max(0.0)).is_some() {
+            return None;
+        }
+        let j = crate::jump::surface(hang.y - p.y, way.length(), left, speed > JUMP_RECEPTION_HARD_SPEED);
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, flight) = (mix(&j.takeoff)?, mix(&j.flight)?);
+        let reception = j.reception.iter().map(|(n, _)| lib.get(n)).collect::<Option<Vec<_>>>()?;
+        // (Square to the wall: the reception is the straight one.)
+        let planned = Transform { rotation: facing(-out), ..*root };
+        let clips: Vec<Arc<Clip>> = [takeoff, flight].into_iter().chain(reception).collect();
+        let end = chain_end(&clips, rig, base, cr)?.world(&planned);
+        let targets = holds_within(level, &end.hands, out, 3.0)?;
+        let err = (targets[0] - end.hands[0] + targets[1] - end.hands[1]) * 0.5;
+        if err.with_y(0.0).length() > JUMP_AC1_SLACK * way.length().max(1.0) + 0.5 {
+            debug!("climb: AC1's jump to the wall lands {:.2} m off", err.length());
+            return None;
+        }
+        let n = clips.len();
+        let tos = (0..n)
+            .map(|i| {
+                if i < 2 {
+                    VAULT
+                } else if i + 1 == n {
+                    HANGWALL_OPEN
+                } else {
+                    DROP
+                }
+                .to_string()
+            })
+            .collect();
+        let mut w = WallClimb::new(VAULT, out);
+        w.start_chain_carry(clips, tos, &planned, err + hang_offset(HANGWALL_OPEN, out), Some(1));
+        w.ease_in(from, root);
+        debug!("climb: running jump at the wall's ledge {hold:.2}, onto the wall hang ({})", j.reception[0].0);
         Some(w)
     }
 

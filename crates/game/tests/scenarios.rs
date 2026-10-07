@@ -203,6 +203,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "via xx_l_climb_1m_r_2m at [4"],
     },
     Scenario {
+        name: "running jump at G's lowest ledge (bare wall under it): AC1's flight onto the surface and hangwall reception",
+        env: &[("AC1_START", "-14.5,-3,0"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "1.2")],
+        secs: 4.0,
+        want: &["_to_surface", "-> hangwall_open via xx_hangwall_reception_front_straight_max_c"],
+        never: &["EMBED", "not in AC1's move graph"],
+    },
+    Scenario {
         name: "standing on pillar P facing away from its holds, let go: down over its side to hang (AC1's pilotis pull-down)",
         env: &[("AC1_START", "-1.2,12.0,90,4"), ("AC1_CLIMB", "nograb,wait=1.5,drop=3")],
         secs: 4.5,
@@ -259,10 +266,10 @@ const SCENARIOS: &[Scenario] = &[
         never: &["damage 0.2", "EMBED"],
     },
     Scenario {
-        name: "rooftops: B3 back up to B2 (1.5 m higher) catches its edge",
+        name: "rooftops: B3 back up to B2 (1.5 m higher) catches its edge (a lone ledge: AC1's reception into the wall hang)",
         env: &[("AC1_START", "60,33,90,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
         secs: 3.0,
-        want: &["running jump aimed at [53.46", "-> 2m via xx_fall_tr_climb"],
+        want: &["running jump at the wall's ledge [53.06", "-> hangwall_open via xx_hangwall_reception_front_straight_max_c"],
         never: &["landed from", "EMBED"],
     },
     Scenario {

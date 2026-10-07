@@ -853,7 +853,7 @@ pub fn locomotion(
                         if ch.wall.is_none() && !grab_only && v.length() > 1.0 && !wall_ahead(v.normalize(), 1.2) && (!needs_edge || edge_near()) {
                             // (Off the foot the run is on: AC1's takeoffs are by foot.)
                             let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
-                            ch.wall = WallClimb::jump_aimed(lib, &level, &tf, v, lead_left, pose());
+                            ch.wall = WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, lead_left, pose());
                         } else if ch.wall.is_none() {
                             ch.wall = WallClimb::jump_grab(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose())
                                 .or_else(|| (!grab_only && !needs_edge).then(|| WallClimb::jump_straight(lib, &tf, pose())).flatten());
@@ -1061,9 +1061,9 @@ pub fn locomotion(
             } else {
                 WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.pose.clone()))
             };
-            ch.wall = low
-                .or_else(|| edge.then(|| WallClimb::leap_of_faith(lib, &level, &tf, v, Some(ch.pose.clone()))).flatten())
-                .or_else(|| edge.then(|| WallClimb::jump_aimed(lib, &level, &tf, v, lead_left, Some(ch.pose.clone()))).flatten());
+            ch.wall = low.or_else(|| edge.then(|| WallClimb::leap_of_faith(lib, &level, &tf, v, Some(ch.pose.clone()))).flatten()).or_else(|| {
+                edge.then(|| WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, lead_left, Some(ch.pose.clone()))).flatten()
+            });
             if ch.wall.is_some() {
                 ch.velocity = Vec3::ZERO;
                 continue;

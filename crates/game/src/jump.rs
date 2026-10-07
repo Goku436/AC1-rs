@@ -108,6 +108,30 @@ pub fn freestep(dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
     j
 }
 
+/// A running jump at a wall's hold to catch (a lone ledge, the feet against the wall under it): the running jump's takeoff
+/// for the hang's place `dz` above and `dist` away, its flight onto a surface (`xx_h_air_<front|down|up>_<dist>_foot?_to_
+/// surface`: the flight's slots folded onto those: the down landings, deep or not, onto `down`, the front going down onto
+/// `front`), then AC1's reception on the wall (`xx_h_air_surface_tr_hangwall_reception_front_straight_<min|max>` and its
+/// `xx_hangwall_reception_..._a/b/c`), the hard one (`max`) when `fast`.
+pub fn surface(dz: f32, dist: f32, left: bool, fast: bool) -> Jump {
+    let j = running(dz, dist, left, 0.0);
+    let mut flight: Vec<(String, f32)> = vec![];
+    for (n, w) in &j.flight {
+        let n = n.replace("_to_freestep_down", "_to_surface").replace("_to_freestep_deep", "_to_surface").replace("_to_freestep", "_to_surface");
+        // (No deep 800 cm onto a surface beyond the down one's; no front 800.)
+        match flight.iter_mut().find(|(m, _)| *m == n) {
+            Some(p) => p.1 += w,
+            None => flight.push((n, *w)),
+        }
+    }
+    let kind = if fast { "max" } else { "min" };
+    let reception = std::iter::once(format!("xx_h_air_surface_tr_hangwall_reception_front_straight_{kind}"))
+        .chain(["a", "b", "c"].map(|k| format!("xx_hangwall_reception_front_straight_{kind}_{k}")))
+        .map(|n| (n, 1.0))
+        .collect();
+    Jump { takeoff: j.takeoff, flight, reception }
+}
+
 /// A running jump onto a top `dz` above (negative: below) and `dist` away, taking off from the left foot or the right;
 /// `fast` (0..1, the run's speed against the sprint) blends the reception into its quick version (`_fast`).
 pub fn running(dz: f32, dist: f32, left: bool, fast: f32) -> Jump {
@@ -216,6 +240,15 @@ mod tests {
 
     fn total(parts: &[(String, f32)]) -> f32 {
         parts.iter().map(|p| p.1).sum()
+    }
+
+    #[test]
+    fn a_jump_at_a_hold_flies_onto_the_surface_and_is_received_on_the_wall() {
+        let j = surface(1.5, 3.0, false, true);
+        assert!(j.flight.iter().all(|(n, _)| n.ends_with("_footr_to_surface")), "{j:?}");
+        assert!((total(&j.flight) - 1.0).abs() < 1e-3);
+        assert_eq!(j.reception[0].0, "xx_h_air_surface_tr_hangwall_reception_front_straight_max");
+        assert_eq!(j.reception.len(), 4);
     }
 
     #[test]
