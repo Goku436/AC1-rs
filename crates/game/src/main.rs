@@ -1125,7 +1125,7 @@ fn debug_draw(
 
 fn hud(
     chars: Query<(&Character, &Controller, &Transform), With<Player>>,
-    mut text: Query<&mut Text, With<Hud>>,
+    mut text: Query<(&mut Text, &mut Visibility), With<Hud>>,
     cam: Res<OrbitCam>,
     diag: Res<bevy::diagnostic::DiagnosticsStore>,
     level: Res<level::Level>,
@@ -1133,7 +1133,12 @@ fn hud(
     eagle: Res<Eagle>,
 ) {
     let fps = diag.get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS).and_then(|d| d.smoothed()).unwrap_or(0.0);
-    let (Ok((ch, ctl, tf)), Ok(mut t)) = (chars.single(), text.single_mut()) else { return };
+    let (Ok((ch, ctl, tf)), Ok((mut t, mut vis))) = (chars.single(), text.single_mut()) else { return };
+    // (Recording a video: no HUD in the frames.)
+    if std::env::var("AC1_FRAMES").is_ok() {
+        *vis = Visibility::Hidden;
+        return;
+    }
     // The detail lines: what the body is doing (context, previous, the move), the ground gait, the input,
     // the air and the last landing.
     let context = match &ch.wall {

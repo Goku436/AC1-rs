@@ -12,3 +12,5 @@ out/
 *.zip
 ac1-shot-*.png
 ac1-recording-*
+# Videos made from the game (its data): never committed.
+*.mp4
