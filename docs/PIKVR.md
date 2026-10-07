@@ -244,3 +244,6 @@ Research:
   0.1 s; now they end where their step slows to the run's speed, and the run goes on from there (rooftops B1 to B3:
   14 pop frames to 1). The pops tool now matches bones to the root a frame earlier and times their moves by that frame
   (the recorder writes the bones a frame behind): uneven frames no longer read as pops.
+- Climbing: the wall IK (hands on holds, feet on the wall) switched off at once for corners and top outs: the feet
+  jumped 10-13 cm (T2 climb, wall A, corners). Faded over 0.2 s: T2 and the corner run show no pops, wall A one of 6 cm
+  in its top out.

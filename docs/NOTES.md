@@ -248,7 +248,9 @@ landing into a jog, catching wall holds on the way down with `xx_fall_tr_climb_*
 is only taken if its end pose puts both hands on real holds and the feet on the wall (or, for free hang,
 clear of it), and IK puts hands on holds and feet on the wall. Every correction fades in by distance (a hand from 20 cm
 of its hold, the shoulder's reach toward it too; a foot from 30 cm of the wall), and each foot's distance onto the wall
-is smoothed (12/s), since a foot passing a hold meets its front 12 cm out: switched on at once, these twitched the limbs. Block C in the test level has an overhang
+is smoothed (12/s), since a foot passing a hold meets its front 12 cm out: switched on at once, these twitched the limbs.
+The whole climbing IK also fades in and out over 0.2 s as the hands take to the wall or leave it (corners, top outs,
+1 m to 2 m steps): switched at once, the feet jumped 10-13 cm. Block C in the test level has an overhang
 for free hang, block D a roof slab to top out from a free hang, and A, C, D stand 1.5 m apart for leaps
 and roof jumps (C's side facing D has holds to catch from a jump off D's roof: with no top in reach, a running jump
 aims at the nearest hold within AC1's 45 degree cone, 1 m below to 2.6 m above the feet, 0.35 m in from its ends; a

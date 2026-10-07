@@ -185,6 +185,8 @@ pub struct Character {
     pub gait: crate::gait::Gait,
     /// Climbing: each foot's smoothed distance onto the wall (see the climbing IK).
     pub wall_feet: [Option<f32>; 2],
+    /// How much the climbing IK (hands on holds, feet on the wall) applies now (0..1, faded).
+    pub wall_ik_w: f32,
     /// How much ground foot placement applies now (0..1, faded: see the IK).
     pub foot_ik_w: f32,
     pub limp: bool,
@@ -418,6 +420,7 @@ pub fn spawn_character(
         gait: Default::default(),
         wall_feet: [None; 2],
         foot_ik_w: 0.0,
+        wall_ik_w: 0.0,
         mirror: ik::mirror::Mirror::new(&rig),
         rig,
         bones,
@@ -680,6 +683,8 @@ fn ragdoll_collide(level: &Level, prev: Vec3, p: Vec3, r: f32) -> (Vec3, bool) {
 const PALM_OFF: f32 = 0.05;
 /// A turn round's fade starts from the shown pose turned this much short of half round (rad).
 const TURN_FLIP_SHORT: f32 = 0.08;
+/// The climbing IK fades in or out over this long (s) as the hands take to the wall or leave it.
+const WALL_IK_FADE: f32 = 0.2;
 /// Ground foot placement fades in or out over this long (s) as moves off the ground start and end.
 const FOOT_IK_FADE: f32 = 0.2;
 /// Changing profile while standing (slower than this, m/s) fades between the stands over this long (s).
@@ -1374,8 +1379,12 @@ pub fn animate(
                 }
             }
         }
-        // --- Clip-driven climbing: snap hands onto holds and feet onto the wall.
-        if let Some(w) = ch.wall.as_ref().filter(|w| ik_on && w.hands_on_wall()) {
+        // --- Clip-driven climbing: snap hands onto holds and feet onto the wall. Faded in and out over `WALL_IK_FADE` as
+        // the hands take to the wall or leave it (a corner, a top out): switched at once, the feet jumped 10-13 cm.
+        let hands_on = ch.wall.as_ref().is_some_and(|w| ik_on && w.hands_on_wall());
+        ch.wall_ik_w = if hands_on { (ch.wall_ik_w + dt / WALL_IK_FADE).min(1.0) } else { (ch.wall_ik_w - dt / WALL_IK_FADE).max(0.0) };
+        let ww = smooth(ch.wall_ik_w);
+        if let Some(w) = ch.wall.as_ref().filter(|_| ww > 0.0) {
             let n = w.normal;
             // A hold out of the arm's reach: the shoulder and chest go toward it first (HumanIK, which AC1 used for
             // climbing, reaches with the whole upper body), the clavicle lifting the shoulder, the chest bending.
@@ -1395,7 +1404,7 @@ pub fn animate(
                 }
                 // Faded in with the hold's distance like the arm IK below, or the shoulder jumps as a hold comes in range.
                 let near = 1.0 - ((d - 0.06) / 0.14).clamp(0.0, 1.0);
-                let k = (short / 0.15).min(1.0) * smooth(near);
+                let k = (short / 0.15).min(1.0) * smooth(near) * ww;
                 let side = if i == 0 { 1.0 } else { -1.0 };
                 let reach = to.normalize_or_zero();
                 pose.rotate_model(rig, b.clavicles[i], limited_arc(Vec3::new(0.0, side, 0.0), Vec3::new(0.0, side, 0.0) + reach, 0.45 * k));
@@ -1411,7 +1420,7 @@ pub fn animate(
                         ch.debug_targets.push((target, Color::srgb(0.95, 0.75, 0.2)));
                         let elbow = pose.model_of(rig, arm.lower).pos;
                         let pole = elbow + Vec3::new(-0.3, 0.0, -0.3);
-                        two_bone_ik(&mut pose, rig, arm.upper, arm.lower, arm.hand, to_model(target), Some(pole), None, smooth(wgt));
+                        two_bone_ik(&mut pose, rig, arm.upper, arm.lower, arm.hand, to_model(target), Some(pole), None, smooth(wgt) * ww);
                     }
                 }
             }
@@ -1445,7 +1454,7 @@ pub fn animate(
                         to_model(t),
                         Some(knee + Vec3::new(0.3, 0.0, 0.2)),
                         None,
-                        smooth(wgt / 0.8) * 0.8,
+                        smooth(wgt / 0.8) * 0.8 * ww,
                     );
                 }
             }
