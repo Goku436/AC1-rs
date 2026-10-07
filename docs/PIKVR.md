@@ -72,9 +72,15 @@ The move graph is the big one: with it the game itself says which move follows w
       `GuidanceSystemCapsule`, `GuidanceSystemBarrel`, `GuidanceSystemOptimizerGroundWall` and
       `GuidanceSystemGenerationType{None, Behaviour, InertComponent, RigidBody}`: guidance generated at run time from
       collision primitives (a capsule or barrel shape is a beam or pole) and from rigid bodies. Cities already read those
-      primitives (Damascus: 2121 entities by primitives): make capsule/barrel shapes lying level into perches, and find
-      the generation type per entity (which component says it). This is how AC1's beams across streets and the crate
-      rims (the user's hop) would be found.
+      primitives (Damascus: 2121 entities by primitives). Checked 2026-10-07: Damascus has only 47 capsule shapes, radius
+      1.0-1.3 m (and one 0.15 m stub), none lying level as beams: its beams are not capsule shapes. Next: what
+      `GuidanceBeamDetectorAccurate` and the `RigidBody` generation type look at (Ghidra: their constructors and the
+      code that fills `GuidanceObjectSubTypeBeam`), and whether the crate rims are rigid bodies.
+      Found: `GuidanceBeamDetectorAccurate` (class id `d0a682d2`, vtable 0x169a1cc) is a serialized settings object:
+      its reader (0x679d50) takes five 4-byte values (+4..+0x14), its clone 0x679e00 copies them and two more members
+      (+0x30, +0x38) and a sub-object at +0x18. Find the data objects of that class (or the class that embeds one) and
+      read the five values: they are what AC1 calls a beam. `GuidanceDepthDetector` (`6f98e723`, with
+      `GuidanceDepthDetectorSettings` `479a4b0d`) and `GuidanceZone*` likely the same kind.
 - [ ] Wall run endings (`HumanWalling`, Banned445's `walling.rs` has the action ids): from the entry, a top 1.31-2.0 m
       up pulls up onto it (`_entry_..._tr_hangknee`), else a free hang or over the edge (`_tr_passover`); from the step,
       2.01-2.5 m up pulls up, 2.51-4.3 m ends hanging on the wall (`_step1_tr_hangwall`), else a free hang. Ours runs up
