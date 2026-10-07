@@ -257,3 +257,7 @@ Research:
   (a camera circling a point, every frame saved) for the user's Masyaf showcase.
 - The user asked about map data: AC1's cities load from the forge with their authored grabs (Damascus, Masyaf
   checked; Acre, Jerusalem, Kingdom parse but are untried in play: backlog section 2).
+- Beam (user's recordings, 2026-10-08): running onto the beam flickered ground and perch every frame. Two causes from
+  my earlier fixes: the beam walk's end check counted the root's centimetre off the line as past the end, and standing
+  on it at an angle the step-off took the beam's own top for ground ahead. Fixed (along the beam only; not the perch's
+  own top), and the stick walks the beam at up to 60 degrees off it, as the walk keeps going. Scenario.

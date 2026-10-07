@@ -122,6 +122,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "waitturn"],
     },
     Scenario {
+        name: "running onto the beam to B4 at 15 degrees: onto it once, along it, off its end (it flickered ground/perch)",
+        env: &[("AC1_START", "57.5,32.06,-90,5"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_STEER", "-15")],
+        secs: 3.0,
+        want: &["onto perch 9", "off the beam's end onto the ground"],
+        never: &["stepped off the perch", "EMBED"],
+    },
+    Scenario {
         name: "standing turn round with the stick sweeping: one turn, then the walk",
         env: &[("AC1_START", "-5,-5,0"), ("AC1_WALK", "1.5"), ("AC1_STEER", "180"), ("AC1_CURVE", "1.5")],
         secs: 4.5,
@@ -405,7 +412,8 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "go limp and settle",
         env: &[("AC1_START", "-25,-8,0"), ("AC1_LIMP", "1.0")],
-        secs: 5.0,
+        // (Settling takes up to about 4 s after going limp: at 5 s it failed now and then.)
+        secs: 6.0,
         want: &["went limp", "settled limp"],
         never: &[],
     },

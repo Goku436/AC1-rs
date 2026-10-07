@@ -521,6 +521,11 @@ const MONKEY_HANG: f32 = 1.9;
 const VAULT_HEIGHT: std::ops::RangeInclusive<f32> = 0.35..=1.3;
 const VAULT_REACH: f32 = 2.3;
 const STEP_UP_MAX: f32 = 0.85;
+/// On a beam the stick walks along it while it leans along it at least this much (cos: 60 degrees), as the walk
+/// keeps going (`beam_step`).
+const BEAM_WALK_COS: f32 = 0.5;
+/// Ground this near a perch's line (m) is the perch itself, not ground to step off onto.
+const PERCH_OWN: f32 = 0.35;
 /// Stepping off a perch onto ground ahead: the speed it walks (or, free running, runs) off at (m/s).
 const PERCH_OFF_WALK: f32 = 1.9;
 const PERCH_OFF_RUN: f32 = 5.2;
@@ -2107,7 +2112,8 @@ impl WallClimb {
         }
         let dir = dir.normalize();
         let axis = line.axis();
-        if axis != Vec3::ZERO && dir.dot(axis).abs() > 0.7 {
+        // (Along the beam while the stick leans along it, as the walk keeps going: at an angle to it too.)
+        if axis != Vec3::ZERO && dir.dot(axis).abs() > BEAM_WALK_COS {
             let along = axis * dir.dot(axis).signum();
             // Walk unless already at that end.
             let end = if along.dot(axis) > 0.0 { line.b } else { line.a };
@@ -2118,7 +2124,10 @@ impl WallClimb {
         }
         // At a beam's end (or a post) with ground carrying on at this height ahead: step off onto it, as walking
         // off the end does; no jump.
-        if level.ground(root.translation + dir * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8) {
+        // (Not the beam's own top: at an angle to it, that read as ground ahead, and he stepped off onto the beam and
+        // back onto it as a perch every frame.)
+        let ahead = root.translation + dir * 0.5;
+        if level.perch_at(ahead, PERCH_OWN).is_none() && level.ground(ahead, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8) {
             debug!("climb: stepped off the perch onto the ground at {:.2}", root.translation);
             self.exit_velocity = dir * if self.sprint { PERCH_OFF_RUN } else { PERCH_OFF_WALK };
             self.finished = true;
@@ -2161,15 +2170,16 @@ impl WallClimb {
             w.cycle = None;
             w.fade = w.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
         };
-        if self.move_dir.with_y(0.0).normalize_or_zero().dot(cy.dir) < 0.5 {
+        if self.move_dir.with_y(0.0).normalize_or_zero().dot(cy.dir) < BEAM_WALK_COS {
             stop(self);
             return;
         }
         let next = root.translation + cy.dir * cy.speed * dt;
         let q = line.closest(next);
         root.rotation = root.rotation.slerp(facing(cy.dir), 1.0 - (-10.0 * dt).exp());
-        // (Any step past the end: a fixed margin pinned a slow walk at high frame rates, each step shorter than it.)
-        if (q - next).with_y(0.0).length() > 1e-3 {
+        // (Any step past the end, along the beam: a fixed margin pinned a slow walk at high frame rates, each step shorter
+        // than it; and the root a centimetre off the line is not past an end.)
+        if (next - q).with_y(0.0).dot(cy.dir) > 1e-3 {
             // Off the end: onto ground that carries on at this height, else wait there.
             let (dir, speed) = (cy.dir, cy.speed);
             root.translation = q;
