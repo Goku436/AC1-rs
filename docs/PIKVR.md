@@ -29,7 +29,9 @@ Rules learned on the way here:
 - [ ] Hands catch up fast as they leave a hold (fade window 6-20 cm): widen if it reads as a snap in play.
 - [x] (AC1's up jump now: run_up/air_up 300 cm, quick) B4 to B5 jump: 0.88 s in the air (a 1.2 m rise needs it); offered: catch the edge and pull up instead.
 - [x] (Was the start facing away; 20 degrees off works, scenario) Two-step lane from an angle: a scripted start at (38.5, -28.6) yaw -115 did nothing (check the start spot).
-- [ ] Capsule: no ceiling handling, no stick-to-ground cast (0.58 m), no fall-off-support rule (rim past 45 degrees);
+- [x] (2026-10-08: `Level::support` keeps the body on an edge until the feet are 0.28 m past it; steps down to 0.58 m
+      are walked; a ceiling stops a jump's rise and a step under it; the climb still has its own checks)
+      Capsule: no ceiling handling, no stick-to-ground cast (0.58 m), no fall-off-support rule (rim past 45 degrees);
       the air, climb and fall states don't use it. Bring in what play shows is missing.
 - [ ] Scabbard angle and the hood (lead: in Banned445's repo the hood follows the head through Altaïr's authored
       skeleton modifiers, a secondary hood look-at (aiming its X/Z axes) and hinges, and the sword tag has angular soft
@@ -50,9 +52,12 @@ Rules learned on the way here:
 The move graph is the big one: with it the game itself says which move follows which.
 - [~] **AC1's jump system** (first step done 2026-10-07: running jumps onto tops play AC1's takeoff, flight and
       reception blends, `jump.rs`; then the vault, jumps onto posts and beams, at holds and with no target: no scenario plays a step off AC1's move
-      graph any more; still to do: the five side directions, free-step takeoffs from beams and posts,
-      flights to passover/surface/swing/assassinate, holds (`hangwall_reception_*`), posts and beams as targets, the
-      ground landings by stick and speed) (found 2026-10-07, see the run log): our running jump takes off with
+      graph any more; 2026-10-08: free-step takeoffs from posts by foot, alternating; flights to a surface with the
+      `hangwall_reception_front_straight_<min|max>` at a lone ledge, to a swing bar (`_to_swing`, its
+      `_tr_swing_front_a` entry), over a thin wall (`_to_passover`, `passover_hand?_<030|100>cm`, `_tr_fall`); ground
+      landings by the stick and the profile; still to do: the side directions of running jumps, the angled receptions
+      (`_30_out`, `_45_in`), `_to_assassinate`, the passover's other endings (pull-down, jump down, roll), the swing's
+      `_tr_hangfree` catch) (found 2026-10-07, see the run log): our running jump takes off with
       `xx_h_sprint_impultion_footl`, which is a stride of the locomotion blend (`HumanGround` 0x5923bdb), not a jump.
       AC1 plays a takeoff blend (40 clips: `xx_h_run_<front|down|up>_<050|300|550>cm_foot?_to_air` from the ground,
       actions 0x0a4c8c0e/0f; `xx_h_freestep_<front|left|right|backleft|backright>_<front|down|up>_<dist>_foot?_to_air`
@@ -198,18 +203,20 @@ Research:
     time, which a first literal search missed); not yet: `_tr_passover_hand?` (over the top's edge),
     `_step1_tr_h_ladder_up` (onto a ladder), `_tr_hangwallfree_swingstraight`, the entry's `_tr_hangfree_swingback`.
   - `HumanClimb`: (done 2026-10-07: `xx_l_climb_1m_to_groundentry_<side>`, sideways off the wall at its bottom; the `_90`
-    turned ones not yet) `xx_l_climb_1m_
-    lookaround_<side>`, `xx_h_hangwall_wait_lookaround_<side>` (looking round on a wall), `xx_h_ladder_wait_tr_<hangwall|
-    hangfree>_<side>` (used: sideways off a ladder).
-  - `HumanNarrowObject`: `xx_l_beam_pilotis_to_pulldown_soft_<side>[_orientation]` (from a post down to a hang),
-    `xx_l_beam_edge_stop_tr_crouchwait`, the crouch turns `xx_l_beam_crouchwait_turn_<side>_to_crouchwait_90` /
-    `turn180`, `xx_h_freestep_entry_tr_beam_pilotis_wait` and `_tr_crouch<walk|jog>_<side>_<30|90>` (landing on a beam
-    turned), `xx_h_wait_hipm_tr_freestep_front_turn90_<side>`.
+    turned ones not yet; done 2026-10-08: `xx_l_climb_1m_lookaround_<side>`, `xx_h_hangwall_wait_lookaround_<side>`,
+    looking round on a wall with a direction held where no move goes; `xx_l_climb_1m_<dir>_hangwall` and the hang at
+    a lone ledge) `xx_h_ladder_wait_tr_<hangwall|hangfree>_<side>` (used: sideways off a ladder).
+  - `HumanNarrowObject`: (done 2026-10-08: `xx_l_beam_pilotis_to_pulldown_soft_<side>[_orientation]`, let go on a post
+    to hang from its side; `xx_l_beam_edge_stop` into the crouch; the crouch waits and turns `crouchwait_foot?_turn180`,
+    `_turn_<side>_to_crouchwait_90`, `crouchwait_90_turn_<side>`, `crouchwait_90_turn180`) `xx_h_freestep_entry_tr_beam_
+    pilotis_wait` and `_tr_crouch<walk|jog>_<side>_<30|90>` (landing on a beam turned), `xx_h_wait_hipm_tr_freestep_
+    front_turn90_<side>`, the crouch walk's start and stop clips.
   - `HumanLedge`: (done 2026-10-07: `xx_h_hangknee_tr_<l_walk|h_jog>`, topping out straight into walking or jogging) `xx_h_swing_stop_
     <front|back>` (a swing bar coming to rest), `xx_h_climbing_hangfree_tr_<hangwall|climb2m>_down_<min|max>_<200|300>`
     (dropping from a free hang onto a wall below).
   - `HumanClimb_Jumps`: leaps between hang kinds by side and distance (`xx_h_climbing_<hangwall|hangfree|climb1m>_tr_
-    <hangwall|hangfree|climb1m>_<side>_<2|3>`): 2 and 3 m sideways leaps, ours stop at the near one.
+    <hangwall|hangfree|climb1m>_<side>_<2|3>`): 2 and 3 m sideways leaps (checked 2026-10-08: both lengths are tried
+    from every hang kind and mixed to land on the hold; scenario across A to C).
 - IK and pose pops (I), from the user's recordings of 2026-10-06/07, by a scratch detector that flags a bone whose speed
   relative to the root jumps to more than 3x (+1.5 m/s) its speed the frame before (by speed, not distance: long frames
   are hitches, not pops):

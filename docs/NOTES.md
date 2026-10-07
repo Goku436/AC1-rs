@@ -520,14 +520,17 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
 ## Tools for bugs and tests
 - Scenarios: `AC1_SCENARIOS=1 cargo test --release -p ac1 --test scenarios -- --nocapture`. They run 6 games at once
   (`AC1_SCENARIO_JOBS=n`), each ending at its time without a screenshot (`AC1_SCENARIO_SHOTS=1` keeps them);
-  `AC1_SCENARIO_FILTER=text` runs only those whose name holds it. 57 scenarios: one at a time with screenshots 560 s,
-  now 108 s (4 at a time 161 s, 8 104 s but with timing flakes). A game's start and exit cost about 4 s of each run
+  `AC1_SCENARIO_FILTER=text` runs only those whose name holds it, `AC1_SCENARIO_LOGS=dir` keeps each game's log there.
+  66 scenarios, about 135 s (56 took 560 s one at a time with screenshots, 108 s side by side; 4 at a time 161 s, 8
+  104 s but with timing flakes). A game's start and exit cost about 4 s of each run
   (the scenarios themselves 339 s): one game teleporting between zones would save that, below what running them side
   by side gives, at the risk of one run's state leaking into the next.
 - `cargo run -p ac1 --example pops -- <recording.txt>`: pose pops in a flight recording (a bone moving much faster than
   the frame before, relative to the root; long frames are not counted), by what was playing. `forge` examples
-  `gaitseams` (how a gait's half-cycles join) and `clipjumps` (jumps baked into a clip). `AC1_VEER=secs,deg` turns a
-  scripted walk's direction then (the stick swung mid-move).
+  `gaitseams` (how a gait's half-cycles join), `clipjumps` (jumps baked into a clip) and `clipseam` (which clips start
+  where another ends: what a code-driven move goes on into when the move graph does not say). `AC1_VEER=secs,deg`
+  turns a scripted walk's direction then (the stick swung mid-move); `AC1_STICK=1` has a scripted walk hold the stick
+  over (the speed from the gait model, as the player's).
 The PIKVR test campaign (parkour, IK, visuals, research) is planned in `docs/PIKVR.md`.
 - `AC1_SURFACES="x,z,..."` logs every collision surface down a vertical line at each point and `AC1_RAYS` what rays
   hit (and whether from behind); `AC1_START="x,z,yaw,y"` starts on the ground under height y (not the highest roof).
