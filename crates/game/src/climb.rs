@@ -444,6 +444,8 @@ const JUMP_UP_MIN: f32 = 1.5;
 /// A jump up onto a top crosses its edge with the feet this far over it (m).
 /// AC1's jump clips are used while the correction onto the target is at most this share of the distance.
 const JUMP_AC1_SLACK: f32 = 0.5;
+/// A jump's reception plays at most this much faster, to keep the run's pace.
+const RECEPTION_RATE_MAX: f32 = 2.0;
 /// A jump with no target is weighted for a level one this far ahead (m).
 const FREE_JUMP_DIST: f32 = 2.5;
 /// At this speed (m/s, the sprint) the reception is all its quick version.
@@ -1337,8 +1339,13 @@ impl WallClimb {
         }
         let mut w = WallClimb::new(VAULT, -aim);
         w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), GROUND.into()], &planned, correct, Some(1));
-        // On at the run's speed once down (the reception's `_tr_freestep_entry` leads into the run in AC1's graph).
+        // On at the run's speed once down (the reception's `_tr_freestep_entry` leads into the run in AC1's graph); the
+        // reception itself at the run's pace (at its own it stood a moment on the top, a post, before running on).
         w.exit_velocity = aim * speed;
+        if let Some(r) = w.queue.last_mut() {
+            let way = root_motion_at(&r.clip, r.clip.frames()).with_z(0.0).length().max(0.1);
+            r.rate = (r.clip.anim.duration * speed / way).clamp(1.0, RECEPTION_RATE_MAX);
+        }
         w.ease_in(from, root);
         debug!("climb: running jump aimed at {to:.2} (takeoff and flight from AC1's jump tables: {} then {})", takeoff.name, flight.name);
         Some(w)

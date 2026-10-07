@@ -188,7 +188,9 @@ Research:
     (`jumpstraight_clear_footall_tr_fall`), a landing into the run. Next: fade each seam by its gap (the climbing
     chain already does: `seam_gap`).
   - While sprinting steadily and weaving (6.2 m/s, yaw changing), 5-7 cm pops of a hand or foot every 0.1-0.25 s:
-    look at the banked gait mix (`FULL_BANK`, the bank's smoothing) and the half-cycle seams of the sprint.
+    look at the banked gait mix (`FULL_BANK`, the bank's smoothing). Not the half-cycle seams: every gait's
+    `_footl` end and `_footr` start match exactly in every bone's rotation and translation (`examples/gaitseams`).
+    A pop at the start of a scripted sprint was a long first frame (loading): the speed rose 1.3 m/s in it.
   - Fade bugs found and fixed on the way: the exit fade always ran against 0.25 s whatever its length, and faded from
     the final pose (IK included) into one the IK then corrected again; ground foot placement switched off at once for
     every move, even standing ones (stops, turns), popping the feet at each seam.
