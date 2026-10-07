@@ -101,6 +101,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        name: "climbing wall A with the stick held on tops out straight into the walk",
+        env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "up=14"), ("AC1_WALK", "1.9")],
+        secs: 14.0,
+        want: &["topping out on into l_walk", "via xx_h_hangknee_footl_tr_l_walk_footr_b"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "climb wall A to the top",
         env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "up=14")],
         secs: 14.0,

@@ -444,6 +444,9 @@ const JUMP_UP_MIN: f32 = 1.5;
 /// A jump up onto a top crosses its edge with the feet this far over it (m).
 /// AC1's jump clips are used while the correction onto the target is at most this share of the distance.
 const JUMP_AC1_SLACK: f32 = 0.5;
+/// Topping out into the walk or the jog hands over at their speeds (m/s).
+const TOP_OUT_WALK: f32 = 1.9;
+const TOP_OUT_JOG: f32 = 3.5;
 /// A jump's reception plays at most this much faster, to keep the run's pace.
 const RECEPTION_RATE_MAX: f32 = 2.0;
 /// A jump with no target is weighted for a level one this far ahead (m).
@@ -3737,7 +3740,24 @@ impl WallClimb {
             self.normal = (root.rotation * done.start_rot.inverse()) * self.normal;
             self.state = done.to;
             if !self.queue.is_empty() {
-                let next = self.queue.remove(0);
+                let mut next = self.queue.remove(0);
+                // Topping out with the stick pushed on: up off the knee straight into walking (or, free running, jogging),
+                // AC1's `xx_h_hangknee_foot?_tr_<l_walk|h_jog>_foot?_a/b`, rather than standing up first.
+                let on = self.move_dir.with_y(0.0).normalize_or_zero().dot((root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero()) > 0.5;
+                if on && next.clip.name.starts_with("xx_h_hangknee_foot") && next.clip.name.contains("_tr_h_wait_") {
+                    let gait = if self.sprint { "_tr_h_jog_" } else { "_tr_l_walk_" };
+                    let stem = next.clip.name.trim_end_matches("_a").replace("_tr_h_wait_", gait);
+                    if let (Some(a), Some(b)) = (lib.get(&format!("{stem}_a")), lib.get(&format!("{stem}_b"))) {
+                        debug!("climb: topping out on into {}", stem.rsplit("_tr_").next().unwrap_or(""));
+                        let to = std::mem::replace(&mut next.to, GROUND_ACT.into());
+                        // (What came after the stand, the rest of its chain, is the gait's now.)
+                        self.queue.retain(|q| !q.clip.name.contains("_tr_h_wait_"));
+                        self.queue.insert(0, Queued { to, ..Queued::new(b, GROUND) });
+                        next.clip = a;
+                        self.exit_velocity =
+                            (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero() * if self.sprint { TOP_OUT_JOG } else { TOP_OUT_WALK };
+                    }
+                }
                 // (A step AC1's move graph does not have: logged, to find chains built wrong.)
                 if !lib.graph.allows(&done.clip.name, &next.clip.name) {
                     debug!("graph: {} -> {} is not in AC1's move graph", done.clip.name, next.clip.name);

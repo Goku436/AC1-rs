@@ -81,7 +81,7 @@ The move graph is the big one: with it the game itself says which move follows w
       (+0x30, +0x38) and a sub-object at +0x18. Find the data objects of that class (or the class that embeds one) and
       read the five values: they are what AC1 calls a beam. `GuidanceDepthDetector` (`6f98e723`, with
       `GuidanceDepthDetectorSettings` `479a4b0d`) and `GuidanceZone*` likely the same kind.
-- [ ] Wall run endings (`HumanWalling`, Banned445's `walling.rs` has the action ids): from the entry, a top 1.31-2.0 m
+- [~] (Mostly in: hang, knee, free hang; missing over the edge and onto a ladder) Wall run endings (`HumanWalling`, Banned445's `walling.rs` has the action ids): from the entry, a top 1.31-2.0 m
       up pulls up onto it (`_entry_..._tr_hangknee`), else a free hang or over the edge (`_tr_passover`); from the step,
       2.01-2.5 m up pulls up, 2.51-4.3 m ends hanging on the wall (`_step1_tr_hangwall`), else a free hang. Ours runs up
       and grabs the highest ledge with our own moves.
@@ -169,9 +169,9 @@ Research:
   `air_front/up/down` flights to 550 and 800 cm, `freestep_*` takeoffs in five directions, `beam_autoclimb`,
   `freerun_entry`, `hangwall_reception_front_<straight|45_in>_<min|max>` (catching a wall from a jump).
 - Moves in AC1's blocks that nothing here plays yet (each a zone and a scenario once built):
-  - `HumanWalling`: `xx_h_wallingfront_<entry|step1>_tr_<hangwall|hangknee|hangfree_swingback_<min|max>|
-    hangwallfree_swingstraight|passover_hand?|rebound>`, `_step1_tr_h_ladder_up`: the wall run ending in a hang (the
-    user's "wall run to climb"), on top, over the edge or onto a ladder, by what it meets.
+  - `HumanWalling`: the wall run's hang, knee and free-hang endings are in (`wall_run_options`: names built at run
+    time, which a first literal search missed); not yet: `_tr_passover_hand?` (over the top's edge),
+    `_step1_tr_h_ladder_up` (onto a ladder), `_tr_hangwallfree_swingstraight`, the entry's `_tr_hangfree_swingback`.
   - `HumanClimb`: `xx_l_climb_1m_to_groundentry_<side>[_90]` (from the wall down onto the ground), `xx_l_climb_1m_
     lookaround_<side>`, `xx_h_hangwall_wait_lookaround_<side>` (looking round on a wall), `xx_h_ladder_wait_tr_<hangwall|
     hangfree>_<side>` (used: sideways off a ladder).
@@ -179,7 +179,7 @@ Research:
     `xx_l_beam_edge_stop_tr_crouchwait`, the crouch turns `xx_l_beam_crouchwait_turn_<side>_to_crouchwait_90` /
     `turn180`, `xx_h_freestep_entry_tr_beam_pilotis_wait` and `_tr_crouch<walk|jog>_<side>_<30|90>` (landing on a beam
     turned), `xx_h_wait_hipm_tr_freestep_front_turn90_<side>`.
-  - `HumanLedge`: `xx_h_hangknee_tr_<l_walk|h_jog>` (topping out straight into walking or jogging), `xx_h_swing_stop_
+  - `HumanLedge`: (done 2026-10-07: `xx_h_hangknee_tr_<l_walk|h_jog>`, topping out straight into walking or jogging) `xx_h_swing_stop_
     <front|back>` (a swing bar coming to rest), `xx_h_climbing_hangfree_tr_<hangwall|climb2m>_down_<min|max>_<200|300>`
     (dropping from a free hang onto a wall below).
   - `HumanClimb_Jumps`: leaps between hang kinds by side and distance (`xx_h_climbing_<hangwall|hangfree|climb1m>_tr_

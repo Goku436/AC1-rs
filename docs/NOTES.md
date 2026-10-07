@@ -84,6 +84,9 @@ Low obstacles (collide, glance, vault) are measured from the floor just in front
 stairs, a riser two steps up is one step, not a 0.42 m wall. A beam's end with ground going on at its height (a roof)
 is walked or stepped off onto it, standing at the end too.
 
+Topping out with the stick pushed on (toward the top), Altaïr goes up off the knee straight into the walk, or free
+running the jog (`xx_h_hangknee_foot?_tr_<l_walk|h_jog>_foot?_a/b`), instead of standing up first.
+
 Ground moves (AC1's `HumanGround`, played as clip chains with root motion, then back to walking; the clips' paths are
 flat, so the stops and landings follow the ground's height, kept for the rest of the move, up a ramp too):
 - letting go of the direction while running stops (`xx_h_runstop_<foot>` + `_tr_h_wait_hipm`, sprinting
