@@ -806,6 +806,27 @@ fn holds_within(level: &Level, hands: &[Vec3; 2], normal: Vec3, reach: f32) -> O
     Some([t0.1, t1.1])
 }
 
+/// Holds under the hands (at `hands`, the middle of the two) for the feet to stand on, as AC1's climbing stance "1m"
+/// needs: a hold on this wall `FOOTHOLD_BELOW` under them, about level with them along it. Without one (a lone ledge
+/// at the top of a bare wall) he hangs with the feet braced on the wall (`hangwall`).
+fn footholds(level: &Level, hands: Vec3, normal: Vec3) -> bool {
+    let along = Vec3::Y.cross(normal).normalize_or_zero();
+    // (Low on a wall the feet are on the ground, or near it: the lowest holds, as climbing on from the ground.)
+    let ground = level.ground(hands + normal * 0.3 - Vec3::Y * 0.3, 0.0, *FOOTHOLD_BELOW.end()).is_some();
+    ground
+        || level.ledges.iter().filter(|l| l.out.dot(normal) > 0.7).any(|l| {
+            let q = l.closest(hands - Vec3::Y * 1.1);
+            let d = q - hands;
+            FOOTHOLD_BELOW.contains(&-d.y) && d.dot(along).abs() < FOOTHOLD_SIDE && d.dot(normal).abs() < FOOTHOLD_DEPTH
+        })
+}
+
+/// How far under the hands (m) a hold counts as one for the feet in "1m" (they stand about 1.1 m under), how far
+/// along the wall to either side, and how far out of the wall's plane.
+const FOOTHOLD_BELOW: std::ops::RangeInclusive<f32> = 0.5..=1.7;
+const FOOTHOLD_SIDE: f32 = 0.45;
+const FOOTHOLD_DEPTH: f32 = 0.3;
+
 fn feet_fit(level: &Level, feet: &[Vec3; 2], normal: Vec3, want: Feet) -> bool {
     feet_fit_at(level, feet, normal, want, None)
 }
@@ -3301,6 +3322,12 @@ impl WallClimb {
             }
             // Onto the wall's holds (up, down, or along).
             out.push(Cand::new(format!("xx_h_hangwall_{dir}_climb_1m"), "1m", Feet::Wall));
+            // Round a corner: AC1 has the climbing stance's only (it ends in the hang again where the feet find no holds).
+            if !vertical {
+                for kind in ["in", "out"] {
+                    out.push(Cand::new(format!("xx_l_climb_1m_corner_{}_090_{kind}", side_name(dir)), "1m", Feet::Wall));
+                }
+            }
             return out;
         }
         let mut wall: Vec<(String, String)> = clip_state_names(lib, &self.state, dir);
@@ -3316,6 +3343,8 @@ impl WallClimb {
                     out.push(Cand::new(format!("xx_l_climb_1m_corner_{}_090_{kind}", side_name(dir)), "1m", Feet::Wall));
                 }
             }
+            // No holds for the feet there (a lone ledge along the top of a bare wall): into the hang, the feet braced.
+            out.push(Cand::new(format!("xx_l_climb_1m_{dir}_hangwall"), HANGWALL_OPEN, Feet::Wall));
             // No wall for the feet: swing off into a free hang.
             out.push(Cand::new(format!("xx_l_climb_1m_{dir}_hangfree"), FREE, Feet::Free));
         }
@@ -3365,7 +3394,8 @@ impl WallClimb {
     /// Take the first candidate whose end pose has both hands on holds and the feet as it needs.
     #[allow(clippy::too_many_arguments)]
     fn take_first(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, cands: Vec<Cand>) -> bool {
-        for c in cands {
+        let to_hangwall: Vec<bool> = cands.iter().map(|c| c.to == HANGWALL || c.to == HANGWALL_OPEN).collect();
+        for (k, c) in cands.into_iter().enumerate() {
             let Some(clips) = c.names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { continue };
             let Some(end) = chain_end(&clips, rig, base, cr) else { continue };
             let end = end.world(root);
@@ -3410,6 +3440,22 @@ impl WallClimb {
                 }
                 continue;
             }
+            // Into the climbing stance with no holds under the hands for the feet: a move into the hang instead (one
+            // further down the list), else this one ending in the hang (the corners: AC1 has no hang's own).
+            let mut c = c;
+            // (Ending in the hang's pose: the root where the hang's hands are on the holds, not the stance's.)
+            let mut to_hang = Vec3::ZERO;
+            if (c.to == "1m" || c.to == "2m") && !footholds(level, (targets[0] + targets[1]) * 0.5, normal) {
+                if !corner && to_hangwall[k + 1..].iter().any(|&h| h) {
+                    continue;
+                }
+                let (Some(rest), Some(last)) = (lib.get(HANGWALL_REST), clips.last()) else { continue };
+                let (hang, stance) = (end_pose(&rest, rig, base, cr), end_pose(last, rig, base, cr));
+                let mid = |e: &EndPose| (e.hands[0] + e.hands[1]) * 0.5;
+                to_hang = world_rot(end.rot) * (mid(&stance) - mid(&hang));
+                debug!("climb: {} : no holds for the feet there, into the hang", c.names[0]);
+                c.to = HANGWALL_OPEN.into();
+            }
             // Sideways along the wall, the body must fit where it ends: not into a wall meeting this one (an inside
             // corner; the holds run on to its end, under the other wall). Climbing jumps too. (Corners go round.)
             let slide = (end.pos + land - root.translation).with_y(0.0);
@@ -3433,7 +3479,9 @@ impl WallClimb {
             let err = (targets[0] - end.hands[0] + targets[1] - end.hands[1]) * 0.5;
             // (In the wall plane; the ledge hang's offset out from the wall is set going into it, and dropped
             // leaving it.)
-            let out = (hang_offset(&c.to, normal) - hang_offset(&self.state, normal)).dot(normal);
+            // (A corner's correction already puts the hands on the holds out from the new wall: only the hang's own.)
+            let from_out = if corner { Vec3::ZERO } else { hang_offset(&self.state, normal) };
+            let out = (hang_offset(&c.to, normal) - from_out).dot(normal);
             let down = if hang_offset(&c.to, normal) != Vec3::ZERO { HANG_DOWN } else { 0.0 };
             // (A corner keeps its error out from the new wall too: stopped short of the corner, the turn would end
             // inside the next wall.)
@@ -3441,7 +3489,7 @@ impl WallClimb {
             // Between hangs of one kind (on the wall, or free), he stays as far out from the wall: a clip that drifts in
             // (AC1's free-hang leaps, made for a flat wall) would put the body into a cornice over the hold.
             let keep = if !corner && is_free(&self.state) == is_free(&c.to) { -normal * (end.pos - root.translation).dot(normal) } else { Vec3::ZERO };
-            let err = flat + keep + normal * out - Vec3::Y * down;
+            let err = flat + keep + normal * out - Vec3::Y * down + to_hang;
             let tos = chain_states(clips.len(), &self.state, &c.to);
             self.start_chain(clips, tos, root, err);
             return true;

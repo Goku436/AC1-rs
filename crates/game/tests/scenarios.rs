@@ -196,6 +196,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        name: "up B1's west face, round its corner at the top onto the bare north face: the wall hang, not the climbing stance",
+        env: &[("AC1_START", "38.9,35.86,-90"), ("AC1_CLIMB", "up=4.1,none=1.5,right=3")],
+        secs: 11.0,
+        want: &["corner_right_090_out : no holds for the feet there", "via xx_h_hangwall_strafe_right_050cm"],
+        never: &["EMBED", "via xx_l_climb_1m_r_2m at [4"],
+    },
+    Scenario {
         name: "speed-stepping along A stops short of B, turns the corner outside B",
         env: &[("AC1_START", "-1.4,4.0,180"), ("AC1_CLIMB", "leap-right=6")],
         secs: 8.0,

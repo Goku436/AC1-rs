@@ -520,7 +520,7 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
 ## Tools for bugs and tests
 - Scenarios: `AC1_SCENARIOS=1 cargo test --release -p ac1 --test scenarios -- --nocapture`. They run 6 games at once
   (`AC1_SCENARIO_JOBS=n`), each ending at its time without a screenshot (`AC1_SCENARIO_SHOTS=1` keeps them);
-  `AC1_SCENARIO_FILTER=text` runs only those whose name holds it. 56 scenarios: one at a time with screenshots 560 s,
+  `AC1_SCENARIO_FILTER=text` runs only those whose name holds it. 57 scenarios: one at a time with screenshots 560 s,
   now 108 s (4 at a time 161 s, 8 104 s but with timing flakes). A game's start and exit cost about 4 s of each run
   (the scenarios themselves 339 s): one game teleporting between zones would save that, below what running them side
   by side gives, at the risk of one run's state leaking into the next.
