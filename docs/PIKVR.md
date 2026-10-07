@@ -147,6 +147,18 @@ or missing textures, wrong UVs, missing meshes); NPCs. Tool: a shot pass over a 
 
 ## Run log
 
+### Start here (state at the end of 2026-10-07)
+- All 49 scenarios pass and no scenario plays a step that AC1's move graph lacks. Last commits: AC1's jump tables for
+  every running jump (`jump.rs`), the vault, posts, holds and target-less jumps; topping out into the walk; stepping
+  off a wall sideways; stand and foot placement fades; the beam, stairs, ramp, T2 and fence fixes.
+- Next, in order: (1) play test the feel items (run turn rate, walk stop, the capsule in Damascus) and the new
+  jumps; (2) the jump system's remaining parts (side directions, free-step takeoffs from beams and posts, flights to
+  passover/surface/swing, `hangwall_reception_*` at holds, landings by stick and speed); (3) the beam detector's five
+  settings (`GuidanceBeamDetectorAccurate`, class `d0a682d2`: find the data objects); (4) the remaining seam pops
+  (state changes, steady sprint weaving); (5) the hood: which bones skin the face opening, then the hinge modifiers.
+- Tools made for this: the recording pop detector (a scratch script; worth turning into `examples/` or a recorder
+  option), `examples/gaitseams`, `forge::skeleton::look_ats`.
+
 ### 2026-10-07: first pass (P and R; I through the fixes below)
 Fixed before the pass (from the user's recordings), each with a scenario:
 - Running up the stairs in high profile played the low-obstacle collide and stood leaning: the collide and the
