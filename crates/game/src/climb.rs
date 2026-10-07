@@ -1366,6 +1366,7 @@ impl WallClimb {
     /// A running jump onto a top at `to` with AC1's jump clips (`crate::jump`): the takeoff and flight blended by how far
     /// and how high it is, then the reception onto the top, the root following their motion with the difference to the
     /// target spread over the flight (as AC1 moves it). `None` when the clips are missing or the way is not clear.
+    #[allow(clippy::too_many_arguments)]
     fn jump_ac1(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, aim: Vec3, speed: f32, left: bool, from: Option<Pose>) -> Option<WallClimb> {
         let p = root.translation;
         let j = crate::jump::running(to.y - p.y, (to - p).with_y(0.0).length(), left, speed / JUMP_AC1_FAST_SPEED);
