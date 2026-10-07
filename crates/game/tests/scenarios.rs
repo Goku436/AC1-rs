@@ -99,7 +99,8 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "side grab: walking off the ledge with the legs held and the stick to the wall grabs it",
-        env: &[("AC1_START", "-5,-50.5,-90,3"), ("AC1_WALK", "1.9"), ("AC1_LEGS", "3.4-6"), ("AC1_VEER", "3.3,90")],
+        // (He walks off 0.28 m past the ledge's end, AC1's rim rule: the stick turns as he does.)
+        env: &[("AC1_START", "-5,-50.5,-90,3"), ("AC1_WALK", "1.9"), ("AC1_LEGS", "3.55-6"), ("AC1_VEER", "3.45,90")],
         secs: 6.0,
         want: &["leap -> 2m via xx_fall_tr_climb_min_b"],
         never: &["landed from", "EMBED"],

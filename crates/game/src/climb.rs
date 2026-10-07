@@ -4175,6 +4175,11 @@ impl WallClimb {
             v.x = 0.0;
             v.z = 0.0;
         }
+        // A ceiling over the head stops the rise (AC1's proxy against a ceiling).
+        if v.y > 0.0 && level.ceiling(root.translation, v.y * dt) {
+            debug!("climb: a ceiling stops the rise at {:.2}", root.translation);
+            v.y = 0.0;
+        }
         let v = *v;
         let step = v * dt;
         root.translation += step;

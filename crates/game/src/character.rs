@@ -700,6 +700,9 @@ const CAPSULE_STEP: f32 = 0.15;
 
 /// The speed value starts over (from standing) when it asks for this much more speed (m/s) than the body has.
 const GAIT_RESYNC: f32 = 1.5;
+/// The ground this far under the feet (m) is still stood on, walking down a step or a slope (AC1's stick-to-ground
+/// cast, 0.58 m); further down is a fall.
+const STICK_TO_GROUND: f32 = 0.58;
 
 /// Free running grabs or runs up a wall this close ahead (m).
 const FREE_RUN_REACH: f32 = 1.3;
@@ -1074,10 +1077,16 @@ pub fn locomotion(
         let steps = ((v.with_y(0.0).length() * dt) / CAPSULE_STEP).ceil().max(1.0) as usize;
         let mut pushed = Vec3::ZERO;
         for _ in 0..steps {
+            let was = tf.translation;
             tf.translation += v.with_y(0.0) * (dt / steps as f32);
             let out = level.capsule_push(tf.translation);
             tf.translation += out;
             pushed += out;
+            // (Not under a ceiling lower than the body: the step is a wall.)
+            if level.ceiling(tf.translation, 0.0) && !level.ceiling(was, 0.0) {
+                pushed += was - tf.translation;
+                tf.translation = was;
+            }
         }
         // Into a wall: the speed into it stops, the rest slides on.
         if let Some(n) = pushed.try_normalize() {
@@ -1087,7 +1096,8 @@ pub fn locomotion(
             }
         }
         embed_check(&level, tf.translation, "ground");
-        if let Some(g) = level.ground(tf.translation, 0.6, 20.0) {
+        // (On an edge the bottom of the body still rests on: AC1's fall-off rule, `Level::support`.)
+        if let Some(g) = level.support(tf.translation, 0.6, 20.0) {
             if tf.translation.y > g.point.y + 0.6
                 && ch.fall_v == 0.0
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
@@ -1111,7 +1121,8 @@ pub fn locomotion(
                     continue;
                 }
             }
-            if tf.translation.y > g.point.y + 0.35 || ch.fall_v < 0.0 {
+            // (Down a step of up to `STICK_TO_GROUND` the feet stay on the ground, as AC1's proxy casts down for it.)
+            if tf.translation.y > g.point.y + STICK_TO_GROUND || ch.fall_v < 0.0 {
                 // Airborne: fall until we reach the ground.
                 ch.fall_v -= 9.81 * dt;
                 tf.translation.y = (tf.translation.y + ch.fall_v * dt).max(g.point.y);
