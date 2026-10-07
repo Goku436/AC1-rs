@@ -201,10 +201,52 @@ const STEP_OFF: [&str; 2] = ["xx_l_climb_1m_tr_h_wait_hipm_footl_a", "xx_l_climb
 /// How far the step-off clip lowers the root, and the furthest ground it is used for.
 const STEP_OFF_DROP: f32 = 0.6;
 const STEP_OFF_MAX: f32 = 0.95;
-const LAND_SOFT: [&str; 2] = ["xx_h_landing_straight_soft_footr_tr_h_wait_footr_a", "xx_h_landing_straight_soft_footr_tr_h_wait_footr_b"];
-const LAND_HARD: [&str; 2] = ["xx_h_landing_straight_hard_footr_tr_h_wait_footr_a", "xx_h_landing_straight_hard_footr_tr_h_wait_footr_b"];
-const LAND_RUN_SOFT: [&str; 2] = ["xx_h_landing_forward_soft_footr_tr_h_jog_footl_a", "xx_h_landing_forward_soft_footr_tr_h_jog_footl_b"];
-const LAND_RUN_HARD: [&str; 2] = ["xx_h_landing_forward_hard_footr_tr_h_jog_footl_a", "xx_h_landing_forward_hard_footr_tr_h_jog_footl_b"];
+/// What a landing goes on into, by the stick and the profile (AC1's `xx_h_landing_..._tr_<wait|walk|jog|sprint>`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum LandInto {
+    Wait,
+    Walk,
+    Jog,
+    Sprint,
+}
+
+impl LandInto {
+    /// The stick let go: standing; held: walking in low profile, jogging in high, sprinting free running.
+    fn from(stick: bool, high: bool, sprint: bool) -> Self {
+        match (stick, sprint, high) {
+            (false, _, _) => Self::Wait,
+            (true, true, _) => Self::Sprint,
+            (true, false, true) => Self::Jog,
+            (true, false, false) => Self::Walk,
+        }
+    }
+
+    /// The speed it goes on at (m/s).
+    fn speed(self) -> f32 {
+        match self {
+            Self::Wait => 0.0,
+            Self::Walk => TOP_OUT_WALK,
+            Self::Jog => TOP_OUT_JOG,
+            Self::Sprint => PERCH_OFF_RUN,
+        }
+    }
+}
+
+/// AC1's ground landing (`HumanInAir`): `xx_h_landing_<forward|straight>_<soft|hard>_footr_tr_<into>`, `_a` the impact and
+/// `_b` going on: forward when coming down moving, straight when dropping; into the wait on the same foot, or the walk,
+/// jog or sprint's takeoff on the other.
+fn landing_names(forward: bool, hard: bool, into: LandInto) -> [String; 2] {
+    let way = if forward { "forward" } else { "straight" };
+    let force = if hard { "hard" } else { "soft" };
+    let after = match into {
+        LandInto::Wait => "h_wait_footr",
+        LandInto::Walk => "l_walk_footl",
+        LandInto::Jog => "h_jog_footl",
+        LandInto::Sprint => "h_sprint_impultion_footl",
+    };
+    let stem = format!("xx_h_landing_{way}_{force}_footr_tr_{after}");
+    [format!("{stem}_a"), format!("{stem}_b")]
+}
 /// Falling faster than this (m/s, about a 2.5 m drop) lands hard.
 const HARD_LANDING_SPEED: f32 = 7.0;
 /// Landing with more horizontal speed than this (m/s) rolls on into a jog.
@@ -355,7 +397,7 @@ const HEAVY_DROP: f32 = 6.3;
 const FATAL_DROP: f32 = 7.0;
 const SMALL_DAMAGE: f32 = 0.2;
 const HEAVY_DAMAGE: f32 = 0.5;
-const LAND_DAMAGE: [&str; 2] = ["xx_h_landing_damage_footl", "xx_h_landing_damage_footl_tr_h_wait_footr"];
+const LAND_DAMAGE: &str = "xx_h_landing_damage_footl";
 /// Running into a damaging landing, or from a drop over `ROLL_LANDING_DROP`, rolls on (`xx_roll_hipm` recovery).
 const LAND_DAMAGE_RUN: [&str; 2] = ["xx_h_landing_damage_footl_roll", "xx_roll_hipm_tr_h_jog_hipm_footr"];
 const ROLL_LANDING_DROP: f32 = 3.0;
@@ -4209,19 +4251,31 @@ impl WallClimb {
             self.finished = true;
             return;
         }
-        let names = match (running, down_speed > HARD_LANDING_SPEED) {
-            _ if damage >= HEAVY_DAMAGE => LAND_HEAVY,
-            (true, _) if damage > 0.0 || drop > ROLL_LANDING_DROP => LAND_DAMAGE_RUN,
-            _ if damage > 0.0 => LAND_DAMAGE,
-            (true, false) => LAND_RUN_SOFT,
-            (true, true) => LAND_RUN_HARD,
-            (false, false) => LAND_SOFT,
-            (false, true) => LAND_HARD,
+        // (By the stick and the profile: what the landing goes on into.)
+        let into = LandInto::from(self.move_dir.length() > 0.3, self.high, self.sprint);
+        let names: [String; 2] = match running {
+            _ if damage >= HEAVY_DAMAGE => LAND_HEAVY.map(String::from),
+            true if damage > 0.0 || drop > ROLL_LANDING_DROP => LAND_DAMAGE_RUN.map(String::from),
+            _ if damage > 0.0 => {
+                // (AC1's damaging landing goes on into the wait, the walk or the jog.)
+                let after = match into {
+                    LandInto::Wait => "h_wait_footr",
+                    LandInto::Walk => "h_walk_footl",
+                    LandInto::Jog | LandInto::Sprint => "h_jog_footl",
+                };
+                [LAND_DAMAGE.to_string(), format!("{LAND_DAMAGE}_tr_{after}")]
+            }
+            _ => landing_names(running, down_speed > HARD_LANDING_SPEED, into),
         };
-        if running {
-            self.exit_velocity = v.with_y(0.0).normalize() * flat_speed.min(MAX_EXIT_SPEED);
-        }
-        match (lib.get(names[0]), lib.get(names[1])) {
+        debug!("climb: landing into {into:?} ({})", names[0]);
+        // On the way it faces: at the run's speed when running in, else at the speed of what it goes into.
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        self.exit_velocity = match into {
+            LandInto::Wait => Vec3::ZERO,
+            _ if running => v.with_y(0.0).normalize() * flat_speed.min(MAX_EXIT_SPEED),
+            _ => fwd * into.speed(),
+        };
+        match (lib.get(&names[0]), lib.get(&names[1])) {
             (Some(impact), Some(recover)) => {
                 self.queue = vec![Queued::new(recover, GROUND)];
                 self.start(impact, LAND.into(), root);
@@ -4608,6 +4662,17 @@ impl WallClimb {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn landings_go_on_by_the_stick_and_profile() {
+        assert_eq!(LandInto::from(false, true, true), LandInto::Wait);
+        assert_eq!(LandInto::from(true, false, false), LandInto::Walk);
+        assert_eq!(LandInto::from(true, true, false), LandInto::Jog);
+        assert_eq!(LandInto::from(true, true, true), LandInto::Sprint);
+        assert_eq!(landing_names(true, false, LandInto::Wait)[0], "xx_h_landing_forward_soft_footr_tr_h_wait_footr_a");
+        assert_eq!(landing_names(false, true, LandInto::Sprint)[1], "xx_h_landing_straight_hard_footr_tr_h_sprint_impultion_footl_b");
+        assert_eq!(landing_names(false, false, LandInto::Walk)[0], "xx_h_landing_straight_soft_footr_tr_l_walk_footl_a");
+    }
 
     #[test]
     fn state_classes() {
