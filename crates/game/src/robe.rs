@@ -17,6 +17,9 @@ const PINNED: f32 = 0.06;
 const REACH_PER_M: f32 = 0.55;
 const MAX_REACH: f32 = 0.3;
 const DAMPING: f32 = 0.04;
+/// Pull toward the animated drape (1/s): standing, the robe hangs as authored (over the thighs, not sagging off them
+/// to show the trousers under it); moving, it still swings out.
+const SHAPE_RATE: f32 = 6.0;
 
 pub struct Robe {
     rest: Vec<Vec3>,
@@ -82,7 +85,11 @@ pub fn robe_cloth(
             .zip(robe.slots.iter().zip(&robe.weights))
             .map(|(p, (s, w))| (0..4).filter(|&k| w[k] > 0.0).map(|k| skin.get(s[k] as usize).map_or(Vec3::ZERO, |m| m.transform_point3(*p)) * w[k]).sum())
             .collect();
-        let cloth = robe.cloth.get_or_insert_with(|| Cloth::new(&robe.rest, &targets, &robe.triangles, robe.reach.clone()));
+        let cloth = robe.cloth.get_or_insert_with(|| {
+            let mut c = Cloth::new(&robe.rest, &targets, &robe.triangles, robe.reach.clone());
+            c.shape_rate = SHAPE_RATE;
+            c
+        });
         cloth.step(&targets, dt, Vec3::NEG_Y * 9.8, DAMPING, &capsules);
         let Some(mut mesh) = meshes.get_mut(&robe.mesh) else { continue };
         let pos: Vec<[f32; 3]> = cloth.pos.iter().map(|p| p.to_array()).collect();

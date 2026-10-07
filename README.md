@@ -33,12 +33,12 @@ whole from the install.
 | Area | State |
 |---|---|
 | Game data | Working. `.forge` archives, meshes, textures, skeletons, animations (22212/22228 clips), the move graph, collision shapes, ragdolls and cloth all read from the install |
-| Cities | Mostly working. Damascus and Masyaf load textured with collision; holds come from the buildings' geometry; haystacks, ladders, benches, swing poles and viewpoints are found by name. Acre, Jerusalem and Kingdom are unchecked; hay carts draw at the wrong scale |
+| Cities | Mostly working. Damascus and Masyaf load textured with collision; holds, ladders and swing poles come from AC1's own climbing markup (every city's parses); haystacks, benches and viewpoints are found by name. Acre, Jerusalem and Kingdom are unchecked; hay carts draw at the wrong scale |
 | Ground: walk, jog, run, sprint, starts, stops, turns | Working. Turns on the spot follow the stick and hand straight into the gait |
-| Jumps, falls and landings | Mostly working. Fall damage heights are estimates, not the game's values |
-| Climbing: walls, ledges, free hang, corners, climb jumps, pull-ups, pull-downs | Working. Some city walls lack holds the original has |
+| Jumps, falls and landings | Working. Fall damage at the game's heights (from 3 m, fatal over 7 m) |
+| Climbing: walls, ledges, free hang, corners, climb jumps, pull-ups, pull-downs | Working, on the game's own holds in cities |
 | Wall runs | Working, including at an angle. The sideways wall run is procedural (AC1 ships no clips for it) |
-| Beams, posts and two-step combos | Working |
+| Beams, posts, narrow wall tops and two-step combos | Working. Climbing onto a fence or parapet ends crouched, balancing on it |
 | Ladders | Working, in both profiles, with the rebound and moving across to and from the wall |
 | Swing bars and kiosk monkey bars | Working. Free running swings through a row hands-free |
 | Haystacks, benches, leap of faith | Working, including from Damascus viewpoints |
@@ -52,7 +52,8 @@ Technical notes (formats, research, the move graph, how each system works) are i
 
 ## Credits
 - [AC1-Movement-Rewritten](https://github.com/Banned445/AC1-Movement-Rewritten) by Banned445: a sister project; we
-  borrow from each other.
+  borrow from each other. From it: the climbing markup's format, the texture coordinate scale, the item gate bits,
+  the landing and jump-target heights, the bones Altaïr's sword and short blade hang on.
 
 ## License
 MIT, see `LICENSE`. This repository contains no game files: you need your own copy of Assassin's Creed.

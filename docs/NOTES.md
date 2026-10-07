@@ -360,7 +360,8 @@ no code):
 - Haystack: `EntityDescriptorObject_HayStack`, `BhvHayStack(Data)`, `HumanHayStackData`, actor state
   `InHayStack`, entry types `Top`, `Ground`, `FreeStep`, `SideJump` (only Top is recreated).
 - Leap of faith: actor state `LeapOfFaith`, `LeapOfFaithClip` resolved on jump start/end.
-- Landing: `LandingType` Safe / SmallDamage / HeavyDamage / Fatal (recreated with guessed heights).
+- Landing: `LandingType` Safe / SmallDamage / HeavyDamage / Fatal: damaging from 3 m, heavy over 6.3 m, fatal over 7 m
+  of drop from the top of the fall (the game's landing function, as Banned445's AC1-Movement-Rewritten reads it).
 - In-air jump types: `JumpType_Straight`, `JumpType_1m`, `JumpType_3m5m`.
 
 ## Format notes (forge v25)
@@ -395,13 +396,20 @@ no code):
 - Heads and faces don't receive shadows (the hood's shadow-map shadow made the face black); arms are pushed out of
   walls (where the upper arm or forearm would cross level geometry the hand moves out along the surface, two-bone
   IK bending the elbow away).
-- Head meshes (`*_Head`: faces, eyes, mouths) take v = raw / 2048 unflipped, where the other skinned meshes take
-  1 - raw / 4096 (measured on Altaïr's face: its texture is a cylindrical unwrap stored upside down; with the
-  usual mapping the face samples the dark hair). What marks the difference in the data is unknown (`?`).
+- Every mesh's texture coordinates are raw / 2048, unflipped, and repeat past 0..1 (from Banned445's repo; until
+  2026-10-06 we read 1 - raw / 4096 and patched the heads, which showed every texture at half scale).
+- Altaïr carries weapons with no skin of their own on tag bones, their vertices in the bone's frame: the sword
+  `ARCM_Altair_Sword_D` on bone 3a835926 (from the `UCMA_Sword_Tag` skeleton) and the short blade `UCMA_Altair_Dagger`
+  on 685e46b6 (pairs from Banned445's repo); the entity does not list them. The scabbard hangs straight down: AC1
+  angles it with the sword tag's modifiers, not read yet.
+- Some materials name a texture set kept in another data file, or are kept there themselves: the throwing daggers'
+  are in DataPC's `Game Bootstrap Settings` (`DataFile::material_map_in`).
+- Cloth (materials named `*Cloth*`) is drawn from both sides: AC1 gives it an inside material, and the robe's tails
+  fold their backs into view (culled, they showed the trousers through holes).
 - Textures carry the full mip chain after the top level; it is decoded and uploaded (without it they shimmer).
 - Skin weights: the four bytes sum to about 255 (254-256); they are normalized to 1 on load, otherwise skinned
   positions scale with the distance from the world origin and the mesh streaks.
-- Skinned vertex (32 B): i16x4 pos (1/2048 m), 3x u8x4 normal/tangent/binormal, i16x2 uv (1/4096),
+- Skinned vertex (32 B): i16x4 pos (1/2048 m), 3x u8x4 normal/tangent/binormal, i16x2 uv (1/2048, v as images are stored, repeating),
   u8x4 palette indices, u8x4 weights.
 - Skeleton: u32 0, u32 count, bones with parent refs (`02 id` / `03`), object-space and local
   {vec4 pos, quat xyzw}, then constraint extras. Z up, character faces +X. Mesh space is the skeleton
@@ -430,6 +438,9 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
 `cmma`/`cfaa`.
 
 ## Tools for bugs and tests
+- `AC1_SURFACES="x,z,..."` logs every collision surface down a vertical line at each point and `AC1_RAYS` what rays
+  hit (and whether from behind); `AC1_START="x,z,yaw,y"` starts on the ground under height y (not the highest roof).
+  Used to replay a recording's spot.
 - F9: the flight recorder writes the player's last 10 s, frame by frame (root, facing, speed, the move and clip,
   hips/head/hands/feet in the world, IK targets) to `ac1-recording-<ms>.txt` with a screenshot.
 - Controller (Xbox or DualShock 4, by button position): left stick moves, right stick turns the camera; A/Cross legs,
@@ -452,6 +463,12 @@ give the byte layout of an object; field names are only hashes when the exe does
 disassembler and the class tables, written up here; no code from the executable is in the repo.)
 
 ## Move graph (`ActionKit`, `ActionBlock`)
+Each item's 12 flag bytes are, in order, bits 0x10.. of the game's per-item gate word (`forge::action::Item::word`,
+`gate`; meanings from Banned445's AC1-Movement-Rewritten, checked against its table): 0x10 the animation turns the
+body, 0x20 locked (no new move or mode starts during it), 0x40 / 0x80 may be left for standing in low / high profile,
+0x200 / 0x800 for moving, 0x1000 a jump takeoff, 0x2000 a `*_tr_fall`. The turns on the spot are 0x30 (turn, locked);
+their exits into a gait 0x0fc0 (may be left any time): AC1 plays the turn through and lets the gait take over.
+
 `Human_ActionKit` (DataPC, `Game Fix`) lists 51 action blocks (`HumanGround`, `HumanInAir`, `HumanWalling`,
 `HumanLedge`, `HumanLadder`, `HumanClimb`, `HumanClimb_Jumps`, `HumanNarrowObject`, `HumanHayStack`, fights,
 reactions...). Format: see `crates/forge/src/action.rs`; the `actions` tool prints a block (`actions <game> HumanLedge`)
@@ -565,8 +582,26 @@ Standing on one, the legs do the leap of faith to its nearest hay whichever way 
 builds each viewpoint over its hay). The high dive (`..._3000cm_down`) is used only where nothing is under its 8 m
 takeoff drop, else the low dive, its flight carrying it clear of the tower.
 
+## Authored guidance (AC1's climbing markup)
+A climbable entity carries a `GuidanceSystem` (55af1c3e) inside its body: the edges the player may grab (format in
+`crates/forge/src/guidance.rs`, found through Banned445's AC1-Movement-Rewritten). Every one parses
+(`examples/guidancecheck`): Damascus 8023/8023 (151,456 enabled edges: 150,915 ledge grabs, 317 ladders, 356 poles),
+Masyaf 963/963 (13,217), Acre 7018/7018 (138,980), Jerusalem 6493/6493 (105,908), Kingdom 5374/5374 (26,836). No beam
+or kiosk edges are authored in the cities.
+- A ladder is a vertical edge from its foot to its top (4.5 m for `Ladder_4m`), its horizontal normal out from the wall.
+- A pole is two horizontal edges along it, one per side: one swing bar.
+- A ledge grab's two normals are its top's (up) and its wall's (out).
+Cities use them (`Level::use_authored`): the ledge grabs (sloping at most 0.35) are the holds, instead of the edges
+and lips found in the geometry; the ladders and horizontal poles replace the ones guessed from mesh names. Damascus:
+174,677 holds, 333 ladders, 183 swing poles. `AC1_GEOMETRY_HOLDS` brings the geometry's holds back. A top-out also
+needs room to stand (1.7 m of headroom 0.5 m in, no wall just past the edge, probed from in front of the wall, and the
+spot not inside a solid): window sills are holds whose top is a window, not a floor to climb onto, and a beam stuck into
+a building shows its top inside the wall. Narrow wall tops (a fence's or a parapet's, 0.15-0.6 m deep behind a hold
+with a drop past it, open above) become perches along their middle (`Level::add_narrow_tops`, Damascus 10,557):
+climbing onto one ends crouched, balancing on it, and free running carries on along or off it.
+
 ## City parkour objects
-Cities have no hold or object data (see Research): the parkour objects are found by mesh name when a city is placed, and
+Hay, benches and the ladders and poles of cities without authored ones have no data of their own: they are found by mesh name when a city is placed, and
 set up against the built collision (`Level::add_city_objects`), logged as "N haystacks, N ladders, ...":
 - hay: `Hay_Bale_Charette*`, `Hay_Bale_Chariot*`, `Hay_Bale_01` (not the straw strewn on the ground, `Hay_Bale_Tile*`).
   Their meshes use a vertex format not decoded yet, so a cart's stack stands where its entity is (1.8 x 1.8 m, 1.8 m
@@ -601,7 +636,9 @@ over the top, 1.9 m up on average. The rest stop where the next hold is more tha
 - Beams: every `WoodBeam_*` (and `WoodBeam_Fixture`) instance's top line is kept where it is out in the open (headroom
   above, the beam's top the first thing below, so not the part inside the wall it is stuck into): those stretches are
   perches to balance on, walk along and jump between (Damascus: 1336 from 937 beams); a stub sticking out of a wall less
-  than 0.8 m also gets a hand hold across its end (96). Pegs modelled into the house meshes themselves are not found yet.
+  than 0.8 m also gets a hand hold across its end (67). A stretch inside a solid (`Level::inside_solid`: three of four
+  level rays meet faces from behind; AC1's shapes are closed and wound outward) is not a perch, even where the beam's
+  own top shows inside a building's wall (Damascus: 1141 perches). Pegs modelled into the house meshes themselves are not found yet.
 - Shared props: city entities also refer by id to meshes and materials stored in `DataPC_Common.forge` (bushes,
   palms, souk windows, wooden beams, lanterns, ladders, hiding-spot tarps, columns; Damascus uses 240 of them, 24836
   references). Only the data files holding those, and their materials, texture sets, maps and textures, are read
@@ -609,7 +646,8 @@ over the top, 1.9 m up on average. The rest stop where the next hold is more tha
 - Left out: `_LOD_*` meshes, ground clutter, dead bodies of a mission's scene, `OutOfBound*`/`OOB_*` mission walls,
   `GP_MARK_*` gameplay map markers (big floating letters), `PositionHelper`s and `PillarDust` light shafts. Water
   surfaces (`*Water*`, `*Lake*`, `*Puddle*`: AC1 shades them itself) get a translucent material and no collision.
-- No hold data has been found: the runtime makes holds from building edges (a walkable top meeting a wall below).
+- Holds come from AC1's own climbing markup (see "Authored guidance"); without it (or with `AC1_GEOMETRY_HOLDS`) the
+  runtime makes them from building edges (a walkable top meeting a wall below).
 
 ## Animation notes
 See the header of `crates/forge/src/anim.rs`. In short: per-track blocks

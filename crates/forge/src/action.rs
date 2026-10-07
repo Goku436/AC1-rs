@@ -18,7 +18,8 @@
 //! - `Action`: u32 key, BodyPartChannel slot, 2 x ActionTransition slot, 5 x u8 flags `?`, u32 torso
 //!   constraint mode, u32 `?`, u32 `?`, AssociatedActionGroup slot, [ActionItem slot]
 //! - `ActionItem`: [u32 clip link], [ActionTransition slot], ActionBlend (inline), u32 displacement mode,
-//!   u32 feet at start, u32 feet at end, 12 x u8 flags `?`, f32 `?`, u32 `?`, u8 `?`, [f32 variant weight]
+//!   u32 feet at start, u32 feet at end, 12 x u8 flags (the game packs them as bits 0x10.. of a word, see
+//!   `Item::word`), f32 `?`, u32 `?`, u8 `?`, [f32 variant weight]
 //! - `ActionTransition`: ActionBlend (inline), u32 action link, u32 `?`, ActionBlend (inline), u32 action
 //!   link, u32 `?`
 //! - `ActionBlend` (its own deserializer): u32 blend type, 3 x u8 flags, u32 B-position mode, u32
@@ -100,6 +101,24 @@ pub struct Transition {
     pub value2: u32,
 }
 
+/// `Item::word` bits (the game's per-item animation gates; meanings from Banned445's AC1-Movement-Rewritten, checked
+/// against its table: our bytes map one to one onto these bits).
+pub mod gate {
+    /// The animation turns the body (the code's heading is not applied).
+    pub const TURNS_BODY: u32 = 0x10;
+    /// Locked: no new move or mode starts while it plays.
+    pub const LOCKED: u32 = 0x20;
+    /// May be left for standing, in low / high profile.
+    pub const LEAVE_STAND_LOW: u32 = 0x40;
+    pub const LEAVE_STAND_HIGH: u32 = 0x80;
+    /// May be left for moving, in low / high profile.
+    pub const LEAVE_MOVE_LOW: u32 = 0x200;
+    pub const LEAVE_MOVE_HIGH: u32 = 0x800;
+    /// A jump takeoff (`*_to_air`) / a `*_tr_fall` item.
+    pub const TAKEOFF: u32 = 0x1000;
+    pub const TO_FALL: u32 = 0x2000;
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Item {
     pub id: u32,
@@ -112,6 +131,13 @@ pub struct Item {
     pub flags: [u8; 12],
     /// One weight per clip: the blend space's default mix (or other per-clip values).
     pub weights: Vec<f32>,
+}
+
+impl Item {
+    /// The flags as the game's word (`gate` bits; the feet in the low four bits are left out).
+    pub fn word(&self) -> u32 {
+        self.flags.iter().enumerate().filter(|(_, f)| **f != 0).map(|(k, _)| 0x10 << k).sum()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -302,6 +328,15 @@ pub fn parse_kit(body: &[u8]) -> Result<ActionKit> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn item_word_packs_flags_as_the_game_does() {
+        // The ladder wait (action 0x1068ff7): 0x0fd5 in the game, its feet (5) aside.
+        let item = Item { flags: [1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0], ..Default::default() };
+        assert_eq!(item.word(), 0x0fd0);
+        let turn = Item { flags: [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..Default::default() };
+        assert_eq!(turn.word(), gate::TURNS_BODY | gate::LOCKED);
+    }
     use super::*;
 
     fn blend(time: f32) -> Vec<u8> {

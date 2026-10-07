@@ -650,6 +650,20 @@ fn spawn_world(
         }
         let tris_before = level.tris.len();
         let world = to_bevy * m;
+        // AC1's authored climbing markup on this entity (`forge::guidance`): its enabled edges, in the world.
+        for g in forge::guidance::find_in_entity(body).into_iter().flatten().filter(|g| g.active) {
+            for e in g.edges.iter().filter(|e| e.enabled) {
+                let [n0, n1] = e.normals.map(|n| world.transform_vector3(Vec3::from(n)).normalize_or_zero());
+                // (The wall's normal is the one nearer horizontal; the other is the top's.)
+                let wall = if n0.y.abs() < n1.y.abs() { n0 } else { n1 };
+                level.authored.push(crate::level::Authored {
+                    kind: e.subtype,
+                    a: world.transform_point3(Vec3::from(e.a)),
+                    b: world.transform_point3(Vec3::from(e.b)),
+                    out: wall.with_y(0.0).normalize_or_zero(),
+                });
+            }
+        }
         // A viewpoint (its `ReachHighPointComponent`): synchronize there (Q, standing on its perch).
         if (0..body.len().saturating_sub(3)).any(|k| u32_at(body, k) == CLASS_REACH_HIGH_POINT) {
             level.viewpoints.push(world.w_axis.truncate());
@@ -663,6 +677,7 @@ fn spawn_world(
                 }
                 // (Skipped, and its render meshes not standing in for it.)
                 if !blocks_player(&so.name) {
+                    debug!("city: left out shape {} at {:.1}", so.name, world.w_axis.truncate());
                     has_shape = true;
                     skipped_bounds += 1;
                     seen.push(so.id);
@@ -697,6 +712,7 @@ fn spawn_world(
                     continue;
                 }
                 if !blocks_player(&so.name) {
+                    debug!("city: left out shape {} at {:.1}", so.name, world.w_axis.truncate());
                     has_shape = true;
                     skipped_bounds += 1;
                     seen.push(so.id);

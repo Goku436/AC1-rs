@@ -331,14 +331,17 @@ pub fn spawn_character(
     let textures: std::collections::HashMap<u32, Handle<Image>> = data.textures.into_iter().map(|(id, img)| (id, images.add(img))).collect();
     let mut robe = None;
     for part in data.parts {
+        // Cloth is seen from inside too (AC1 gives its cloth an inside material): the robe's tails fold and swing
+        // their backs into view, which back-face culling would leave as holes.
+        let two_sided = part.alpha || part.material.contains("Cloth");
         let mat = mats.add(StandardMaterial {
             base_color_texture: part.texture.and_then(|t| textures.get(&t).cloned()),
             normal_map_texture: part.normal.and_then(|t| textures.get(&t).cloned()),
             flip_normal_map_y: true,
             base_color: if part.texture.is_some() { Color::WHITE } else { Color::srgb(0.85, 0.82, 0.78) },
             alpha_mode: if part.alpha { AlphaMode::Mask(0.5) } else { AlphaMode::Opaque },
-            double_sided: part.alpha,
-            cull_mode: if part.alpha { None } else { Some(bevy::render::render_resource::Face::Back) },
+            double_sided: two_sided,
+            cull_mode: if two_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
             perceptual_roughness: 0.8,
             ..default()
         });

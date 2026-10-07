@@ -96,16 +96,26 @@ pub fn load_character(game_dir: &Path, forge_file: &str, datafile: &str, entity:
     let overrides = df.material_overrides(ent);
     info!("{entity}: {} skeletons -> {} bones, {} material overrides", skels.len(), rig.len(), overrides.len());
 
+    // Materials whose texture sets live in the game's shared bootstrap file (the throwing daggers).
+    let shared_bytes = forge.entries.iter().find(|e| e.name == SHARED_DATAFILE).and_then(|e| forge.read(e).ok());
+    let shared = shared_bytes.as_deref().and_then(|b| DataFile::parse(b).ok());
     let mut parts = vec![];
     let mut textures = HashMap::new();
     let mut seen_meshes = vec![];
+    let src = Source { df: &df, shared: shared.as_ref(), overrides: &overrides };
     for (_, o) in refs.iter().filter(|(_, o)| o.class == CLASS_MESH) {
         // Skip duplicate refs and distant LODs.
         if seen_meshes.contains(&o.id) || o.name.contains("_LOD") {
             continue;
         }
         seen_meshes.push(o.id);
-        add_mesh_parts(&df, o, &rig, &by_hash, &overrides, &mut parts, &mut textures);
+        add_mesh_parts(&src, o, &rig, &by_hash, None, &mut parts, &mut textures);
+    }
+    // Weapons carried on tag bones (rigid, no skin of their own; the entity does not list them).
+    for (name, bone) in CARRIED {
+        if let (Some(o), Some(&r)) = (df.by_name(CLASS_MESH, name), by_hash.get(&bone)) {
+            add_mesh_parts(&src, o, &rig, &by_hash, Some(r), &mut parts, &mut textures);
+        }
     }
     let hashes = hashes_of(rig.len(), &by_hash);
     Ok(CharacterData { rig, hashes, parts, textures })
@@ -167,7 +177,7 @@ pub fn load_assembled_with(
             warn!("no mesh {name} in {df}");
             continue;
         };
-        add_mesh_parts(d, o, &rig, &by_hash, &HashMap::new(), &mut parts, &mut textures);
+        add_mesh_parts(&Source { df: d, shared: None, overrides: &HashMap::new() }, o, &rig, &by_hash, None, &mut parts, &mut textures);
     }
     info!("assembled {} skeletons -> {} bones, {} parts", skels.len(), rig.len(), parts.len());
     let hashes = hashes_of(rig.len(), &by_hash);
@@ -188,25 +198,48 @@ pub fn load_texture(game_dir: &Path, forge_file: &str, datafile: &str, name: &st
 
 /// Upload with the texture's own mip chain and trilinear, anisotropic filtering (without mips the
 /// textures shimmer as the character moves). A full chain goes down to 1x1; a partial one is dropped.
-/// Skinned submeshes of mesh object `o` (in data file `df`) bound to `rig`, with their diffuse textures.
+/// Data file `"Game Bootstrap Settings"` (in DataPC.forge) holds texture sets other files' materials name.
+const SHARED_DATAFILE: &str = "Game Bootstrap Settings";
+
+/// Weapons Altaïr carries, each on its tag bone (by name hash): the sword in its sheath (the `UCMA_Sword_Tag`
+/// skeleton's bone) and the short blade in the back sheath. The pairs are from Banned445's AC1-Movement-Rewritten.
+const CARRIED: [(&str, u32); 2] = [("ARCM_Altair_Sword_D", 0x3a83_5926), ("UCMA_Altair_Dagger", 0x685e_46b6)];
+
+/// Where a character's meshes and materials come from.
+struct Source<'s, 'a> {
+    df: &'s DataFile<'a>,
+    /// The shared bootstrap file, for materials whose texture sets are not in `df`.
+    shared: Option<&'s DataFile<'s>>,
+    /// Material overrides (placeholder -> real).
+    overrides: &'s HashMap<u32, u32>,
+}
+
+/// Skinned submeshes of mesh object `o` bound to `rig`, with their diffuse textures. A mesh with no skin of its own
+/// is drawn on bone `tag` (its vertices in that bone's frame), or left out without one.
 fn add_mesh_parts(
-    df: &DataFile,
+    src: &Source,
     o: &forge::Object,
     rig: &Rig,
     by_hash: &HashMap<u32, usize>,
-    overrides: &HashMap<u32, u32>,
+    tag: Option<usize>,
     parts: &mut Vec<Part>,
     textures: &mut HashMap<u32, Image>,
 ) {
     let rest_model = rig.rest_pose().model(rig);
-    let m = match parse_mesh(o.body) {
-        Ok(m) if !m.bones.is_empty() => m,
+    let mut m = match parse_mesh(o.body) {
+        Ok(m) if !m.bones.is_empty() || tag.is_some() => m,
         Ok(_) => return,
         Err(e) => {
             warn!("mesh {}: {e:#}", o.name);
             return;
         }
     };
+    if let (true, Some(r)) = (m.bones.is_empty(), tag) {
+        m.joints = vec![[0; 4]; m.positions.len()];
+        m.weights = vec![[1.0, 0.0, 0.0, 0.0]; m.positions.len()];
+        add_submeshes(src, o, &m, vec![r], vec![Mat4::IDENTITY], parts, textures);
+        return;
+    }
     let joints: Vec<usize> = m.bones.iter().map(|b| by_hash.get(&b.name_hash).copied().unwrap_or(0)).collect();
     let missing: Vec<String> = m.bones.iter().filter(|b| !by_hash.contains_key(&b.name_hash)).map(|b| format!("{:08x}", b.name_hash)).collect();
     if !missing.is_empty() {
@@ -243,6 +276,20 @@ fn add_mesh_parts(
         joints.iter().map(|&r| xform_mat(&rest_model[r]).inverse() * mesh_to_model).collect()
     };
 
+    add_submeshes(src, o, &m, joints, inverse_binds, parts, textures);
+}
+
+/// One part per submesh of `m`, skinned to rig bones `joints` with `inverse_binds`.
+fn add_submeshes(
+    src: &Source,
+    o: &forge::Object,
+    m: &forge::mesh::Mesh,
+    joints: Vec<usize>,
+    inverse_binds: Vec<Mat4>,
+    parts: &mut Vec<Part>,
+    textures: &mut HashMap<u32, Image>,
+) {
+    let (df, overrides) = (src.df, src.overrides);
     for (si, sub) in m.submeshes.iter().enumerate() {
         let v0 = sub.first_vertex as usize;
         let vn = sub.vertex_count as usize;
@@ -251,12 +298,7 @@ fn add_mesh_parts(
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, m.positions[range.clone()].to_vec());
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, m.normals[range.clone()].to_vec());
-        // Head meshes (faces, `*_Head`) map v = raw / 2048, not flipped, where every other mesh maps
-        // 1 - raw / 4096 (measured: Altaïr's face texture is a cylindrical unwrap stored upside down;
-        // the usual mapping puts the face on its dark hair and the face renders black). No field
-        // telling them apart has been found (`?`).
-        let head = o.name.contains("_Head");
-        let uvs: Vec<[f32; 2]> = m.uvs[range.clone()].iter().map(|&[u, v]| if head { [u, (1.0 - v) * 2.0] } else { [u, v] }).collect();
+        let uvs: Vec<[f32; 2]> = m.uvs[range.clone()].to_vec();
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
         mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(m.joints[range.clone()].to_vec()));
         mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, m.weights[range.clone()].to_vec());
@@ -264,8 +306,9 @@ fn add_mesh_parts(
 
         let mat_id = m.materials.get(si).copied();
         let real = mat_id.map(|id| *overrides.get(&id).unwrap_or(&id));
-        let mat_name = real.and_then(|id| df.get(id)).map(|o| o.name.clone()).unwrap_or_default();
-        let tex = real.and_then(|id| df.material_diffuse(id));
+        let mat_name =
+            real.and_then(|id| df.get(id).map(|o| o.name.clone()).or_else(|| src.shared.and_then(|sh| sh.get(id)).map(|o| o.name.clone()))).unwrap_or_default();
+        let tex = real.and_then(|id| df.material_diffuse(id).or_else(|| src.shared.and_then(|sh| df.material_map_in(sh, id, "Diffuse"))));
         if let Some(t) = tex
             && !textures.contains_key(&t.id)
         {
@@ -277,7 +320,7 @@ fn add_mesh_parts(
             }
         }
         // The normal map (tangent space, RGB, DirectX's green), with tangents for it.
-        let nrm = real.and_then(|id| df.material_map(id, "Normal"));
+        let nrm = real.and_then(|id| df.material_map(id, "Normal").or_else(|| src.shared.and_then(|sh| df.material_map_in(sh, id, "Normal"))));
         if let Some(n) = nrm
             && !textures.contains_key(&n.id)
         {
@@ -322,6 +365,11 @@ pub(crate) fn to_image(t: forge::Texture) -> Image {
         image.texture_descriptor.mip_level_count = levels;
     }
     debug!("texture {}x{}: {levels} mip levels", t.width, t.height);
-    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor { anisotropy_clamp: 8, ..ImageSamplerDescriptor::linear() });
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        anisotropy_clamp: 8,
+        address_mode_u: bevy::image::ImageAddressMode::Repeat,
+        address_mode_v: bevy::image::ImageAddressMode::Repeat,
+        ..ImageSamplerDescriptor::linear()
+    });
     image
 }

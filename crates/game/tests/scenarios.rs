@@ -254,13 +254,6 @@ fn run(exe: &str, s: &Scenario) -> Result<(), String> {
     c.env("RUST_LOG", "ac1=debug,wgpu=error").env("NO_COLOR", "1").env("AC1_SHOT", &shot).env("AC1_SHOT_SECS", s.secs.to_string()).env("AC1_EMBED_CHECK", "1");
     c.envs(QUIET.iter().copied());
     c.envs(s.env.iter().copied());
-    // (At idle priority, so whatever else runs on the machine comes first; its window opens in the background.)
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const IDLE_PRIORITY_CLASS: u32 = 0x40;
-        c.creation_flags(IDLE_PRIORITY_CLASS);
-    }
     let out = c.output().map_err(|e| format!("could not run the game: {e}"))?;
     let log = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
     if log.contains("panicked") {

@@ -97,6 +97,22 @@ const HAY_HALF_MAX: f32 = 1.5;
 /// A city haystack's height when its mesh gives none (m).
 const CITY_HAY_HEIGHT: f32 = 1.8;
 
+/// An authored guidance edge (`forge::guidance`), in the world: its kind, ends and the way out from its wall.
+#[derive(Clone, Copy, Debug)]
+pub struct Authored {
+    pub kind: forge::guidance::SubType,
+    pub a: Vec3,
+    pub b: Vec3,
+    pub out: Vec3,
+}
+
+/// An authored ledge edge sloping more than this (rise over length) is a stair or roof slope, not a hold.
+const AUTHORED_MAX_SLOPE: f32 = 0.35;
+/// A top behind a hold this deep or less (m), with a drop past it, is a narrow wall top to balance on, not to stand.
+const NARROW_TOP_MAX: f32 = 0.6;
+/// Rays this long (m) decide whether a point is inside a solid (`inside_solid`).
+const INSIDE_PROBE: f32 = 12.0;
+
 /// A city mesh's part in parkour (see `city::city_object`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CityObject {
@@ -115,6 +131,10 @@ pub struct Level {
     pub nav: Option<crate::nav::NavGraph>,
     pub tris: Vec<Tri>,
     pub ledges: Vec<Ledge>,
+    /// AC1's authored guidance edges (cities): see `use_authored`.
+    pub authored: Vec<Authored>,
+    /// Ladders came from the authored edges (the name-based ones in `add_city_objects` are then left out).
+    pub authored_ladders: bool,
     /// City meshes that are parkour objects, by kind, with their world bounds (see `add_city_objects`).
     pub city_objects: Vec<(CityObject, Vec3, Vec3)>,
     /// Where walkable tops end, not yet known to be holds (see `add_probed_ledges`).
@@ -182,17 +202,23 @@ impl Level {
     }
 
     pub fn raycast(&self, origin: Vec3, dir: Vec3, max: f32) -> Option<Hit> {
+        self.raycast_sided(origin, dir, max).map(|(h, _)| h)
+    }
+
+    /// `raycast`, and whether the face hit was met from behind (its winding faces away from the ray: the ray
+    /// started inside a solid).
+    pub fn raycast_sided(&self, origin: Vec3, dir: Vec3, max: f32) -> Option<(Hit, bool)> {
         if self.grid.is_empty() {
             return self.raycast_tris(self.tris.iter(), origin, dir, max);
         }
         let end = origin + dir * max;
         let (lo, hi) = (origin.min(end), origin.max(end));
-        let mut best: Option<Hit> = self.raycast_tris(self.big.iter().map(|&i| &self.tris[i as usize]), origin, dir, max);
+        let mut best = self.raycast_tris(self.big.iter().map(|&i| &self.tris[i as usize]), origin, dir, max);
         for x in cell(lo.x)..=cell(hi.x) {
             for z in cell(lo.z)..=cell(hi.z) {
                 let Some(list) = self.grid.get(&(x, z)) else { continue };
                 if let Some(h) = self.raycast_tris(list.iter().map(|&i| &self.tris[i as usize]), origin, dir, max)
-                    && best.is_none_or(|b| h.dist < b.dist)
+                    && best.is_none_or(|b| h.0.dist < b.0.dist)
                 {
                     best = Some(h);
                 }
@@ -201,8 +227,8 @@ impl Level {
         best
     }
 
-    fn raycast_tris<'t>(&self, tris: impl Iterator<Item = &'t Tri>, origin: Vec3, dir: Vec3, max: f32) -> Option<Hit> {
-        let mut best: Option<Hit> = None;
+    fn raycast_tris<'t>(&self, tris: impl Iterator<Item = &'t Tri>, origin: Vec3, dir: Vec3, max: f32) -> Option<(Hit, bool)> {
+        let mut best: Option<(Hit, bool)> = None;
         for t in tris {
             let e1 = t.b - t.a;
             let e2 = t.c - t.a;
@@ -223,14 +249,15 @@ impl Level {
                 continue;
             }
             let d = e2.dot(q) * inv;
-            if d < 0.0 || d > max || best.is_some_and(|b| b.dist <= d) {
+            if d < 0.0 || d > max || best.is_some_and(|b| b.0.dist <= d) {
                 continue;
             }
             let mut n = e1.cross(e2).normalize_or_zero();
-            if n.dot(dir) > 0.0 {
+            let behind = n.dot(dir) > 0.0;
+            if behind {
                 n = -n;
             }
-            best = Some(Hit { point: origin + dir * d, normal: n, dist: d });
+            best = Some((Hit { point: origin + dir * d, normal: n, dist: d }, behind));
         }
         best
     }
@@ -313,6 +340,8 @@ impl Level {
             let wall_side =
                 |at: Vec3| -> Option<Vec3> { [across, -across].into_iter().find(|d| self.raycast(at, *d, 0.8).is_some_and(|h| h.normal.y.abs() < 0.3)) };
             match kind {
+                // (Authored ladders, when the city has them, replace the ones guessed from meshes.)
+                CityObject::Ladder if self.authored_ladders => {}
                 CityObject::Ladder => {
                     // Thin across, tall; its wall on one side.
                     if size.y < 2.0 {
@@ -352,8 +381,11 @@ impl Level {
                         continue;
                     }
                     let half = along * (size.dot(along) * 0.5);
-                    self.bars.push(Line { a: mid - half, b: mid + half });
-                    bars += 1;
+                    // (Not again where an authored pole already is.)
+                    if !self.bars.iter().any(|b| b.closest(mid).distance(mid) < 0.3) {
+                        self.bars.push(Line { a: mid - half, b: mid + half });
+                        bars += 1;
+                    }
                 }
                 CityObject::Hay => {}
             }
@@ -361,8 +393,50 @@ impl Level {
         (hay, ladders, benches, bars)
     }
 
+    /// Use AC1's own climbing markup where the city has it: its ledge grabs become the holds (instead of the edges and
+    /// lips found in the geometry), its ladders the ladders, its horizontal poles the swing bars (each pole's two side
+    /// edges as one bar). `AC1_GEOMETRY_HOLDS` keeps the geometry's holds. Returns (holds, ladders, bars), or None.
+    pub fn use_authored(&mut self) -> Option<(usize, usize, usize)> {
+        if self.authored.is_empty() || std::env::var("AC1_GEOMETRY_HOLDS").is_ok() {
+            return None;
+        }
+        use forge::guidance::SubType;
+        let mut ledges = vec![];
+        let (mut ladders, mut bars) = (0, 0);
+        for e in std::mem::take(&mut self.authored) {
+            let len = e.a.distance(e.b);
+            match e.kind {
+                SubType::LedgeGrab => {
+                    if len > 0.05 && (e.b.y - e.a.y).abs() / len <= AUTHORED_MAX_SLOPE && e.out != Vec3::ZERO {
+                        ledges.push(Ledge { a: e.a, b: e.b, out: e.out });
+                    }
+                }
+                SubType::Ladder => {
+                    let (lo, hi) = if e.a.y < e.b.y { (e.a, e.b) } else { (e.b, e.a) };
+                    if e.out != Vec3::ZERO {
+                        self.ladders.push(Ladder { base: lo, top: hi.y, out: e.out });
+                        ladders += 1;
+                    }
+                }
+                SubType::Pole if (e.b.y - e.a.y).abs() < 0.3 * len.max(0.01) => {
+                    let mid = (e.a + e.b) * 0.5;
+                    if !self.bars.iter().any(|b| b.closest(mid).distance(mid) < 0.2) {
+                        self.bars.push(Line { a: e.a, b: e.b });
+                        bars += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let holds = ledges.len();
+        self.ledges = ledges;
+        self.authored_ladders = ladders > 0;
+        Some((holds, ladders, bars))
+    }
+
     pub fn add_beam_perches(&mut self) {
-        let open = |p: Vec3| self.ground(p + Vec3::Y * 1.9, 0.0, 1.98).is_some_and(|h| (h.point.y - p.y).abs() < 0.08);
+        // (Not where the beam runs inside a wall it is stuck into, even if its top shows there.)
+        let open = |p: Vec3| self.ground(p + Vec3::Y * 1.9, 0.0, 1.98).is_some_and(|h| (h.point.y - p.y).abs() < 0.08) && !self.inside_solid(p + Vec3::Y * 0.5);
         let mut found = vec![];
         let mut holds = vec![];
         for l in &self.beam_tops {
@@ -423,6 +497,83 @@ impl Level {
     /// Ground under `p`, searching from `up` above it down to `down` below.
     pub fn ground(&self, p: Vec3, up: f32, down: f32) -> Option<Hit> {
         self.raycast(p + Vec3::Y * up, Vec3::NEG_Y, up + down)
+    }
+
+    /// Is `p` inside a solid? Three of four level rays from it meet faces from behind (AC1's collision shapes are
+    /// closed and wound outward; a beam or ledge piece can stick into a building's wall, its top inside it).
+    pub fn inside_solid(&self, p: Vec3) -> bool {
+        [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z].iter().filter(|d| self.raycast_sided(p, **d, INSIDE_PROBE).is_some_and(|(_, behind)| behind)).count() >= 3
+    }
+
+    /// Narrow wall tops (a fence's or a parapet's, no deeper than `NARROW_TOP_MAX` behind a hold, with a drop past
+    /// it and open above) become perches along their middle: climbing onto one ends balancing on it, as on a beam,
+    /// not standing on a top too narrow to stand on. Holds next to each other along a top make one perch.
+    pub fn add_narrow_tops(&mut self) -> usize {
+        let key = |p: Vec3| ((p.x / 0.5).floor() as i32, (p.y / 0.5).floor() as i32, (p.z / 0.5).floor() as i32);
+        let near = |cells: &HashMap<(i32, i32, i32), Vec<usize>>, p: Vec3| -> Vec<usize> {
+            let (x, y, z) = key(p);
+            let mut out = vec![];
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        out.extend(cells.get(&(x + dx, y + dy, z + dz)).into_iter().flatten().copied());
+                    }
+                }
+            }
+            out
+        };
+        let mut found: Vec<Line> = vec![];
+        let mut centres: HashMap<(i32, i32, i32), Vec<usize>> = HashMap::new();
+        for l in &self.ledges {
+            let mid = (l.a + l.b) * 0.5;
+            if l.a.distance(l.b) < 0.3 {
+                continue;
+            }
+            let level_with = |d: f32| self.ground(mid - l.out * d + Vec3::Y * 0.3, 0.0, 0.45).is_some_and(|g| (g.point.y - mid.y).abs() < 0.08);
+            let Some(depth) = (1..=(NARROW_TOP_MAX / 0.05) as usize + 1).map(|k| k as f32 * 0.05).find(|&d| !level_with(d)) else { continue };
+            // (Past it a drop: not the step up to a roof.)
+            let drops = self.ground(mid - l.out * (depth + 0.1) + Vec3::Y * 0.3, 0.0, 0.8).is_none();
+            if !(0.15..=NARROW_TOP_MAX).contains(&depth) || !drops {
+                continue;
+            }
+            let shift = -l.out * (depth * 0.5);
+            let line = Line { a: l.a + shift, b: l.b + shift };
+            let centre = (line.a + line.b) * 0.5;
+            // (The hold on the far side of the same top finds it again.)
+            if near(&centres, centre).iter().any(|&i| found[i].closest(centre).distance(centre) < 0.2) {
+                continue;
+            }
+            let open = self.ground(centre + Vec3::Y * 1.9, 0.0, 1.98).is_some_and(|h| (h.point.y - centre.y).abs() < 0.08);
+            if !open || self.inside_solid(centre + Vec3::Y * 0.5) {
+                continue;
+            }
+            centres.entry(key(centre)).or_default().push(found.len());
+            found.push(line);
+        }
+        // Join the pieces end to end along a top (each piece onto the line ending where it starts).
+        let mut ends: HashMap<(i32, i32, i32), Vec<usize>> = HashMap::new();
+        let mut joined: Vec<Line> = vec![];
+        for l in found {
+            let axis = l.axis();
+            let hit = near(&ends, l.a).into_iter().chain(near(&ends, l.b)).find(|&j| {
+                let k = joined[j];
+                k.axis().dot(axis).abs() > 0.97 && (k.b.distance(l.a) < 0.15 || k.b.distance(l.b) < 0.15)
+            });
+            match hit {
+                Some(j) => {
+                    let k = &mut joined[j];
+                    k.b = if k.b.distance(l.a) < 0.15 { l.b } else { l.a };
+                    ends.entry(key(k.b)).or_default().push(j);
+                }
+                None => {
+                    ends.entry(key(l.b)).or_default().push(joined.len());
+                    joined.push(l);
+                }
+            }
+        }
+        let n = joined.len();
+        self.perches.extend(joined);
+        n
     }
 }
 
@@ -505,9 +656,16 @@ pub fn spawn_level(
             }
         };
         level.city = true;
+        // AC1's own holds, ladders and poles where the city has them; else the edges found in its geometry.
+        let authored = level.use_authored();
+        if let Some((holds, ladders, bars)) = authored {
+            info!("authored guidance: {holds} holds, {ladders} ladders, {bars} swing bars");
+        }
         level.build_grid();
         level.add_beam_perches();
-        let probed = if std::env::var("AC1_NO_LIPS").is_err() { level.add_probed_ledges() } else { 0 };
+        let narrow = level.add_narrow_tops();
+        info!("{narrow} narrow wall tops to balance on");
+        let probed = if authored.is_none() && std::env::var("AC1_NO_LIPS").is_err() { level.add_probed_ledges() } else { 0 };
         // A viewpoint's entity sits partway up its tower: the spot to stand on is the top above it.
         for i in 0..level.viewpoints.len() {
             let v = level.viewpoints[i];

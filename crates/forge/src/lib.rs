@@ -14,6 +14,7 @@ pub mod anim;
 pub mod animset;
 pub mod datafile;
 pub mod graph;
+pub mod guidance;
 pub mod hkx;
 pub mod index;
 pub mod mesh;

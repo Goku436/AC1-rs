@@ -60,6 +60,15 @@ impl<'a> DataFile<'a> {
         self.first_ref(spec, crate::CLASS_TEXTURE, None)
     }
 
+    /// `material_map`, with the texture set and its maps looked up in `other` (a material can name a set kept in
+    /// another data file, or be kept there itself: Altaïr's throwing daggers' are in "Game Bootstrap Settings").
+    pub fn material_map_in<'o>(&self, other: &'o DataFile<'o>, material: u32, kind: &str) -> Option<&'o Object<'o>> {
+        let body = self.get(material).map(|m| m.body).or_else(|| other.get(material).map(|m| m.body))?;
+        let set = (0..body.len().saturating_sub(3)).filter_map(|k| other.get(u32_at(body, k))).find(|o| o.class == CLASS_TEXTURE_SET)?;
+        let spec = other.first_ref(set, CLASS_MAP_SPEC, Some(kind))?;
+        other.first_ref(spec, crate::CLASS_TEXTURE, None)
+    }
+
     /// Material overrides in an entity: adjacent (placeholder, real) material id pairs.
     pub fn material_overrides(&self, entity: &Object<'a>) -> HashMap<u32, u32> {
         let mats: Vec<(usize, u32)> = self.refs(entity).into_iter().filter(|(_, r)| r.class == CLASS_MATERIAL).map(|(k, r)| (k, r.id)).collect();

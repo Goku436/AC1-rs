@@ -23,7 +23,7 @@
 //! lands on the ground it is placed on).
 //!
 //! Stride-32 vertex: i16x4 position (w = 32767, units of 1/2048 m), u8x4 normal, u8x4 tangent,
-//! u8x4 binormal, i16x2 uv (1/4096, v up), u8x4 palette indices, u8x4 weights (sum about 255;
+//! u8x4 binormal, i16x2 uv (1/2048, v down as images are stored; values run past one tile, so samplers repeat), u8x4 palette indices, u8x4 weights (sum about 255;
 //! normalized to 1 on load).
 
 use crate::{u16_at, u32_at};
@@ -34,6 +34,9 @@ const CLASS_COMPILED: u32 = 0xfc9e1595;
 pub const POS_SCALE: f32 = 1.0 / 2048.0;
 /// Static (stride-24) vertex positions: i16 fractions of `|w| / 8` metres, `w` the position's fourth
 /// component (see the module docs).
+/// UV units per texture width (i16 / 2048). (Read as 1/4096 with v flipped before 2026-10-06: every texture showed at
+/// half scale; Banned445's AC1-Movement-Rewritten had it right.)
+pub const UV_SCALE: f32 = 2048.0;
 pub const STATIC_POS_SCALE: f32 = 1.0 / 32768.0;
 
 #[derive(Debug, Clone)]
@@ -176,7 +179,7 @@ pub fn parse_mesh(body: &[u8]) -> Result<Mesh> {
         m.positions.push([q(0) * scale, q(2) * scale, q(4) * scale]);
         if stride >= 24 {
             m.normals.push(unpack_normal(&body[o + 8..o + 12]));
-            m.uvs.push([q(20) / 4096.0, 1.0 - q(22) / 4096.0]);
+            m.uvs.push([q(20) / UV_SCALE, q(22) / UV_SCALE]);
         }
     }
     if stride == 32 {

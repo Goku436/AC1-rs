@@ -336,10 +336,12 @@ const FALL_POSE: &str = "xx_h_jumpstraight_clear_footall_tr_fall";
 /// A leap of faith needs this much drop to the haystack (m) and the haystack within this distance.
 const FAITH_MIN_DROP: f32 = 3.0;
 const FAITH_MAX_DIST: f32 = 8.0;
-/// Landing damage: drop heights (m) and the share of health lost.
-const SAFE_DROP: f32 = 4.5;
-const HEAVY_DROP: f32 = 8.0;
-const FATAL_DROP: f32 = 13.0;
+/// Landing damage by the drop from the top of the fall (m), as AC1 types landings (`LandingType` Safe / SmallDamage /
+/// HeavyDamage / Fatal): damaging from 3 m, heavy over 6.3 m, fatal over 7 m (the game's landing function, via
+/// Banned445's AC1-Movement-Rewritten); and the share of health lost.
+const SAFE_DROP: f32 = 3.0;
+const HEAVY_DROP: f32 = 6.3;
+const FATAL_DROP: f32 = 7.0;
 const SMALL_DAMAGE: f32 = 0.2;
 const HEAVY_DAMAGE: f32 = 0.5;
 const LAND_DAMAGE: [&str; 2] = ["xx_h_landing_damage_footl", "xx_h_landing_damage_footl_tr_h_wait_footr"];
@@ -426,6 +428,9 @@ const WALL_RUN_WIDTH: f32 = 0.7;
 /// Jump targets: this far across (m), and within this cosine of the wanted direction (45 degrees).
 const JUMP_TARGET_REACH: std::ops::RangeInclusive<f32> = 1.0..=4.6;
 const JUMP_TARGET_CONE: f32 = 0.707;
+/// A top jumped to may be up to 3 m below and 1.3 m above (AC1's candidate scorer and its jump bands for a top, via
+/// Banned445's AC1-Movement-Rewritten).
+const JUMP_TARGET_RISE: std::ops::RangeInclusive<f32> = -3.0..=1.3;
 const SWING_CYCLE: [&str; 4] = ["xx_h_swing_cycle_front_up", "xx_h_swing_cycle_front_down", "xx_h_swing_cycle_back_up", "xx_h_swing_cycle_back_down"];
 const SWING_LAUNCH: &str = "xx_h_swing_cycle_front_300cm_to_air";
 const SWING_DROP: &str = "xx_h_swing_cycle_down_050cm_to_air";
@@ -451,6 +456,9 @@ const LADDER_STEP: f32 = 0.5;
 const LADDER_SIDE_REACH: f32 = 0.45;
 /// Running, a turn on the spot hands over to the run once it and the stick are within this (rad) of each other.
 const TURN_BREAK: f32 = 0.5;
+/// A top-out needs room to stand: this high over the spot (m), that spot this far in from the edge.
+const TOP_OUT_HEADROOM: f32 = 1.7;
+const TOP_OUT_STAND_IN: f32 = 0.5;
 /// A steered move bends toward the stick at up to this (rad/s) on top of its clips' own turn.
 const STEER_RATE: f32 = 4.0;
 /// Rebounding off a ladder: speed out from the wall and up (m/s), as the wall run's rebound.
@@ -952,7 +960,7 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
         .into_iter()
         .filter(|q| {
             let flat = (*q - from).with_y(0.0);
-            JUMP_TARGET_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && (-3.0..=1.2).contains(&(q.y - from.y))
+            JUMP_TARGET_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_TARGET_RISE.contains(&(q.y - from.y))
         })
         .max_by(|a, b| {
             // Higher, nearer, and on the line the player steers along.
@@ -1298,7 +1306,7 @@ impl WallClimb {
         let top = hit.filter(|h| h.dist < reach).and_then(|hit| {
             let inside = (hit.point - normal * 0.3).with_y(root.translation.y + 4.0);
             let open = |top: &crate::level::Hit| level.raycast(root.translation.with_y(top.point.y + 0.3), fwd, hit.dist + 0.6).is_none();
-            level.ground(inside, 0.0, 4.0).filter(|t| t.normal.y > 0.8 && open(t)).map(|t| {
+            level.ground(inside, 0.0, 4.0).filter(|t| t.normal.y > 0.8 && open(t) && !level.inside_solid(t.point + Vec3::Y * 0.5)).map(|t| {
                 // Its edge: a cap or sill sticking out over the wall is nearer than the wall.
                 let y = t.point.y;
                 let edge = (1..=80)
@@ -2691,6 +2699,20 @@ impl WallClimb {
             debug!("climb: no top-out: top at {:.2}, grip at {:.2}, slope {:.2}", top.point.y, wrist.y + GRIP_DOWN, top.normal.y);
             return false;
         }
+        // Room to stand on it: headroom over where the body comes up, and no wall just past the edge (a window
+        // sill's top is a floor behind a hold, with the window's opening or the room's wall right behind it; AC1 does
+        // not climb in through those).
+        // (The open probe starts in front of the wall: from behind the hold it may start inside the wall, when the top
+        // found is a beam's or a ledge piece's stuck into a building, and see nothing.)
+        let stand = top.point - self.normal * TOP_OUT_STAND_IN;
+        let headroom = level.raycast(stand + Vec3::Y * 0.1, Vec3::Y, TOP_OUT_HEADROOM).is_none();
+        let front = Vec3::new(wrist.x, top.point.y, wrist.z) + self.normal * 0.3;
+        let reach = (top.point - front).with_y(0.0).length() + TOP_OUT_STAND_IN + 0.3;
+        let open = [0.5, 1.2].iter().all(|h| level.raycast(front + Vec3::Y * *h, -self.normal, reach).is_none());
+        if !headroom || !open || level.inside_solid(stand + Vec3::Y * 0.5) {
+            debug!("climb: no top-out: no room to stand at {stand:.2} (headroom {headroom}, open {open})");
+            return false;
+        }
         // Nothing to stand on beside the hands (a post, the end of a wall): pull up with one hand.
         let along = Vec3::Y.cross(self.normal).normalize_or_zero();
         let p = Vec3::new(wrist.x, top.point.y, wrist.z) - self.normal * 0.15;
@@ -3670,10 +3692,10 @@ mod tests {
 
     #[test]
     fn landing_damage_by_height() {
-        assert_eq!(landing_damage(3.6, 1.0), 0.0);
-        assert_eq!(landing_damage(6.0, 1.0), SMALL_DAMAGE);
-        assert_eq!(landing_damage(10.0, 1.0), HEAVY_DAMAGE);
-        assert_eq!(landing_damage(15.0, 0.7), 0.7);
+        assert_eq!(landing_damage(2.5, 1.0), 0.0);
+        assert_eq!(landing_damage(5.0, 1.0), SMALL_DAMAGE);
+        assert_eq!(landing_damage(6.5, 1.0), HEAVY_DAMAGE);
+        assert_eq!(landing_damage(7.5, 0.7), 0.7);
     }
 
     #[test]

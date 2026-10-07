@@ -20,6 +20,9 @@ pub struct Cloth {
     edges: Vec<Edge>,
     /// Per vertex: how far it may stray from its animated position (0: follows it exactly).
     reach: Vec<f32>,
+    /// How fast (1/s) free vertices are drawn back toward their animated positions: the cloth keeps its authored drape
+    /// at rest and swings when moved (0: only the reach limit holds it).
+    pub shape_rate: f32,
 }
 
 /// A capsule to keep the cloth out of: from `a` to `b`, radius `r` (world).
@@ -71,7 +74,7 @@ impl Cloth {
                 add(x, y, 0.3, &mut edges);
             }
         }
-        Cloth { pos: targets.to_vec(), prev: targets.to_vec(), edges, reach }
+        Cloth { pos: targets.to_vec(), prev: targets.to_vec(), edges, reach, shape_rate: 0.0 }
     }
 
     /// Advance by `dt`: `targets` are where the animation puts the vertices now.
@@ -88,6 +91,10 @@ impl Cloth {
             let v = (self.pos[i] - self.prev[i]) * (1.0 - damping);
             self.prev[i] = self.pos[i];
             self.pos[i] += v + gravity * dt * dt;
+            if self.shape_rate > 0.0 {
+                let pull = (targets[i] - self.pos[i]) * (1.0 - (-self.shape_rate * dt).exp());
+                self.pos[i] += pull;
+            }
         }
         for _ in 0..4 {
             for e in &self.edges {

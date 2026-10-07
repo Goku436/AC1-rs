@@ -22,16 +22,16 @@
 //! F3 IK targets, F6 pause the pose gallery and NPC line-up (they only move near the camera anyway), F12 screenshot,
 //! [ / ] step through every AC1 clip in the library (Backspace returns to locomotion).
 //!
-//! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
+//! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press Q), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_NO_GALLERY (no pose gallery; scripted runs leave it out unless AC1_GALLERY is set), AC1_GAME_DIR, AC1_START="x,z,yaw_deg", AC1_WALK=speed (AC1_STOP=secs lets go, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right/drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press Q), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_NO_GALLERY (no pose gallery; scripted runs leave it out unless AC1_GALLERY is set), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STOP=secs lets go, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right/drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
 //! AC1_JUMP=secs[,secs...] (press Space then; with AC1_WALK for a running jump), AC1_HIGH / AC1_LEGS=from-to
 //! (hold high profile / the legs), AC1_HAND=secs[,..] (the empty hand),
-//! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; scripted runs open in the background, as AC1_BACKGROUND=1 does:
-//! on the second monitor if any, unfocused, behind other windows; AC1_WINDOW_AT="x,y" places it), AC1_NO_IK=1,
+//! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit), AC1_BACKGROUND=1 (open
+//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" (place the window), AC1_NO_IK=1,
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only.
 
 mod animation;
@@ -224,14 +224,17 @@ const SCHOLAR_BLOCK: &str = "Acre_Outskirts Setup Acre_DataBlock";
 /// on the second monitor if there is one, unfocused, behind other windows.
 fn game_window() -> Window {
     let window = Window { title: "ac1-rs".into(), resolution: (1280u32, 720u32).into(), ..default() };
-    if std::env::var("AC1_SHOT").is_err() && std::env::var("AC1_BACKGROUND").is_err() {
+    // (`AC1_WINDOW_AT="x,y"`: a desktop position.)
+    let window = match env_f32s("AC1_WINDOW_AT").filter(|v| v.len() >= 2) {
+        Some(v) => Window { position: bevy::window::WindowPosition::At(IVec2::new(v[0] as i32, v[1] as i32)), ..window },
+        None => window,
+    };
+    if std::env::var("AC1_BACKGROUND").is_err() {
         return window;
     }
-    // (`AC1_WINDOW_AT="x,y"`: a desktop position, for a monitor layout the index doesn't match.)
-    let position = match env_f32s("AC1_WINDOW_AT").filter(|v| v.len() >= 2) {
-        Some(v) => bevy::window::WindowPosition::At(IVec2::new(v[0] as i32, v[1] as i32)),
-        None => bevy::window::WindowPosition::Centered(bevy::window::MonitorSelection::Index(1)),
-    };
+    // In the background: on the second monitor if there is one (unless placed), unfocused, behind other windows.
+    let position =
+        if env_f32s("AC1_WINDOW_AT").is_some() { window.position } else { bevy::window::WindowPosition::Centered(bevy::window::MonitorSelection::Index(1)) };
     Window { position, focused: false, window_level: bevy::window::WindowLevel::AlwaysOnBottom, ..window }
 }
 
@@ -349,10 +352,32 @@ fn setup(
             None => warn!("AC1_ANIM: no clip named {name}"),
         }
     }
+    // AC1_SURFACES="x,z,x,z,...": log every collision surface down a vertical line at each point (for recordings).
+    for p in env_f32s("AC1_SURFACES").unwrap_or_default().chunks_exact(2) {
+        let mut from = Vec3::new(p[0], 400.0, p[1]);
+        let mut found = vec![];
+        while let Some(h) = level.raycast(from, Vec3::NEG_Y, from.y + 100.0) {
+            found.push(format!("{:.2} (n.y {:.2})", h.point.y, h.normal.y));
+            from = h.point - Vec3::Y * 0.01;
+        }
+        info!("surfaces at {:.2},{:.2}: {}", p[0], p[1], if found.is_empty() { "none".into() } else { found.join(", ") });
+    }
+    // AC1_RAYS="ox,oy,oz,dx,dy,dz,...": log the first hit of each ray (20 m).
+    for r in env_f32s("AC1_RAYS").unwrap_or_default().chunks_exact(6) {
+        let (o, d) = (Vec3::new(r[0], r[1], r[2]), Vec3::new(r[3], r[4], r[5]).normalize_or_zero());
+        match level.raycast_sided(o, d, 20.0) {
+            Some((h, behind)) => {
+                info!("ray {o:.2} {d:.2}: hit at {:.2} ({:.2} m), normal {:.2}{}", h.point, h.dist, h.normal, if behind { ", from behind" } else { "" })
+            }
+            None => info!("ray {o:.2} {d:.2}: nothing"),
+        }
+    }
     let start = env_f32s("AC1_START").unwrap_or_default();
     let home = level.spawn.unwrap_or(Vec3::ZERO);
     let mut at = Vec3::new(start.first().copied().unwrap_or(home.x), 0.0, start.get(1).copied().unwrap_or(home.z));
-    if let Some(g) = level.ground(at, 400.0, 500.0) {
+    // (A fourth value: the height to find the ground under, not the highest roof.)
+    let above = start.get(3).map_or(400.0, |y| y + 1.0);
+    if let Some(g) = level.ground(at, above, 500.0) {
         at.y = g.point.y;
     }
     // The pose gallery's figures share the player's model (test world only).
