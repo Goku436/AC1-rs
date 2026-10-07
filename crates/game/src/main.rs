@@ -32,7 +32,7 @@
 //! (hold high profile / the legs), AC1_HAND=secs[,..] (the empty hand),
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
 //! as dir/frame_00000.png ..., then exit; encode with ffmpeg at 30 fps),
-//! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit), AC1_BACKGROUND=1 (open
+//! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; `-` exits then without one), AC1_BACKGROUND=1 (open
 //! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" (place the window), AC1_NO_IK=1,
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only.
 
@@ -1239,7 +1239,10 @@ fn screenshot(
     }
     if let Some((path, secs)) = script.shot.clone() {
         let t = clock.t;
-        if !script.taken && t > secs {
+        // (`AC1_SHOT=-`: no picture, just the end of the run: the scenarios read only the log.)
+        if path.as_os_str() == "-" && t > secs {
+            exit.write(AppExit::Success);
+        } else if !script.taken && t > secs {
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
             script.taken = true;
         } else if script.taken && t > secs + 1.5 {

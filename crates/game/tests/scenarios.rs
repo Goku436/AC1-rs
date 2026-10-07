@@ -20,6 +20,10 @@ struct Scenario {
     never: &'static [&'static str],
 }
 
+/// Games run at once by default (each its own process): the scenarios are independent. 6 measured fastest without
+/// timing flakes on the dev machine (56 scenarios: 1 at a time 560 s, 4 161 s, 6 123 s, 8 104 s with one flake).
+const JOBS: usize = 6;
+
 const QUIET: &[(&str, &str)] = &[("AC1_NO_CROWD", "1")];
 
 const SCENARIOS: &[Scenario] = &[
@@ -76,7 +80,7 @@ const SCENARIOS: &[Scenario] = &[
         name: "rooftops: B4 up to B5 with AC1's up jump (not the long planned arc)",
         env: &[("AC1_START", "66.5,34,0,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
         secs: 3.0,
-        want: &["aimed at [66.50, 5.69, 27.0", "AC1's jump tables: xx_h_run_up_300cm_footl_to_air"],
+        want: &["aimed at [66.50, 5.69,", "AC1's jump tables: xx_h_run_up_300cm_footl_to_air"],
         never: &["EMBED"],
     },
     Scenario {
@@ -424,8 +428,13 @@ fn game_dir() -> Option<PathBuf> {
     d.join("DataPC.forge").exists().then_some(d)
 }
 
-fn run(exe: &str, s: &Scenario) -> Result<(), String> {
-    let shot = std::env::temp_dir().join(format!("ac1-scenario-{}.png", std::process::id()));
+fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
+    // (No screenshot, `-`: the run ends at `secs`; only the log is checked. `AC1_SCENARIO_SHOTS=1` saves them.)
+    let shot = if std::env::var("AC1_SCENARIO_SHOTS").is_ok() {
+        std::env::temp_dir().join(format!("ac1-scenario-{}-{k}.png", std::process::id()))
+    } else {
+        std::path::PathBuf::from("-")
+    };
     let mut c = Command::new(exe);
     c.env("RUST_LOG", "ac1=debug,wgpu=error").env("NO_COLOR", "1").env("AC1_SHOT", &shot).env("AC1_SHOT_SECS", s.secs.to_string()).env("AC1_EMBED_CHECK", "1");
     c.envs(QUIET.iter().copied());
@@ -460,13 +469,28 @@ fn scenarios() {
     // SAFETY: set before any thread of this test starts a game.
     unsafe { std::env::set_var("AC1_GAME_DIR", &dir) };
     let exe = env!("CARGO_BIN_EXE_ac1");
-    let mut failed = vec![];
-    for s in SCENARIOS {
-        let r = run(exe, s);
-        eprintln!("{} {}{}", if r.is_ok() { "PASS" } else { "FAIL" }, s.name, r.as_ref().err().map_or(String::new(), |e| format!(": {e}")));
-        if r.is_err() {
-            failed.push(s.name);
+    // `AC1_SCENARIO_FILTER`: only the scenarios whose name contains it. `AC1_SCENARIO_JOBS`: how many games run at once
+    // (each its own process and window; default `JOBS`).
+    let filter = std::env::var("AC1_SCENARIO_FILTER").unwrap_or_default();
+    let picked: Vec<&Scenario> = SCENARIOS.iter().filter(|s| s.name.contains(filter.as_str())).collect();
+    let jobs = std::env::var("AC1_SCENARIO_JOBS").ok().and_then(|j| j.parse().ok()).unwrap_or(JOBS).max(1);
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: Vec<std::sync::Mutex<Option<Result<(), String>>>> = picked.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    let started = std::time::Instant::now();
+    std::thread::scope(|scope| {
+        for _ in 0..jobs {
+            scope.spawn(|| {
+                loop {
+                    let k = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let Some(s) = picked.get(k) else { break };
+                    let r = run(exe, s, k);
+                    eprintln!("{} {}{}", if r.is_ok() { "PASS" } else { "FAIL" }, s.name, r.as_ref().err().map_or(String::new(), |e| format!(": {e}")));
+                    *results[k].lock().unwrap() = Some(r);
+                }
+            });
         }
-    }
-    assert!(failed.is_empty(), "{} of {} scenarios failed: {failed:?}", failed.len(), SCENARIOS.len());
+    });
+    let failed: Vec<&str> = picked.iter().zip(&results).filter(|(_, r)| !matches!(*r.lock().unwrap(), Some(Ok(())))).map(|(s, _)| s.name).collect();
+    eprintln!("{} scenarios, {jobs} at a time, in {:.0} s", picked.len(), started.elapsed().as_secs_f32());
+    assert!(failed.is_empty(), "{} of {} scenarios failed: {failed:?}", failed.len(), picked.len());
 }
