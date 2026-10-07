@@ -24,7 +24,7 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press Q), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right/drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press Q), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right/drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
@@ -103,6 +103,8 @@ struct Debug {
 #[derive(Resource)]
 struct Script {
     walk: Option<f32>,
+    /// The walk holds the stick right over (the speed from `gait`, as the player's), not a fixed speed.
+    stick: bool,
     /// Go limp (the ragdoll) at this time.
     limp: Option<f32>,
     /// Press the head button (Q) at this time.
@@ -135,6 +137,7 @@ fn main() {
     let cam = env_f32s("AC1_CAM").unwrap_or_default();
     let script = Script {
         walk: std::env::var("AC1_WALK").ok().and_then(|s| s.parse().ok()),
+        stick: std::env::var("AC1_STICK").is_ok(),
         curve: std::env::var("AC1_CURVE").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0),
         steer: std::env::var("AC1_STEER").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0).to_radians(),
         veer: std::env::var("AC1_VEER").ok().and_then(|s| {
@@ -867,7 +870,7 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
         let dir = script.veer.filter(|(at, _)| t > *at).map_or(dir, |(_, a)| Quat::from_rotation_y(a) * dir);
         ctl.move_dir = if script.turn.is_some_and(|at| t > at) { -dir } else { dir };
         ctl.speed = speed;
-        ctl.stick = None;
+        ctl.stick = script.stick.then_some(1.0);
         if script.stop.is_some_and(|(a, b)| t >= a && t < b) {
             ctl.move_dir = Vec3::ZERO;
         }
@@ -900,7 +903,7 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
         }
         if ctl.free_run {
             ctl.speed = SPRINT;
-            ctl.stick = None;
+            ctl.stick = script.stick.then_some(1.0);
         } else if ctl.blend_walk {
             ctl.speed = crowd::BLEND_SPEED;
         }

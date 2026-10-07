@@ -851,7 +851,9 @@ pub fn locomotion(
                         });
                         let edge_near = || level.ground(tf.translation + v.normalize_or_zero() * 1.2, 0.5, 1.5).is_none();
                         if ch.wall.is_none() && !grab_only && v.length() > 1.0 && !wall_ahead(v.normalize(), 1.2) && (!needs_edge || edge_near()) {
-                            ch.wall = WallClimb::jump_aimed(lib, &level, &tf, v, pose());
+                            // (Off the foot the run is on: AC1's takeoffs are by foot.)
+                            let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
+                            ch.wall = WallClimb::jump_aimed(lib, &level, &tf, v, lead_left, pose());
                         } else if ch.wall.is_none() {
                             ch.wall = WallClimb::jump_grab(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose())
                                 .or_else(|| (!grab_only && !needs_edge).then(|| WallClimb::jump_straight(lib, &tf, pose())).flatten());
@@ -950,11 +952,14 @@ pub fn locomotion(
         }
 
         // The player's speed: AC1's speed value (`gait`). After a climb, a vault or a wall stopping him it picks up
-        // from the speed he has, not the one he had.
+        // from the speed he has, not the one he had: held down to that (not back to the start of the jog, which pinned it
+        // there until the body caught up). Landings hand on the speed they land with.
         if let Some(stick) = ctl.stick {
             let have = ch.velocity.with_y(0.0).length();
             if crate::gait::speed(ch.gait.value) > have + GAIT_RESYNC {
-                ch.gait.value = 0.0;
+                // (Not under where a start from standing goes, the jog in high profile.)
+                let start = if ctl.high || ctl.free_run { crate::gait::BAND_JOG } else { crate::gait::BAND_WALK };
+                ch.gait.value = crate::gait::value_at(have + GAIT_RESYNC).max(start).min(ch.gait.value);
             }
             let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
             let off = if ctl.move_dir.length() > 0.01 { facing.angle_between(ctl.move_dir.with_y(0.0)) } else { 0.0 };
@@ -1050,6 +1055,7 @@ pub fn locomotion(
             // Free running steps or jumps onto a low obstacle; otherwise running stops against it or glances off.
             // (Toward where the stick points: sliding along a wall, the body's own velocity runs along it.)
             let toward = target_v.with_y(0.0).try_normalize().map_or(v, |d| d * v.length());
+            let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
             let low = if ctl.free_run {
                 WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.pose.clone()))
             } else {
@@ -1057,7 +1063,7 @@ pub fn locomotion(
             };
             ch.wall = low
                 .or_else(|| edge.then(|| WallClimb::leap_of_faith(lib, &level, &tf, v, Some(ch.pose.clone()))).flatten())
-                .or_else(|| edge.then(|| WallClimb::jump_aimed(lib, &level, &tf, v, Some(ch.pose.clone()))).flatten());
+                .or_else(|| edge.then(|| WallClimb::jump_aimed(lib, &level, &tf, v, lead_left, Some(ch.pose.clone()))).flatten());
             if ch.wall.is_some() {
                 ch.velocity = Vec3::ZERO;
                 continue;

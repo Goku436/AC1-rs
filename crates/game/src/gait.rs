@@ -82,6 +82,16 @@ pub fn speed(v: f32) -> f32 {
     SPEEDS[i] + (SPEEDS[i + 1] - SPEEDS[i]) * (x - i as f32)
 }
 
+/// The value for a ground speed (m/s): `speed`'s inverse (0 at or under the slow walk's).
+pub fn value_at(s: f32) -> f32 {
+    if s <= SPEEDS[0] {
+        return 0.0;
+    }
+    let i = SPEEDS.windows(2).position(|w| s <= w[1]).unwrap_or(3);
+    let x = i as f32 + ((s - SPEEDS[i]) / (SPEEDS[i + 1] - SPEEDS[i])).min(1.0);
+    x / 4.0
+}
+
 fn fall_rate(v: f32) -> f32 {
     FALL.windows(2).find(|w| v >= w[0].0 && v <= w[1].0).map_or(1.0, |w| w[0].1 + (w[1].1 - w[0].1) * (v - w[0].0) / (w[1].0 - w[0].0))
 }
@@ -133,6 +143,15 @@ mod tests {
         assert_eq!(band(wanted(1.0, true, true)), Band::Sprint);
         assert_eq!(band(wanted(0.5, true, false)), Band::Run);
         assert!((speed(1.0) - 6.2).abs() < 1e-5 && (speed(0.75) - 5.2).abs() < 1e-5 && (speed(0.25) - 1.9).abs() < 1e-5);
+    }
+
+    #[test]
+    fn value_at_inverts_speed() {
+        for v in [0.1, 0.25, 0.4, 0.5, 0.62, 0.75, 0.9, 1.0] {
+            assert!((value_at(speed(v)) - v).abs() < 1e-4, "{v}");
+        }
+        assert_eq!(value_at(0.0), 0.0);
+        assert_eq!(value_at(9.0), 1.0);
     }
 
     #[test]

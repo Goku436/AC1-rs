@@ -1254,11 +1254,11 @@ impl WallClimb {
 
     /// Running jump from the ground along the way the root faces. `from` is the pose shown now, to
     /// fade from.
-    pub fn jump(lib: &mut AnimLib, root: &Transform, dir: Vec3, from: Option<Pose>) -> Option<WallClimb> {
+    pub fn jump(lib: &mut AnimLib, root: &Transform, dir: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
         // AC1 always jumps at a target; with none in reach, AC1's takeoff and flight weighted for a level one
         // `FREE_JUMP_DIST` ahead, played out, then the fall (as Banned445's repo has it). Our sprint stride and air clip
         // if those are missing.
-        let j = crate::jump::running(0.0, FREE_JUMP_DIST, true, dir.with_y(0.0).length() / JUMP_AC1_FAST_SPEED);
+        let j = crate::jump::running(0.0, FREE_JUMP_DIST, left, dir.with_y(0.0).length() / JUMP_AC1_FAST_SPEED);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -1287,20 +1287,20 @@ impl WallClimb {
         jump_target(level, from, dir, None).is_some()
     }
 
-    pub fn jump_aimed(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, from: Option<Pose>) -> Option<WallClimb> {
+    pub fn jump_aimed(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
         let speed = dir.with_y(0.0).length();
         let p = root.translation;
         let top = jump_target(level, p, dir, None);
         let at_hold = top.is_none();
-        let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, root, dir, from) };
+        let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, root, dir, left, from) };
         let aim = (to - p).with_y(0.0).normalize_or(dir);
         // Onto a top, a post or a beam (not a hold): AC1's own jump clips, when they fit (a post's and a beam's flight is
         // the same free-step one; landed, the ground hands over to balancing on it).
-        if !at_hold && let Some(w) = Self::jump_ac1(lib, level, root, to, aim, speed, from.clone()) {
+        if !at_hold && let Some(w) = Self::jump_ac1(lib, level, root, to, aim, speed, left, from.clone()) {
             return Some(w);
         }
         // (At a hold: the planned arc, to catch it, with AC1's takeoff and flight for that height and distance.)
-        let j = crate::jump::running(to.y - p.y, (to - p).with_y(0.0).length(), true, speed / JUMP_AC1_FAST_SPEED);
+        let j = crate::jump::running(to.y - p.y, (to - p).with_y(0.0).length(), left, speed / JUMP_AC1_FAST_SPEED);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -1366,9 +1366,9 @@ impl WallClimb {
     /// A running jump onto a top at `to` with AC1's jump clips (`crate::jump`): the takeoff and flight blended by how far
     /// and how high it is, then the reception onto the top, the root following their motion with the difference to the
     /// target spread over the flight (as AC1 moves it). `None` when the clips are missing or the way is not clear.
-    fn jump_ac1(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, aim: Vec3, speed: f32, from: Option<Pose>) -> Option<WallClimb> {
+    fn jump_ac1(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, aim: Vec3, speed: f32, left: bool, from: Option<Pose>) -> Option<WallClimb> {
         let p = root.translation;
-        let j = crate::jump::running(to.y - p.y, (to - p).with_y(0.0).length(), true, speed / JUMP_AC1_FAST_SPEED);
+        let j = crate::jump::running(to.y - p.y, (to - p).with_y(0.0).length(), left, speed / JUMP_AC1_FAST_SPEED);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -1443,6 +1443,11 @@ impl WallClimb {
         }
         let mut w = WallClimb::new(VAULT, -aim);
         w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), GROUND.into()], &planned, correct, Some(1));
+        // (Down on a top, on at a run the way it jumped: the reception leads into the run in AC1's graph. Onto another post
+        // or beam it balances there first.)
+        if level.perch_inside(to, PERCH_REACH).is_none() {
+            w.exit_velocity = aim * PERCH_OFF_RUN;
+        }
         w.ease_in(from, root);
         debug!("climb: free-step jump aimed at {to:.2}, {:.0} degrees off the facing ({} then {})", angle.to_degrees(), takeoff.name, flight.name);
         Some(w)

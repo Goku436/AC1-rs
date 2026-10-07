@@ -19,7 +19,10 @@ Rules learned on the way here:
       profile stand (recording `ac1-recording-339883`, probably). Find the missing fade between the stand loops.
 - [x] Slow walk speed (set to the clip's 0.1 m/s): `gait.rs` used 1.0 m/s for a value of 0 (half stick); Altaïr's `xx_l_walk_slow_hipm_footl` moves
       0.17 m in 1.67 s (0.1 m/s). Measure the slow walk's real use (AC1 may stand it still and blend), then set it.
-- [ ] Speed restart (partly: AC1's running jump hands the run's speed back on landing) (`GAIT_RESYNC`, ours, not AC1's): after a landing the speed value restarts from the jog. AC1 keeps
+- [x] (2026-10-08: the resync holds the value down to the body's speed + 1.5 m/s, never under the start band, instead
+      of 0, which every frame put it back to the jog's start until the body caught up; the free-step jump onto a top
+      hands on a run; running jumps take off from the foot the run is on; `AC1_STICK=1` scripts the real stick)
+      Speed restart (partly: AC1's running jump hands the run's speed back on landing) (`GAIT_RESYNC`, ours, not AC1's): after a landing the speed value restarts from the jog. AC1 keeps
       the take-off speed through a landing (Banned445's notes); keep it unless the landing is a heavy one.
 - [ ] (Needs a play test, feel) Run turn rate: ours 9 rad/s, AC1's 360 deg/s (2 pi). Try AC1's and the high profile turn hold back together.
 - [ ] (Needs a play test, feel) Walk stop: AC1 stops a walk-band move at once (to the wait with a 0.2 s blend); ours eases the velocity down.
@@ -110,7 +113,8 @@ The move graph is the big one: with it the game itself says which move follows w
 - [ ] Damascus cornice hang/leap-through-wall fix: reasoned, never replayed. Masyaf's tutorial tower hay not found
       (19.8 m to the nearest).
 - [ ] Combat (removed; rebuild on `HumanGround_Fight*` once movement is right), with the pad's lock-on and weapons.
-- [ ] Rebound to hang: listed as a combo; check whether it was built.
+- [x] Rebound to hang: listed as a combo; check whether it was built. (Built: wall W's scenario rebounds and catches
+      the holds over the doorway, a free hang as the doorway leaves nothing under the feet.)
 
 ## The campaign
 

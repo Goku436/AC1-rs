@@ -448,6 +448,11 @@ fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
     c.envs(s.env.iter().copied());
     let out = c.output().map_err(|e| format!("could not run the game: {e}"))?;
     let log = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    // (`AC1_SCENARIO_LOGS=dir` keeps each game's log there, by the scenario's number.)
+    if let Ok(dir) = std::env::var("AC1_SCENARIO_LOGS") {
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(PathBuf::from(dir).join(format!("{k:02}.log")), format!("{}\n{log}", s.name));
+    }
     if log.contains("panicked") {
         return Err("the game panicked".into());
     }
