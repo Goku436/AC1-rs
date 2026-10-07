@@ -69,6 +69,40 @@ fn takeoff_names(foot: &str) -> Vec<String> {
     n
 }
 
+/// The free-step takeoff's 8 slots in one direction group (`front`, `left`, `right`, `backleft`, `backright`): front
+/// 050/300/550, down 050/300/550, up 050/300. The side groups' far ones are 500 cm.
+fn freestep_names(group: &str, foot: &str) -> Vec<String> {
+    let far = if group == "left" || group == "right" { "500cm" } else { "550cm" };
+    let dists = ["050cm", "300cm", far];
+    let mut n: Vec<String> = dists.iter().map(|d| format!("xx_h_freestep_{group}_front_{d}_{foot}_to_air")).collect();
+    n.extend(dists.iter().map(|d| format!("xx_h_freestep_{group}_down_{d}_{foot}_to_air")));
+    n.extend(UP.iter().map(|d| format!("xx_h_freestep_{group}_up_{d}_{foot}_to_air")));
+    n
+}
+
+/// A jump from a free step (a post, a beam, a roof's edge) onto a top `dz` above and `dist` away, `angle` (rad, positive
+/// to the right) off the facing: the running jump's flight and reception, the takeoff from AC1's free-step groups,
+/// the two around the angle blended (front, right, back right; front, left, back left). The side and back takeoffs turn
+/// the body toward the jump.
+pub fn freestep(dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
+    let mut j = running(dz, dist, left, fast);
+    let foot = if left { "footl" } else { "footr" };
+    // The running takeoff's weights, by slot, re-used in each group.
+    let names = takeoff_names(foot);
+    let slot_w: Vec<f32> = names.iter().map(|n| j.takeoff.iter().find(|(m, _)| m == n).map_or(0.0, |p| p.1)).collect();
+    let a = angle.clamp(-std::f32::consts::PI, std::f32::consts::PI);
+    let q = a.abs() / std::f32::consts::FRAC_PI_2;
+    let (side, back) = if a >= 0.0 { ("right", "backright") } else { ("left", "backleft") };
+    let groups: [(&str, f32); 2] = if q <= 1.0 { [("front", 1.0 - q), (side, q)] } else { [(side, 2.0 - q), (back, q - 1.0)] };
+    j.takeoff = groups
+        .iter()
+        .filter(|(_, g)| *g > 0.01)
+        .flat_map(|(group, g)| freestep_names(group, foot).into_iter().zip(slot_w.iter().map(move |w| w * g)))
+        .filter(|(_, w)| *w > 0.01)
+        .collect();
+    j
+}
+
 /// A running jump onto a top `dz` above (negative: below) and `dist` away, taking off from the left foot or the right;
 /// `fast` (0..1, the run's speed against the sprint) blends the reception into its quick version (`_fast`).
 pub fn running(dz: f32, dist: f32, left: bool, fast: f32) -> Jump {
@@ -195,6 +229,23 @@ mod tests {
         assert!(j.flight.iter().any(|(n, _)| n.contains("_down_") && n.ends_with("footr_to_freestep_deep")), "{j:?}");
         assert!((total(&j.flight) - 1.0).abs() < 1e-4);
         assert!(j.takeoff.iter().all(|(n, _)| n.contains("_footr_to_air")));
+    }
+
+    #[test]
+    fn a_free_step_takeoff_blends_the_groups_around_its_angle() {
+        let front = freestep(0.0, 3.0, 0.0, true, 0.0);
+        assert!(front.takeoff.iter().all(|(n, _)| n.starts_with("xx_h_freestep_front_")), "{front:?}");
+        let right = freestep(0.0, 3.0, std::f32::consts::FRAC_PI_4, true, 0.0);
+        assert!(
+            right.takeoff.iter().any(|(n, _)| n.starts_with("xx_h_freestep_right_"))
+                && right.takeoff.iter().any(|(n, _)| n.starts_with("xx_h_freestep_front_"))
+        );
+        let back = freestep(0.0, 3.0, -3.0, true, 0.0);
+        assert!(back.takeoff.iter().any(|(n, _)| n.starts_with("xx_h_freestep_backleft_")), "{back:?}");
+        assert!((total(&back.takeoff) - 1.0).abs() < 1e-3);
+        // The side groups' far takeoff is 500 cm.
+        let far = freestep(0.0, 6.5, std::f32::consts::FRAC_PI_2, true, 0.0);
+        assert!(far.takeoff.iter().any(|(n, _)| n == "xx_h_freestep_right_front_500cm_footl_to_air"), "{far:?}");
     }
 
     #[test]

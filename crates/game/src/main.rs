@@ -24,12 +24,14 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press Q), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STOP=secs lets go, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right/drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press Q), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right/drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
 //! AC1_JUMP=secs[,secs...] (press Space then; with AC1_WALK for a running jump), AC1_HIGH / AC1_LEGS=from-to
 //! (hold high profile / the legs), AC1_HAND=secs[,..] (the empty hand),
+//! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
+//! as dir/frame_00000.png ..., then exit; encode with ffmpeg at 30 fps),
 //! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit), AC1_BACKGROUND=1 (open
 //! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" (place the window), AC1_NO_IK=1,
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only.
@@ -82,7 +84,12 @@ struct OrbitCam {
     yaw: f32,
     pitch: f32,
     dist: f32,
+    /// Frames the video orbit (`AC1_ORBIT`) has gone round so far.
+    orbit_frame: u32,
 }
+
+/// Frames a second of the video hooks (`AC1_ORBIT`, `AC1_FRAMES`).
+const FRAMES_FPS: f32 = 30.0;
 
 #[derive(Resource, Default)]
 struct Debug {
@@ -101,7 +108,7 @@ struct Script {
     /// Press the head button (Q) at this time.
     eagle: Option<f32>,
     /// Walking: let go of the direction at this time, or turn it round.
-    stop: Option<f32>,
+    stop: Option<(f32, f32)>,
     turn: Option<f32>,
     /// Walking: the direction turns this fast (rad/s, positive to the left).
     curve: f32,
@@ -134,7 +141,11 @@ fn main() {
             let (t, d) = s.split_once(',')?;
             Some((t.parse().ok()?, d.parse::<f32>().ok()?.to_radians()))
         }),
-        stop: std::env::var("AC1_STOP").ok().and_then(|s| s.parse().ok()),
+        // (`secs`, or `from-to`: the direction let go only then, taken up again after.)
+        stop: std::env::var("AC1_STOP").ok().and_then(|s| match s.split_once('-') {
+            Some((a, b)) => Some((a.parse().ok()?, b.parse().ok()?)),
+            None => Some((s.parse().ok()?, f32::MAX)),
+        }),
         eagle: std::env::var("AC1_EAGLE").ok().and_then(|s| s.parse().ok()),
         limp: std::env::var("AC1_LIMP").ok().and_then(|s| s.parse().ok()),
         turn: std::env::var("AC1_TURN").ok().and_then(|s| s.parse().ok()),
@@ -161,6 +172,7 @@ fn main() {
             yaw: cam.first().copied().unwrap_or(25.0).to_radians(),
             pitch: cam.get(1).copied().unwrap_or(-12.0).to_radians(),
             dist: cam.get(2).copied().unwrap_or(3.6),
+            orbit_frame: 0,
         })
         .insert_resource(GameDir(PathBuf::from(game_dir)))
         .insert_resource(Debug {
@@ -856,7 +868,7 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
         ctl.move_dir = if script.turn.is_some_and(|at| t > at) { -dir } else { dir };
         ctl.speed = speed;
         ctl.stick = None;
-        if script.stop.is_some_and(|at| t > at) {
+        if script.stop.is_some_and(|(a, b)| t >= a && t < b) {
             ctl.move_dir = Vec3::ZERO;
         }
     }
@@ -962,6 +974,20 @@ fn camera_follow(
     eagle: Res<Eagle>,
 ) {
     let (Ok((target, ch)), Ok(mut tf)) = (chars.single(), cams.single_mut()) else { return };
+    // Video hook: a camera circling a point (`AC1_ORBIT="x,y,z,radius,height,secs"`, looking at it from `height` above
+    // it), once round in `secs` of video at `FRAMES_FPS`, one step a rendered frame (smooth whatever the frame rate).
+    if let Some(v) = env_f32s("AC1_ORBIT").filter(|v| v.len() >= 6) {
+        let (centre, radius, height, secs) = (Vec3::new(v[0], v[1], v[2]), v[3], v[4], v[5].max(1.0));
+        let a = cam.orbit_frame as f32 / (secs * FRAMES_FPS) * std::f32::consts::TAU;
+        // (From when `AC1_FRAMES` starts saving, so the saved frames go round exactly once.)
+        if time.elapsed_secs() > 1.0 {
+            cam.orbit_frame += 1;
+        }
+        let eye = centre + Vec3::new(a.cos() * radius, height, a.sin() * radius);
+        *tf = Transform::from_translation(eye).looking_at(centre, Vec3::Y);
+        cam.eye = eye;
+        return;
+    }
     // Test hook: a fixed camera (eye, then the point it looks at), for comparable shots.
     if let Some(v) = env_f32s("AC1_LOOK").filter(|v| v.len() >= 6) {
         *tf = Transform::from_xyz(v[0], v[1], v[2]).looking_at(Vec3::new(v[3], v[4], v[5]), Vec3::Y);
@@ -1185,7 +1211,23 @@ fn screenshot(
     clock: Res<ScriptClock>,
     mut script: ResMut<Script>,
     mut exit: MessageWriter<AppExit>,
+    mut frame: Local<u32>,
 ) {
+    // Video hook: every frame saved (`AC1_FRAMES=dir`: dir/frame_00000.png, ...), as many as the orbit's `secs` at
+    // `FRAMES_FPS`, then exit (encode them with ffmpeg at that rate). The first second is left out (the city loading in).
+    if let Ok(dir) = std::env::var("AC1_FRAMES") {
+        let secs = env_f32s("AC1_ORBIT").and_then(|v| v.get(5).copied()).unwrap_or(10.0);
+        let total = (secs * FRAMES_FPS) as u32;
+        if time.elapsed_secs() > 1.0 {
+            if *frame < total {
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(format!("{dir}/frame_{:05}.png", *frame)));
+            } else if *frame > total + 60 {
+                exit.write(AppExit::Success);
+            }
+            *frame += 1;
+        }
+        return;
+    }
     if keys.just_pressed(KeyCode::F12) {
         let path = format!("ac1-shot-{}.png", time.elapsed().as_millis());
         commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));

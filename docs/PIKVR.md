@@ -247,3 +247,12 @@ Research:
 - Climbing: the wall IK (hands on holds, feet on the wall) switched off at once for corners and top outs: the feet
   jumped 10-13 cm (T2 climb, wall A, corners). Faded over 0.2 s: T2 and the corner run show no pops, wall A one of 6 cm
   in its top out.
+- Jump system, next part: AC1's free-step takeoffs from posts and beams (`jump::freestep`): the takeoff group (front,
+  left, right, back left, back right; the two around the jump's angle off the facing blended) turns the body toward the
+  jump, so a jump sideways or back off a post needs no turn first. Balancing on the middle post with the stick back, he
+  jumps back to the last one (`xx_h_freestep_backright_front_300cm`), landing on it and balancing. Scenarios for both
+  ways. With no post that way, the old straight jump off it stays.
+- Script hooks: `AC1_STOP=from-to` (the direction let go only then), `AC1_VEER`; video hooks `AC1_ORBIT` + `AC1_FRAMES`
+  (a camera circling a point, every frame saved) for the user's Masyaf showcase.
+- The user asked about map data: AC1's cities load from the forge with their authored grabs (Damascus, Masyaf
+  checked; Acre, Jerusalem, Kingdom parse but are untried in play: backlog section 2).

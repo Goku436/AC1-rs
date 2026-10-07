@@ -1383,6 +1383,42 @@ impl WallClimb {
         Some(w)
     }
 
+    /// A jump from a free step (a post, a beam) onto `to` with AC1's free-step clips (`crate::jump::freestep`): the takeoff
+    /// from the group the jump's way falls in off the facing (it turns the body toward it), then the flight and the
+    /// reception, the difference to the target spread over the flight. `None` when the clips are missing, their own way
+    /// is too far off, or the way over is not clear.
+    fn jump_freestep(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, from: Option<Pose>) -> Option<WallClimb> {
+        let p = root.translation;
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let way = (to - p).with_y(0.0);
+        let aim = way.normalize_or_zero();
+        let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
+        let j = crate::jump::freestep(to.y - p.y, way.length(), angle, true, 0.0);
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, flight, reception) = (mix(&j.takeoff)?, mix(&j.flight)?, mix(&j.reception)?);
+        let planned = Transform { rotation: root.rotation, ..*root };
+        let rot = world_rot(planned.rotation);
+        // (The flight goes on from the takeoff's end, turned with it.)
+        let turned = world_rot(planned.rotation * root_delta(root_rotation_at(&takeoff, takeoff.frames())));
+        let landed = p + rot * root_motion_at(&takeoff, takeoff.frames()) + turned * root_motion_at(&flight, flight.frames());
+        let correct = to - landed;
+        if correct.with_y(0.0).length() > JUMP_AC1_SLACK * way.length().max(1.0) {
+            debug!("climb: AC1's free-step clips land {:.2} m off", correct.length());
+            return None;
+        }
+        if level.raycast(p.with_y(p.y.max(to.y) + JUMP_AC1_CLEAR), aim, way.length()).is_some() {
+            return None;
+        }
+        let mut w = WallClimb::new(VAULT, -aim);
+        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), GROUND.into()], &planned, correct, Some(1));
+        w.ease_in(from, root);
+        debug!("climb: free-step jump aimed at {to:.2}, {:.0} degrees off the facing ({} then {})", angle.to_degrees(), takeoff.name, flight.name);
+        Some(w)
+    }
+
     /// Standing jump straight up. `from` is the pose shown now, to fade from.
     pub fn jump_straight(lib: &mut AnimLib, root: &Transform, from: Option<Pose>) -> Option<WallClimb> {
         let [crouch, takeoff, rise] = STRAIGHT_JUMP.map(|n| lib.get(n));
@@ -2160,6 +2196,14 @@ impl WallClimb {
     fn perch_jump(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3) -> bool {
         let from = root.translation;
         let to = jump_target(level, from, dir, self.perch).filter(|q| PERCH_JUMP.contains(&(*q - from).with_y(0.0).length()));
+        // To a target: AC1's free-step jump, the takeoff group by the way it goes off the facing (sideways or back off a
+        // post without turning first: the takeoff turns the body).
+        if let Some(to) = to
+            && let Some(w) = Self::jump_freestep(lib, level, root, to, self.last.clone())
+        {
+            *self = w;
+            return true;
+        }
         // Face where it goes.
         let dir = to.map_or(dir, |q| (q - from).with_y(0.0).normalize_or(dir));
         let (v, flight) = match to {

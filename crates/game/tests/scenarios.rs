@@ -108,6 +108,20 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        name: "balancing on a post, free running on: AC1's free-step jump to the next post",
+        env: &[("AC1_START", "38.6,0,-90,3"), ("AC1_WALK", "6.2"), ("AC1_STOP", "0.0-1.0")],
+        secs: 3.0,
+        want: &["via xx_h_freestep_front_front_300cm_footl_to_air", "onto perch 6 at [41.00, 2.00"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "balancing on a post, the stick back: the free-step jump back to the last post without turning first",
+        env: &[("AC1_START", "38.6,0,-90,3"), ("AC1_WALK", "6.2"), ("AC1_STOP", "0.0-1.0"), ("AC1_STEER", "180")],
+        secs: 3.0,
+        want: &["via xx_h_freestep_backright_front_300cm_footl_to_air", "onto perch 4 at [36.20, 2.00"],
+        never: &["EMBED", "waitturn"],
+    },
+    Scenario {
         name: "standing turn round with the stick sweeping: one turn, then the walk",
         env: &[("AC1_START", "-5,-5,0"), ("AC1_WALK", "1.5"), ("AC1_STEER", "180"), ("AC1_CURVE", "1.5")],
         secs: 4.5,
