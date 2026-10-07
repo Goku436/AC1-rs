@@ -381,6 +381,8 @@ const SWING: &str = "swing";
 const VAULT: &str = "vault";
 /// Crossfade from the end of a move into a balancing, leaning or hiding loop (s).
 const WAIT_FADE: f32 = 0.35;
+/// Fade into and out of looking round on a wall (s): AC1's actions blend over 0.2-0.3 s.
+const LOOK_FADE: f32 = 0.3;
 /// The root's path onto a low obstacle: steady along the ground from the start to just in from its edge,
 /// easing up to the top by the time the clips are up on it. The clips still play for the body.
 #[derive(Clone, Copy, Debug)]
@@ -623,6 +625,8 @@ pub struct WallClimb {
     /// The wait clip is the last move held on its final frame (states without a hang loop).
     wait_hold: bool,
     wait_t: f32,
+    /// Looking round on the wall that way (`look_around`): "up", "down", "left" or "right".
+    looking: Option<&'static str>,
     /// Pose we are fading from, the fade time left and its length.
     fade: Option<(Pose, f32, f32)>,
     last: Option<Pose>,
@@ -1166,6 +1170,7 @@ impl WallClimb {
             wait: None,
             wait_hold: false,
             wait_t: 0.0,
+            looking: None,
             fade: None,
             last: None,
             last_hand_up: 0,
@@ -4080,9 +4085,48 @@ impl WallClimb {
             }
             return;
         }
-        if input.length() > 0.3 && !self.hop_out(lib, root) {
-            self.try_move(lib, level, root, rig, base, cr, input, leap);
+        let moved = input.length() > 0.3 && !self.hop_out(lib, root) && self.try_move(lib, level, root, rig, base, cr, input, leap);
+        self.look_around(lib, (!moved && input.length() > 0.3).then_some(input));
+    }
+
+    /// AC1's look round on a wall (`xx_l_climb_1m_lookaround_<side>`, `xx_h_hangwall_wait_lookaround_<side>`, actions
+    /// with no move after them): a direction held where no move goes, he looks that way, faded in over `LOOK_FADE`; let
+    /// go, back to the wait.
+    fn look_around(&mut self, lib: &mut AnimLib, input: Option<Vec2>) {
+        let set = match self.state.as_str() {
+            "1m" => "xx_l_climb_1m_lookaround",
+            HANGWALL | HANGWALL_OPEN => "xx_h_hangwall_wait_lookaround",
+            _ => {
+                self.looking = None;
+                return;
+            }
+        };
+        if self.mv.is_some() {
+            self.looking = None;
+            return;
         }
+        let side = input.map(|i| match (i.y.abs() >= i.x.abs(), i.y > 0.0, i.x > 0.0) {
+            (true, true, _) => "up",
+            (true, false, _) => "down",
+            (false, _, true) => "right",
+            (false, _, false) => "left",
+        });
+        if side == self.looking {
+            return;
+        }
+        let (Some(last), Some(now)) = (self.last.clone(), self.wait.clone()) else { return };
+        match side {
+            Some(s) => {
+                let Some(look) = lib.get(&format!("{set}_{s}")) else { return };
+                self.wait = Some(look);
+                self.wait_hold = false;
+                self.wait_t = 0.0;
+            }
+            None => self.set_wait(lib, now),
+        }
+        debug!("climb: looking {}", side.unwrap_or("back"));
+        self.fade = Some((last, LOOK_FADE, LOOK_FADE));
+        self.looking = side;
     }
 
     /// Body pose for this frame (before IK).

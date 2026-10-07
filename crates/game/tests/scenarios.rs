@@ -203,6 +203,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "via xx_l_climb_1m_r_2m at [4"],
     },
     Scenario {
+        name: "hanging from B1's bare north face, down held with nowhere to go: he looks down, then back",
+        env: &[("AC1_START", "38.9,35.86,-90"), ("AC1_CLIMB", "up=4.1,none=1.5,right=2,none=1,down=2,none=1")],
+        secs: 15.0,
+        want: &["looking down", "looking back"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "speed-stepping along A stops short of B, turns the corner outside B",
         env: &[("AC1_START", "-1.4,4.0,180"), ("AC1_CLIMB", "leap-right=6")],
         secs: 8.0,
