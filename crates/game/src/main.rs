@@ -24,7 +24,7 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press Q), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_NO_GALLERY (no pose gallery; scripted runs leave it out unless AC1_GALLERY is set), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STOP=secs lets go, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right/drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press Q), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STOP=secs lets go, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right/drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
@@ -87,7 +87,8 @@ struct Debug {
     skeleton: bool,
     targets: bool,
     /// G: hide the outlines of what can be grabbed or stood on.
-    hide_edges: bool,
+    /// Outlines shown (G cycles them): 0 both the grab lines and the grabbable edges, 1 the grab lines, 2 the edges, 3 none.
+    edges: u8,
 }
 
 #[derive(Resource)]
@@ -157,7 +158,7 @@ fn main() {
         .insert_resource(Debug {
             skeleton: std::env::var("AC1_DEBUG").is_ok(),
             targets: std::env::var("AC1_DEBUG").is_ok(),
-            hide_edges: std::env::var("AC1_SHOT").is_ok() && std::env::var("AC1_EDGES").is_err(),
+            edges: if std::env::var("AC1_SHOT").is_ok() && std::env::var("AC1_EDGES").is_err() { 3 } else { 0 },
         })
         .insert_resource(script)
         .add_systems(Startup, (level::spawn_level, setup, grab_cursor).chain())
@@ -381,9 +382,9 @@ fn setup(
         at.y = g.point.y;
     }
     // The pose gallery's figures share the player's model (test world only).
-    // (Not in scripted runs unless asked for: a hundred more figures change their frame timing.)
-    let scripted = std::env::var("AC1_SHOT").is_ok() && std::env::var("AC1_GALLERY").is_err();
-    let gallery_data = (!level.city && !scripted && std::env::var("AC1_NO_GALLERY").is_err()).then(|| data.clone());
+    // (Off unless asked for: its hundred figures make the test world slow to load.)
+    let scripted = std::env::var("AC1_SHOT").is_ok();
+    let gallery_data = (!level.city && std::env::var("AC1_GALLERY").is_ok()).then(|| data.clone());
     let root = character::spawn_character(&mut commands, data, at, &mut meshes, &mut mats, &mut images, &mut bindposes, animator, 0);
     if let (Some(data), Some(lib)) = (gallery_data, lib.as_mut()) {
         let rows = gallery::poses(&lib.names);
@@ -569,7 +570,7 @@ fn player_input(
         dbg.targets ^= true;
     }
     if keys.just_pressed(KeyCode::KeyG) {
-        dbg.hide_edges ^= true;
+        dbg.edges = (dbg.edges + 1) % 4;
     }
     let Ok((mut ctl, mut ch, tf)) = q.single_mut() else { return };
     let by_scholar = scholars.iter().any(|s| (s.translation - tf.translation).with_y(0.0).length() < PICKPOCKET_REACH);
@@ -634,7 +635,9 @@ fn player_input(
     // On the ground the legs jump only with a direction in high profile; else they only grab what is in reach.
     let press = keys.just_pressed(KeyCode::Space);
     ctl.leap = legs;
-    if ch.wall.is_some() {
+    // (A stop at an edge or leaning on a wall is not on a wall: the legs act as on the ground.)
+    let on_wall = ch.wall.as_ref().is_some_and(|w| !w.legs_on_ground());
+    if on_wall {
         ctl.wall_legs |= press;
         ctl.toggle_climb |= hand;
     } else if press {
@@ -844,8 +847,13 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
     if script.limp.is_some_and(|at| t > at) {
         ch.limp = true;
     }
+    // (As the player's Space: on a wall its legs moves (rebound, jump off a perch), else a jump.)
     if script.jump.iter().any(|&at| t > at && t - clock.dt <= at) {
-        ctl.toggle_climb = true;
+        if ch.wall.as_ref().is_some_and(|w| !w.legs_on_ground()) {
+            ctl.wall_legs = true;
+        } else {
+            ctl.toggle_climb = true;
+        }
     }
     // The puppet buttons, as the player would press them.
     let held = |r: Option<(f32, f32)>| r.is_some_and(|(a, b)| (a..b).contains(&t));
@@ -974,11 +982,17 @@ fn camera_follow(
 const FREECAM_SPEED: f32 = 12.0;
 const FREECAM_FAST: f32 = 50.0;
 
-/// Outline what can be grabbed (ledges and holds, yellow), stood on (posts and beams, orange) and swung on
-/// (bars, brown) near the player (G hides them).
-fn draw_edges(dbg: Res<Debug>, level: Res<level::Level>, player: Query<&Transform, With<Player>>, mut gizmos: Gizmos) {
+/// Outline what can be grabbed (where the hands grab, yellow; the edge of the ledge they grab, white), stood on (posts
+/// and beams, orange) and swung on (bars, brown) near the player. G cycles: both lines, the grab lines, the edges, none.
+fn draw_edges(
+    dbg: Res<Debug>,
+    level: Res<level::Level>,
+    player: Query<&Transform, With<Player>>,
+    mut edges: Local<std::collections::HashMap<usize, Option<(Vec3, Vec3)>>>,
+    mut gizmos: Gizmos,
+) {
     let Ok(p) = player.single() else { return };
-    if dbg.hide_edges {
+    if dbg.edges == 3 {
         return;
     }
     let p = p.translation;
@@ -988,8 +1002,15 @@ fn draw_edges(dbg: Res<Debug>, level: Res<level::Level>, player: Query<&Transfor
         (a + d * t).distance(p) < EDGE_RANGE
     };
     let lift = Vec3::Y * 0.012;
-    for l in level.ledges.iter().filter(|l| near(l.a, l.b)) {
-        gizmos.line(l.a + lift, l.b + lift, Color::srgb(1.0, 0.82, 0.25));
+    for (i, l) in level.ledges.iter().enumerate().filter(|(_, l)| near(l.a, l.b)) {
+        if dbg.edges != 2 {
+            gizmos.line(l.a + lift, l.b + lift, Color::srgb(1.0, 0.82, 0.25));
+        }
+        if dbg.edges != 1
+            && let Some((a, b)) = *edges.entry(i).or_insert_with(|| ledge_edge(&level, l))
+        {
+            gizmos.line(a + lift, b + lift, Color::srgb(0.95, 0.95, 1.0));
+        }
     }
     for l in level.perches.iter().filter(|l| near(l.a, l.b)) {
         if (l.b - l.a).length() < 0.05 {
@@ -1005,6 +1026,13 @@ fn draw_edges(dbg: Res<Debug>, level: Res<level::Level>, player: Query<&Transfor
 
 /// Edges further than this from the player are not outlined (m).
 const EDGE_RANGE: f32 = 30.0;
+
+/// The outer edge of the ledge a hold runs along: its front face just under the hold's height, found from in front of
+/// it (the hold line itself sits where the hands grab, a little in from the edge on the test level's strips).
+fn ledge_edge(level: &level::Level, l: &level::Ledge) -> Option<(Vec3, Vec3)> {
+    let face = |p: Vec3| level.raycast(p + l.out * 0.4 - Vec3::Y * 0.03, -l.out, 0.6).filter(|h| h.normal.dot(l.out) > 0.7).map(|h| h.point.with_y(p.y));
+    Some((face(l.a)?, face(l.b)?))
+}
 
 fn debug_draw(
     dbg: Res<Debug>,
@@ -1123,7 +1151,7 @@ fn hud(
         "ground (procedural)".to_string()
     };
     t.0 = format!(
-        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F1)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | G edges | Q eagle | [ ] clips, F2 skeleton, F3 IK, F6 gallery, F12 shot\n{details}",
+        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F1)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | G outlines (both, grab, edge, none) | Q eagle | [ ] clips, F2 skeleton, F3 IK, F6 gallery, F12 shot\n{details}",
         if ch.health <= 0.0 {
             "DESYNCHRONISED".to_string()
         } else {

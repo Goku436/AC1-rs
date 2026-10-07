@@ -134,7 +134,7 @@
 
 use crate::animation::{AnimLib, Clip, mix_name, root_motion_at, root_rotation_at, sample};
 use crate::character::model_to_bevy;
-use crate::level::{Ledge, Level};
+use crate::level::{Ledge, Level, Line};
 use bevy::prelude::*;
 use forge::anim::FPS;
 use ik::{Pose, Rig};
@@ -286,6 +286,11 @@ const GRIP_OUT: f32 = 0.09;
 const GRIP_DOWN: f32 = 0.08;
 /// How far a hand may end from a hold and still count as on it.
 const HOLD_TOLERANCE: f32 = 0.2;
+/// Room the body needs beside it climbing sideways (m), to its side's wall.
+const BODY_SIDE: f32 = 0.3;
+/// Corner moves steer onto the next face's holds this far from where their clips put the hands (m): a sidestep moves the
+/// hands 0.375 m, so they stop up to that far short of the corner. (Corners are tried only once no sidestep fits.)
+const CORNER_TOLERANCE: f32 = 0.6;
 /// Leaps steer onto a hold this far from where their clips land (m).
 const LEAP_TOLERANCE: f32 = 0.75;
 /// A foot this close in front of a wall is braced on it.
@@ -302,6 +307,8 @@ const EASE_TURN: f32 = 0.25;
 /// Wall run: the steps up the wall, and its ending when nothing is in reach.
 const WALL_RUN: [&str; 3] = ["xx_h_wallingfront_entry_footl_a", "xx_h_wallingfront_entry_footl_b", "xx_h_wallingfront_step1_footr"];
 const WALL_RUN_FALL: &str = "xx_h_wallingfront_step1_footr_tr_fall";
+/// A wall run rebounds until this share of its fall back off the wall has played.
+const REBOUND_LATE: f32 = 0.6;
 /// Sprinting at a wall closer than this (m) runs up it.
 pub const WALL_RUN_REACH: f32 = 2.0;
 /// A wall met up to this far off square (rad, 60°) is run up, turning to face it.
@@ -428,6 +435,18 @@ const WALL_RUN_WIDTH: f32 = 0.7;
 /// Jump targets: this far across (m), and within this cosine of the wanted direction (45 degrees).
 const JUMP_TARGET_REACH: std::ops::RangeInclusive<f32> = 1.0..=4.6;
 const JUMP_TARGET_CONE: f32 = 0.707;
+/// A running jump leaves the ground going up at least this fast (m/s), whatever it aims at.
+const JUMP_UP_MIN: f32 = 1.5;
+/// A jump up onto a top crosses its edge with the feet this far over it (m).
+const JUMP_EDGE_CLEAR: f32 = 0.25;
+/// A top jumped onto needs this much room over it (m).
+const JUMP_TOP_HEADROOM: f32 = 1.7;
+/// With no top in reach, a running jump aims at a hold to catch facing it: from this far under the feet to this far over
+/// them (m), the root arriving this far under it (the catch onto the wall has the hands about 1.1 m over the root).
+const JUMP_HOLD_RISE: std::ops::RangeInclusive<f32> = -1.0..=2.6;
+const JUMP_HOLD_HANG: f32 = 0.9;
+/// ...this far in from the hold's ends (m), for both hands.
+const JUMP_HOLD_INSET: f32 = 0.35;
 /// A top jumped to may be up to 3 m below and 1.3 m above (AC1's candidate scorer and its jump bands for a top, via
 /// Banned445's AC1-Movement-Rewritten).
 const JUMP_TARGET_RISE: std::ops::RangeInclusive<f32> = -3.0..=1.3;
@@ -928,6 +947,29 @@ fn jump_airtime() -> f32 {
     2.0 * JUMP_UP_SPEED / GRAVITY
 }
 
+/// Where a running jump along `dir` from `from` flies to catch a hold, when no top is in reach: the nearest hold within
+/// AC1's 45 degree cone and reach, facing the jumper, `JUMP_HOLD_RISE` of the feet; the point the body hangs from it.
+fn jump_hold_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
+    let dir = dir.with_y(0.0).normalize_or_zero();
+    level
+        .ledges
+        .iter()
+        .filter(|l| l.out.dot(dir) < -0.5)
+        .filter(|l| l.a.distance(l.b) > 2.0 * JUMP_HOLD_INSET)
+        .map(|l| {
+            // (Both hands on it: in from its ends.)
+            let along = (l.b - l.a).normalize();
+            let inner = Line { a: l.a + along * JUMP_HOLD_INSET, b: l.b - along * JUMP_HOLD_INSET };
+            (inner.closest(from + dir * 2.5), l.out)
+        })
+        .filter(|(q, _)| {
+            let flat = (*q - from).with_y(0.0);
+            JUMP_TARGET_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_HOLD_RISE.contains(&(q.y - from.y))
+        })
+        .min_by(|a, b| (a.0 - from).length().total_cmp(&(b.0 - from).length()))
+        .map(|(q, out)| q + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG)
+}
+
 /// Velocity that flies from `from` to `to` under gravity, and the flight time (longer for longer jumps).
 /// Where to jump to along `dir` from `from` (AC1's target choice, as the movement notes have it: within
 /// 45 degrees of the wanted direction, at most 3 m down, the highest first, then the nearest): a post or
@@ -946,9 +988,16 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
         let mut gap = false;
         for k in 2..=18 {
             let t = k as f32 * 0.25;
-            match level.ground(from + d * t, 1.2, 1.2) {
+            match level.ground(from + d * t, 1.2, -JUMP_TARGET_RISE.start() + 0.2) {
                 None => gap = true,
-                Some(g) if gap && g.normal.y > 0.8 && level.ground(g.point + d * 0.4, 0.2, 0.2).is_some() => {
+                // (Room to stand over it, and not inside a block: a probe starting inside one finds the floor under it,
+                // and looking up from there meets the block's roof from below.)
+                Some(g)
+                    if gap
+                        && g.normal.y > 0.8
+                        && level.ground(g.point + d * 0.4, 0.2, 0.2).is_some()
+                        && level.raycast_sided(g.point + Vec3::Y * 0.05, Vec3::Y, 20.0).is_none_or(|(h, behind)| !behind && h.dist > JUMP_TOP_HEADROOM) =>
+                {
                     cands.push(g.point + d * 0.4);
                     break;
                 }
@@ -1159,32 +1208,61 @@ impl WallClimb {
     pub fn jump_aimed(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, from: Option<Pose>) -> Option<WallClimb> {
         let speed = dir.with_y(0.0).length();
         let p = root.translation;
-        let Some(mut to) = jump_target(level, p, dir, None) else { return Self::jump(lib, root, dir, from) };
+        let top = jump_target(level, p, dir, None);
+        let at_hold = top.is_none();
+        let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, root, dir, from) };
         let (takeoff, air) = (lib.get(JUMP_TAKEOFF)?, lib.get(JUMP_AIR)?);
         let aim = (to - p).with_y(0.0).normalize_or(dir);
         let planned = Transform { rotation: facing(aim), ..*root };
-        // The arc starts where the takeoff leaves the ground.
-        let lift = p + world_rot(planned.rotation) * root_motion_at(&takeoff, takeoff.frames());
+        // The arc starts where the takeoff leaves the ground: at the edge at the latest. The takeoff clip runs on about
+        // 1.7 m; pressed closer to the edge than that, it starts partway in (at its own pace), not run on over the drop.
+        let rot = world_rot(planned.rotation);
+        let end_motion = root_motion_at(&takeoff, takeoff.frames());
+        let edge = (1..=40).map(|k| k as f32 * 0.05).find(|&d| level.ground(p + aim * d, 0.3, 0.5).is_none());
+        let skip = edge.and_then(|e| {
+            let left = |f: f32| (rot * (end_motion - root_motion_at(&takeoff, f))).with_y(0.0).dot(aim);
+            (left(0.0) > e - 0.1).then(|| (0..takeoff.frames() as usize).map(|f| f as f32).find(|&f| left(f) <= e - 0.1).unwrap_or(takeoff.frames()))
+        });
+        let skipped = skip.map_or(Vec3::ZERO, |f| rot * root_motion_at(&takeoff, f));
+        let lift = p + rot * end_motion - skipped;
         // At the speed it runs (a low, quick arc), and no slower than a standing leap.
         let mut d = (to - lift).with_y(0.0).length();
         // A short hop at a run lands further on (where the ground goes on), not slower.
         let reach = speed.max(4.0) * 0.42;
         if d < reach
+            && !at_hold
             && let Some(g) = level.ground(lift + aim * reach + Vec3::Y * (to.y - lift.y), 0.5, 0.5).filter(|g| (g.point.y - to.y).abs() < 0.15)
         {
             to = g.point;
             d = reach;
         }
+        // Across at the speed it runs (a low, quick arc), and no slower than a standing leap; only the push up changes.
         let flight = (d / speed.max(4.0)).max(0.42);
-        let v = (to - lift).with_y(0.0) / flight + Vec3::Y * ((to.y - lift.y) + 0.5 * GRAVITY * flight * flight) / flight;
+        let dy = to.y - lift.y;
+        let mut up = (dy + 0.5 * GRAVITY * flight * flight) / flight;
+        // Up onto a higher top: pushed up enough to cross its edge, about 0.65 m short of the aim point, with the feet
+        // clear of it (lower, the knees meet the edge and step up onto it in a jolt).
+        if !at_hold && dy > 0.1 && d > 0.8 {
+            let ts = flight * ((d - 0.65) / d).clamp(0.1, 0.95);
+            up = up.max((dy + JUMP_EDGE_CLEAR + 0.5 * GRAVITY * ts * ts) / ts);
+        }
+        // Always a jump up first, even down to a lower top (it lands further on); off an edge it would fall back onto it.
+        up = up.max(JUMP_UP_MIN);
+        let v = (to - lift).with_y(0.0) / flight + Vec3::Y * up;
+        // The air clip plays over the real airtime, down to the target's height.
+        let airtime = ((up + (up * up - 2.0 * GRAVITY * dy).max(0.0).sqrt()) / GRAVITY).max(flight);
         let mut w = WallClimb::new(JUMP, -aim);
-        w.queue = vec![Queued { rate: air.anim.duration / flight, ..Queued::new(air, FALL) }];
+        w.queue = vec![Queued { rate: air.anim.duration / airtime, ..Queued::new(air, FALL) }];
         w.fall_with = Some(v);
         w.can_catch = true;
         w.aimed = true;
         w.start(takeoff, JUMP.into(), &planned);
+        if let (Some(m), Some(f)) = (&mut w.mv, skip) {
+            m.t = f / FPS;
+            m.start -= skipped;
+        }
         w.ease_in(from, root);
-        debug!("climb: running jump aimed at {to:.2}");
+        debug!("climb: running jump aimed at {to:.2} (takeoff from frame {:.0}, {airtime:.2} s in the air, up at {up:.1} m/s)", skip.unwrap_or(0.0));
         Some(w)
     }
 
@@ -1509,8 +1587,9 @@ impl WallClimb {
         }
     }
 
-    /// Next to a haystack, the legs: jump into it and hide (`xx_h_air_to_haystack`, steered into its middle).
-    pub fn into_hay(lib: &mut AnimLib, level: &Level, root: &Transform, from: Option<Pose>) -> Option<WallClimb> {
+    /// Next to a haystack, the legs: jump into it and hide (`xx_h_air_to_haystack`, steered into its middle); in
+    /// low profile only (`high`: free running goes past it), except the dive in from a top beside it.
+    pub fn into_hay(lib: &mut AnimLib, level: &Level, root: &Transform, high: bool, from: Option<Pose>) -> Option<WallClimb> {
         let p = root.translation;
         // From a top beside it, level with its top or a little above (AC1's `FreeStep` entry): a dive in,
         // `xx_h_freestep_footr_to_haystack_01` or `_02` (taken in turn), steered into its middle.
@@ -1528,6 +1607,9 @@ impl WallClimb {
             w.ease_in(from, root);
             debug!("climb: dive into the haystack at {:.2} from a top {:.2} m above it", hay.centre, p.y - hay.top());
             return Some(w);
+        }
+        if high {
+            return None;
         }
         let hay = level.haystacks.iter().find(|h| (h.centre - p).with_y(0.0).length() < h.half + HAY_REACH && (p.y - h.centre.y).abs() < 0.5)?;
         let dir = (hay.centre - p).with_y(0.0).normalize_or(root.rotation * Vec3::NEG_Z);
@@ -1578,6 +1660,12 @@ impl WallClimb {
     /// A ground action or leaning on a wall (the legs, or steering, may break it off).
     pub fn on_ground(&self) -> bool {
         self.state == GROUND_ACT || self.state == LEAN || self.state == COLLIDE
+    }
+
+    /// Does a press of the legs act as on the ground (a stop at an edge, leaning on a wall), not as a wall move? (Stopped
+    /// against a low block, the legs step up onto it: that is the climber's.)
+    pub fn legs_on_ground(&self) -> bool {
+        self.state == GROUND_ACT || self.state == LEAN
     }
 
     /// Root motion of clips played back to back from `root` (world).
@@ -2458,7 +2546,9 @@ impl WallClimb {
         let Some(m) = &self.mv else { return false };
         let phase = if m.clip.name == WALL_RUN[0] || m.clip.name == WALL_RUN[1] {
             "entryrebound"
-        } else if m.clip.name == WALL_RUN[2] {
+        } else if m.clip.name == WALL_RUN[2] || (m.clip.name == WALL_RUN_FALL && m.t < m.clip.anim.duration * REBOUND_LATE) {
+            // (And at the top of the step, as it starts back down: AC1 rebounds from there too,
+            // `xx_h_wallingfront_step1_footr_tr_rebound_footr`.)
             "step1rebound"
         } else {
             return false;
@@ -3010,7 +3100,15 @@ impl WallClimb {
             // Leaps are aimed: they steer onto a hold within reach of where the clip lands (and so are the moves off a
             // ladder sideways, its rungs not level with the wall's holds).
             let leap = c.names.first().is_some_and(|n| n.starts_with("xx_h_climbing_") || n.starts_with("xx_h_ladder_wait_tr_"));
-            let reach = if leap { LEAP_TOLERANCE } else { HOLD_TOLERANCE };
+            // (Corners too: where their hands land on the next face depends on how far along the wall the hands were.)
+            let corner = c.names.first().is_some_and(|n| n.contains("_corner_"));
+            let reach = if leap {
+                LEAP_TOLERANCE
+            } else if corner {
+                CORNER_TOLERANCE
+            } else {
+                HOLD_TOLERANCE
+            };
             // (Side and down leaps also go diagonally down onto a hold up to 1.2 m below where they land; an up
             // leap must land up: dropped back, it would catch the ledge it leapt from, over and over at a top.)
             let up = c.names.first().is_some_and(|n| n.contains("_up_"));
@@ -3022,6 +3120,9 @@ impl WallClimb {
                 .filter_map(|d| holds_within(level, &end.hands.map(|h| h - Vec3::Y * d), normal, reach))
                 .find(|t| (t[0].distance(t[1]) - apart).abs() < HANDS_APART_SLACK)
             else {
+                if corner {
+                    debug!("climb: {} : the hands land off the holds ({:.2?})", c.names[0], end.hands.map(|h| nearest_hold(level, h, normal).map(|n| n.2)));
+                }
                 continue;
             };
             // A leap between its short and long variant's reach: AC1 mixes the two to land on the hold.
@@ -3031,7 +3132,22 @@ impl WallClimb {
             };
             let land = (targets[0] - end.hands[0] + targets[1] - end.hands[1]) * 0.5;
             if !feet_fit_at(level, &end.feet.map(|f| f + land), normal, c.feet, Some((targets[0] + targets[1]) * 0.5)) {
+                if corner {
+                    debug!("climb: {} : no wall for the feet", c.names[0]);
+                }
                 continue;
+            }
+            // Sideways along the wall, the body must fit where it ends: not into a wall meeting this one (an inside
+            // corner; the holds run on to its end, under the other wall). Climbing jumps too. (Corners go round.)
+            let slide = (end.pos + land - root.translation).with_y(0.0);
+            let side = slide - normal * slide.dot(normal);
+            if !corner && side.length() > 0.05 {
+                let into = [0.5, 1.2].iter().any(|h| {
+                    level.raycast(root.translation + Vec3::Y * *h, side.normalize(), side.length() + BODY_SIDE).is_some_and(|w| w.normal.y.abs() < 0.5)
+                });
+                if into {
+                    continue;
+                }
             }
             if c.to.ends_with("ru") {
                 self.last_hand_up = 1;
@@ -3046,7 +3162,13 @@ impl WallClimb {
             // leaving it.)
             let out = (hang_offset(&c.to, normal) - hang_offset(&self.state, normal)).dot(normal);
             let down = if hang_offset(&c.to, normal) != Vec3::ZERO { HANG_DOWN } else { 0.0 };
-            let err = err - normal * err.dot(normal) + normal * out - Vec3::Y * down;
+            // (A corner keeps its error out from the new wall too: stopped short of the corner, the turn would end
+            // inside the next wall.)
+            let flat = if corner { err } else { err - normal * err.dot(normal) };
+            // Between hangs of one kind (on the wall, or free), he stays as far out from the wall: a clip that drifts in
+            // (AC1's free-hang leaps, made for a flat wall) would put the body into a cornice over the hold.
+            let keep = if !corner && is_free(&self.state) == is_free(&c.to) { -normal * (end.pos - root.translation).dot(normal) } else { Vec3::ZERO };
+            let err = flat + keep + normal * out - Vec3::Y * down;
             let tos = chain_states(clips.len(), &self.state, &c.to);
             self.start_chain(clips, tos, root, err);
             return true;
@@ -3169,7 +3291,10 @@ impl WallClimb {
     #[allow(clippy::too_many_arguments)]
     fn try_catch(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig, down_speed: f32) -> bool {
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
-        let Some(hit) = level.raycast(root.translation + Vec3::Y * 1.2, fwd, 1.0).filter(|h| h.normal.y.abs() < 0.3) else { return false };
+        // (At chest height, or lower: caught at a roof's edge, the chest is level with the roof.)
+        let Some(hit) = [1.2, 0.7].iter().find_map(|h| level.raycast(root.translation + Vec3::Y * *h, fwd, 1.0).filter(|h| h.normal.y.abs() < 0.3)) else {
+            return false;
+        };
         let normal = hit.normal.with_y(0.0).normalize();
         let facing = Transform { translation: root.translation, rotation: Quat::from_rotation_arc(Vec3::NEG_Z, -normal), ..default() };
         let speed = if down_speed > CATCH_FAST { "max" } else { "min" };
@@ -3183,11 +3308,9 @@ impl WallClimb {
             let mut end = end.world(&facing);
             // (Pushed off the wall or falling clear of it: the hands are judged as if at the wall, where the catch
             // pulls the root; only along the wall and in height must they be near a hold.)
-            let out = ((end.hands[0] + end.hands[1]) * 0.5 - hit.point).dot(normal) - CATCH_HAND_OUT;
-            if out > 0.0 {
-                end.hands = end.hands.map(|h| h - normal * out);
-                end.feet = end.feet.map(|f| f - normal * out);
-            }
+            let out = (((end.hands[0] + end.hands[1]) * 0.5 - hit.point).dot(normal) - CATCH_HAND_OUT).max(0.0);
+            end.hands = end.hands.map(|h| h - normal * out);
+            end.feet = end.feet.map(|f| f - normal * out);
             let Some(targets) = holds_within(level, &end.hands, normal, CATCH_REACH) else { continue };
             if self.catch_below.is_some_and(|y| (targets[0].y + targets[1].y) * 0.5 > y) {
                 continue;
@@ -3201,7 +3324,8 @@ impl WallClimb {
             self.fall_v = None;
             self.state = LEAP.into();
             let tos = chain_states(clips.len(), LEAP, to);
-            self.start_chain(clips, tos, root, err);
+            // (The pull in to the wall too: caught further out, he would hang that far off it from then on.)
+            self.start_chain(clips, tos, root, err - normal * out);
             return true;
         }
         false

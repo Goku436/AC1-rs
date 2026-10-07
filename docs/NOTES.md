@@ -101,7 +101,7 @@ Ground moves (AC1's `HumanGround`, played as clip chains with root motion, then 
   letting go stands up, the legs climb;
 - a running landing that would hurt, or from more than 3 m, rolls (`xx_h_landing_damage_footl_roll`,
   `xx_roll_hipm_tr_h_jog_hipm_footr`);
-- the legs next to a haystack jump into it and hide (`xx_h_air_to_haystack`).
+- the legs next to a haystack jump into it and hide (`xx_h_air_to_haystack`), in low profile only: in high profile they free run past it (a dive in from a top beside it stays).
 
 Partial-body clips: measured over every clip for Altaïr's skeleton (legs that never move while the spine and arms
 do, or the other way round), the ones the player uses are layered over the rest of the pose: upper body (spine and
@@ -138,7 +138,7 @@ short hop landing further on where the ground goes on.
 Collision: triangles too big for the raycast grid (the test world's ground plane around the blocks) are tested by
 every raycast; they used to be skipped, so the ground outside the 40 m block area had no collision (cities have none).
 
-Pose gallery (test world, west of the start, x -40 and beyond, rows from z -14): Altaïr's held loops (the `xx_`
+Pose gallery (with `AC1_GALLERY`; test world, west of the start, x -40 and beyond, rows from z -14): Altaïr's held loops (the `xx_`
 clips that wait, idle or cycle; not transitions, look-arounds, horses), one foot of each pair, up to 10 per row, in
 rows by category (climbing, ledge hang, free hang, ladder on walls; beam and post, swing bar, lean, hay, standing,
 sitting, other; combat clips are left out), each figure named up close. Scripted runs leave it out unless `AC1_GALLERY` is set.
@@ -189,13 +189,16 @@ right catches it one-handed.
 - analytic two-bone IK with pole control (legs, arms)
 - weighted look-at chain with per-bone limits (Spine..Head)
 - FABRIK and CCD for arbitrary chains
-- foot placement (pelvis drop, per-foot ground offsets, slope tilt, smoothing)
+- foot placement (pelvis drop, per-foot ground offsets, slope tilt, smoothing); the drop moves the spine too when it is not under the hips (AC1 hangs `Hips` and `Spine` side by side off `Reference`: lowering the hips alone stretched the torso on stairs)
 - hand placement (palm onto a surface point, fingers along a direction, elbow hint)
 
 On the ground the game plays AC1's own clips (idle, walk/jog/run half-cycles picked and rate-matched by
 root-motion speed) with foot placement on top. Wall climbing plays AC1's climb graph (hang states
 1m/1lu/1ru/2m/2lu/2ru, `xx_l_climb_<from>_<dir>_<to>` moves with root motion and rotation, ground
-entry jump, inside/outside corner turns, and the pull-up/kneel/stand top-out chain), free hang where the
+entry jump, inside/outside corner turns, and the pull-up/kneel/stand top-out chain; a corner steers its hands onto the next
+face's holds up to 0.6 m from where its clip puts them, out from the new wall too, and sidesteps and climbing jumps need
+room for the body beside them, stopping short of a wall meeting this one; AC1 has corner clips for the climb and the free
+hang only, not the wall hang), free hang where the
 wall drops away under the feet (`xx_l_climb_1m_<dir>_hangfree` in, `xx_h_hangfree_*` shimmy and climb,
 `xx_h_hangfree_<dir>_climb_1m` back onto the wall, hangwaist/hangknee top-out), leaps between holds
 (`xx_h_climbing_<climb1m|hangfree>_tr_<climb1m|hangfree>_<dir>_<2|3>_*`, 1.5-2.25 m sideways,
@@ -208,9 +211,20 @@ landing into a jog, catching wall holds on the way down with `xx_fall_tr_climb_*
 is only taken if its end pose puts both hands on real holds and the feet on the wall (or, for free hang,
 clear of it), and IK snaps hands to holds and feet to the wall. Block C in the test level has an overhang
 for free hang, block D a roof slab to top out from a free hang, and A, C, D stand 1.5 m apart for leaps
-and roof jumps (C's side facing D has holds to catch from a jump off D's roof). Behind the stairs, blocks
+and roof jumps (C's side facing D has holds to catch from a jump off D's roof: with no top in reach, a running jump
+aims at the nearest hold within AC1's 45 degree cone, 1 m below to 2.6 m above the feet, 0.35 m in from its ends; a
+top needs 1.7 m of room over it and must not be inside a block, which a probe starting inside one finds as the floor
+under it). A mid-air catch pulls the body in to the wall too (caught further out, he hung that far off it after), and
+looks for the wall at the chest or lower (at a roof's edge the chest is level with the roof); a hold is aimed at with
+the root arriving 0.9 m under it. A running jump's takeoff (about 1.7 m of root motion) starts partway in when pressed
+near the edge, so it leaves the ground at the edge rather than running on over the drop. It crosses at running speed
+(lengthening the flight instead made jumps float in slow motion); only the push up varies: at least 1.5 m/s (even down
+to a lower top, which it then lands further onto), and up onto a higher top enough to cross the edge with the feet
+0.25 m clear (lower, the knees met the edge and the body snapped up onto it). The air clip plays over the real airtime. Moves between hangs of one kind keep
+the body as far out from the wall as it was (a free-hang leap drifts in; under a cornice it went into the stone). Behind the stairs, blocks
 with tops at 1.5, 2 and 2.5 m and block G (holds from 2.39 m) are for jumping up to ledges. Without animation data the old procedural climb is used.
-Space again during a wall run rebounds off the wall (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`), and at
+Space again during a wall run rebounds off the wall (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`; from the
+step until 60% into its fall back off the wall, as AC1 also rebounds from there), catching holds behind, and at
 the edge of a high roof over a haystack it does the leap of faith (`xx_h_freestep_footr_to_faith_jump_*`, the
 `xx_h_faith_jump_*` dive stretched over the real fall, `xx_h_faith_jump_landing` into the hay, `xx_h_haystack_wait`,
 `xx_l_haystack_hop_out`); any fall into a haystack lands in it (`xx_h_air_to_haystack`), and walking off a ledge is an
@@ -446,7 +460,12 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
 - Controller (Xbox or DualShock 4, by button position): left stick moves, right stick turns the camera; A/Cross legs,
   B/Circle empty hand, Y/Triangle head; R1/R2 high profile; Back/Share records; Start/Options free camera; R3 shows
   the holds (`pad.rs`). The game logs each controller it finds ("controller connected: Sony DualShock4 Gamepad").
-- `AC1_SCENARIOS=1 cargo test -p ac1 --test scenarios -- --nocapture`: 32 scripted runs (climbs, top-outs, free
+- Test world additions (2026-10-06): rooftops north-east of the start (x 40-70, z 8-36: climb B1, gaps across, down and
+  up, a beam, two swing bars, a running jump onto tower T2's holds and a leap of faith off its beam) and wall W (run
+  through a doorway, up a bare wall, rebound back onto the holds over the door). G cycles the outlines: where the hands
+  grab (yellow) and the edge of the ledge grabbed (white, found by probing the face in front of each hold), one, the
+  other, none. The pose gallery is off unless `AC1_GALLERY` is set (it made the test world slow to load).
+- `AC1_SCENARIOS=1 cargo test -p ac1 --test scenarios -- --nocapture`: 39 scripted runs (climbs, top-outs, free
   running up a wall, the risky leap, Pole Q's hang, the course and the flow lane, stopping against a low block and
   stepping up, glancing off it, a quarter turn let go, ladder, poles, bench, hay and the leap of faith off tower V,
   block L stopping a run toward the kiosk, pulling down and climbing down, turning round at an edge, blended grabs and

@@ -50,6 +50,9 @@ fn is_under(rig: &Rig, mut b: usize, ancestor: usize) -> bool {
 #[derive(Debug, Clone)]
 pub struct FootPlacement {
     pub hips: usize,
+    /// The spine's root when it is not under the hips (AC1's rigs hang `Hips` and `Spine` side by side off
+    /// `Reference`): lowered with the pelvis, or the upper body would stay up and the torso stretch.
+    pub spine: Option<usize>,
     pub legs: [Leg; 2],
     /// Knees bend toward +X (forward) in model space.
     pub knee_forward: Vec3,
@@ -68,6 +71,7 @@ impl FootPlacement {
     pub fn new(rig: &Rig) -> Option<Self> {
         Some(Self {
             hips: rig.find("Hips")?,
+            spine: rig.find("Spine").filter(|&s| !is_under(rig, s, rig.find("Hips").unwrap_or(usize::MAX))),
             legs: [Leg::from_rig(rig, "Left")?, Leg::from_rig(rig, "Right")?],
             knee_forward: Vec3::X,
             max_tilt: 0.6,
@@ -105,7 +109,9 @@ impl FootPlacement {
             self.foot_normal[i] = self.foot_normal[i].lerp(normal[i], k).normalize_or(Vec3::Z);
         }
 
-        pose.translate_model(rig, self.hips, Vec3::Z * self.pelvis * weight);
+        for b in std::iter::once(self.hips).chain(self.spine) {
+            pose.translate_model(rig, b, Vec3::Z * self.pelvis * weight);
+        }
         for (i, leg) in self.legs.iter().enumerate() {
             let foot = pose.model_of(rig, leg.foot);
             // Animated ankle, shifted by this foot's ground offset (pelvis drop already moved it down).
@@ -167,6 +173,7 @@ pub fn place_hand(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Xform;
     use crate::tests::test_rig;
 
     fn biped() -> Rig {
@@ -205,5 +212,30 @@ mod tests {
         assert!((l - 0.2).abs() < 0.01, "left foot at {l}");
         assert!((r + 0.1).abs() < 0.01, "right foot at {r}");
         assert!((fp.pelvis_offset() + 0.1).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_spine_beside_the_hips_drops_with_the_pelvis() {
+        // AC1's layout: the spine not under the hips (beside them, off `Reference`; here a root of its own).
+        let mut rig = biped();
+        let spine = rig.len();
+        rig.names.push(Some("Spine".into()));
+        rig.parents.push(None);
+        rig.rest.push(Xform { pos: Vec3::Z * 1.1, rot: Quat::IDENTITY });
+        let mut fp = FootPlacement::new(&rig).unwrap();
+        assert_eq!(fp.spine, Some(spine));
+        let floor = rig.rest_pose().model(&rig)[3].pos.z - fp.legs[0].ankle_height;
+        let ground = |p: Vec3| Some(GroundHit { point: Vec3::new(p.x, p.y, floor - 0.3), normal: Vec3::Z });
+        let rest = rig.rest_pose().model(&rig);
+        let mut pose = rig.rest_pose();
+        for _ in 0..200 {
+            pose = rig.rest_pose();
+            fp.solve(&mut pose, &rig, floor, 1.0 / 60.0, 1.0, ground);
+        }
+        let m = pose.model(&rig);
+        let hips_drop = rest[0].pos.z - m[0].pos.z;
+        let spine_drop = rest[spine].pos.z - m[spine].pos.z;
+        assert!(hips_drop > 0.25, "hips dropped {hips_drop}");
+        assert!((hips_drop - spine_drop).abs() < 1e-3, "spine dropped {spine_drop}, hips {hips_drop}");
     }
 }

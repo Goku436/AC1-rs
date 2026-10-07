@@ -168,6 +168,10 @@ pub struct Level {
     pub labels: Vec<(String, Vec3)>,
 }
 
+/// Test level holds: strips this deep (m) out from their wall, the grab line 6 cm out (where the hands hold; the strip's
+/// outer edge, beyond it, is outlined as well: see `draw_edges`).
+const HOLD_DEPTH: f32 = 0.12;
+
 /// Where the player starts in Masyaf (Bevy x, _, z): the village below the fortress.
 const MASYAF_SPAWN: [f32; 3] = [20.0, 0.0, 50.0];
 
@@ -577,6 +581,92 @@ impl Level {
     }
 }
 
+/// Rows of test-level holds along a face: from `origin` along `along` for `len` m, facing `out`, at each height.
+fn hold_rows(strips: &mut Builder, level: &mut Level, origin: Vec3, along: Vec3, len: f32, out: Vec3, heights: &[f32]) {
+    for &y in heights {
+        let a = origin + along * 0.08 + Vec3::Y * y;
+        let b = origin + along * (len - 0.08) + Vec3::Y * y;
+        strips.cuboid(a.min(b) + out.min(Vec3::ZERO) * HOLD_DEPTH - Vec3::Y * 0.07, a.max(b) + out.max(Vec3::ZERO) * HOLD_DEPTH);
+        level.ledges.push(Ledge { a: a + out * 0.06, b: b + out * 0.06, out });
+    }
+}
+
+/// A test-level building from `lo` to `hi` (ground to roof): a hold along the roof's edge on every side, and on the
+/// faces listed (by outward normal) rows of holds every 0.6 m from 1.79 m up to it, to climb.
+fn building(walls: &mut Builder, strips: &mut Builder, level: &mut Level, lo: Vec3, hi: Vec3, climb: &[Vec3]) {
+    walls.cuboid(lo, hi);
+    let rows: Vec<f32> = (0..).map(|k| 1.79 + 0.6 * k as f32).take_while(|y| *y < hi.y - 0.3).collect();
+    let faces = [
+        (Vec3::new(lo.x, 0.0, lo.z), Vec3::X, hi.x - lo.x, Vec3::NEG_Z),
+        (Vec3::new(lo.x, 0.0, hi.z), Vec3::X, hi.x - lo.x, Vec3::Z),
+        (Vec3::new(lo.x, 0.0, lo.z), Vec3::Z, hi.z - lo.z, Vec3::NEG_X),
+        (Vec3::new(hi.x, 0.0, lo.z), Vec3::Z, hi.z - lo.z, Vec3::X),
+    ];
+    for (origin, along, len, out) in faces {
+        hold_rows(strips, level, origin, along, len, out, &[hi.y]);
+        if climb.contains(&out) {
+            hold_rows(strips, level, origin, along, len, out, &rows);
+        }
+    }
+}
+
+/// Rooftops (north-east of the start, x 40-70, z 8-36), to free run like a city's roofs: B1 to climb (holds up its
+/// south and west faces), a 2 m gap to B2 at the same height, a 2.5 m gap down 1.5 m to B3 (a ladder up its south
+/// face), a beam across a 3 m alley to B4, a 2.5 m gap up 1.2 m to B5, two swing bars over a 5 m gap down to B6, and
+/// from B6 a running jump across 2 m to tower T2's holds; from T2's top a beam over a haystack (a leap of faith).
+/// Every roof has a hold along its edges. And wall W (a rebound): a bare 6 m wall to run up and kick off backwards,
+/// onto the holds over the doorway of a wall 2.2 m behind, run through on the way in. Returns its labels.
+fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec<(&'static str, Vec3)> {
+    let up = |x: f32, z: f32| Vec3::new(x, 0.0, z);
+    let top = |k: f32| 1.79 + 0.6 * k;
+    let (b1, b2, b3) = (top(7.0), top(7.0), top(4.5));
+    building(walls, strips, level, up(40.0, 30.0), Vec3::new(46.0, b1, 36.0), &[Vec3::NEG_Z, Vec3::NEG_X]);
+    building(walls, strips, level, up(48.0, 30.0), Vec3::new(53.0, b2, 36.0), &[]);
+    building(walls, strips, level, up(55.5, 30.0), Vec3::new(61.0, b3, 36.0), &[]);
+    level.ladders.push(Ladder { base: Vec3::new(58.0, 0.0, 29.92), top: b3, out: Vec3::NEG_Z });
+    // The beam across the alley to B4, its top level with the roofs.
+    let b4 = b3;
+    building(walls, strips, level, up(64.0, 30.0), Vec3::new(69.0, b4, 36.0), &[]);
+    walls.cuboid(Vec3::new(61.0, b3 - 0.25, 32.85), Vec3::new(64.0, b3, 33.15));
+    level.perches.push(Line { a: Vec3::new(61.0, b3, 33.0), b: Vec3::new(64.0, b3, 33.0) });
+    let b5 = b4 + 1.2;
+    building(walls, strips, level, up(64.0, 22.0), Vec3::new(69.0, b5, 27.5), &[]);
+    // Swing bars 2 m and 5.4 m out from B5's edge, 2.4 m over its roof; B6 lower, 3.1 m past the second.
+    let bar_y = b5 + 2.4;
+    for z in [20.0, 16.6] {
+        for x in [63.3, 69.7] {
+            walls.cuboid(Vec3::new(x - 0.1, 0.0, z - 0.1), Vec3::new(x + 0.1, bar_y + 0.1, z + 0.1));
+        }
+        level.bars.push(Line { a: Vec3::new(63.4, bar_y, z), b: Vec3::new(69.6, bar_y, z) });
+    }
+    let b6 = b5 - 1.0;
+    building(walls, strips, level, up(64.0, 8.0), Vec3::new(69.0, b6, 13.5), &[]);
+    // Tower T2, 2 m west of B6, its east face climbable from the ground to the top.
+    let t2 = top(18.0);
+    building(walls, strips, level, up(58.0, 8.0), Vec3::new(62.0, t2, 12.0), &[Vec3::X]);
+    walls.cuboid(Vec3::new(56.6, t2 - 0.25, 9.85), Vec3::new(58.0, t2, 10.15));
+    level.perches.push(Line { a: Vec3::new(56.7, t2, 10.0), b: Vec3::new(58.0, t2, 10.0) });
+    level.haystacks.push(HayStack { centre: Vec3::new(55.4, 0.0, 10.0), half: 1.3, height: 1.7 });
+    // Wall W: run through the doorway (1.6 m wide, 2.4 m high) in the wall in front of it, up the bare wall (its face
+    // at z = 22) and rebound back onto the holds over the doorway, 2.2 m behind (face at z = 19.8, at 2.99 and 3.59 m).
+    walls.cuboid(Vec3::new(29.0, 0.0, 22.0), Vec3::new(37.0, 6.0, 22.6));
+    let lintel = top(3.0);
+    walls.cuboid(Vec3::new(30.5, 0.0, 19.2), Vec3::new(32.2, lintel, 19.8));
+    walls.cuboid(Vec3::new(33.8, 0.0, 19.2), Vec3::new(35.5, lintel, 19.8));
+    walls.cuboid(Vec3::new(32.2, 2.4, 19.2), Vec3::new(33.8, lintel, 19.8));
+    hold_rows(strips, level, up(30.5, 19.8), Vec3::X, 5.0, Vec3::Z, &[top(2.0), lintel]);
+    vec![
+        ("Rooftops: B1 (climb its south or west face)", Vec3::new(43.0, b1 + 0.6, 33.0)),
+        ("B2 (2 m gap)", Vec3::new(50.5, b2 + 0.6, 33.0)),
+        ("B3 (gap down, ladder)", Vec3::new(58.2, b3 + 0.6, 33.0)),
+        ("Beam to B4", Vec3::new(62.5, b3 + 0.6, 33.0)),
+        ("B5 (gap up 1.2 m)", Vec3::new(66.5, b5 + 0.6, 24.7)),
+        ("Swing bars to B6", Vec3::new(66.5, bar_y + 0.6, 18.3)),
+        ("Tower T2 (jump to its holds; leap of faith)", Vec3::new(60.0, t2 + 0.6, 10.0)),
+        ("Wall W (run through the doorway, up the wall, legs: rebound onto the holds over the door)", Vec3::new(33.0, 6.6, 21.0)),
+    ]
+}
+
 struct Builder {
     tris: Vec<Tri>,
 }
@@ -783,8 +873,8 @@ pub fn spawn_level(
             let a = origin + along * 0.08 + Vec3::Y * y;
             let b = origin + along * (len - 0.08) + Vec3::Y * y;
             // Hold: 12 cm deep, 7 cm tall, top flush with `y`; the grab line runs along its middle.
-            let lo = a.min(b) + out.min(Vec3::ZERO) * 0.12 - Vec3::Y * 0.07;
-            let hi = a.max(b) + out.max(Vec3::ZERO) * 0.12;
+            let lo = a.min(b) + out.min(Vec3::ZERO) * HOLD_DEPTH - Vec3::Y * 0.07;
+            let hi = a.max(b) + out.max(Vec3::ZERO) * HOLD_DEPTH;
             ledge_geo.cuboid(lo, hi);
             level.ledges.push(Ledge { a: a + out * 0.06, b: b + out * 0.06, out });
         }
@@ -798,7 +888,7 @@ pub fn spawn_level(
     w.cuboid(Vec3::new(-16.0, 0.0, -14.0), Vec3::new(-13.0, 4.19, -12.0));
     for y in [2.39, 2.99, 3.59, 4.19] {
         let (a, b) = (Vec3::new(-15.92, y, -12.0), Vec3::new(-13.08, y, -12.0));
-        ledge_geo.cuboid(a - Vec3::Y * 0.07, b + Vec3::Z * 0.12);
+        ledge_geo.cuboid(a - Vec3::Y * 0.07, b + Vec3::Z * HOLD_DEPTH);
         level.ledges.push(Ledge { a: a + Vec3::Z * 0.06, b: b + Vec3::Z * 0.06, out: Vec3::Z });
     }
     // Pillars behind A, fronts facing -Z at z = 11.7, 2.4 m apart: their tops (posts to stand on) drop away
@@ -813,7 +903,7 @@ pub fn spawn_level(
     for (x, ys) in [(-1.2, (0..4).map(|k| 1.79 + 0.6 * k as f32).collect::<Vec<_>>()), (1.2, vec![cap])] {
         for y in ys {
             let (a, b) = (Vec3::new(x - 0.22, y, 11.7), Vec3::new(x + 0.22, y, 11.7));
-            ledge_geo.cuboid(a - Vec3::Y * 0.07 - Vec3::Z * 0.12, b);
+            ledge_geo.cuboid(a - Vec3::Y * 0.07 - Vec3::Z * HOLD_DEPTH, b);
             level.ledges.push(Ledge { a: a - Vec3::Z * 0.06, b: b - Vec3::Z * 0.06, out: Vec3::NEG_Z });
         }
     }
@@ -830,7 +920,7 @@ pub fn spawn_level(
     for k in 0..8 {
         let y = e_top - 0.6 * k as f32;
         let (a, b) = (Vec3::new(8.08, y, 12.0), Vec3::new(11.92, y, 12.0));
-        ledge_geo.cuboid(a - Vec3::Y * 0.07 - Vec3::Z * 0.12, b);
+        ledge_geo.cuboid(a - Vec3::Y * 0.07 - Vec3::Z * HOLD_DEPTH, b);
         level.ledges.push(Ledge { a: a - Vec3::Z * 0.06, b: b - Vec3::Z * 0.06, out: Vec3::NEG_Z });
     }
     level.ladders.push(Ladder { base: Vec3::new(10.0, 0.0, 16.08), top: e_top, out: Vec3::Z });
@@ -839,7 +929,7 @@ pub fn spawn_level(
     for k in 0..7 {
         let y = 1.8 + 0.6 * k as f32;
         let (a, b) = (Vec3::new(10.75, y, 16.0), Vec3::new(11.92, y, 16.0));
-        ledge_geo.cuboid(a - Vec3::Y * 0.07, b + Vec3::Z * 0.12);
+        ledge_geo.cuboid(a - Vec3::Y * 0.07, b + Vec3::Z * HOLD_DEPTH);
         level.ledges.push(Ledge { a: a + Vec3::Z * 0.06, b: b + Vec3::Z * 0.06, out: Vec3::Z });
     }
     level.haystacks.push(HayStack { centre: Vec3::new(13.8, 0.0, 14.0), half: 1.3, height: 1.7 });
@@ -850,7 +940,7 @@ pub fn spawn_level(
     w.cuboid(Vec3::new(4.6, slab - 0.2, 12.0), Vec3::new(6.4, slab, 12.6));
     w.cuboid(Vec3::new(5.42, 0.0, 12.42), Vec3::new(5.58, slab - 0.2, 12.58));
     let (a, b) = (Vec3::new(4.68, slab, 12.0), Vec3::new(6.32, slab, 12.0));
-    ledge_geo.cuboid(a - Vec3::Y * 0.07 - Vec3::Z * 0.12, b);
+    ledge_geo.cuboid(a - Vec3::Y * 0.07 - Vec3::Z * HOLD_DEPTH, b);
     level.ledges.push(Ledge { a: a - Vec3::Z * 0.06, b: b - Vec3::Z * 0.06, out: Vec3::NEG_Z });
     level.haystacks.push(HayStack { centre: Vec3::new(5.0, 0.0, 15.5), half: 1.3, height: 1.7 });
     // Tower T: 15 m, climbable on its +Z face (holds every 0.6 m from 1.79 m), with a haystack 2 m off
@@ -860,7 +950,7 @@ pub fn spawn_level(
     for k in 0..=22 {
         let y = 1.79 + 0.6 * k as f32;
         let (a, b) = (Vec3::new(12.08, y, -4.0), Vec3::new(14.92, y, -4.0));
-        ledge_geo.cuboid(a - Vec3::Y * 0.07, b + Vec3::Z * 0.12);
+        ledge_geo.cuboid(a - Vec3::Y * 0.07, b + Vec3::Z * HOLD_DEPTH);
         level.ledges.push(Ledge { a: a + Vec3::Z * 0.06, b: b + Vec3::Z * 0.06, out: Vec3::Z });
     }
     let hay = HayStack { centre: Vec3::new(13.5, 0.0, -9.2), half: 1.3, height: 1.7 };
@@ -929,7 +1019,7 @@ pub fn spawn_level(
     for k in 0..=23 {
         let y = 1.79 + 0.6 * k as f32;
         let (a, b) = (Vec3::new(22.0, y, 14.08), Vec3::new(22.0, y, 16.92));
-        v_holds.cuboid(a - Vec3::Y * 0.07 - Vec3::X * 0.12, b);
+        v_holds.cuboid(a - Vec3::Y * 0.07 - Vec3::X * HOLD_DEPTH, b);
         level.ledges.push(Ledge { a: a - Vec3::X * 0.06, b: b - Vec3::X * 0.06, out: Vec3::NEG_X });
     }
     add(v_holds, Color::srgb(0.55, 0.5, 0.42), &mut level, &mut commands);
@@ -953,6 +1043,9 @@ pub fn spawn_level(
         f.cuboid(Vec3::new(x0, 0.0, z0), Vec3::new(x1, h, z1));
     }
     add(f, Color::srgb(0.72, 0.68, 0.62), &mut level, &mut commands);
+    let mut roofs = Builder { tris: vec![] };
+    let roof_labels = rooftops(&mut roofs, &mut ledge_geo, &mut level);
+    add(roofs, Color::srgb(0.8, 0.74, 0.64), &mut level, &mut commands);
     add(ledge_geo, Color::srgb(0.55, 0.5, 0.42), &mut level, &mut commands);
     // Haystacks are drawn but not part of the collision geometry.
     for hay in &level.haystacks {
@@ -1064,7 +1157,7 @@ pub fn spawn_level(
         ("Viewpoint tower V (Q on the beam: synchronize)", [23.5, 16.2, 15.5]),
         ("Hiding spot D (hay, under the viewpoint)", [23.5, 2.2, 20.6]),
     ];
-    level.labels = names.iter().map(|(n, p)| (n.to_string(), Vec3::from(*p))).collect();
+    level.labels = names.iter().map(|(n, p)| (n.to_string(), Vec3::from(*p))).chain(roof_labels.into_iter().map(|(n, p)| (n.to_string(), p))).collect();
 
     // A prop zone: Damascus's tables, vases, crates and baskets, colliding by AC1's own shapes (boxes, hulls).
     // (Scripted runs leave it out unless asked for, as the pose gallery: its load slows the first frames, and

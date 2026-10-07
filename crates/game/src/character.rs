@@ -798,10 +798,12 @@ pub fn locomotion(
                         // climb on from the ground, else a running jump (unless a wall is right ahead), else a
                         // standing jump up to a ledge, else straight up.
                         let facing = if v.length() > 0.5 { v } else { tf.rotation * Vec3::NEG_Z };
+                        // (Hiding on a bench or in hay from the ground is low profile's; in high profile the legs free
+                        // run past them.)
                         ch.wall = (!ctl.high)
                             .then(|| WallClimb::sit(lib, &level, &tf, pose()))
                             .flatten()
-                            .or_else(|| WallClimb::into_hay(lib, &level, &tf, pose()))
+                            .or_else(|| WallClimb::into_hay(lib, &level, &tf, ctl.high, pose()))
                             .or_else(|| WallClimb::leap_of_faith(lib, &level, &tf, facing, pose()));
                         // A ladder's foot or top: onto it (before the edge it stands at).
                         ch.wall = ch.wall.take().or_else(|| WallClimb::ladder(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose()));
@@ -1345,7 +1347,9 @@ pub fn animate(
                 if short <= 0.0 {
                     continue;
                 }
-                let k = (short / 0.15).min(1.0);
+                // Faded in with the hold's distance like the arm IK below, or the shoulder jumps as a hold comes in range.
+                let near = 1.0 - ((d - 0.06) / 0.14).clamp(0.0, 1.0);
+                let k = (short / 0.15).min(1.0) * smooth(near);
                 let side = if i == 0 { 1.0 } else { -1.0 };
                 let reach = to.normalize_or_zero();
                 pose.rotate_model(rig, b.clavicles[i], limited_arc(Vec3::new(0.0, side, 0.0), Vec3::new(0.0, side, 0.0) + reach, 0.45 * k));
@@ -1421,6 +1425,10 @@ pub fn animate(
         ch.pelvis += (pelvis_want - ch.pelvis) * k;
         if ik_on && !animated {
             pose.translate_model(rig, b.hips, Vec3::Z * ch.pelvis);
+            // (AC1's spine hangs beside the hips, off `Reference`: it drops with them.)
+            if rig.parents[b.spine[0]] != Some(b.hips) {
+                pose.translate_model(rig, b.spine[0], Vec3::Z * ch.pelvis);
+            }
         }
 
         // --- Legs: two-bone IK onto the stepped feet (or the wall), sole aligned to the surface.
