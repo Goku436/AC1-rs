@@ -64,14 +64,18 @@ pub fn robe_cloth(
     play: Res<crate::character::StatuePlay>,
     frame: Res<bevy::diagnostic::FrameCount>,
     cams: Query<&GlobalTransform, With<Camera3d>>,
-    mut chars: Query<(Entity, &mut Character, Has<crate::character::Statue>)>,
+    mut chars: Query<(Entity, &mut Character, Has<crate::character::Statue>, Has<crate::net::Remote>)>,
     globals: Query<&GlobalTransform>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let dt = time.delta_secs().clamp(1e-4, 0.05);
     let cam = cams.iter().next().map(|g| g.translation());
-    for (e, mut ch, statue) in &mut chars {
-        if statue && globals.get(e).is_ok_and(|g| crate::character::statue_still(&play, frame.0, cam, g.translation(), crate::character::STATUE_CLOTH_NEAR)) {
+    for (e, mut ch, statue, remote) in &mut chars {
+        // (The network test's friend moves: their robe always swings.)
+        if statue
+            && !remote
+            && globals.get(e).is_ok_and(|g| crate::character::statue_still(&play, frame.0, cam, g.translation(), crate::character::STATUE_CLOTH_NEAR))
+        {
             continue;
         }
         let ch = &mut *ch;

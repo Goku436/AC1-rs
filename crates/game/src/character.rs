@@ -465,6 +465,16 @@ pub fn spawn_character(
 }
 
 impl Character {
+    /// Pose the skeleton's joints (a pose made elsewhere: the network test's friend).
+    pub fn write_joints(&self, pose: &Pose, joints: &mut Query<&mut Transform, Without<Character>>) {
+        for (i, &e) in self.joints.iter().enumerate() {
+            if let (Ok(mut t), Some(x)) = (joints.get_mut(e), pose.local.get(i)) {
+                t.translation = x.pos;
+                t.rotation = x.rot;
+            }
+        }
+    }
+
     /// The joint entity of the rig bone named `name`.
     pub fn joint_named(&self, name: &str) -> Option<Entity> {
         self.rig.find(name).map(|b| self.joints[b])

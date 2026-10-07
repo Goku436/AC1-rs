@@ -54,6 +54,7 @@ mod jump;
 mod level;
 mod move_blend;
 mod nav;
+mod net;
 mod npc;
 mod pad;
 mod probe;
@@ -190,8 +191,12 @@ fn main() {
     let game_dir = std::env::var("AC1_GAME_DIR").unwrap_or_else(|_| r"P:\SteamLibrary\steamapps\common\Assassins Creed".into());
     let cam = env_f32s("AC1_CAM").unwrap_or_default();
     let script = script_from(&|k| std::env::var(k).map_err(|_| ()));
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin { primary_window: Some(game_window()), ..default() }))
+    let mut app = App::new();
+    // (The network test, `net`: only with AC1_HOST or AC1_JOIN.)
+    if let Some(n) = net::open() {
+        app.insert_resource(n);
+    }
+    app.add_plugins(DefaultPlugins.set(WindowPlugin { primary_window: Some(game_window()), ..default() }))
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.82)))
         // (Bright sky fill: faces under hoods and walls in shade read as in AC1, not black.)
@@ -248,6 +253,10 @@ fn main() {
         .add_systems(Update, control_runs.before(run_script))
         .init_resource::<character::StatuePlay>()
         .add_systems(Update, pause_statues)
+        .add_systems(
+            Update,
+            (net::sync, net::ground_remote, net::apply).chain().after(character::animate).before(camera_follow).run_if(resource_exists::<net::Net>),
+        )
         // The robe needs the bones' world transforms of this frame.
         .add_systems(PostUpdate, robe::robe_cloth.after(bevy::transform::TransformSystems::Propagate))
         .run();
@@ -535,6 +544,11 @@ fn setup(
     // (Off unless asked for: its hundred figures make the test world slow to load.)
     let scripted = std::env::var("AC1_SHOT").is_ok();
     let gallery_data = (!level.city && std::env::var("AC1_GALLERY").is_ok()).then(|| data.clone());
+    // (The network test's friend: a second Altaïr, posed from their packets.)
+    if net::enabled() {
+        let e = character::spawn_character(&mut commands, data.clone(), at, &mut meshes, &mut mats, &mut images, &mut bindposes, None, 0);
+        commands.entity(e).insert((character::Statue, net::Remote::default(), Visibility::Hidden));
+    }
     let root = character::spawn_character(&mut commands, data, at, &mut meshes, &mut mats, &mut images, &mut bindposes, animator, 0);
     if let (Some(data), Some(lib)) = (gallery_data, lib.as_mut()) {
         let rows = gallery::poses(&lib.names);
