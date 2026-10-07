@@ -34,6 +34,13 @@ Rules learned on the way here:
       hinge chain, look-at and compression, worth the same port for our robe): read Banned445's port of the authored hood and sword-tag modifiers (his commits
       `caab683`, `826e97e`), then read AC1's modifiers here (the face pokes through the hood when the head turns while
       climbing: `out/shots/hood-clip-climb.png`).
+      Tried 2026-10-07: the hood skeleton (`Human_Hood`) has the hood's root `c68a1d48` under Spine2 (not the head), its
+      children `9088ea6c` / `8c5b399b` (the body mesh skins to them) and a helper `d82cfefb` under the head; its
+      `LookAtBoneModifier` turns the root's X axis to the helper (parsed by `forge::skeleton::look_ats`, which also
+      finds the skirt's: root `47ea4b09` to the hips, Z). Applied each frame it turned the root 24 degrees on average
+      (to 46) yet changed nothing visible around the face in side shots of the T2 climb, so it was not kept: the face
+      opening must follow other bones (check the head mesh's and the body's weights near the face) or the hood's
+      hinge modifiers (`skirt_hinge.rs` in Banned445's repo decodes them for the equipment too).
 - [ ] Haystack in Damascus with black squares (V, later).
 
 ### 2. AC1's own data and code (decomp, move graph)

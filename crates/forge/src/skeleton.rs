@@ -14,6 +14,52 @@ use anyhow::{Result, ensure};
 pub const CLASS_SKELETON: u32 = 0x24aecb7c;
 const CLASS_BONE: u32 = 0x95741049;
 const CLASS_TRANSFORM: u32 = 0x6350e5a6;
+/// `LookAtBoneModifier`: a bone turned to keep aiming at another (the hood following the head).
+const CLASS_LOOK_AT: u32 = 0x08d774b2;
+
+/// A look-at modifier of a skeleton: `target` turned so its axis `axis` (0 x, 1 y, 2 z) points at `aim`, `up` its
+/// up axis; bones by name hash. Layout (found by Banned445's AC1-Movement-Rewritten, MIT): after the class id, a
+/// bone reference (u8 2, u32 object id) to the target, a u8 0 or 1, u8 3, a reference to the aim bone, four u32
+/// zeros (an offset), u32 axis, u32 up axis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LookAt {
+    pub target: u32,
+    pub aim: u32,
+    pub axis: u8,
+    pub up: u8,
+}
+
+/// The look-at modifiers in a skeleton's body (a layout other than the one known is left out, not guessed).
+pub fn look_ats(body: &[u8], skeleton: &Skeleton) -> Vec<LookAt> {
+    let bone = |p: usize| -> Option<u32> {
+        (body.get(p) == Some(&2)).then_some(())?;
+        let id = u32_at(body, p + 1);
+        skeleton.bones.iter().find(|b| b.id == id).map(|b| b.name_hash)
+    };
+    let word = |p: usize| (p + 4 <= body.len()).then(|| u32_at(body, p));
+    let tag = CLASS_LOOK_AT.to_le_bytes();
+    let mut out = vec![];
+    for p in 5..body.len().saturating_sub(40) {
+        if body[p - 5] != 0 || body[p..p + 4] != tag {
+            continue;
+        }
+        let b = p + 4;
+        let found = (|| {
+            let target = bone(b)?;
+            if !matches!(body.get(b + 5), Some(0 | 1)) || body.get(b + 6) != Some(&3) {
+                return None;
+            }
+            let aim = bone(b + 7)?;
+            if (0..4).any(|k| word(b + 12 + k * 4) != Some(0)) {
+                return None;
+            }
+            let (axis, up) = (word(b + 28)?, word(b + 32)?);
+            (target != aim && axis < 3 && up < 3 && axis != up).then_some(LookAt { target, aim, axis: axis as u8, up: up as u8 })
+        })();
+        out.extend(found);
+    }
+    out
+}
 
 #[derive(Debug, Clone)]
 pub struct Bone {
@@ -142,4 +188,44 @@ pub fn parse_skeleton(body: &[u8]) -> Result<Skeleton> {
         ensure!(b.parent.is_none_or(|p| p < k), "bone {k} parent not before it");
     }
     Ok(Skeleton { bones })
+}
+
+#[cfg(test)]
+mod look_at_tests {
+    use super::*;
+
+    #[test]
+    fn the_look_at_class_id_is_its_names_crc() {
+        assert_eq!(crc32fast::hash(b"LookAtBoneModifier"), CLASS_LOOK_AT);
+    }
+
+    #[test]
+    fn a_look_at_names_its_bones_and_axes() {
+        let bone = |id: u32, name_hash: u32| Bone {
+            id,
+            name_hash,
+            name: None,
+            parent: None,
+            local_pos: [0.0; 3],
+            local_rot: [0.0, 0.0, 0.0, 1.0],
+            model_pos: [0.0; 3],
+            model_rot: [0.0, 0.0, 0.0, 1.0],
+        };
+        let sk = Skeleton { bones: vec![bone(0x11, 0xaaaa), bone(0x22, 0xbbbb)] };
+        let mut body = vec![0u8; 8];
+        body.extend([0, 1, 2, 3, 4]); // a zero, then the object's id
+        body.extend(CLASS_LOOK_AT.to_le_bytes());
+        body.push(2);
+        body.extend(0x11u32.to_le_bytes());
+        body.extend([1, 3, 2]);
+        body.extend(0x22u32.to_le_bytes());
+        body.extend([0u8; 16]);
+        body.extend(0u32.to_le_bytes());
+        body.extend(2u32.to_le_bytes());
+        body.extend([0u8; 16]);
+        assert_eq!(look_ats(&body, &sk), vec![LookAt { target: 0xaaaa, aim: 0xbbbb, axis: 0, up: 2 }]);
+        // A reference to a bone it does not have: left out.
+        let other = Skeleton { bones: vec![bone(0x11, 0xaaaa)] };
+        assert!(look_ats(&body, &other).is_empty());
+    }
 }
