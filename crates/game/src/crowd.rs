@@ -201,7 +201,7 @@ pub fn blend(mut lib: Option<ResMut<AnimLib>>, scholars: ScholarQuery, mut playe
     let showing_blend = now.as_deref().is_some_and(|n| n == WALK_CLIP || n == PRAY_WAIT);
     if want != now && (want.is_some() || showing_blend) {
         // Crossfade in and out of the praying walk.
-        ch.exit_fade = Some((ch.pose.clone(), 0.3));
+        ch.exit_fade = Some((ch.anim_pose.clone(), 0.3, 0.3));
         if let Some(a) = &mut ch.animator {
             a.layer = clip.map(|c| (c, 0.0));
         }

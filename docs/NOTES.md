@@ -65,7 +65,7 @@ is kept outside the repo; see "Combat" below.
   curve (quick out of the walk and the sprint, slow through the jog and run); starting from standing it jumps straight
   to the walk (low) or jog (high); letting go zeroes it (the stop clip carries the slide). In high profile, steering
   more than 45 degrees off the facing holds it back while turning. The value maps onto the gait clips' speeds (root
-  motion over the half-cycle): slow walk 1.0 m/s, walk 1.9 (`xx_l_walk_hipm`), jog 3.5, run 5.2 (`xx_h_run_hipm`),
+  motion over the half-cycle): slow walk 0.1 m/s (`xx_l_walk_slow_hipm`, a shuffle), walk 1.9 (`xx_l_walk_hipm`), jog 3.5, run 5.2 (`xx_h_run_hipm`),
   sprint 6.2 (`xx_h_sprint_hipm`). The HUD shows the band and value. Scripted walks (`AC1_WALK`) keep a fixed speed.
   Wall runs and side runs need the sprint (over 5.5 m/s, so about 0.4 s of free running from a run); free running
   jumps off edges on its own at any speed (as AC1 does: after a landing the speed starts over below the sprint). Pressing Space to start free running is not a jump: a press while running jumps only with a
@@ -101,6 +101,10 @@ flat, so the stops and landings follow the ground's height, kept for the rest of
   the turn in its stand (`_waitturn_..._tr_<l|h>_wait_hipm_<foot>`). Out of a move into a gait, the walk picks up on
   the step and at the point in it whose legs match the pose (`Animator::resume_matching`), at the gait's speed: a turn's
   exit names the gait, not the point in its stride, and a frame standing still restarted the walk from the stand.
+- changing profile standing fades between the two stands over 0.3 s (the feet stand elsewhere in each: switched at
+  once, the body jumped up to 13 cm); fades start from the animated pose before the IK, so the IK is not counted twice
+  through them. Ground foot placement goes on through the moves made standing (a stop, a turn, leaning) and fades in
+  and out over 0.2 s where it starts or stops.
 - standing and starting: Altaïr stands in the profile's stand loop on the foot ahead (`xx_<l|h>_wait_hipm_<footl|
   footr>`, as AC1 names stands, gaits, stops and turns by that foot); starting off begins the gait at the top of the
   half-cycle of that foot, stopping stands on the other one, and after a stop, turn, landing or climb the gait or
@@ -237,7 +241,14 @@ aims at the nearest hold within AC1's 45 degree cone, 1 m below to 2.6 m above t
 top needs 1.7 m of room over it and must not be inside a block, which a probe starting inside one finds as the floor
 under it). A mid-air catch pulls the body in to the wall too (caught further out, he hung that far off it after), and
 looks for the wall at the chest or lower (at a roof's edge the chest is level with the roof); a hold is aimed at with
-the root arriving 0.9 m under it. A running jump's takeoff (about 1.7 m of root motion) starts partway in when pressed
+the root arriving 0.9 m under it. A running jump onto a top (not a hold, post or beam) plays AC1's own jump clips
+(`jump.rs`, the `HumanInAir` tables as Banned445's repo reads them): a takeoff blended from `xx_h_run_<front|down|up>_<050|
+300|550>cm_footl_to_air` and a flight from `xx_h_air_<front|down|up>_<dist>_footl_to_freestep[_down|_deep]`, weighted
+by how far and how high the top is (bands: up to 1.3 m up, 3 m down, near 2.5 m, middle 5, far 7), then the
+reception `..._tr_freestep_entry_footr`, blended into its `_fast` version by the run's speed; the root follows the
+clips' own motion with the difference to the target spread over the flight (as AC1 moves it), and runs on at the run's
+speed. It falls back to the planned arc below when the clips' own way is more than half off the target or the way
+over is not clear at the chest. Otherwise a running jump's takeoff (about 1.7 m of root motion) starts partway in when pressed
 near the edge, so it leaves the ground at the edge rather than running on over the drop. It is planned at running
 speed (lengthening the flight instead made jumps float in slow motion); the push up is at least 1.5 m/s, and up onto a
 higher top enough to cross the edge with the feet 0.25 m clear (lower, the knees met the edge and the body snapped up

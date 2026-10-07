@@ -440,6 +440,10 @@ const JUMP_TARGET_CONE: f32 = 0.707;
 /// A running jump leaves the ground going up at least this fast (m/s), whatever it aims at.
 const JUMP_UP_MIN: f32 = 1.5;
 /// A jump up onto a top crosses its edge with the feet this far over it (m).
+/// AC1's jump clips are used while the correction onto the target is at most this share of the distance.
+const JUMP_AC1_SLACK: f32 = 0.5;
+/// At this speed (m/s, the sprint) the reception is all its quick version.
+const JUMP_AC1_FAST_SPEED: f32 = 6.2;
 const JUMP_EDGE_CLEAR: f32 = 0.25;
 /// A top jumped onto needs this much room over it (m).
 const JUMP_TOP_HEADROOM: f32 = 1.7;
@@ -1224,6 +1228,13 @@ impl WallClimb {
         let at_hold = top.is_none();
         let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, root, dir, from) };
         let aim = (to - p).with_y(0.0).normalize_or(dir);
+        // Onto a top (not a hold, a post or a beam): AC1's own jump clips, when they fit.
+        if !at_hold
+            && level.perch_at(to, 0.4).is_none()
+            && let Some(w) = Self::jump_ac1(lib, level, root, to, aim, speed, from.clone())
+        {
+            return Some(w);
+        }
         let (takeoff, air) = (lib.get(JUMP_TAKEOFF)?, lib.get(JUMP_AIR)?);
         let planned = Transform { rotation: facing(aim), ..*root };
         // The arc starts where the takeoff leaves the ground: at the edge at the latest. The takeoff clip runs on about
@@ -1276,6 +1287,39 @@ impl WallClimb {
         }
         w.ease_in(from, root);
         debug!("climb: running jump aimed at {to:.2} (takeoff from frame {:.0}, {airtime:.2} s in the air, up at {up:.1} m/s)", skip.unwrap_or(0.0));
+        Some(w)
+    }
+
+    /// A running jump onto a top at `to` with AC1's jump clips (`crate::jump`): the takeoff and flight blended by how far
+    /// and how high it is, then the reception onto the top, the root following their motion with the difference to the
+    /// target spread over the flight (as AC1 moves it). `None` when the clips are missing or the way is not clear.
+    fn jump_ac1(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, aim: Vec3, speed: f32, from: Option<Pose>) -> Option<WallClimb> {
+        let p = root.translation;
+        let j = crate::jump::running(to.y - p.y, (to - p).with_y(0.0).length(), true, speed / JUMP_AC1_FAST_SPEED);
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, flight, reception) = (mix(&j.takeoff)?, mix(&j.flight)?, mix(&j.reception)?);
+        let planned = Transform { rotation: facing(aim), ..*root };
+        let rot = world_rot(planned.rotation);
+        let landed = p + rot * (root_motion_at(&takeoff, takeoff.frames()) + root_motion_at(&flight, flight.frames()));
+        let correct = to - landed;
+        // (The clips' own way should be most of it: a correction this big would slide through the air.)
+        if correct.with_y(0.0).length() > JUMP_AC1_SLACK * (to - p).with_y(0.0).length().max(1.0) {
+            debug!("climb: AC1's jump clips land {:.2} m off; the planned arc instead", correct.length());
+            return None;
+        }
+        // The way over must be clear at the chest (the clips do not climb over what is in between).
+        if level.raycast(p + Vec3::Y * 1.2, (to - p).with_y(0.0).normalize_or_zero(), (to - p).with_y(0.0).length()).is_some() {
+            return None;
+        }
+        let mut w = WallClimb::new(VAULT, -aim);
+        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), GROUND.into()], &planned, correct, Some(1));
+        // On at the run's speed once down (the reception's `_tr_freestep_entry` leads into the run in AC1's graph).
+        w.exit_velocity = aim * speed;
+        w.ease_in(from, root);
+        debug!("climb: running jump aimed at {to:.2} (takeoff and flight from AC1's jump tables: {} then {})", takeoff.name, flight.name);
         Some(w)
     }
 

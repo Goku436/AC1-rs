@@ -132,7 +132,7 @@ const SCENARIOS: &[Scenario] = &[
         name: "rooftops: B1 to B2, down to B3, the beam to B4",
         env: &[("AC1_START", "41,33,-90,8"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-4.6"), ("AC1_LEGS", "0-4.6")],
         secs: 5.0,
-        want: &["5.99, 33.00] (takeoff", "4.49, 33.00] (takeoff", "onto perch"],
+        want: &["5.99, 33.00] (takeoff and flight from AC1's jump tables", "4.49, 33.00] (takeoff and flight from AC1's jump tables", "onto perch"],
         never: &["damage 0.2", "EMBED"],
     },
     Scenario {

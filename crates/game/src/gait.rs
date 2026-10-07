@@ -33,9 +33,10 @@ const TURN_FLOOR: f32 = 0.1;
 const TURN_UP: f32 = 5.0;
 const TURN_DOWN: f32 = 10.0;
 
-/// Speeds (m/s) at the band ends 0, 0.25, 0.5, 0.75 and 1: the slow walk (`xx_l_walk_slow_hipm`), walk
+/// Speeds (m/s) at the band ends 0, 0.25, 0.5, 0.75 and 1: the slow walk (`xx_l_walk_slow_hipm`, a shuffle: 0.17 m in
+/// 1.67 s), walk
 /// (`xx_l_walk_hipm`), jog (`xx_h_jog_hipm`), run (`xx_h_run_hipm`) and sprint (`xx_h_sprint_hipm`).
-const SPEEDS: [f32; 5] = [1.0, 1.9, 3.5, 5.2, 6.2];
+const SPEEDS: [f32; 5] = [0.1, 1.9, 3.5, 5.2, 6.2];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Band {

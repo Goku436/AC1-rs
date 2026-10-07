@@ -170,8 +170,11 @@ pub struct Character {
     pub wall: Option<crate::climb::WallClimb>,
     climb_rig: crate::climb::ClimbRig,
     pub(crate) fall_v: f32,
-    /// Pose to fade from after leaving the wall, and the time left.
-    pub(crate) exit_fade: Option<(Pose, f32)>,
+    /// Pose to fade from after leaving the wall (or changing stand), the time left and the fade's length.
+    pub(crate) exit_fade: Option<(Pose, f32, f32)>,
+    /// The animated pose of the last frame, before the IK (what fades start from: from the final pose the IK would
+    /// count twice through them).
+    pub(crate) anim_pose: Pose,
     /// The robe tails as cloth (Altaïr's), see `robe`.
     pub robe: Option<crate::robe::Robe>,
     /// Limp (dead, its death clip over): AC1's ragdoll, and the pose it started from.
@@ -182,6 +185,8 @@ pub struct Character {
     pub gait: crate::gait::Gait,
     /// Climbing: each foot's smoothed distance onto the wall (see the climbing IK).
     pub wall_feet: [Option<f32>; 2],
+    /// How much ground foot placement applies now (0..1, faded: see the IK).
+    pub foot_ik_w: f32,
     pub limp: bool,
     /// Model-space height of the soles in the idle pose.
     floor: f32,
@@ -393,6 +398,7 @@ pub fn spawn_character(
         edge_lock: None,
         last_landing: None,
         pose: idle.clone(),
+        anim_pose: idle.clone(),
         idle,
         base,
         animator,
@@ -411,6 +417,7 @@ pub fn spawn_character(
         limp: false,
         gait: Default::default(),
         wall_feet: [None; 2],
+        foot_ik_w: 0.0,
         mirror: ik::mirror::Mirror::new(&rig),
         rig,
         bones,
@@ -662,6 +669,11 @@ fn ragdoll_collide(level: &Level, prev: Vec3, p: Vec3, r: f32) -> (Vec3, bool) {
 
 /// A palm on a wall: the wrist this far out from it (m).
 const PALM_OFF: f32 = 0.05;
+/// Ground foot placement fades in or out over this long (s) as moves off the ground start and end.
+const FOOT_IK_FADE: f32 = 0.2;
+/// Changing profile while standing (slower than this, m/s) fades between the stands over this long (s).
+const STAND_FADE_SPEED: f32 = 0.5;
+const STAND_FADE: f32 = 0.3;
 /// Climbing feet follow the wall's distance at this rate (1/s).
 const WALL_FOOT_RATE: f32 = 12.0;
 /// The capsule moves in steps no longer than this (m).
@@ -763,7 +775,7 @@ pub fn locomotion(
                 .as_ref()
                 .is_some_and(|w| (w.cancel && ctl.move_dir.length() > 0.1) || (w.on_ground() && ctl.toggle_climb) || w.steer.is_some_and(off_course))
             {
-                ch.exit_fade = Some((ch.pose.clone(), 0.2));
+                ch.exit_fade = Some((ch.anim_pose.clone(), 0.2, 0.2));
                 ch.wall = None;
             }
             if std::mem::take(&mut ctl.wall_legs)
@@ -782,7 +794,7 @@ pub fn locomotion(
                         let w = ch.wall.take().expect("climbing");
                         tf.translation += w.normal * 0.3;
                         ch.fall_v = 0.0;
-                        ch.exit_fade = w.last_pose().cloned().map(|p| (p, 0.25));
+                        ch.exit_fade = w.last_pose().cloned().map(|p| (p, 0.25, 0.25));
                     }
                     None => {
                         use crate::climb::WallClimb;
@@ -857,7 +869,7 @@ pub fn locomotion(
                 if w.finished {
                     // Back on our feet (on top, or landed): ground locomotion, fading from the last climb pose,
                     // picking up on the foot (or into the gait) the last clip ends on.
-                    ch.exit_fade = w.last_pose().cloned().map(|p| (p, 0.25));
+                    ch.exit_fade = w.last_pose().cloned().map(|p| (p, 0.25, 0.25));
                     ch.velocity = w.exit_velocity;
                     if let (Some(a), Some(name)) = (ch.animator.as_mut(), w.last_clip.as_deref()) {
                         // (Into a gait: the step and the point in it whose legs match the pose he is in, going on at
@@ -941,6 +953,11 @@ pub fn locomotion(
             |d: f32, drop: f32| level.ground(tf.translation + (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero() * d, 0.3, drop).is_none();
         let look_down = ch.velocity.length() < 0.2 && edge_ahead(0.6, LOOK_DOWN_DROP);
         if let (Some(lib), Some(a)) = (lib.as_deref_mut(), ch.animator.as_mut()) {
+            // Standing, the low and high profile stands put the feet and hands elsewhere: fade between them (switched at
+            // once, the whole body jumped up to 13 cm as the right button went down or up).
+            if a.high != ctl.high && ch.velocity.length() < STAND_FADE_SPEED {
+                ch.exit_fade = Some((ch.anim_pose.clone(), STAND_FADE, STAND_FADE));
+            }
             a.high = ctl.high;
             // (Keep the foot it started on: the walk's half-cycles go on alternating while standing.)
             let want = match &a.idle_alt {
@@ -948,7 +965,7 @@ pub fn locomotion(
                 _ => look_down.then(|| lib.get(if a.lead_left() { "xx_l_ledge_lookdown_front_footl" } else { "xx_l_ledge_lookdown_front_footr" })).flatten(),
             };
             if want.as_ref().map(|c| &c.name) != a.idle_alt.as_ref().map(|c| &c.name) {
-                ch.exit_fade = Some((ch.pose.clone(), 0.4));
+                ch.exit_fade = Some((ch.anim_pose.clone(), 0.4, 0.4));
                 a.idle_alt = want;
             }
         }
@@ -1243,15 +1260,16 @@ pub fn animate(
                 layered(&mut pose, &layer, w, rig, &[b.legs[0].upper, b.legs[1].upper]);
             }
         }
-        if let Some((from, t)) = &mut ch.exit_fade {
+        if let Some((from, t, len)) = &mut ch.exit_fade {
             *t -= dt;
             let mut faded = from.clone();
-            faded.blend(&pose, 1.0 - (*t / 0.25).clamp(0.0, 1.0));
+            faded.blend(&pose, 1.0 - (*t / len.max(1e-3)).clamp(0.0, 1.0));
             pose = faded;
             if *t <= 0.0 {
                 ch.exit_fade = None;
             }
         }
+        ch.anim_pose = pose.clone();
         // Limp: AC1's ragdoll settling the body on what is under it.
         let limp = ch.limp;
         if !limp {
@@ -1419,18 +1437,20 @@ pub fn animate(
             ch.wall_feet = [None; 2];
         }
 
-        // --- Animated: AC1 clip + foot placement onto the level.
-        if animated
-            && !climbing
-            && !on_wall
-            && ik_on
+        // --- Animated: AC1 clip + foot placement onto the level. Also through the moves made standing on the ground (a stop,
+        // a turn on the spot, leaning on a wall), and faded in and out over `FOOT_IK_FADE` where it starts or stops (off
+        // and on at once, the feet popped by its correction at every move's seam).
+        let feet_down = animated && !climbing && ik_on && ch.wall.as_ref().is_none_or(|w| w.legs_on_ground());
+        ch.foot_ik_w = if feet_down { (ch.foot_ik_w + dt / FOOT_IK_FADE).min(1.0) } else { (ch.foot_ik_w - dt / FOOT_IK_FADE).max(0.0) };
+        let foot_w = smooth(ch.foot_ik_w);
+        if foot_w > 0.0
             && let Some(fp) = &mut ch.foot_ik
         {
             let ground = |p: Vec3| {
                 let w = world_from_model.transform_point3(p);
                 level.raycast(w, Vec3::NEG_Y, 1.8).map(|h| ik::placement::GroundHit { point: to_model(h.point), normal: dir_to_model(h.normal) })
             };
-            fp.solve(&mut pose, rig, 0.0, dt, 1.0, ground);
+            fp.solve(&mut pose, rig, 0.0, dt, foot_w, ground);
         }
 
         // --- Gait overlay: arms swing with the opposite foot, shoulders counter-twist.

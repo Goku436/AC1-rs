@@ -42,6 +42,7 @@ mod climb;
 mod crowd;
 mod gait;
 mod gallery;
+mod jump;
 mod level;
 mod nav;
 mod npc;

@@ -15,27 +15,33 @@ Rules learned on the way here:
 ## Backlog, in order
 
 ### 1. Small bugs and tasks
-- [ ] High profile idle: holding the right button standing, after having moved a while, the pose snaps into the high
+- [x] High profile idle (fixed: the low and high stands now fade over 0.3 s; the whole body jumped up to 13 cm): holding the right button standing, after having moved a while, the pose snaps into the high
       profile stand (recording `ac1-recording-339883`, probably). Find the missing fade between the stand loops.
-- [ ] Slow walk speed: `gait.rs` uses 1.0 m/s for a value of 0 (half stick); Altaïr's `xx_l_walk_slow_hipm_footl` moves
+- [x] Slow walk speed (set to the clip's 0.1 m/s): `gait.rs` used 1.0 m/s for a value of 0 (half stick); Altaïr's `xx_l_walk_slow_hipm_footl` moves
       0.17 m in 1.67 s (0.1 m/s). Measure the slow walk's real use (AC1 may stand it still and blend), then set it.
-- [ ] Speed restart (`GAIT_RESYNC`, ours, not AC1's): after a landing the speed value restarts from the jog. AC1 keeps
+- [ ] Speed restart (partly: AC1's running jump hands the run's speed back on landing) (`GAIT_RESYNC`, ours, not AC1's): after a landing the speed value restarts from the jog. AC1 keeps
       the take-off speed through a landing (Banned445's notes); keep it unless the landing is a heavy one.
-- [ ] Run turn rate: ours 9 rad/s, AC1's 360 deg/s (2 pi). Try AC1's and the high profile turn hold back together.
-- [ ] Walk stop: AC1 stops a walk-band move at once (to the wait with a 0.2 s blend); ours eases the velocity down.
+- [ ] (Needs a play test, feel) Run turn rate: ours 9 rad/s, AC1's 360 deg/s (2 pi). Try AC1's and the high profile turn hold back together.
+- [ ] (Needs a play test, feel) Walk stop: AC1 stops a walk-band move at once (to the wait with a 0.2 s blend); ours eases the velocity down.
 - [ ] Hands catch up fast as they leave a hold (fade window 6-20 cm): widen if it reads as a snap in play.
 - [ ] B4 to B5 jump: 0.88 s in the air (a 1.2 m rise needs it); offered: catch the edge and pull up instead.
 - [ ] Two-step lane from an angle: a scripted start at (38.5, -28.6) yaw -115 did nothing (check the start spot).
 - [ ] Capsule: no ceiling handling, no stick-to-ground cast (0.58 m), no fall-off-support rule (rim past 45 degrees);
       the air, climb and fall states don't use it. Bring in what play shows is missing.
-- [ ] Scabbard angle and the hood: read Banned445's port of the authored hood and sword-tag modifiers (his commits
+- [ ] Scabbard angle and the hood (lead: in Banned445's repo the hood follows the head through Altaïr's authored
+      skeleton modifiers, a secondary hood look-at (aiming its X/Z axes) and hinges, and the sword tag has angular soft
+      limits: `src/skirt_hinge.rs`, `src/visual_pose.rs`, commit `caab683`; his robe also runs on the authored skirt
+      hinge chain, look-at and compression, worth the same port for our robe): read Banned445's port of the authored hood and sword-tag modifiers (his commits
       `caab683`, `826e97e`), then read AC1's modifiers here (the face pokes through the hood when the head turns while
       climbing: `out/shots/hood-clip-climb.png`).
 - [ ] Haystack in Damascus with black squares (V, later).
 
 ### 2. AC1's own data and code (decomp, move graph)
 The move graph is the big one: with it the game itself says which move follows which.
-- [ ] **AC1's jump system** (found 2026-10-07, see the run log): our running jump takes off with
+- [~] **AC1's jump system** (first step done 2026-10-07: running jumps onto tops play AC1's takeoff, flight and
+      reception blends, `jump.rs`; still to do: the five side directions, free-step takeoffs from beams and posts,
+      flights to passover/surface/swing/assassinate, holds (`hangwall_reception_*`), posts and beams as targets, the
+      ground landings by stick and speed) (found 2026-10-07, see the run log): our running jump takes off with
       `xx_h_sprint_impultion_footl`, which is a stride of the locomotion blend (`HumanGround` 0x5923bdb), not a jump.
       AC1 plays a takeoff blend (40 clips: `xx_h_run_<front|down|up>_<050|300|550>cm_foot?_to_air` from the ground,
       actions 0x0a4c8c0e/0f; `xx_h_freestep_<front|left|right|backleft|backright>_<front|down|up>_<dist>_foot?_to_air`
@@ -61,6 +67,13 @@ The move graph is the big one: with it the game itself says which move follows w
 - [ ] Reflection descriptors: property entry type 0x0d and the first field are unknown.
 - [ ] The senders of the ground events nobody has traced (ledge stop 69, pull-down 70, look-down 119, ladder 38, beam
       72): we use our own triggers.
+- [ ] Beams in cities: no beam (or kiosk) edges are authored in any city, yet the exe has `GuidanceBeamDetectorAccurate`,
+      `GuidanceSystemCapsule`, `GuidanceSystemBarrel`, `GuidanceSystemOptimizerGroundWall` and
+      `GuidanceSystemGenerationType{None, Behaviour, InertComponent, RigidBody}`: guidance generated at run time from
+      collision primitives (a capsule or barrel shape is a beam or pole) and from rigid bodies. Cities already read those
+      primitives (Damascus: 2121 entities by primitives): make capsule/barrel shapes lying level into perches, and find
+      the generation type per entity (which component says it). This is how AC1's beams across streets and the crate
+      rims (the user's hop) would be found.
 - [ ] Wall run endings (`HumanWalling`, Banned445's `walling.rs` has the action ids): from the entry, a top 1.31-2.0 m
       up pulls up onto it (`_entry_..._tr_hangknee`), else a free hang or over the edge (`_tr_passover`); from the step,
       2.01-2.5 m up pulls up, 2.51-4.3 m ends hanging on the wall (`_step1_tr_hangwall`), else a free hang. Ours runs up
@@ -164,3 +177,19 @@ Research:
     (dropping from a free hang onto a wall below).
   - `HumanClimb_Jumps`: leaps between hang kinds by side and distance (`xx_h_climbing_<hangwall|hangfree|climb1m>_tr_
     <hangwall|hangfree|climb1m>_<side>_<2|3>`): 2 and 3 m sideways leaps, ours stop at the near one.
+- IK and pose pops (I), from the user's recordings of 2026-10-06/07, by a scratch detector that flags a bone whose speed
+  relative to the root jumps to more than 3x (+1.5 m/s) its speed the frame before (by speed, not distance: long frames
+  are hitches, not pops):
+  - Fixed: the climbing reach and feet (82 in one climb before), the low/high stand switch (127 bone pops in one
+    recording: the whole body jumped up to 13 cm each press of the right button).
+  - Seams between states (each a few cm to 22 cm, in one frame): ground into a stop (`xx_h_jogstop_*`), a stop into
+    a turn on the spot, a turn's end into the run (feet 22 cm), into and out of the vault and the falls
+    (`jumpstraight_clear_footall_tr_fall`), a landing into the run. Next: fade each seam by its gap (the climbing
+    chain already does: `seam_gap`).
+  - While sprinting steadily and weaving (6.2 m/s, yaw changing), 5-7 cm pops of a hand or foot every 0.1-0.25 s:
+    look at the banked gait mix (`FULL_BANK`, the bank's smoothing) and the half-cycle seams of the sprint.
+  - Fade bugs found and fixed on the way: the exit fade always ran against 0.25 s whatever its length, and faded from
+    the final pose (IK included) into one the IK then corrected again; ground foot placement switched off at once for
+    every move, even standing ones (stops, turns), popping the feet at each seam.
+  - The leap of faith's dive (`xx_h_faith_jump_100cm_long_3000cm_down`, 10 in one leap) and the climbing leaps up
+    (`xx_h_climbing_climb1m_tr_climb1m_up_l_hand_2_a/b`): check the dive's stretch over the fall and the leap's IK.
