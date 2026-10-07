@@ -157,7 +157,14 @@ const SCENARIOS: &[Scenario] = &[
         name: "free running through both swing bars, the legs only held",
         env: &[("AC1_START", "50.3,0,-90"), ("AC1_WALK", "6"), ("AC1_HIGH", "0-7"), ("AC1_LEGS", "0-7")],
         secs: 6.0,
-        want: &["caught bar 0", "caught bar 1", "swing -> leap via xx_h_swing_cycle_front_300cm_to_air", "land -> ground"],
+        want: &[
+            "caught bar 0",
+            "caught bar 1",
+            "swing -> leap via xx_h_swing_cycle_front_300cm_to_air",
+            "land -> ground",
+            "jumping at the swing bar",
+            "_to_swing_tr_swing_front_a",
+        ],
         never: &["EMBED"],
     },
     Scenario {

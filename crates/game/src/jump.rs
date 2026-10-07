@@ -132,6 +132,39 @@ pub fn surface(dz: f32, dist: f32, left: bool, fast: bool) -> Jump {
     Jump { takeoff: j.takeoff, flight, reception }
 }
 
+/// A running jump at a swing bar, the hang under it `dz` above and `dist` away: the running jump's takeoff and its flight
+/// onto the bar (`xx_h_air_<front|down|up>_<dist>_foot?_to_swing`; AC1's far ones are front 650 and down 900 cm, the
+/// flight's 550 and 800 cm slots fold onto them).
+pub fn swing(dz: f32, dist: f32, left: bool) -> Jump {
+    let j = running(dz, dist, left, 0.0);
+    let mut flight: Vec<(String, f32)> = vec![];
+    for (n, w) in &j.flight {
+        let n = n
+            .replace("_to_freestep_down", "_to_swing")
+            .replace("_to_freestep_deep", "_to_swing")
+            .replace("_to_freestep", "_to_swing")
+            .replace("front_550cm", "front_650cm")
+            .replace("down_800cm", "down_900cm");
+        match flight.iter_mut().find(|(m, _)| *m == n) {
+            Some(p) => p.1 += w,
+            None => flight.push((n, *w)),
+        }
+    }
+    Jump { takeoff: j.takeoff, flight, reception: vec![] }
+}
+
+/// AC1's catch of a swing bar from the air, into the swing (`xx_h_air_<way>_to_swing_tr_swing_front_a`, then
+/// `xx_h_swing_cycle_front_up`), by how the flight comes at it: `dz` the hang's height over where the flight started.
+pub fn swing_entry(dz: f32) -> &'static str {
+    if dz > 0.5 {
+        "xx_h_air_up_050cm_to_swing_tr_swing_front_a"
+    } else if dz < -1.0 {
+        "xx_h_air_down_300cm_to_swing_tr_swing_front_a"
+    } else {
+        "xx_h_air_front_300cm_to_swing_tr_swing_front_a"
+    }
+}
+
 /// A running jump onto a top `dz` above (negative: below) and `dist` away, taking off from the left foot or the right;
 /// `fast` (0..1, the run's speed against the sprint) blends the reception into its quick version (`_fast`).
 pub fn running(dz: f32, dist: f32, left: bool, fast: f32) -> Jump {
@@ -240,6 +273,14 @@ mod tests {
 
     fn total(parts: &[(String, f32)]) -> f32 {
         parts.iter().map(|p| p.1).sum()
+    }
+
+    #[test]
+    fn a_far_jump_at_a_bar_uses_the_650_cm_swing_flight() {
+        let j = swing(0.0, 6.0, true);
+        assert!(j.flight.iter().all(|(n, _)| n.ends_with("_footl_to_swing")), "{j:?}");
+        assert!(j.flight.iter().any(|(n, _)| n.contains("front_650cm")), "{j:?}");
+        assert!((total(&j.flight) - 1.0).abs() < 1e-3);
     }
 
     #[test]

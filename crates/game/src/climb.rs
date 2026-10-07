@@ -433,6 +433,10 @@ const BEAM_WAIT_ACROSS: &str = "xx_l_beam_crouchwait_90";
 /// Walking to a beam's end with nothing past it: the stop at the edge, then into the crouch on the right foot.
 const BEAM_EDGE_STOP: [&str; 3] = ["xx_l_beam_edge_stop", "xx_l_beam_edge_stop_tr_crouchwait_footr_a", "xx_l_beam_edge_stop_tr_crouchwait_footr_b"];
 
+/// A swing bar this far ahead (m) and this high over the feet is what a jump flies at.
+const BAR_JUMP_REACH: std::ops::RangeInclusive<f32> = 1.0..=6.5;
+const BAR_JUMP_RISE: std::ops::RangeInclusive<f32> = 0.5..=4.0;
+
 /// A running jump at a wall's ledge this fast or faster (m/s) is received hard (`_max`, swinging in), else softly.
 const JUMP_RECEPTION_HARD_SPEED: f32 = 5.0;
 
@@ -1065,6 +1069,22 @@ fn jump_hold(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3)> {
         .min_by(|a, b| (a.0 - from).length().total_cmp(&(b.0 - from).length()))
 }
 
+/// A swing bar a jump along `dir` from `from` would reach: lying across the way, `BAR_JUMP_REACH` ahead and up to
+/// `BAR_JUMP_RISE` over the feet; the point on it.
+fn bar_ahead(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
+    let dir = dir.with_y(0.0).normalize_or_zero();
+    level
+        .bars
+        .iter()
+        .filter(|b| b.axis().dot(dir).abs() < BAR_ACROSS)
+        .map(|b| b.closest(from + dir * 3.0 + Vec3::Y * 2.0))
+        .filter(|q| {
+            let flat = (*q - from).with_y(0.0);
+            BAR_JUMP_REACH.contains(&flat.length()) && flat.normalize().dot(dir) > JUMP_TARGET_CONE && BAR_JUMP_RISE.contains(&(q.y - from.y))
+        })
+        .min_by(|a, b| (*a - from).length().total_cmp(&(*b - from).length()))
+}
+
 /// Velocity that flies from `from` to `to` under gravity, and the flight time (longer for longer jumps).
 /// Where to jump to along `dir` from `from` (AC1's target choice, as the movement notes have it: within
 /// 45 degrees of the wanted direction, at most 3 m down, the highest first, then the nearest): a post or
@@ -1285,11 +1305,18 @@ impl WallClimb {
 
     /// Running jump from the ground along the way the root faces. `from` is the pose shown now, to
     /// fade from.
-    pub fn jump(lib: &mut AnimLib, root: &Transform, dir: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
+    pub fn jump(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
         // AC1 always jumps at a target; with none in reach, AC1's takeoff and flight weighted for a level one
         // `FREE_JUMP_DIST` ahead, played out, then the fall (as Banned445's repo has it). Our sprint stride and air clip
-        // if those are missing.
-        let j = crate::jump::running(0.0, FREE_JUMP_DIST, left, dir.with_y(0.0).length() / JUMP_AC1_FAST_SPEED);
+        // if those are missing. At a swing bar ahead, AC1's flight onto it (`_to_swing`); the fall catches it.
+        let p = root.translation;
+        let j = match bar_ahead(level, p, dir) {
+            Some(q) => {
+                debug!("climb: jumping at the swing bar at {q:.2}");
+                crate::jump::swing(q.y - SWING_HANG - p.y, (q - p).with_y(0.0).length(), left)
+            }
+            None => crate::jump::running(0.0, FREE_JUMP_DIST, left, dir.with_y(0.0).length() / JUMP_AC1_FAST_SPEED),
+        };
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -1334,7 +1361,7 @@ impl WallClimb {
         let p = root.translation;
         let top = jump_target(level, p, dir, None);
         let at_hold = top.is_none();
-        let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, root, dir, left, from) };
+        let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, level, root, dir, left, from) };
         let aim = (to - p).with_y(0.0).normalize_or(dir);
         // Onto a top, a post or a beam (not a hold): AC1's own jump clips, when they fit (a post's and a beam's flight is
         // the same free-step one; landed, the ground hands over to balancing on it).
@@ -2561,6 +2588,9 @@ impl WallClimb {
         else {
             return false;
         };
+        // (AC1's catch from the air into the swing, by how high the flight started, then the swing; else the swing.)
+        let dz = if self.fall_top.is_finite() { q.y - SWING_HANG - self.fall_top } else { 0.0 };
+        let entry = lib.get(crate::jump::swing_entry(dz));
         let Some(first) = lib.get(SWING_CYCLE[0]) else { return false };
         // Face across the bar, the way we are going.
         let mut out = level.bars[i].axis().cross(Vec3::Y).normalize_or(Vec3::X);
@@ -2575,9 +2605,17 @@ impl WallClimb {
         self.descend = None;
         self.bar = Some(i);
         self.swing_off = None;
-        self.start(first, SWING.into(), &Transform { rotation: rot, ..*root });
+        let caught = Transform { rotation: rot, ..*root };
+        let moved = entry.as_ref().map_or(Vec3::ZERO, |e| world_rot(rot) * root_motion_at(e, e.frames()));
+        match entry {
+            Some(e) => {
+                self.queue = vec![Queued::new(first, SWING)];
+                self.start(e, SWING.into(), &caught);
+            }
+            None => self.start(first, SWING.into(), &caught),
+        }
         if let Some(m) = &mut self.mv {
-            m.correct = target - p;
+            m.correct = target - p - moved;
             m.ease_rot = root.rotation * rot.inverse();
         }
         self.fade = self.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
@@ -2586,14 +2624,21 @@ impl WallClimb {
     }
 
     /// Swinging: the next clip of the cycle, or let go when the feet have swung forward.
-    fn swing_next(&mut self, lib: &mut AnimLib, root: &Transform, done: &Clip) -> bool {
+    fn swing_next(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, done: &Clip) -> bool {
         let i = SWING_CYCLE.iter().position(|n| *n == done.name).unwrap_or(SWING_CYCLE.len() - 1);
         if i == 0
             && let Some(fling) = self.swing_off
         {
             let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(Vec3::NEG_Z);
             let (name, v) = if fling { (SWING_LAUNCH, fwd * SWING_OFF.0 + Vec3::Y * SWING_OFF.1) } else { (SWING_DROP, fwd) };
-            if let (Some(off), Some(air)) = (lib.get(name), lib.get(JUMP_AIR)) {
+            // (Flung at another bar: AC1's flight onto it.)
+            let p = root.translation;
+            let at_bar = fling.then(|| bar_ahead(level, p, fwd)).flatten().and_then(|q| {
+                let j = crate::jump::swing(q.y - SWING_HANG - p.y, (q - p).with_y(0.0).length(), true);
+                let parts: Vec<(&str, f32)> = j.flight.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+                lib.get(&mix_name(&parts))
+            });
+            if let (Some(off), Some(air)) = (lib.get(name), at_bar.or_else(|| lib.get(JUMP_AIR))) {
                 self.skip_bar = self.bar.take().map(|b| (b, 0.6));
                 self.swing_off = None;
                 self.queue = vec![Queued { rate: air.anim.duration / jump_airtime(), ..Queued::new(air, FALL) }];
@@ -4268,7 +4313,7 @@ impl WallClimb {
                 self.finished = true;
                 return;
             }
-            if self.state == SWING && self.swing_next(lib, root, &done.clip) {
+            if self.state == SWING && self.swing_next(lib, level, root, &done.clip) {
                 return;
             }
             if self.state == MONKEY && self.monkey_next(lib, level, root, &done.clip) {
