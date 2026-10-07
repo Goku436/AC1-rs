@@ -240,3 +240,7 @@ Research:
   a rebound's flight. Ask him what the half cancel cancels into.
 - Next: the seam pops in vaults, falls and landings (pops tool on the rooftop and flow runs), then the jump system's
   remaining parts (backlog section 2).
+- Jump receptions: played faster (to keep the run's pace) they lurched the root to 16 m/s; played out they stood still
+  0.1 s; now they end where their step slows to the run's speed, and the run goes on from there (rooftops B1 to B3:
+  14 pop frames to 1). The pops tool now matches bones to the root a frame earlier and times their moves by that frame
+  (the recorder writes the bones a frame behind): uneven frames no longer read as pops.

@@ -449,13 +449,13 @@ const TOP_OUT_WALK: f32 = 1.9;
 const TOP_OUT_JOG: f32 = 3.5;
 /// A rebound goes to a side when the stick leans along the wall at least this much.
 const REBOUND_SIDE_MIN: f32 = 0.3;
+/// Running on faster than this (m/s) after a jump, its reception ends once its step is taken.
+const RECEPTION_CUT_SPEED: f32 = 2.0;
 /// The directional grab in the air: the stick more than this far off the facing (cos) and not behind it (cos) looks for
 /// a wall that way, this far (m).
 const CATCH_SIDE_COS: f32 = 0.94;
 const CATCH_BEHIND_COS: f32 = -0.5;
 const CATCH_SIDE_REACH: f32 = 1.2;
-/// A jump's reception plays at most this much faster, to keep the run's pace.
-const RECEPTION_RATE_MAX: f32 = 2.0;
 /// A jump with no target is weighted for a level one this far ahead (m).
 const FREE_JUMP_DIST: f32 = 2.5;
 /// The way over a jump must be clear this high (m) above the higher of its two ends.
@@ -635,6 +635,8 @@ pub struct WallClimb {
     grab_on_legs: bool,
     /// The legs held now (set each update).
     legs_held: bool,
+    /// A clip (by name) ended early, at this time into it: a reception whose step is over, running on.
+    cut: Option<(String, f32)>,
     /// Pose clip to switch to once the jump starts coming down.
     descend: Option<Arc<Clip>>,
     /// Velocity to start the next fall with, instead of the previous clip's (rebound, leap of faith).
@@ -1145,6 +1147,7 @@ impl WallClimb {
             can_catch: false,
             grab_on_legs: false,
             legs_held: false,
+            cut: None,
             descend: None,
             fall_with: None,
             faith: false,
@@ -1360,12 +1363,20 @@ impl WallClimb {
         }
         let mut w = WallClimb::new(VAULT, -aim);
         w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), GROUND.into()], &planned, correct, Some(1));
-        // On at the run's speed once down (the reception's `_tr_freestep_entry` leads into the run in AC1's graph); the
-        // reception itself at the run's pace (at its own it stood a moment on the top, a post, before running on).
+        // On at the run's speed once down (the reception's `_tr_freestep_entry` leads into the run in AC1's graph): the
+        // reception ends once its step is taken, not standing out the rest of it (played faster instead, its front-loaded
+        // step lurched the root to 16 m/s).
         w.exit_velocity = aim * speed;
-        if let Some(r) = w.queue.last_mut() {
-            let way = root_motion_at(&r.clip, r.clip.frames()).with_z(0.0).length().max(0.1);
-            r.rate = (r.clip.anim.duration * speed / way).clamp(1.0, RECEPTION_RATE_MAX);
+        if speed > RECEPTION_CUT_SPEED
+            && let Some(r) = w.queue.last()
+        {
+            // (Where the step, past its fastest, slows to the run's speed: handed over there, the run goes on at its pace.)
+            let pace = |f: f32| (root_motion_at(&r.clip, f) - root_motion_at(&r.clip, f - 1.0)).with_z(0.0).length() * FPS;
+            let peak = (1..=r.clip.frames() as usize).map(|f| f as f32).max_by(|a, b| pace(*a).total_cmp(&pace(*b))).unwrap_or(1.0);
+            let done = (peak as usize..=r.clip.frames() as usize).map(|f| f as f32).find(|&f| pace(f) <= speed);
+            if let Some(f) = done {
+                w.cut = Some((r.clip.name.clone(), f / FPS));
+            }
         }
         w.ease_in(from, root);
         debug!("climb: running jump aimed at {to:.2} (takeoff and flight from AC1's jump tables: {} then {})", takeoff.name, flight.name);
@@ -3824,7 +3835,8 @@ impl WallClimb {
                 }
                 _ => {}
             }
-            if m.t < dur {
+            let end = self.cut.as_ref().filter(|(n, _)| *n == m.clip.name).map_or(dur, |(_, t)| t.min(dur));
+            if m.t < end {
                 return;
             }
             let done = self.mv.take().expect("move in progress");

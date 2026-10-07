@@ -261,7 +261,8 @@ the root arriving 0.9 m under it. A running jump onto a top (not a hold, post or
 by how far and how high the top is (bands: up to 1.3 m up, 3 m down, near 2.5 m, middle 5, far 7), then the
 reception `..._tr_freestep_entry_footr`, blended into its `_fast` version by the run's speed; the root follows the
 clips' own motion with the difference to the target spread over the flight (as AC1 moves it), and runs on at the run's
-speed. It falls back to the planned arc below when the clips' own way is more than half off the target or the way
+speed: running on, the reception ends where its step, past its fastest, slows to the run's speed (it front-loads
+its step; played faster to keep pace it lurched the root to 16 m/s, played out it stood still 0.1 s). It falls back to the planned arc below when the clips' own way is more than half off the target or the way
 over is not clear at the chest. The free-run vault onto a low top, jumps onto posts and beams, jumps at holds and
 jumps with no target (weighted for a level top 2.5 m ahead) take their clips from the same tables, so every step the
 scenarios play is one AC1's move graph has (the sprint stride into the hop, which it lacks, is only a fallback now).
