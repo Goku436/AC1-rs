@@ -501,7 +501,8 @@ const WALL_DIST: f32 = 0.34;
 /// Running faster than this (m/s) and steered elsewhere, the run's direction swings round at this rate (rad/s)
 /// keeping its speed (a reversal turns round in about 0.35 s without stopping).
 const RUN_TURN_MIN_SPEED: f32 = 2.6;
-const RUN_TURN_RATE: f32 = 9.0;
+/// (AC1's heading turns at 360 degrees a second, `HumanGround__UpdateHeading` 0xD95290, Banned445.)
+const RUN_TURN_RATE: f32 = std::f32::consts::TAU;
 /// The root's height follows the ground averaged this far behind and ahead (m), over steps up to this high.
 const STRIDE_SPAN: f32 = 0.35;
 const STRIDE_STEP: f32 = 0.4;

@@ -201,6 +201,11 @@ const STEP_OFF: [&str; 2] = ["xx_l_climb_1m_tr_h_wait_hipm_footl_a", "xx_l_climb
 /// How far the step-off clip lowers the root, and the furthest ground it is used for.
 const STEP_OFF_DROP: f32 = 0.6;
 const STEP_OFF_MAX: f32 = 0.95;
+/// A landing is a forward one when the stick is within this of the motion (cos 75 degrees, AC1's 0xE05940).
+const LAND_FORWARD_COS: f32 = 0.258_819;
+/// The speed a landing's speed bucket is measured against (m/s, the sprint's).
+const LAND_SPRINT_SPEED: f32 = 6.2;
+
 /// What a landing goes on into, by the stick and the profile (AC1's `xx_h_landing_..._tr_<wait|walk|jog|sprint>`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum LandInto {
@@ -4383,8 +4388,23 @@ impl WallClimb {
             self.finished = true;
             return;
         }
-        // (By the stick and the profile: what the landing goes on into.)
-        let into = LandInto::from(self.move_dir.length() > 0.3, self.high, self.sprint);
+        // AC1's choice (`HumanInAir__SetupToGround_Landing` 0xE05940, docs/PARKOUR.md): moving with the stick within 75
+        // degrees of the motion, the forward landing, going on by the speed against a sprint (< 0.2 the wait, < 0.5
+        // the walk, < 0.9 the jog, else the sprint's takeoff); no stick, or turned further, the straight one (into the
+        // wait with the stick let go, else as the profile asks).
+        let stick = self.move_dir.with_y(0.0);
+        let along = v.with_y(0.0).try_normalize().unwrap_or((root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero());
+        let forward = stick.length() > 0.3 && stick.normalize().dot(along) >= LAND_FORWARD_COS;
+        let into = if forward {
+            match flat_speed / LAND_SPRINT_SPEED {
+                r if r < 0.2 => LandInto::Wait,
+                r if r < 0.5 => LandInto::Walk,
+                r if r < 0.9 => LandInto::Jog,
+                _ => LandInto::Sprint,
+            }
+        } else {
+            LandInto::from(stick.length() > 0.3, self.high, self.sprint)
+        };
         let names: [String; 2] = match running {
             _ if damage >= HEAVY_DAMAGE => LAND_HEAVY.map(String::from),
             true if damage > 0.0 || drop > ROLL_LANDING_DROP => LAND_DAMAGE_RUN.map(String::from),
@@ -4397,7 +4417,7 @@ impl WallClimb {
                 };
                 [LAND_DAMAGE.to_string(), format!("{LAND_DAMAGE}_tr_{after}")]
             }
-            _ => landing_names(running, down_speed > HARD_LANDING_SPEED, into),
+            _ => landing_names(forward, down_speed > HARD_LANDING_SPEED, into),
         };
         debug!("climb: landing into {into:?} ({})", names[0]);
         // On the way it faces: at the run's speed when running in, else at the speed of what it goes into.
