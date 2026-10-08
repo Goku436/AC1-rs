@@ -140,7 +140,7 @@ mod tests {
         assert_eq!(band(wanted(1.0, true, true)), Band::Sprint);
         assert_eq!(band(wanted(0.5, true, false)), Band::Run);
         // (AC1's blended clips: walk 1.90, run 5.12, sprint 6.28 m/s.)
-        assert!((speed(1.0) - 6.28).abs() < 0.01 && (speed(0.75) - 5.12).abs() < 0.01 && (speed(0.25) - 1.9).abs() < 0.01);
+        assert!((speed(1.0) - 6.277).abs() < 0.01 && (speed(0.75) - 5.12).abs() < 0.01 && (speed(0.25) - 1.9).abs() < 0.01);
     }
 
     #[test]

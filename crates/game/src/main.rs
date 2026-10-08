@@ -881,7 +881,7 @@ const PICKPOCKET_REACH: f32 = 1.2;
 /// player's speed comes from `gait`.
 const WALK: f32 = 1.9;
 const RUN: f32 = 5.12;
-const SPRINT: f32 = 6.28;
+const SPRINT: f32 = 6.277;
 
 fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut Controller, &Transform, &mut Character), With<Player>>) {
     let Ok((mut ctl, tf, mut ch)) = q.single_mut() else { return };
