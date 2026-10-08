@@ -345,6 +345,10 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   Damascus → 1141 perches). **[V]**
 
 ## 9. Wall run, ladders, hay, swing bars
+- **Wall run over a thin wall** **[ours, AC1's clips]**: a top 1.3-2.5 m up, at most 1.2 m deep with a drop of 0.5 m
+  or more beyond: the run up, `xx_h_wallingfront_entry_footl_tr_passover_<131|200>cm_handl` (to 2 m, from the entry) or
+  `xx_h_wallingfront_step1_footr_tr_passover_<201|250>cm_handr` (from the first step), blended by height, into
+  `xx_h_passover_<hand>_<030|100>cm` (7° off) and its fall, the root carried past the far edge.
 - **Wall run onto a ladder** **[ours]**: sprinting at a wall with a ladder up it, the wall run comes first (as the
   interpreter tests it before the ladder) and ends `xx_h_wallingfront_step1_footr_tr_h_ladder_up_l` (7° from
   `xx_h_ladder_climb_up_l`'s start) on the ladder.

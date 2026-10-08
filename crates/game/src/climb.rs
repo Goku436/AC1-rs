@@ -2056,6 +2056,13 @@ impl WallClimb {
             debug!("climb: wall run onto ladder {i}");
             return Some(w);
         }
+        // A thin wall 1.3-2.5 m high with a drop beyond: up it, a hand on its top and over (AC1's
+        // `xx_h_wallingfront_<entry_footl|step1_footr>_tr_passover_<cm>_<hand>` into `xx_h_passover_<hand>_<cm>cm`).
+        if let Some(w) = Self::wall_run_passover(lib, level, root, rig, base, cr, hit.point, n) {
+            let mut w = w;
+            w.ease_in(from, root);
+            return Some(w);
+        }
         let mut w = match Self::grab(lib, level, root, rig, base, cr, fwd, &wall_run_options(), WALL_RUN_REACH, Some(0)) {
             Some(w) => w,
             None => {
@@ -2085,6 +2092,75 @@ impl WallClimb {
             }
         };
         w.ease_in(from, root);
+        Some(w)
+    }
+
+    /// A wall run over a thin wall (see `wall_run`): the top `h` 1.3-2.5 m over the feet at `face` (normal `n`), at most
+    /// `PASSOVER_DEPTH` deep with a drop of 0.5 m or more beyond; the hand steered onto the top's near edge.
+    #[allow(clippy::too_many_arguments)]
+    fn wall_run_passover(lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, face: Vec3, n: Vec3) -> Option<WallClimb> {
+        let p = root.translation;
+        let fwd = -n;
+        let top = level.ground(face.with_y(p.y + 2.8) + fwd * 0.05, 0.0, 2.8)?;
+        let h = top.point.y - p.y;
+        if !(1.25..=2.55).contains(&h) || top.normal.y < 0.8 {
+            return None;
+        }
+        let on_top = |d: f32| level.ground(face.with_y(top.point.y + 0.2) + fwd * d, 0.0, 0.4).is_some_and(|g| (g.point.y - top.point.y).abs() < 0.1);
+        let depth = (1..=(PASSOVER_DEPTH / 0.05) as usize + 1).map(|k| k as f32 * 0.05).find(|&d| !on_top(d))?;
+        let beyond = level.ground(face.with_y(top.point.y) + fwd * (depth + 0.3), 0.0, 10.0);
+        if depth > PASSOVER_DEPTH || beyond.is_some_and(|g| top.point.y - g.point.y < 0.5) {
+            return None;
+        }
+        let cm = if depth < PASSOVER_THIN { "030" } else { "100" };
+        let (mut names, hand): (Vec<String>, &str) = if h < 2.0 {
+            let w = ((h - 1.31) / 0.69).clamp(0.0, 1.0);
+            let t =
+                mix_name(&[("xx_h_wallingfront_entry_footl_tr_passover_131cm_handl", 1.0 - w), ("xx_h_wallingfront_entry_footl_tr_passover_200cm_handl", w)]);
+            (vec![WALL_RUN[0].into(), WALL_RUN[1].into(), t], "handl")
+        } else {
+            let w = ((h - 2.01) / 0.49).clamp(0.0, 1.0);
+            let t =
+                mix_name(&[("xx_h_wallingfront_step1_footr_tr_passover_201cm_handr", 1.0 - w), ("xx_h_wallingfront_step1_footr_tr_passover_250cm_handr", w)]);
+            (WALL_RUN.iter().map(|s| s.to_string()).chain([t]).collect(), "handr")
+        };
+        let touch = names.len();
+        names.push(format!("xx_h_passover_{hand}_{cm}cm"));
+        names.push(format!("xx_h_passover_{hand}_{cm}cm_tr_fall"));
+        let clips = names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>()?;
+        // (The hand on the near edge: across the wall and up, wherever along the top.)
+        let end = chain_end(&clips[..touch], rig, base, cr)?.world(root);
+        let edge = face.with_y(top.point.y);
+        let hand_at = end.hands[usize::from(hand == "handr")];
+        let along = Vec3::Y.cross(n).normalize_or_zero();
+        let err = edge - hand_at;
+        let err = err - along * err.dot(along);
+        if err.length() > 1.0 {
+            debug!("climb: no wall run over the wall: the hand lands {:.2} m off", err.length());
+            return None;
+        }
+        let k = clips.len();
+        let tos = (0..k)
+            .map(|i| {
+                if i + 1 == k {
+                    FALL
+                } else if i >= touch {
+                    VAULT
+                } else {
+                    WALL_RUN_STATE
+                }
+                .to_string()
+            })
+            .collect();
+        // (Over it, the root clear of the far edge before the fall, as the running passover: else it comes down on the top.)
+        let over_end = chain_end(&clips[..=touch], rig, base, cr)?.world(root).pos + err;
+        let short = (edge + fwd * (depth + PASSOVER_CLEAR) - over_end).dot(fwd).max(0.0);
+        let mut w = WallClimb::new(WALL_RUN_STATE, n);
+        w.start_chain(clips, tos, root, err);
+        if let Some(q) = w.queue.get_mut(touch - 1) {
+            q.correct = fwd * short;
+        }
+        debug!("climb: wall run over the {h:.2} m wall ({cm} cm deep, {hand})");
         Some(w)
     }
 
