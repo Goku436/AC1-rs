@@ -694,15 +694,21 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     };
     let up = |x: f32, z: f32| Vec3::new(x, 0.0, z);
 
-    // G1: up a ramp onto box L, along two beams with a gap between them, a swing bar, down onto a lower beam.
-    let z = 34.0;
+    // G1: up a ramp onto box L, then side beams (1.2 m, stuck out of a wall along the lane, AC1's hopping beams): two
+    // 2.4 m apart, a swing bar, down onto a third lower down, on to a platform.
+    let z = 35.0;
     ramp(walls, -96.0, -92.0, z, 2.0);
     platform(walls, -92.0, -89.0, z, 2.0);
-    beam(walls, level, -89.0, -85.0, z, 2.0);
-    beam(walls, level, -83.0, -79.0, z, 2.0);
-    bar(walls, level, -77.0, z, 4.4);
-    beam(walls, level, -74.5, -70.5, z, 1.5);
-    platform(walls, -70.5, -67.0, z, 1.5);
+    walls.cuboid(Vec3::new(-89.0, 0.0, z + 0.6), Vec3::new(-74.0, 3.0, z + 1.2));
+    let side_beam = |w: &mut Builder, level: &mut Level, x: f32, y: f32| {
+        w.cuboid(Vec3::new(x - 0.15, y - 0.2, z - 0.6), Vec3::new(x + 0.15, y, z + 0.6));
+        level.perches.push(Line { a: Vec3::new(x, y, z - 0.55), b: Vec3::new(x, y, z + 0.55) });
+    };
+    side_beam(walls, level, -86.6, 2.0);
+    side_beam(walls, level, -84.2, 2.0);
+    bar(walls, level, -82.2, z - 0.2, 4.4);
+    side_beam(walls, level, -79.2, 1.5);
+    platform(walls, -77.0, -74.0, z - 0.8, 1.5);
 
     // G2: a ladder up a 5 m block, a beam across to a second block, its beam out over a haystack: the leap of faith.
     let z = 44.0;
@@ -780,7 +786,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     building(walls, strips, level, up(-78.0, z - 3.0), Vec3::new(-74.0, top(2.0), z + 3.0), &[]);
 
     vec![
-        ("G1: box L, two beams, swing bar, beam", Vec3::new(-90.0, 3.0, 34.0)),
+        ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
         ("G3: wall run up, over, roof gap, drop", Vec3::new(-88.0, 6.5, 55.0)),
         ("G4: step, jump onto, gaps, passover", Vec3::new(-80.0, 3.0, 64.0)),
