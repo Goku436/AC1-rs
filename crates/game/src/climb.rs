@@ -929,6 +929,9 @@ fn beam_side_entry(lib: &mut AnimLib, line: &Line, root: &Transform, stick: Vec3
     lib.get(&mix_name(&[(a.as_str(), 1.0 - w90), (b.as_str(), w90)]))
 }
 
+/// Weighted clip names, to mix (`mix_name`).
+type Parts = Vec<(String, f32)>;
+
 /// A coarse direction ("u", "d", "l", "r") as a full stick (x right, y up).
 fn dir_vector(dir: &str) -> Vec2 {
     match dir {
@@ -1735,7 +1738,7 @@ impl WallClimb {
         let j = crate::jump::passover(touch.y - p.y, way.length(), left);
         // Each flight's own reception onto the edge (`<flight>_tr_passover_[entry_]hand?`), mixed as the flights are; a
         // flight the game lacks (it has no `xx_h_air_up_300cm_footr_to_passover`, only its reception) is left out of both.
-        let (flights, reception): (Vec<(String, f32)>, Vec<(String, f32)>) = j
+        let (flights, reception): (Parts, Parts) = j
             .flight
             .iter()
             .filter(|(n, _)| lib.names.iter().any(|m| m == n))
