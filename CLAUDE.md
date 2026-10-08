@@ -36,7 +36,7 @@ Use them for format reversing, parser/runtime Rust work, and Bevy work.
 ## Open work
 Driving which move plays from the move graph itself (`forge::graph::MoveGraph` is loaded and checks every chain step;
 the code's action requests are found: 2035 action ids used in code, see docs/NOTES.md "What the executable's code asks for";
-the ladder plays its table, the other systems' tables are next), the robe from AC1's own `DynamicMesh`/`ClothActionSettings`, combat (removed 2026-10-05; rebuild it
+every movement context now picks by AC1's tables or action ids, docs/PARKOUR.md "How far ours follows AC1's tables"; open: its 4 questions), the robe from AC1's own `DynamicMesh`/`ClothActionSettings`, combat (removed 2026-10-05; rebuild it
 on `HumanGround_Fight*` once movement is right), real hold data for climbing,
 Acre/Jerusalem/Kingdom checks, the streamed BAO audio (not object containers),
 the 64-bit quats of present-day Lucy's clips. Details are in the docs/NOTES.md status table and its Research section.
