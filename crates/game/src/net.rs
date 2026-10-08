@@ -3,15 +3,16 @@
 //! player shows as a second Altaïr posed from them. No game data crosses the wire, only transforms.
 //!
 //! Packet: "AC1N", version, root position (3 x f32), root rotation (4 x f32), bone count (u16), then each bone's
-//! rotation as 4 x i16 (x 32767), and the first `POS_BONES` bones' positions as 3 x f32 (the rest keep the bind pose:
-//! both sides read the same skeleton).
+//! rotation as 4 x i16 (x 32767), the first `POS_BONES` bones' positions as 3 x f32 (the rest keep the bind pose:
+//! both sides read the same skeleton), then the sender's camera, position and rotation (7 x f32: for replays, the
+//! friend's point of view).
 use bevy::prelude::*;
 use std::net::{SocketAddr, UdpSocket};
 
 use crate::character::{Character, Player};
 
 const MAGIC: &[u8; 4] = b"AC1N";
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
 /// Bones whose positions are sent too (the root and hips move; the rest are fixed lengths).
 const POS_BONES: usize = 4;
 /// Seconds between sends.
@@ -26,6 +27,8 @@ pub struct Net {
     since_send: f32,
     /// The last state heard: root and bone transforms.
     last: Option<(Vec3, Quat, Vec<Quat>, Vec<Vec3>)>,
+    /// The friend's camera, last heard.
+    cam: Option<(Vec3, Quat)>,
     heard: f32,
 }
 
@@ -54,10 +57,17 @@ pub fn open() -> Option<Net> {
         (s, Some(to), false)
     };
     sock.set_nonblocking(true).ok()?;
-    Some(Net { sock, peer, hosting, since_send: SEND_EVERY, last: None, heard: f32::MAX })
+    Some(Net { sock, peer, hosting, since_send: SEND_EVERY, last: None, cam: None, heard: f32::MAX })
 }
 
-fn encode(root: &Transform, pose: &ik::Pose) -> Vec<u8> {
+impl Net {
+    /// The friend's camera, while they are heard.
+    pub fn friend_camera(&self) -> Option<(Vec3, Quat)> {
+        self.cam.filter(|_| self.heard < 3.0)
+    }
+}
+
+fn encode(root: &Transform, pose: &ik::Pose, cam: Option<&Transform>) -> Vec<u8> {
     let mut b = Vec::with_capacity(40 + pose.local.len() * 8 + POS_BONES * 12);
     b.extend_from_slice(MAGIC);
     b.push(VERSION);
@@ -75,10 +85,17 @@ fn encode(root: &Transform, pose: &ik::Pose) -> Vec<u8> {
             b.extend_from_slice(&v.to_le_bytes());
         }
     }
+    if let Some(c) = cam {
+        for v in [c.translation.x, c.translation.y, c.translation.z, c.rotation.x, c.rotation.y, c.rotation.z, c.rotation.w] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+    }
     b
 }
 
-fn decode(b: &[u8]) -> Option<(Vec3, Quat, Vec<Quat>, Vec<Vec3>)> {
+type State = (Vec3, Quat, Vec<Quat>, Vec<Vec3>);
+
+fn decode(b: &[u8]) -> Option<(State, Option<(Vec3, Quat)>)> {
     if b.len() < 35 || &b[0..4] != MAGIC || b[4] != VERSION {
         return None;
     }
@@ -99,11 +116,17 @@ fn decode(b: &[u8]) -> Option<(Vec3, Quat, Vec<Quat>, Vec<Vec3>)> {
         poss.push(Vec3::new(f(at)?, f(at + 4)?, f(at + 8)?));
         at += 12;
     }
-    pos.is_finite().then_some((pos, rot, rots, poss))
+    let cam = (|| Some((Vec3::new(f(at)?, f(at + 4)?, f(at + 8)?), Quat::from_xyzw(f(at + 12)?, f(at + 16)?, f(at + 20)?, f(at + 24)?).normalize())))();
+    pos.is_finite().then_some(((pos, rot, rots, poss), cam.filter(|c| c.0.is_finite())))
 }
 
 /// Send our player's state; take in the friend's.
-pub fn sync(time: Res<Time>, mut net: ResMut<Net>, players: Query<(&Transform, &Character), With<Player>>) {
+pub fn sync(
+    time: Res<Time>,
+    mut net: ResMut<Net>,
+    players: Query<(&Transform, &Character), With<Player>>,
+    cams: Query<&Transform, (With<Camera3d>, Without<Character>)>,
+) {
     let net = &mut *net;
     net.heard += time.delta_secs();
     let mut buf = [0u8; 4096];
@@ -118,11 +141,12 @@ pub fn sync(time: Res<Time>, mut net: ResMut<Net>, players: Query<(&Transform, &
                 if Some(from) != net.peer {
                     continue;
                 }
-                if let Some(s) = decode(&buf[..n]) {
+                if let Some((s, cam)) = decode(&buf[..n]) {
                     if net.heard > 3.0 {
                         info!("net: hearing {from}");
                     }
                     net.last = Some(s);
+                    net.cam = cam;
                     net.heard = 0.0;
                 }
             }
@@ -137,7 +161,7 @@ pub fn sync(time: Res<Time>, mut net: ResMut<Net>, players: Query<(&Transform, &
     }
     net.since_send = 0.0;
     if let (Some(peer), Ok((tf, ch))) = (net.peer, players.single()) {
-        let _ = net.sock.send_to(&encode(tf, &ch.pose), peer);
+        let _ = net.sock.send_to(&encode(tf, &ch.pose, cams.single().ok()), peer);
     }
 }
 
