@@ -1158,7 +1158,9 @@ pub fn locomotion(
                 && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some()
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
             {
-                ch.wall = crate::climb::WallClimb::perch(lib, &level, &tf, Some(ch.pose.clone()));
+                let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
+                ch.wall =
+                    crate::climb::WallClimb::perch(lib, &level, &tf, ctl.move_dir, ctl.speed > SPRINT_SPEED || ctl.free_run, lead_left, Some(ch.pose.clone()));
                 if let Some(w) = &mut ch.wall {
                     w.freestep_left = ch.freestep_left;
                     ch.velocity = Vec3::ZERO;

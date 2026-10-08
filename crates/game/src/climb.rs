@@ -895,6 +895,32 @@ fn side_to_climb(hang: &str, dir: &str) -> Vec<Cand> {
     ["d", "", "u"].iter().map(|v| Cand::new(format!("xx_h_{hang}_{v}{dir}_climb_1m"), "1m", Feet::Wall)).collect()
 }
 
+/// AC1's side entry onto a beam (0xF7AAA0, actions 0xE6E0E9B8..BB; Banned445's port): met at 30-100 degrees off the way
+/// the stick points along it, a free-step entry turning onto it into the walk or jog,
+/// `xx_h_freestep_entry_<foot>_tr_crouch<walk|jog>_<foot after>_<left|right>_<30|90>`, the 30 and 90 degree clips
+/// blended by the angle.
+fn beam_side_entry(lib: &mut AnimLib, line: &Line, root: &Transform, stick: Vec3, sprint: bool, lead_left: bool) -> Option<Arc<Clip>> {
+    let axis = line.axis();
+    let stick = stick.with_y(0.0).normalize_or_zero();
+    if axis == Vec3::ZERO || stick == Vec3::ZERO || stick.dot(axis).abs() < std::f32::consts::FRAC_1_SQRT_2 {
+        return None;
+    }
+    let way = axis * stick.dot(axis).signum();
+    let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+    let ang = fwd.dot(way).clamp(-1.0, 1.0).acos().to_degrees();
+    if !(30.0..=100.0).contains(&ang) {
+        return None;
+    }
+    let left = fwd.cross(way).y > 0.0;
+    let (side, after) = if left { ("left", "footr") } else { ("right", "footl") };
+    let foot = if lead_left { "footl" } else { "footr" };
+    let gait = if sprint { "crouchjog" } else { "crouchwalk" };
+    let w90 = ((ang - 30.0) / 60.0).clamp(0.0, 1.0);
+    let name = |deg: u32| format!("xx_h_freestep_entry_{foot}_tr_{gait}_{after}_{side}_{deg}");
+    let (a, b) = (name(30), name(90));
+    lib.get(&mix_name(&[(a.as_str(), 1.0 - w90), (b.as_str(), w90)]))
+}
+
 /// A coarse direction ("u", "d", "l", "r") as a full stick (x right, y up).
 fn dir_vector(dir: &str) -> Vec2 {
     match dir {
@@ -2641,15 +2667,26 @@ impl WallClimb {
         None
     }
 
-    /// Standing on a post or beam (stepped onto it from the ground). `from` is the pose shown now.
-    pub fn perch(lib: &mut AnimLib, level: &Level, root: &Transform, from: Option<Pose>) -> Option<WallClimb> {
+    /// Standing on a post or beam (stepped onto it from the ground). `from` is the pose shown now. `stick` (the wanted
+    /// direction), `sprint` and `lead_left` (the foot it came down on): on a beam met across with the stick along it, AC1's
+    /// side entry turns him onto it, walking or jogging (see `beam_side_entry`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn perch(lib: &mut AnimLib, level: &Level, root: &Transform, stick: Vec3, sprint: bool, lead_left: bool, from: Option<Pose>) -> Option<WallClimb> {
         let (i, _) = level.perch_at(root.translation, PERCH_REACH)?;
+        let line = level.perches[i];
         let wait = lib.get(PERCH_WAIT)?;
         let mut w = WallClimb::new(PERCH, root.rotation * Vec3::Z);
         w.perch = Some(i);
         w.wait = Some(wait);
+        w.sprint = sprint;
         w.fade = from.map(|p| (p, ENTER_FADE, ENTER_FADE));
         debug!("climb: onto perch {i} at {:.2}", root.translation);
+        if let Some(clip) = beam_side_entry(lib, &line, root, stick, sprint, lead_left) {
+            debug!("climb: side entry onto the beam via {}", clip.name);
+            w.beam_stance = None;
+            let r = Transform { translation: line.closest(root.translation), ..*root };
+            w.start_chain(vec![clip], vec![PERCH.to_string()], &r, Vec3::ZERO);
+        }
         Some(w)
     }
 

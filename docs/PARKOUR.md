@@ -307,7 +307,12 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - Sub-states: idle, walk, stop, the 90° wait (facing across), turn 180, the turns to and from the 90° wait; exits:
   the pull-down to a hang (event 9, the empty hand), the wall run (event 15, walking), the corner hop onto a beam
   beside (event 7). The edge stop (`xx_l_beam_edge_stop`) and NarrowObject → ladder are not used by v1.02. **[B]**
-  (Ours stopped playing the edge stop: AC1 just stops 0.3 m short.)
+  (Ours stopped playing the edge stop: AC1 just stops 0.3 m short.) Starting along a beam from the crouch plays AC1's
+  start (`crouchwait_<foot>_tr_crouch<walk|jog>_<other>`, 0x34662CB4/B5) and letting go while jogging its stop
+  (`crouchjog_stop_<foot>` + `_tr_crouchwait_<foot>`, 0x3466339D/9E). **[ours]**
+- **Side entry** (0xF7AAA0, actions 0xE6E0E9B8..BB): met across a beam (30-100° off the way the stick points along it)
+  → `xx_h_freestep_entry_<foot>_tr_crouch<walk|jog>_<foot after>_<left|right>_<30|90>`, the 30° and 90° clips blended
+  by the angle; a left turn goes on on the right foot, a right turn on the left. **[B, ours: not yet seen in play]**
 - Where beams come from: `GuidanceBeamDetectorAccurate` (vtable 0x0169A1CC, constructor 0x678F80) is never loaded
   from data (no objects of the class in any forge); it is built on the stack with fixed values (1.0, 0.15, 5° =
   0.0873 rad, 0.5, 0.2) by 0xC7E810, which runs lazily when a query box overlaps a guidance object's bounds
