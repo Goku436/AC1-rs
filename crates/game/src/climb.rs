@@ -1818,7 +1818,10 @@ impl WallClimb {
         if level.raycast(p + Vec3::Y * 1.2, way.normalize_or_zero(), (way.length() - 0.8).max(0.0)).is_some() {
             return None;
         }
-        let j = crate::jump::surface(hang.y - p.y, way.length(), left, speed > JUMP_RECEPTION_HARD_SPEED);
+        // (The wall's lean under the edge, positive overhanging: AC1's angled receptions. The hard one for a fast jump or
+        // a long one, over 6 m, as 0xE02790 picks it.)
+        let tilt = level.raycast(hold - Vec3::Y * 0.8 + out * 0.6, -out, 1.2).map_or(0.0, |h| (-h.normal.y).clamp(-1.0, 1.0).asin());
+        let j = crate::jump::surface(hang.y - p.y, way.length(), left, speed > JUMP_RECEPTION_HARD_SPEED || way.length() > 6.0, tilt);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))

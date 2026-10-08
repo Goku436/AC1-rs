@@ -112,8 +112,10 @@ pub fn freestep(dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
 /// for the hang's place `dz` above and `dist` away, its flight onto a surface (`xx_h_air_<front|down|up>_<dist>_foot?_to_
 /// surface`: the flight's slots folded onto those: the down landings, deep or not, onto `down`, the front going down onto
 /// `front`), then AC1's reception on the wall (`xx_h_air_surface_tr_hangwall_reception_front_straight_<min|max>` and its
-/// `xx_hangwall_reception_..._a/b/c`), the hard one (`max`) when `fast`.
-pub fn surface(dz: f32, dist: f32, left: bool, fast: bool) -> Jump {
+/// `xx_hangwall_reception_..._a/b/c`), the hard one (`max`) when `fast`. `tilt` (radians) is the wall's lean under the
+/// edge, positive overhanging: AC1 mixes in the `30_out` receptions toward an overhang (full at 30 degrees) and the
+/// `45_in` ones toward a slope (full at 45) (0xE02790).
+pub fn surface(dz: f32, dist: f32, left: bool, fast: bool, tilt: f32) -> Jump {
     let j = running(dz, dist, left, 0.0);
     let mut flight: Vec<(String, f32)> = vec![];
     for (n, w) in &j.flight {
@@ -125,9 +127,14 @@ pub fn surface(dz: f32, dist: f32, left: bool, fast: bool) -> Jump {
         }
     }
     let kind = if fast { "max" } else { "min" };
-    let reception = std::iter::once(format!("xx_h_air_surface_tr_hangwall_reception_front_straight_{kind}"))
-        .chain(["a", "b", "c"].map(|k| format!("xx_hangwall_reception_front_straight_{kind}_{k}")))
-        .map(|n| (n, 1.0))
+    let (side, w) = if tilt >= 0.0 { ("30_out", (tilt / 30f32.to_radians()).min(1.0)) } else { ("45_in", (-tilt / 45f32.to_radians()).min(1.0)) };
+    // One mixed clip per step of the chain (`animation::mix_name`).
+    let step = |stem: &str| -> (String, f32) {
+        let (straight, angled) = (stem.replace("{a}", "straight"), stem.replace("{a}", side));
+        (crate::animation::mix_name(&[(straight.as_str(), 1.0 - w), (angled.as_str(), w)]), 1.0)
+    };
+    let reception = std::iter::once(step(&format!("xx_h_air_surface_tr_hangwall_reception_front_{{a}}_{kind}")))
+        .chain(["a", "b", "c"].map(|k| step(&format!("xx_hangwall_reception_front_{{a}}_{kind}_{k}"))))
         .collect();
     Jump { takeoff: j.takeoff, flight, reception }
 }
@@ -319,8 +326,17 @@ mod tests {
     }
 
     #[test]
+    fn wall_receptions_lean_with_the_wall() {
+        // Square wall: the straight receptions alone; overhanging 15 degrees: half the 30 out ones; sloping 45: all 45 in.
+        assert_eq!(surface(1.5, 3.0, false, false, 0.0).reception[1].0, "xx_hangwall_reception_front_straight_min_a");
+        let half = &surface(1.5, 3.0, false, false, 15f32.to_radians()).reception[1].0;
+        assert!(half.contains("straight_min_a=0.50") && half.contains("30_out_min_a=0.50"), "{half}");
+        assert_eq!(surface(1.5, 3.0, false, true, -45f32.to_radians()).reception[0].0, "xx_h_air_surface_tr_hangwall_reception_front_45_in_max");
+    }
+
+    #[test]
     fn a_jump_at_a_hold_flies_onto_the_surface_and_is_received_on_the_wall() {
-        let j = surface(1.5, 3.0, false, true);
+        let j = surface(1.5, 3.0, false, true, 0.0);
         assert!(j.flight.iter().all(|(n, _)| n.ends_with("_footr_to_surface")), "{j:?}");
         assert!((total(&j.flight) - 1.0).abs() < 1e-3);
         assert_eq!(j.reception[0].0, "xx_h_air_surface_tr_hangwall_reception_front_straight_max");

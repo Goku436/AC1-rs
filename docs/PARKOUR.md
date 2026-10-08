@@ -231,7 +231,7 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - **Over-drop**: a target more than 5 m below (3 m for the leap of faith) is aimed at 5 m down, then a free fall
   (g = 9.8, steering ≤ 15 m/s). Plain falls drift (decays 4 m/s², ≤ 5 m/s). **[B]**
 - **Arrival** (0xE07D00): free step → the reception `<flight>_tr_freestep_entry_foot?[_fast]` (0x010DE1FE /
-  0x010DF150), into the run, walk, wait or the beam; wall hang → `xx_h_air_surface_tr_hangwall_reception_*`; free
+  0x010DF150), into the run, walk, wait or the beam; wall hang → `xx_h_air_surface_tr_hangwall_reception_*` (action 0x011FF16A: **[V]** 0xE02790 weights its six clips by the wall's lean under the edge, measured about the body's side: leaning out → `straight` to `30_out` (full at 30°), sloping in → `straight` to `45_in` (full at 45°); the `max` set for a jump over 6 m or a second measure over 2.5, else `min`; the clips carry no yaw); free
   hang → the swing reception; post / beam → their mounts (0xE50190, 0xE52AD0). **[B, ours]**
 - **Ground landing** (`HumanInAir__SetupToGround_Landing` 0xE05940): the drop from the apex; over 3 m the damage
   landing (`xx_h_landing_damage_footl`, or `_roll` when moving) with a camera shake of (drop − 3)/7; heavy over 6.3 m,
