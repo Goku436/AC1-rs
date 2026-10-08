@@ -74,11 +74,8 @@
 //! `_tr_l_wait`. (The game has `ActorStateID_LeapOfFaith`, `ActorStateID_InHayStack` and haystack entry
 //! types Top, Ground, FreeStep and SideJump; only Top is recreated.)
 //!
-//! Side wall run (sprinting along a wall at a shallow angle, Space): AC1 has the code for it
-//! (`WallingType_Horizontal`) but ships no clips, so this one is built from the sprint cycle
-//! (`xx_h_run_hipm_footl/r`): the root runs along the wall in a 1.2 m arc, leaning about 23 degrees off
-//! it with the hips 0.5 m out; IK plants the stance foot on the wall and puts the wall-side hand on the wall (see
-//! `character::animate`); then it jumps off (Space jumps off early, away from the wall).
+//! (No side wall run: AC1 has the code for one, `WallingType_Horizontal`, but ships no clips and the game never runs
+//! along walls. A procedural one built here was taken out, 2026-10-08: it ran through walls in Damascus.)
 //!
 //! Landing damage, by the height fallen (thresholds are guesses; the game's `LandingType` has Safe,
 //! SmallDamage, HeavyDamage and Fatal): under 4.5 m safe; to 8 m `xx_h_landing_damage_footl` (20%);
@@ -420,19 +417,8 @@ const LAND_DAMAGE_RUN: [&str; 2] = ["xx_h_landing_damage_footl_roll", "xx_roll_h
 const ROLL_LANDING_DROP: f32 = 3.0;
 const LAND_HEAVY: [&str; 2] = ["xx_h_hurt_fall_balanced_front_short_500cm_landing", "xx_h_hurt_fall_balanced_front_short_500cm_landing_tr_h_wait_footr"];
 const LAND_DEATH: &str = "xx_h_landing_death_back";
-/// Pseudo-states: dead after a fall; running along a wall.
+/// Pseudo-state: dead after a fall.
 const DEAD: &str = "dead";
-const SIDE_RUN: &str = "siderun";
-/// Side wall run: the sprint half-cycles, length (s), arc height (m), most roll (rad), the speed of the
-/// sprint clip's root motion (m/s), and the furthest the wall may be to the side.
-const RUN_CYCLE: [&str; 2] = ["xx_h_run_hipm_footl", "xx_h_run_hipm_footr"];
-const SIDE_RUN_TIME: f32 = 0.9;
-const SIDE_RUN_ARC: f32 = 1.2;
-const SIDE_RUN_ROLL: f32 = 0.4;
-/// The root's distance from the wall at full lean (m); the stance foot reaches the rest of the way.
-const SIDE_RUN_OFF: f32 = 0.5;
-const SIDE_RUN_CLIP_SPEED: f32 = 5.2;
-const SIDE_RUN_REACH: f32 = 1.2;
 
 /// Rig bones the climber needs.
 const PERCH: &str = "perch";
@@ -707,22 +693,6 @@ struct Cycle {
     speed: f32,
 }
 
-/// A side wall run in progress (see the module docs).
-struct SideRun {
-    t: f32,
-    start: Vec3,
-    /// Along the wall, and out of it.
-    along: Vec3,
-    normal: Vec3,
-    /// A point on the wall face, and the root's distance from it at the start.
-    wall: Vec3,
-    dist0: f32,
-    speed: f32,
-    clips: [Arc<Clip>; 2],
-    foot: usize,
-    phase: f32,
-}
-
 pub struct WallClimb {
     pub state: String,
     /// Out of the wall, horizontal.
@@ -767,7 +737,6 @@ pub struct WallClimb {
     pub health: f32,
     pub damage: f32,
     pub dead: bool,
-    side_run: Option<SideRun>,
     /// Set when the climber is back on its feet (on top of the wall or on the ground below).
     pub finished: bool,
     /// A ground action the player may break off by steering (a run stop).
@@ -1332,7 +1301,6 @@ fn off_wall(state: &str) -> bool {
             | HAY
             | HAY_OUT
             | DEAD
-            | SIDE_RUN
             | PERCH
             | SWING
             | VAULT
@@ -1391,7 +1359,6 @@ impl WallClimb {
             health: 1.0,
             damage: 0.0,
             dead: false,
-            side_run: None,
             finished: false,
             cancel: false,
             steer: None,
@@ -3367,83 +3334,6 @@ impl WallClimb {
         true
     }
 
-    /// Side wall run: sprinting along `velocity` with a wall to one side at a shallow angle and more of it
-    /// ahead. `from` is the pose shown now.
-    pub fn side_run(lib: &mut AnimLib, level: &Level, root: &Transform, velocity: Vec3, from: Option<Pose>) -> Option<WallClimb> {
-        let dir = velocity.with_y(0.0).normalize_or_zero();
-        let side = dir.cross(Vec3::Y);
-        let hit = [side, -side]
-            .into_iter()
-            .filter_map(|s| level.raycast(root.translation + Vec3::Y, s, SIDE_RUN_REACH))
-            .filter(|h| h.normal.y.abs() < 0.3 && dir.dot(h.normal).abs() < 0.5)
-            .min_by(|a, b| a.dist.total_cmp(&b.dist))?;
-        let normal = hit.normal.with_y(0.0).normalize();
-        let along = (dir - normal * dir.dot(normal)).normalize();
-        let speed = velocity.length().max(SIDE_RUN_CLIP_SPEED);
-        // The wall must go on for the whole run.
-        let ahead = root.translation + along * speed * SIDE_RUN_TIME * 0.5 + Vec3::Y + normal * 0.5;
-        level.raycast(ahead, -normal, hit.dist + 1.0)?;
-        let clips = [lib.get(RUN_CYCLE[0])?, lib.get(RUN_CYCLE[1])?];
-        let mut w = WallClimb::new(SIDE_RUN, normal);
-        w.side_run = Some(SideRun { t: 0.0, start: root.translation, along, normal, wall: hit.point, dist0: hit.dist, speed, clips, foot: 0, phase: 0.0 });
-        w.fade = from.map(|p| (p, ENTER_FADE, ENTER_FADE));
-        debug!("climb: side wall run along {along:.2} at {:.2}", root.translation);
-        Some(w)
-    }
-
-    /// During a side wall run: a point on the wall, its outward normal, how far into the run (0..1)
-    /// and how far rolled onto the wall (0..1), for planting the feet and the wall-side hand.
-    pub fn side_wall(&self) -> Option<(Vec3, Vec3, f32, f32)> {
-        let sr = self.side_run.as_ref()?;
-        let u = (sr.t / SIDE_RUN_TIME).min(1.0);
-        Some((sr.wall, sr.normal, u, smoothstep(u * 4.0) * smoothstep((1.0 - u) * 4.0)))
-    }
-
-    fn side_run_step(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, dt: f32) {
-        let Some(sr) = &mut self.side_run else { return };
-        sr.t += dt;
-        let u = (sr.t / SIDE_RUN_TIME).min(1.0);
-        // Roll onto the wall and back off it; rise and fall in an arc.
-        let roll = smoothstep(u * 4.0) * smoothstep((1.0 - u) * 4.0);
-        let base = sr.start + sr.along * sr.speed * sr.t;
-        let off = sr.dist0 + (SIDE_RUN_OFF - sr.dist0) * roll;
-        let pos = base + sr.normal * (off - (base - sr.wall).dot(sr.normal)) + Vec3::Y * 4.0 * SIDE_RUN_ARC * u * (1.0 - u);
-        let face = Quat::from_rotation_arc(Vec3::NEG_Z, sr.along);
-        let tilt = Quat::from_axis_angle(sr.along, SIDE_RUN_ROLL * roll);
-        // Tilt the body's up away from the wall.
-        let tilt = if (tilt * Vec3::Y).dot(sr.normal) >= 0.0 { tilt } else { tilt.inverse() };
-        root.translation = pos;
-        root.rotation = tilt * face;
-        sr.phase += dt * (sr.speed / SIDE_RUN_CLIP_SPEED) / sr.clips[sr.foot].anim.duration.max(1e-3);
-        if sr.phase >= 1.0 {
-            sr.phase -= 1.0;
-            sr.foot ^= 1;
-        }
-        let wall_gone = level.raycast(pos + sr.normal * 0.6 + Vec3::Y, -sr.normal, 1.6).is_none();
-        if u >= 1.0 || wall_gone {
-            let sr = self.side_run.take().expect("side run");
-            let v = sr.along * sr.speed + sr.normal + Vec3::Y * (4.0 * SIDE_RUN_ARC / SIDE_RUN_TIME) * (1.0 - 2.0 * u);
-            self.leave_side_run(lib, root, v);
-        }
-    }
-
-    /// End a side wall run in the air: upright, facing the way we fly, falling with `velocity`.
-    fn leave_side_run(&mut self, lib: &mut AnimLib, root: &Transform, velocity: Vec3) {
-        self.side_run = None;
-        // The fall turns the root to the move's start rotation.
-        let upright = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, velocity.with_y(0.0).normalize_or(Vec3::NEG_Z)), ..*root };
-        if let Some(air) = lib.get(JUMP_AIR) {
-            let rate = air.anim.duration / jump_airtime();
-            self.start(air, FALL.into(), &upright);
-            if let Some(m) = &mut self.mv {
-                m.rate = rate;
-            }
-        }
-        self.state = FALL.into();
-        self.fall_v = Some(velocity);
-        self.can_catch = true;
-    }
-
     /// Blend in from the ground: crossfade from the pose shown and move the root from where it stood
     /// (`was`) into the first move's planned start over that move.
     fn ease_in(&mut self, from: Option<Pose>, was: &Transform) {
@@ -3703,7 +3593,7 @@ impl WallClimb {
     /// Player asked to let go. Returns false if this climber can't (missing clips), so the caller
     /// should detach it directly.
     /// The legs pressed while on the wall: jump off a perch, fling off a bar, rebound off a wall run, hop
-    /// out of hay or kick off a side run. Returns false when none of those applies (leaps are the held legs).
+    /// out of hay. Returns false when none of those applies (leaps are the held legs).
     pub fn legs(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, input: Vec2) -> bool {
         // Hanging on a wall, the legs with the stick pulled back: eject off it backwards.
         let on_wall = matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) || self.state.starts_with('1') || self.state.starts_with('2');
@@ -3736,10 +3626,6 @@ impl WallClimb {
             return true;
         }
         if self.try_rebound(lib, root) || self.hop_out(lib, root) {
-            return true;
-        }
-        if let Some(sr) = self.side_run.take() {
-            self.leave_side_run(lib, root, sr.along * sr.speed * 0.7 + sr.normal * 3.5 + Vec3::Y * 3.0);
             return true;
         }
         false
@@ -3791,11 +3677,6 @@ impl WallClimb {
             return true;
         }
         if self.try_rebound(lib, root) || self.hop_out(lib, root) {
-            return true;
-        }
-        if let Some(sr) = self.side_run.take() {
-            // Kick off the wall: away from it, still going along it.
-            self.leave_side_run(lib, root, sr.along * sr.speed * 0.7 + sr.normal * 3.5 + Vec3::Y * 3.0);
             return true;
         }
         // Falling (or dropping off): the empty hand grabs the next hold the hands come to on the way down (AC1's catch
@@ -4025,7 +3906,16 @@ impl WallClimb {
             let mut c = c;
             // (Ending in the hang's pose: the root where the hang's hands are on the holds, not the stance's.)
             let mut to_hang = Vec3::ZERO;
-            if (c.to == "1m" || c.to == "2m") && !footholds(level, (targets[0] + targets[1]) * 0.5, normal) {
+            // (AC1's `IsGridMoveValid` 0xDECD70: each side's foot cell, two rows under its hand, must hold too; the one-hand
+            // stances are turned down without, the level ones end in the hang.)
+            let feet_held = targets.iter().all(|t| footholds(level, *t, normal));
+            if !feet_held && c.to != "1m" && c.to != "2m" && (c.to.starts_with('1') || c.to.starts_with('2')) {
+                if why() {
+                    debug!("climb: {} : no hold for a foot under its hand", c.names[0]);
+                }
+                continue;
+            }
+            if (c.to == "1m" || c.to == "2m") && !feet_held {
                 if !corner && to_hangwall[k + 1..].iter().any(|&h| h) {
                     if why() {
                         debug!("climb: {} : no footholds there (a hang move further on)", c.names[0]);
@@ -4557,10 +4447,6 @@ impl WallClimb {
             self.fall(lib, level, root, rig, base, cr, dt);
             return;
         }
-        if self.side_run.is_some() {
-            self.side_run_step(lib, level, root, dt);
-            return;
-        }
         if self.cycle.is_some() {
             self.beam_step(lib, level, root, dt);
             return;
@@ -4812,10 +4698,7 @@ impl WallClimb {
     /// Body pose for this frame (before IK).
     pub fn pose(&mut self, base: &Pose, cr: ClimbRig, rig: &Rig, mirror: &ik::mirror::Mirror) -> Pose {
         let mut pose = base.clone();
-        if let Some(sr) = &self.side_run {
-            let clip = &sr.clips[sr.foot];
-            sample(clip, sr.phase * clip.frames(), &mut pose, cr.reference);
-        } else if let Some(cy) = &self.cycle {
+        if let Some(cy) = &self.cycle {
             let clip = &cy.clips[cy.foot];
             sample(clip, cy.phase * clip.frames(), &mut pose, cr.reference);
         } else {
@@ -4899,7 +4782,6 @@ mod tests {
             HAY,
             HAY_OUT,
             DEAD,
-            SIDE_RUN,
             PERCH,
             SWING,
             VAULT,

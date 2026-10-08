@@ -861,7 +861,6 @@ pub fn locomotion(
                             (v.length() > SPRINT_SPEED && wall_ahead(v.normalize(), crate::climb::WALL_RUN_REACH))
                                 .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, pose()))
                                 .flatten()
-                                .or_else(|| (v.length() > SPRINT_SPEED).then(|| WallClimb::side_run(lib, &level, &tf, v, pose())).flatten())
                                 .or_else(|| WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose()))
                         });
                         let edge_near = || level.ground(tf.translation + v.normalize_or_zero() * 1.2, 0.5, 1.5).is_none();
@@ -1394,43 +1393,6 @@ pub fn animate(
         let model_from_world = world_from_model.inverse();
         let to_model = |p: Vec3| model_from_world.transform_point3(p);
         let dir_to_model = |d: Vec3| model_from_world.transform_vector3(d);
-
-        // --- Side wall run: the run cycle's feet step onto the wall while they are down, and the
-        // wall-side hand reaches for it.
-        if let Some((wall, n, u, w)) = ch.wall.as_ref().and_then(|wc| wc.side_wall()).filter(|_| ik_on) {
-            let off = |p: Vec3| (p - wall).dot(n);
-            // The stance foot (the lower one in the run cycle) steps out onto the wall.
-            let low = if pose.model_of(rig, b.legs[0].foot).pos.z <= pose.model_of(rig, b.legs[1].foot).pos.z { 0 } else { 1 };
-            let heights = [pose.model_of(rig, b.legs[0].foot).pos.z, pose.model_of(rig, b.legs[1].foot).pos.z];
-            let stance = ((heights[1 - low] - heights[low]) / 0.15).clamp(0.0, 1.0);
-            let leg = b.legs[low];
-            let ankle = world_from_model.transform_point3(pose.model_of(rig, leg.foot).pos);
-            let d = off(ankle);
-            if d < 1.0 {
-                let target = ankle - n * (d - 0.1);
-                let knee = pose.model_of(rig, leg.lower).pos;
-                ch.debug_targets.push((target, Color::srgb(0.2, 0.9, 0.3)));
-                two_bone_ik(&mut pose, rig, leg.upper, leg.lower, leg.foot, to_model(target), Some(knee + Vec3::new(0.4, 0.0, 0.0)), None, smooth(w) * stance);
-            }
-            // The hand nearer the wall touches it a little ahead of the shoulder, mid-run.
-            let hand_i = if off(world_from_model.transform_point3(pose.model_of(rig, b.arms[0].hand).pos))
-                < off(world_from_model.transform_point3(pose.model_of(rig, b.arms[1].hand).pos))
-            {
-                0
-            } else {
-                1
-            };
-            let arm = b.arms[hand_i];
-            let shoulder = world_from_model.transform_point3(pose.model_of(rig, arm.upper).pos);
-            let ahead = root.rotation * Vec3::NEG_Z;
-            let touch = shoulder - n * (off(shoulder) - 0.05) + ahead * 0.25 - Vec3::Y * 0.1;
-            let wgt = smooth(w) * (u * std::f32::consts::PI).sin();
-            if (touch - shoulder).length() < 0.75 {
-                ch.debug_targets.push((touch, Color::srgb(0.95, 0.75, 0.2)));
-                let elbow = pose.model_of(rig, arm.lower).pos;
-                two_bone_ik(&mut pose, rig, arm.upper, arm.lower, arm.hand, to_model(touch), Some(elbow + Vec3::new(-0.3, 0.0, -0.3)), None, wgt);
-            }
-        }
 
         // --- Leaning on a wall: the palms on it, where the clip holds them.
         if let Some(w) = ch.wall.as_ref().filter(|w| ik_on && w.state == "lean") {

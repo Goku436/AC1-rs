@@ -67,7 +67,7 @@ is kept outside the repo; see "Combat" below.
   more than 45 degrees off the facing holds it back while turning. The value maps onto the gait clips' speeds (root
   motion over the half-cycle): slow walk 0.1 m/s (`xx_l_walk_slow_hipm`, a shuffle), walk 1.9 (`xx_l_walk_hipm`), jog 3.5, run 5.2 (`xx_h_run_hipm`),
   sprint 6.2 (`xx_h_sprint_hipm`). The HUD shows the band and value. Scripted walks (`AC1_WALK`) keep a fixed speed.
-  Wall runs and side runs need the sprint (over 5.5 m/s, so about 0.4 s of free running from a run); free running
+  Wall runs need the sprint (over 5.5 m/s, so about 0.4 s of free running from a run); free running
   jumps off edges on its own at any speed (as AC1 does: after a landing the speed starts over below the sprint). Pressing Space to start free running is not a jump: a press while running jumps only with a
   drop within 1.2 m ahead.
 - Body collision (`Level::capsule_push`): AC1's character proxy as a capsule, radius 0.4 m (0.35 and the 0.05 keep
@@ -433,7 +433,7 @@ no code):
 - Wall run: `HumanWallingData` ("rebound distances"), sub-states `WallingEntryA`, `WallingEntryB`,
   `WallingVertical`, `WallingVerticalEnd`, `ReboundTransition`, `WallingHorizontal`; `WallingType`
   Vertical/Horizontal, `WallingSide` Left/Right. No horizontal walling clips ship in any archive (all 43
-  walling clips are `wallingfront`), so the side wall run here is procedural.
+  walling clips are `wallingfront`): no side wall run (a procedural one was taken out, 2026-10-08).
 - Ladder: in high profile AC1 climbs 1 m a step (`xx_h_ladder_climb_<up|down>_<l|r>`) and runs off the top into a free
   step; the legs with the stick pulled back rebound off it backwards (push-off, then `xx_h_rebound_foot<l|r>_tr_fall`
   as it comes down, still facing the wall, landing standing). All from `HumanLadderData`'s table.
