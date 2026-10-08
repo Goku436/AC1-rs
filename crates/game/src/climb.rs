@@ -492,6 +492,9 @@ const PASSOVER_CLEAR: f32 = 0.3;
 /// Going over it no faster than this (m/s).
 const PASSOVER_SPEED: f32 = 4.0;
 
+/// A jump's target needs this much room past it at the chest (m).
+const JUMP_LAND_ROOM: f32 = 0.6;
+
 /// A jump onto a roof lands this far in from its edge (m; Banned445's port of the game's target, which uses the
 /// guidance contact).
 const ROOF_EDGE_INSET: f32 = 0.45;
@@ -564,6 +567,9 @@ const JUMP_TOP_HEADROOM: f32 = 1.7;
 /// are hung from (a waist-high wall's top is no hold to jump at).
 const JUMP_HOLD_RISE: std::ops::RangeInclusive<f32> = 1.3..=2.6;
 const JUMP_HOLD_HANG: f32 = 0.9;
+/// ...or this far under it for a free hang (the free-hang catch, `xx_fall_tr_hangfree_min`, ends with the hands 2.1 m
+/// over the root).
+const JUMP_HOLD_FREE_HANG: f32 = 2.1;
 /// ...this far in from the hold's ends (m), for both hands.
 const JUMP_HOLD_INSET: f32 = 0.35;
 /// A top jumped to may be up to 3 m below and 1.3 m above (AC1's candidate scorer and its jump bands for a top, via
@@ -1121,7 +1127,13 @@ fn jump_airtime() -> f32 {
 /// Where a running jump along `dir` from `from` flies to catch a hold, when no top is in reach: the nearest hold within
 /// AC1's 45 degree cone and reach, facing the jumper, `JUMP_HOLD_RISE` of the feet; the point the body hangs from it.
 fn jump_hold_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
-    jump_hold(level, from, dir).map(|(q, out)| q + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG)
+    // (The hang the jump ends in decides where the root goes, as AC1's ledge targets (`hang_root`, 0xDD6730): under a
+    // hold with a wall below for the feet, a wall hang; under one over nothing (a ledge over an arch), a free hang, the
+    // root much lower. Aimed as for a wall hang there, the hands came by a metre over the hold and he flew on.)
+    jump_hold(level, from, dir).map(|(q, out)| {
+        let wall = level.raycast(q - Vec3::Y * 1.0 + out * 0.5, -out, 0.5 + RECESS_MAX).is_some_and(|h| h.normal.dot(out) > 0.7);
+        if wall { q + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG } else { q + out * 0.1 - Vec3::Y * JUMP_HOLD_FREE_HANG }
+    })
 }
 
 /// The hold a running jump along `dir` from `from` reaches for (see `jump_hold_target`): the point on it the hands go to,
@@ -1256,7 +1268,12 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
             // (At the knees and the chest too, where a flight is stopped: a low wall or a rail between is vaulted, not
             // jumped across.)
             let top = from.y.max(q.y);
-            [0.3, JUMP_AC1_CLEAR, 1.0].iter().all(|h| level.raycast(from.with_y(top + h), flat.normalize_or_zero(), (flat.length() - 0.3).max(0.0)).is_none())
+            let way = flat.normalize_or_zero();
+            [0.3, JUMP_AC1_CLEAR, 1.0].iter().all(|h| level.raycast(from.with_y(top + h), way, (flat.length() - 0.3).max(0.0)).is_none())
+                // (Room to land: no wall at the chest just past it, and the top going on past it: a sill under a wall
+                // is no target, the flight meets the wall and drops off it.)
+                && (level.perch_at(*q, 0.15).is_some()
+                    || (level.raycast(*q + Vec3::Y * 1.0, way, JUMP_LAND_ROOM).is_none() && level.ground(*q + way * 0.4, 0.3, 0.3).is_some()))
         })
         // AC1's scorer (0xE96BF0, docs/PARKOUR.md section 6): of the free-step targets in the cone (tops, posts, beams),
         // the nearest.
@@ -4125,10 +4142,23 @@ impl WallClimb {
                 .find_map(|h| level.raycast(root.translation + Vec3::Y * *h, dir, reach).filter(|h| h.normal.y.abs() < 0.3 && h.normal.dot(dir) < square))
         };
         // (To the side, a wall met at most 60 degrees off square: one grazed along is not turned to.)
-        let Some(hit) = wall(fwd, 1.0, 1.0).or_else(|| side.and_then(|d| wall(d, CATCH_SIDE_REACH, -0.5))) else {
+        let found = wall(fwd, 1.0, 1.0).or_else(|| side.and_then(|d| wall(d, CATCH_SIDE_REACH, -0.5))).map(|h| (h.point, h.normal));
+        // (No wall at the chest, as under a ledge over an arch: AC1's catch looks for edges round the hands, wall or
+        // not; a hold facing us over the head, its line standing in for the wall's face.)
+        let found = found.or_else(|| {
+            let hands = root.translation + Vec3::Y * JUMP_HOLD_FREE_HANG;
+            level
+                .ledges
+                .iter()
+                .filter(|l| l.out.dot(fwd) < -0.7)
+                .map(|l| (l.closest(hands), l.out))
+                .filter(|(q, _)| (*q - hands).with_y(0.0).length() < 0.8 && (q.y - hands.y).abs() < 0.6)
+                .min_by(|a, b| (a.0 - hands).length().total_cmp(&(b.0 - hands).length()))
+        });
+        let Some((wall_point, wall_normal)) = found else {
             return false;
         };
-        let normal = hit.normal.with_y(0.0).normalize();
+        let normal = wall_normal.with_y(0.0).normalize();
         let facing = Transform { translation: root.translation, rotation: Quat::from_rotation_arc(Vec3::NEG_Z, -normal), ..default() };
         let speed = if down_speed > CATCH_FAST { "max" } else { "min" };
         let catches = [
@@ -4141,19 +4171,28 @@ impl WallClimb {
             let mut end = end.world(&facing);
             // (Pushed off the wall or falling clear of it: the hands are judged as if at the wall, where the catch
             // pulls the root; only along the wall and in height must they be near a hold.)
-            let out = (((end.hands[0] + end.hands[1]) * 0.5 - hit.point).dot(normal) - CATCH_HAND_OUT).max(0.0);
+            let out = (((end.hands[0] + end.hands[1]) * 0.5 - wall_point).dot(normal) - CATCH_HAND_OUT).max(0.0);
             end.hands = end.hands.map(|h| h - normal * out);
             end.feet = end.feet.map(|f| f - normal * out);
             let in_box = |h: Vec3| {
                 nearest_hold(level, h, normal).map(|n| n.1).filter(|t| (*t - h).with_y(0.0).length() <= CATCH_ACROSS && (t.y - h.y).abs() <= CATCH_UP)
             };
-            let (Some(a), Some(b)) = (in_box(end.hands[0]), in_box(end.hands[1])) else { continue };
+            let (Some(a), Some(b)) = (in_box(end.hands[0]), in_box(end.hands[1])) else {
+                if why() {
+                    let off = end.hands.map(|h| nearest_hold(level, h, normal).map(|n| n.1 - h));
+                    debug!("climb: catch {} at {:.2}: hands off the holds ({off:.2?})", names[0], root.translation);
+                }
+                continue;
+            };
             let targets = [a, b];
             if self.catch_below.is_some_and(|y| (targets[0].y + targets[1].y) * 0.5 > y) {
                 continue;
             }
             let err = (targets[0] - end.hands[0] + targets[1] - end.hands[1]) * 0.5;
             if !feet_fit(level, &end.feet.map(|f| f + err), normal, feet) {
+                if why() {
+                    debug!("climb: catch {}: the feet do not fit ({feet:?})", names[0]);
+                }
                 continue;
             }
             root.rotation = facing.rotation;
