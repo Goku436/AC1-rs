@@ -192,9 +192,11 @@ depth: see section 10).
   cos 40°). The scorer 0xE96BF0 then picks among them. Reading 0xE18970 in full is the next step for exact targets.
 - **[V]** 0xE18970's search volumes by query kind (its 7th/8th arguments): the general one up to 3.0 m above and 5.0 m
   below within 9 m; kinds 1 and 2 (and kind-7 = 4) 2.7 m up, 5 m down, 4.2 m; kind-7 = 3: 3.7 m up, 4.3 m down, 9 m,
-  the probe 0.7 m higher; kind 4: 1.3 m up within 2.0 m, from 0.45 m below; kind 3: 1.3 m up within 1.3 m, from 0.45
-  m below. Which kind each caller passes (the ground's running jump, the wall's rebound 0xE365C0, the beam's
-  0xEE8EC0, ...) is still to map. **[V]** The ground's jump (the interpreter's call at 0xEE73ED) passes kind 0 (and a
+  the probe 0.7 m higher; kind 4: 0.45 to 1.3 m up within 2.0 m; kind 3: 0.45 to 1.3 m up within 1.3 m (waist-high
+  tops just ahead: the step-up and vault). All boxes start 0.5 m ahead and are ±1 m across (±0.5 m for kinds 3 and
+  4), laid along the wanted direction from the body's mid-height (pos + 0.5·up). The other callers, 0xD72F60 and
+  0xD73D30 (three calls), pass kind 0 and kind-7 0 with query flags 5: the general volume. Which kind the wall's
+  rebound 0xE365C0 and the beam's 0xEE8EC0 pass is still to map. **[V]** The ground's jump (the interpreter's call at 0xEE73ED) passes kind 0 (and a
   character field, Human+0x994, as kind-7): the general volume, 3.0 m up, 5.0 m down, 9 m; the scorer then keeps
   what is no lower than 3 m down.
 
