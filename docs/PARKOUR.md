@@ -345,6 +345,10 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   Damascus → 1141 perches). **[V]**
 
 ## 9. Wall run, ladders, hay, swing bars
+- **Swing bars** **[V, ours]**: the stick not held forward at the top of a swing → AC1's stop
+  (`xx_h_swing_stop_<front|back>_a..d`, the last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`: he
+  hangs still from the bar; the stick forward swings him up again (`xx_h_swing_momentum_front_up`). The hay's hop out
+  ends in the stand of the profile held (`xx_l_haystack_hop_out_tr_<l|h>_wait`).
 - **Walling** (event 49, wall test 0xE18390): entry A → B → vertical → end (0xE37590); probes A-D hand over to the
   ledge with the `wallingfront_*_tr_*` exits; the rebound (0xE365C0) pushes off straight back when the stick is
   within 50° of the facing, else along the stick. Only the front wall run exists in the data. **[B, ours]**

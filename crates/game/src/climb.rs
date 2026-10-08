@@ -583,6 +583,8 @@ const JUMP_HOLD_INSET: f32 = 0.35;
 const JUMP_TARGET_RISE: std::ops::RangeInclusive<f32> = -3.0..=1.3;
 const SWING_CYCLE: [&str; 4] = ["xx_h_swing_cycle_front_up", "xx_h_swing_cycle_front_down", "xx_h_swing_cycle_back_up", "xx_h_swing_cycle_back_down"];
 const SWING_LAUNCH: &str = "xx_h_swing_cycle_front_300cm_to_air";
+/// From the still hang on a bar, the stick forward swings up again.
+const SWING_MOMENTUM: &str = "xx_h_swing_momentum_front_up";
 const SWING_DROP: &str = "xx_h_swing_cycle_down_050cm_to_air";
 /// Bar above the root while swinging (the hands in the swing cycle).
 const SWING_HANG: f32 = 2.29;
@@ -3053,7 +3055,21 @@ impl WallClimb {
 
     /// Swinging: the next clip of the cycle, or let go when the feet have swung forward.
     fn swing_next(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, done: &Clip) -> bool {
-        let i = SWING_CYCLE.iter().position(|n| *n == done.name).unwrap_or(SWING_CYCLE.len() - 1);
+        // (Swinging up again from the still hang: AC1's `xx_h_swing_momentum_front_up` stands for the cycle's first.)
+        let i = if done.name == SWING_MOMENTUM { 0 } else { SWING_CYCLE.iter().position(|n| *n == done.name).unwrap_or(SWING_CYCLE.len() - 1) };
+        // The stick not held forward at the top of a swing: AC1's stop (`xx_h_swing_stop_<front|back>_a..d`, the last
+        // items of action 0x023E0C61), into the still free hang from the bar.
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(Vec3::NEG_Z);
+        if (i == 0 || i == 2) && self.swing_off.is_none() && self.move_dir.with_y(0.0).dot(fwd) < 0.3 {
+            let side = if i == 0 { "front" } else { "back" };
+            if let Some(clips) = ["a", "b", "c", "d"].iter().map(|k| lib.get(&format!("xx_h_swing_stop_{side}_{k}"))).collect::<Option<Vec<_>>>() {
+                debug!("climb: the swing comes to rest ({side})");
+                self.start_chain(clips, vec![SWING.into(), SWING.into(), SWING.into(), FREE.into()], root, Vec3::ZERO);
+                // (Faded in: the stop's first pose is 7 cm off the swing's last at the feet.)
+                self.fade = self.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
+                return true;
+            }
+        }
         if i == 0
             && let Some(fling) = self.swing_off
         {
@@ -3498,7 +3514,9 @@ impl WallClimb {
         if self.state != HAY || self.mv.is_some() {
             return false;
         }
-        let Some(clips) = HAY_HOP_OUT.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { return false };
+        // (Into the stand of the profile held: AC1 has the hop out's end into either, `_tr_l_wait` / `_tr_h_wait`.)
+        let end = if self.high { "xx_l_haystack_hop_out_tr_h_wait" } else { HAY_HOP_OUT[1] };
+        let Some(clips) = [HAY_HOP_OUT[0], end].iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { return false };
         self.start_chain(clips, vec![HAY_OUT.into(), GROUND.into()], root, Vec3::ZERO);
         true
     }
@@ -4901,6 +4919,17 @@ impl WallClimb {
             } else {
                 self.ladder_step(lib, level, root, input);
             }
+            return;
+        }
+        // Hanging still from a swing bar, the stick forward: swing up again.
+        if self.bar.is_some()
+            && is_free(&self.state)
+            && self.mv.is_none()
+            && input.y > 0.5
+            && let Some(c) = lib.get(SWING_MOMENTUM)
+        {
+            debug!("climb: swinging up again on the bar");
+            self.start(c, SWING.into(), root);
             return;
         }
         let moved = input.length() > 0.3 && !self.hop_out(lib, root) && self.try_move(lib, level, root, rig, base, cr, input, leap);
