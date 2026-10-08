@@ -739,6 +739,11 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     // hand on the top (AC1's passover), flat ground both sides: 1.4 m high and 0.3 m deep, and 1.5 m high and 1 m deep.
     walls.cuboid(Vec3::new(-20.0, 0.0, -40.3), Vec3::new(-16.0, 1.4, -40.0));
     walls.cuboid(Vec3::new(-14.0, 0.0, -41.0), Vec3::new(-10.0, 1.5, -40.0));
+    // A passover over a big drop (west of them, x -30 to -24): a 3 m platform, a 1.4 m wall 0.3 m deep along its south
+    // edge, 4.4 m down beyond it, a hold along the wall's far top edge: over it and round into the hang on the far side.
+    walls.cuboid(Vec3::new(-30.0, 0.0, -44.0), Vec3::new(-24.0, 3.0, -34.0));
+    walls.cuboid(Vec3::new(-30.0, 3.0, -44.3), Vec3::new(-24.0, 4.4, -44.0));
+    level.ledges.push(Ledge { a: Vec3::new(-29.9, 4.4, -44.36), b: Vec3::new(-24.1, 4.4, -44.36), out: Vec3::NEG_Z });
     vec![
         ("Rooftops: B1 (climb its south or west face)", Vec3::new(43.0, b1 + 0.6, 33.0)),
         ("B2 (2 m gap)", Vec3::new(50.5, b2 + 0.6, 33.0)),
@@ -750,6 +755,7 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("Wall W (run through the doorway, up the wall, legs: rebound onto the holds over the door)", Vec3::new(33.0, 6.6, 21.0)),
         ("Side grab (run off the ledge's end, stick toward the wall: grab it in the air)", Vec3::new(1.0, 6.8, -50.5)),
         ("Passover walls (jump over: 0.3 m, 1 m deep)", Vec3::new(-15.0, 2.2, -40.0)),
+        ("Passover over a drop (into the far side's hang)", Vec3::new(-27.0, 3.6, -38.0)),
     ]
 }
 

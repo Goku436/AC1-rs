@@ -1765,6 +1765,29 @@ impl WallClimb {
             debug!("climb: AC1's passover lands the hand {:.2} m off ({err:.2}, hand at {h:.2}, edge {edge:.2}, flight {})", err.length(), flight.name);
             return None;
         }
+        // A big drop beyond with a hold on the far edge: over it and round into the wall hang on the far side (AC1's
+        // `xx_h_passover_<hand>_tr_hangwall_a/b`, 0x0109BB59: over, 1 m down, turned round), not over and down it.
+        let far = edge + fwd * depth;
+        let drop = level.ground(far.with_y(edge.y + 0.2) + fwd * 0.4, 0.0, 30.0).map_or(f32::INFINITY, |g| edge.y - g.point.y);
+        if drop > PULL_DOWN_DROP
+            && let (Some(a), Some(b)) = (lib.get(&format!("xx_h_passover_{hand}_tr_hangwall_a")), lib.get(&format!("xx_h_passover_{hand}_tr_hangwall_b")))
+        {
+            let chain = [takeoff.clone(), flight.clone(), touch_clip.clone(), a.clone(), b.clone()];
+            if let Some(end) = chain_end(&chain, rig, base, cr).map(|e| e.world(&planned))
+                && let Some(targets) = holds_within(level, &end.hands.map(|h| h + err), fwd, 0.8)
+            {
+                let hang = (targets[0] - end.hands[0] + targets[1] - end.hands[1]) * 0.5 - err;
+                // (The near face's normal: the chain turns it with the root's half turn, onto the far face's.)
+                let mut w = WallClimb::new(VAULT, normal);
+                w.start_chain_carry(chain.to_vec(), vec![VAULT.into(), VAULT.into(), VAULT.into(), DROP.into(), HANGWALL.into()], &planned, err, Some(1));
+                if let Some(q) = w.queue.get_mut(2) {
+                    q.correct = hang;
+                }
+                w.ease_in(from, root);
+                debug!("climb: running jump over the wall at {edge:.2} into the hang on its far side ({drop:.1} m drop)");
+                return Some(w);
+            }
+        }
         // (Over it, the root clear of the far edge before the fall: else it comes down on the top.)
         let over_end = chain_end(&[takeoff.clone(), flight.clone(), touch_clip.clone(), over.clone()], rig, base, cr)?.world(&planned).pos + err;
         let short = (edge + fwd * (depth + PASSOVER_CLEAR) - over_end).dot(fwd).max(0.0);

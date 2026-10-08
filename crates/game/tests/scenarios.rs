@@ -264,6 +264,14 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "not in AC1's move graph", "landed from -"],
     },
     Scenario {
+        name: "passover over a 4.4 m drop: over the wall and round into the wall hang on its far side",
+        tags: &["jump", "hang"],
+        env: &[("AC1_START", "-27,-40,0,3.6"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "0.3")],
+        secs: 3.0,
+        want: &["into the hang on its far side", "-> hangwall via xx_h_passover_hand"],
+        never: &["EMBED", "squaring up", "landed from"],
+    },
+    Scenario {
         name: "running jump at the 1.5 m passover wall (1 m deep): AC1's 1 m passover",
         tags: &["jump", "hang"],
         env: &[("AC1_START", "-12,-34,0"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "0.9")],

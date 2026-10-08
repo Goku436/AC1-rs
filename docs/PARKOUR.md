@@ -298,6 +298,13 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   Ours: roof-edge targets from ledges (0.45 m in), the clear way from above the higher top, hangs aimed by the wall
   below (`jump_hold_target`). The depth classes, the 2.5 m drop for a hang and the chest-height clear way are AC1's
   rules still to adopt.
+- **The passover's endings** (`HumanLedge`, code-driven): over and down (`xx_h_passover_<hand>_<cm>cm` + `_tr_fall`);
+  over a big drop, round into the wall hang on the far side (`xx_h_passover_<hand>_tr_hangwall_a/b`, 0x0109BB59: 0.6 s,
+  1 m down, turned 180°; ours when the far side drops more than 2 m and its top edge has a hold); the pull-down over it
+  (`_pulldown_soft[_orientation]`, ending 14° from `ledge_pulldown_soft_to_hangwall_straight_b`) and the jumps on from
+  it (`xx_h_passover_<cm>_<hand>_<down|front_down>_<050|300>cm_<foot>_to_air`, HumanInAir, into the down landings) are
+  not used yet. The game lacks `xx_h_air_up_300cm_footr_to_passover` (only its reception): ours goes off the other
+  foot then.
 
 ## 7. Ledge (`HumanLedge`)
 - Hangs on two hand contacts on guidance edges. Wall hang: root 1.1 m below the hands, 0.5 m out; free hang: 2.4 m
