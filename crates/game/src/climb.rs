@@ -535,6 +535,8 @@ const WALL_RUN_WIDTH: f32 = 0.7;
 /// Jump targets: this far across (m), and within this cosine of the wanted direction (45 degrees).
 const JUMP_TARGET_REACH: std::ops::RangeInclusive<f32> = 1.0..=4.6;
 const JUMP_TARGET_CONE: f32 = 0.707;
+/// ...and at most this far to either side of the wanted line (m): AC1's search box (0xE18970) is ±1 m across.
+const JUMP_TARGET_ACROSS: f32 = 1.0;
 /// A running jump leaves the ground going up at least this fast (m/s), whatever it aims at.
 const JUMP_UP_MIN: f32 = 1.5;
 /// A jump up onto a top crosses its edge with the feet this far over it (m).
@@ -1259,7 +1261,10 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
         .into_iter()
         .filter(|q| {
             let flat = (*q - from).with_y(0.0);
-            JUMP_TARGET_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_TARGET_RISE.contains(&(q.y - from.y))
+            JUMP_TARGET_REACH.contains(&flat.length())
+                && flat.normalize().dot(dir) >= JUMP_TARGET_CONE
+                && flat.cross(dir).y.abs() <= JUMP_TARGET_ACROSS
+                && JUMP_TARGET_RISE.contains(&(q.y - from.y))
         })
         // (The way across clear over the higher of the two: a top under an awning or past a wall the flight meets is
         // no target, else the jump stops in the air and drops back, over and over.)
