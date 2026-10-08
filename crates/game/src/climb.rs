@@ -4524,13 +4524,20 @@ impl WallClimb {
                 }
                 continue;
             }
-            root.rotation = facing.rotation;
+            let was = root.rotation;
             self.normal = normal;
             self.fall_v = None;
             self.state = LEAP.into();
             let tos = chain_states(clips.len(), LEAP, to);
-            // (The pull in to the wall too: caught further out, he would hang that far off it from then on.)
-            self.start_chain(clips, tos, root, err - normal * out);
+            // (The pull in to the wall too: caught further out, he would hang that far off it from then on. The root
+            // keeps its rotation this frame: the move turns it.)
+            let at = Transform { rotation: facing.rotation, ..*root };
+            self.start_chain(clips, tos, &at, err - normal * out);
+            // (Turned to the wall over the catch's start, not at once: a side grab turned him up to 90 degrees in a
+            // frame, the hands jumping a metre.)
+            if let Some(m) = &mut self.mv {
+                m.ease_rot = was * m.start_rot.inverse();
+            }
             return true;
         }
         false
@@ -4854,7 +4861,9 @@ impl WallClimb {
             }
             root.rotation = m.start_rot * root_delta(root_rotation_at(&m.clip, frame));
             if m.ease_rot != Quat::IDENTITY {
-                let k = smoothstep(m.t / EASE_TURN.min(dur).max(1e-3));
+                // (Done by the end of a chain's last clip: a hang squares up to the wall at once after it.)
+                let span = if self.queue.is_empty() { EASE_TURN.min(dur) } else { EASE_TURN };
+                let k = smoothstep(m.t / span.max(1e-3));
                 root.rotation = m.ease_rot.slerp(Quat::IDENTITY, k) * root.rotation;
             }
             match m.to.as_str() {
@@ -4934,15 +4943,18 @@ impl WallClimb {
                     };
                     self.fade = Some((last.clone(), len, len));
                 }
+                // (A turn still easing in carries on into the next clip: cut at a short clip's end, a catch turned him
+                // 90 degrees in four frames.)
+                let left = if done.ease_rot != Quat::IDENTITY { done.ease_rot.slerp(Quat::IDENTITY, smoothstep(done.t / EASE_TURN)) } else { Quat::IDENTITY };
                 self.mv = Some(Move {
                     clip: next.clip,
                     t: 0.0,
                     to: next.to,
                     start: root.translation,
-                    start_rot: root.rotation,
+                    start_rot: left.inverse() * root.rotation,
                     correct: next.correct,
                     rate: next.rate,
-                    ease_rot: Quat::IDENTITY,
+                    ease_rot: left,
                 });
                 return;
             }

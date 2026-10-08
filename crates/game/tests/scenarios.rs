@@ -614,6 +614,9 @@ fn game_dir() -> Option<PathBuf> {
     d.join("DataPC.forge").exists().then_some(d)
 }
 
+/// A pose pop this big (m: a bone jumping relative to the root in one frame) fails a scenario; smaller ones are reported.
+const POP_FAIL: f32 = 2.0;
+
 fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
     // (No screenshot, `-`: the run ends at `secs`; only the log is checked. `AC1_SCENARIO_SHOTS=1` saves them.)
     let shot = if std::env::var("AC1_SCENARIO_SHOTS").is_ok() {
@@ -622,7 +625,12 @@ fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
         std::path::PathBuf::from("-")
     };
     let mut c = Command::new(exe);
-    c.env("RUST_LOG", "ac1=debug,wgpu=error").env("NO_COLOR", "1").env("AC1_SHOT", &shot).env("AC1_SHOT_SECS", s.secs.to_string()).env("AC1_EMBED_CHECK", "1");
+    c.env("RUST_LOG", "ac1=debug,wgpu=error")
+        .env("NO_COLOR", "1")
+        .env("AC1_SHOT", &shot)
+        .env("AC1_SHOT_SECS", s.secs.to_string())
+        .env("AC1_EMBED_CHECK", "1")
+        .env("AC1_POP_CHECK", "1");
     c.envs(QUIET.iter().copied());
     c.envs(s.env.iter().copied());
     let out = c.output().map_err(|e| format!("could not run the game: {e}"))?;
@@ -641,6 +649,19 @@ fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
     off_graph.dedup();
     for l in off_graph {
         eprintln!("  off the move graph: {l}");
+    }
+    // Pose pops (the recorder's live check, `AC1_POP_CHECK`): reported; one bigger than `POP_FAIL` fails the scenario.
+    let pops: Vec<(f32, &str)> = log
+        .lines()
+        .filter_map(|l| l.split_once("POP ").map(|x| x.1))
+        .filter_map(|l| l.split_whitespace().nth(1).and_then(|m| m.parse::<f32>().ok()).map(|m| (m, l)))
+        .collect();
+    for (_, l) in &pops {
+        eprintln!("  pop: {l}");
+    }
+    let big: Vec<&str> = pops.iter().filter(|(m, _)| *m > POP_FAIL).map(|(_, l)| *l).collect();
+    if !big.is_empty() {
+        return Err(format!("pose pops over {POP_FAIL} m: {big:?}"));
     }
     let missing: Vec<&str> = s.want.iter().copied().filter(|w| !log.contains(w)).collect();
     let present: Vec<&str> = s.never.iter().copied().filter(|w| log.contains(w)).collect();

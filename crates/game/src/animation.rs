@@ -250,6 +250,8 @@ pub struct Animator {
     /// and the one playing (profile, foot, weights, time, length).
     starts: [[Vec<Option<Arc<Clip>>>; 2]; 2],
     start: Option<(usize, usize, [f32; 3], f32, f32)>,
+    /// A finished start's last pose fading out into the gait (profile, foot, weights, length, time since).
+    start_out: Option<(usize, usize, [f32; 3], f32, f32)>,
     /// Banking: -1 (full right) to 1 (full left), smoothed; and the last root yaw seen.
     bank: f32,
     /// AC1's move-blend timers (`GAIT_ALTS`): the jog's slow-down weight and the sprint take-off's, and the speed value
@@ -286,6 +288,8 @@ const RESUME_SAMPLES: usize = 24;
 
 /// Standing still this long (s) shifts into an idle variation.
 const IDLE_BREAK: f32 = 7.0;
+/// A start from the stand fades out into the gait over this (s).
+const START_OUT: f32 = 0.2;
 
 impl Animator {
     pub fn new(lib: &mut AnimLib) -> Option<Self> {
@@ -351,6 +355,7 @@ impl Animator {
             weights: [0.0; 17],
             starts,
             start: None,
+            start_out: None,
             bank: 0.0,
             slowdown: 0.0,
             settle: 1.0,
@@ -417,12 +422,19 @@ impl Animator {
             self.settle = (self.settle - dt).max(0.0);
         }
         self.last_value = value;
-        if let Some((_, foot, _, t, len)) = &mut self.start {
+        if let Some((_, _, _, _, t)) = &mut self.start_out {
+            *t += dt;
+            if *t >= START_OUT {
+                self.start_out = None;
+            }
+        }
+        if let Some((p, foot, w, t, len)) = &mut self.start {
             *t += dt;
             if *t >= *len {
-                // On into the gait on the other foot, from the top of its step.
+                // On into the gait on the other foot, from the top of its step, the start's end faded out into it.
                 self.side = 1 - *foot;
                 self.phase = 0.0;
+                self.start_out = Some((*p, *foot, *w, *len, 0.0));
                 self.start = None;
             }
         }
@@ -529,6 +541,44 @@ impl Animator {
         }
     }
 
+    /// The start from the stand `[profile][foot]` at time `t` of `len`, its clips mixed by `w`, into `out`.
+    #[allow(clippy::too_many_arguments)]
+    fn start_pose(&self, p: usize, f: usize, w: [f32; 3], t: f32, len: f32, base: &Pose, out: &mut Pose) {
+        let mut acc = 0.0;
+        for (k, c) in self.starts[p][f].iter().enumerate() {
+            let (Some(c), wk) = (c.as_ref(), w[k]) else { continue };
+            if wk <= 0.002 {
+                continue;
+            }
+            let mut one = base.clone();
+            sample(c, (t / len.max(1e-3)).min(1.0) * c.frames(), &mut one, self.reference);
+            acc += wk;
+            if acc <= wk + 1e-6 {
+                *out = one;
+            } else {
+                out.blend(&one, wk / acc);
+            }
+        }
+    }
+
+    /// AC1's locomotion blend now: every weighted clip of the step's foot at the shared phase.
+    fn gait_pose(&self, base: &Pose) -> Pose {
+        let mut walk = base.clone();
+        let mut acc = 0.0;
+        for (k, w) in self.weights.iter().enumerate().filter(|(_, w)| **w > 0.002) {
+            let Some(c) = self.slots[self.side][k].as_ref() else { continue };
+            let mut one = base.clone();
+            sample(c, self.phase * c.frames(), &mut one, self.reference);
+            acc += w;
+            if acc <= *w + 1e-6 {
+                walk = one;
+            } else {
+                walk.blend(&one, w / acc);
+            }
+        }
+        walk
+    }
+
     /// Current pose, starting from `base` for bones no clip drives.
     pub fn pose(&self, base: &Pose) -> Pose {
         let mut pose = base.clone();
@@ -546,38 +596,18 @@ impl Animator {
         if let (Some((p, f, w, t, len)), true) = (self.start, self.move_w > 0.0) {
             // The start from the stand: its clips at the same fraction of their length, mixed by their weights.
             let mut out = base.clone();
-            let mut acc = 0.0;
-            for (k, c) in self.starts[p][f].iter().enumerate() {
-                let (Some(c), wk) = (c.as_ref(), w[k]) else { continue };
-                if wk <= 0.002 {
-                    continue;
-                }
-                let mut one = base.clone();
-                sample(c, (t / len).min(1.0) * c.frames(), &mut one, self.reference);
-                acc += wk;
-                if acc <= wk + 1e-6 {
-                    out = one;
-                } else {
-                    out.blend(&one, wk / acc);
-                }
-            }
+            self.start_pose(p, f, w, t, len, base, &mut out);
             pose.blend(&out, smooth(self.move_w));
             return pose;
         }
         if self.move_w > 0.0 && self.weights.iter().any(|w| *w > 0.0) && self.slots[0].iter().any(Option::is_some) {
             // AC1's blend: every weighted clip at the shared phase, mixed by its share of the weights.
-            let mut walk = base.clone();
-            let mut acc = 0.0;
-            for (k, w) in self.weights.iter().enumerate().filter(|(_, w)| **w > 0.002) {
-                let Some(c) = self.slots[self.side][k].as_ref() else { continue };
-                let mut one = base.clone();
-                sample(c, self.phase * c.frames(), &mut one, self.reference);
-                acc += w;
-                if acc <= *w + 1e-6 {
-                    walk = one;
-                } else {
-                    walk.blend(&one, w / acc);
-                }
+            let mut walk = self.gait_pose(base);
+            // (A finished start's last pose fading out into it: switched at once, the arms jumped half a metre.)
+            if let Some((p, f, w, len, t)) = self.start_out {
+                let mut end = base.clone();
+                self.start_pose(p, f, w, len, len, base, &mut end);
+                walk.blend(&end, 1.0 - smooth((t / START_OUT).min(1.0)));
             }
             pose.blend(&walk, smooth(self.move_w));
             return pose;
