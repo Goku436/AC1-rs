@@ -562,7 +562,7 @@ fn ground_move(
     level.ground(tf.translation, 0.3, 0.3)?;
     let fwd = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
     let (f, o) = if ch.animator.as_ref().is_some_and(|a| a.lead_left()) { ("footl", "footr") } else { ("footr", "footl") };
-    let from = || Some(ch.pose.clone());
+    let from = || Some(ch.anim_pose.clone());
     let act = |lib: &mut crate::animation::AnimLib, names: Vec<String>, correct: Vec3, cancel: bool| {
         WallClimb::ground_action(lib, tf, &names, correct, cancel, from())
     };
@@ -584,7 +584,7 @@ fn ground_move(
             // half round, so the fade comes round about the vertical one way (at exactly half a turn its way round was
             // undefined, and the body tipped over with the legs crossed).
             let shown = ch.rig.find("Reference").map(|r| {
-                let mut p = ch.pose.clone();
+                let mut p = ch.anim_pose.clone();
                 p.rotate_model(&ch.rig, r, Quat::from_rotation_z(std::f32::consts::PI - TURN_FLIP_SHORT));
                 p
             });
@@ -785,7 +785,7 @@ pub fn locomotion(
             && let Some(lib) = lib.as_deref_mut()
         {
             let names = vec!["xx_pickpocket_attempt_walk_footl".to_string(), "xx_pickpocket_attempt_success_finish_footl".to_string()];
-            if let Some(w) = crate::climb::WallClimb::ground_action(lib, &tf, &names, Vec3::ZERO, true, Some(ch.pose.clone())) {
+            if let Some(w) = crate::climb::WallClimb::ground_action(lib, &tf, &names, Vec3::ZERO, true, Some(ch.anim_pose.clone())) {
                 debug!("crowd: pickpocket");
                 ch.wall = Some(w);
                 ch.velocity = Vec3::ZERO;
@@ -852,7 +852,7 @@ pub fn locomotion(
                     None => {
                         use crate::climb::WallClimb;
                         let v = ch.velocity.with_y(0.0);
-                        let pose = || Some(ch.pose.clone());
+                        let pose = || Some(ch.anim_pose.clone());
                         let wall_ahead = |dir: Vec3, reach: f32| level.raycast(tf.translation + Vec3::Y, dir, reach).is_some_and(|h| h.normal.y.abs() < 0.3);
                         // At a high edge over a haystack: leap of faith. Sprinting at a wall: run up it. Else
                         // climb on from the ground, else a running jump (unless a wall is right ahead), else a
@@ -947,7 +947,7 @@ pub fn locomotion(
                         // (Into a gait: the step and the point in it whose legs match the pose he is in, going on at
                         // its speed the way he faces.)
                         let legs: Vec<usize> = ch.bones.legs.iter().flat_map(|l| [l.upper, l.lower, l.foot]).collect();
-                        let pose = w.last_pose().unwrap_or(&ch.pose);
+                        let pose = w.last_pose().unwrap_or(&ch.anim_pose);
                         // (Out of a turn on the spot with the stick held: straight into the gait asked for.)
                         let speed = if name.contains("_to_") && name.contains("_waitturn_") && ctl.move_dir.length() > 0.1 {
                             let foot = if name.ends_with("footl") { 0 } else { 1 };
@@ -1122,12 +1122,12 @@ pub fn locomotion(
             let toward = target_v.with_y(0.0).try_normalize().map_or(v, |d| d * v.length());
             let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
             let low = if ctl.free_run {
-                WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.pose.clone()))
+                WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.anim_pose.clone()))
             } else {
-                WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.pose.clone()))
+                WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.anim_pose.clone()))
             };
-            ch.wall = low.or_else(|| edge.then(|| WallClimb::leap_of_faith(lib, &level, &tf, v, Some(ch.pose.clone()))).flatten()).or_else(|| {
-                edge.then(|| WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, lead_left, Some(ch.pose.clone()))).flatten()
+            ch.wall = low.or_else(|| edge.then(|| WallClimb::leap_of_faith(lib, &level, &tf, v, Some(ch.anim_pose.clone()))).flatten()).or_else(|| {
+                edge.then(|| WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, lead_left, Some(ch.anim_pose.clone()))).flatten()
             });
             if ch.wall.is_some() {
                 ch.velocity = Vec3::ZERO;
@@ -1166,7 +1166,7 @@ pub fn locomotion(
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
             {
                 // Off a ledge: an animated fall (lands, catches holds, or drops into hay).
-                ch.wall = crate::climb::WallClimb::falling(lib, &tf, ch.velocity, Some(ch.pose.clone()));
+                ch.wall = crate::climb::WallClimb::falling(lib, &tf, ch.velocity, Some(ch.anim_pose.clone()));
                 if ch.wall.is_some() {
                     ch.velocity = Vec3::ZERO;
                     continue;
@@ -1184,8 +1184,15 @@ pub fn locomotion(
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
             {
                 let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
-                ch.wall =
-                    crate::climb::WallClimb::perch(lib, &level, &tf, ctl.move_dir, ctl.speed > SPRINT_SPEED || ctl.free_run, lead_left, Some(ch.pose.clone()));
+                ch.wall = crate::climb::WallClimb::perch(
+                    lib,
+                    &level,
+                    &tf,
+                    ctl.move_dir,
+                    ctl.speed > SPRINT_SPEED || ctl.free_run,
+                    lead_left,
+                    Some(ch.anim_pose.clone()),
+                );
                 if let Some(w) = &mut ch.wall {
                     w.freestep_left = ch.freestep_left;
                     ch.velocity = Vec3::ZERO;
@@ -1206,14 +1213,16 @@ pub fn locomotion(
                 // or a wall is not ground to average). Up a little faster than down (a slope must not swallow the
                 // feet), and never far below the ground underfoot.
                 let along = if v.length() > 0.3 { v.normalize() } else { (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero() };
-                let heights: Vec<f32> = [-STRIDE_SPAN, STRIDE_SPAN]
-                    .iter()
-                    .filter_map(|&d| level.ground(tf.translation + along * d, 0.5, 0.6).map(|h| h.point.y))
-                    .filter(|y| (y - g.point.y).abs() < STRIDE_STEP)
-                    .chain([g.point.y])
-                    .collect();
-                let want = heights.iter().sum::<f32>() / heights.len() as f32;
+                let ahead = |d: f32| level.ground(tf.translation + along * d, 0.5, 0.6).map(|h| h.point.y).filter(|y| (y - g.point.y).abs() < STRIDE_STEP);
+                let (back, front) = (ahead(-STRIDE_SPAN), ahead(STRIDE_SPAN));
+                let heights: Vec<f32> = [back, front].into_iter().flatten().chain([g.point.y]).collect();
+                let mut want = heights.iter().sum::<f32>() / heights.len() as f32;
                 let rate = if want > tf.translation.y { 16.0 } else { 10.0 };
+                // Led by the slope at the speed along it, as the eased height would otherwise trail the ground (up a
+                // 1-in-2 ramp at a sprint, 0.19 m under it: a stop there, following the ground, jumped up).
+                if let (Some(b), Some(f)) = (back, front) {
+                    want += (f - b) / (2.0 * STRIDE_SPAN) * v.with_y(0.0).dot(along) / rate;
+                }
                 tf.translation.y += (want - tf.translation.y) * (1.0 - (-rate * dt).exp());
                 tf.translation.y = tf.translation.y.max(g.point.y - STRIDE_STEP * 0.6);
             }
