@@ -704,7 +704,8 @@ or kiosk edges are authored in the cities.
 - A ledge grab's two normals are its top's (up) and its wall's (out).
 Cities use them (`Level::use_authored`): the ledge grabs (sloping at most 0.35) are the holds, instead of the edges
 and lips found in the geometry; the ladders and horizontal poles replace the ones guessed from mesh names. Damascus:
-174,677 holds, 333 ladders, 183 swing poles. `AC1_GEOMETRY_HOLDS` brings the geometry's holds back. A top-out also
+174,677 ledge pieces, of which 151,176 holds: a piece is shortened 0.1 m at a free end (a vertex no other piece uses), as AC1's hold grid shortens edges, so the lone 8-12 cm window-frame bits leave nothing (leaping to one hung him from the air) while a sill stored as three short pieces stays one hold; then 6,745 more left out as buried in a wall (no way to them from 0.45 m in front: a box's top 0.3 m behind a bare wall's face was grabbed through it), 333 ladders, 183 swing poles. `AC1_GEOMETRY_HOLDS` brings the geometry's holds back. A top-out may come down onto a floor up to 0.45 m under the hold (a parapet's lip in front of a
+roof: 0.21 m refused it before); it also
 needs room to stand (1.7 m of headroom 0.5 m in, no wall just past the edge, probed from in front of the wall, and the
 spot not inside a solid): window sills are holds whose top is a window, not a floor to climb onto, and a beam stuck into
 a building shows its top inside the wall. Narrow wall tops (a fence's or a parapet's, 0.15-0.6 m deep behind a hold

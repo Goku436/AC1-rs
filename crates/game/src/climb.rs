@@ -234,6 +234,9 @@ impl LandInto {
     }
 }
 
+/// A top-out onto a floor at most this far under the grip (m): the hands hold a lip in front of it.
+const TOP_OUT_LIP: f32 = 0.45;
+
 /// AC1's ground landing (`HumanInAir`): `xx_h_landing_<forward|straight>_<soft|hard>_footr_tr_<into>`, `_a` the impact and
 /// `_b` going on: forward when coming down moving, straight when dropping; into the wait on the same foot, or the walk,
 /// jog or sprint's takeoff on the other.
@@ -2360,7 +2363,8 @@ impl WallClimb {
             .iter()
             .filter_map(|&(a, b, f)| {
                 let q = crate::level::Line { a, b }.closest(p);
-                ((q - p).with_y(0.0).length() < BENCH_REACH).then_some((q, f))
+                // (On the same floor: on a roof over a street bench, he sat on the roof above it.)
+                ((q - p).with_y(0.0).length() < BENCH_REACH && (q.y - p.y).abs() < 0.4).then_some((q, f))
             })
             .next()?;
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
@@ -3818,8 +3822,11 @@ impl WallClimb {
             debug!("climb: no top-out: no top behind the hold (probed at {probe:.2})");
             return false;
         };
-        // (The hands-together wall hang holds 0.15 m lower than the first frame of the pull-up puts them.)
-        if (top.point.y - (wrist.y + GRIP_DOWN)).abs() > 0.2 || top.normal.y < 0.8 {
+        // (The hands-together wall hang holds 0.15 m lower than the first frame of the pull-up puts them.) A top lower than
+        // the grip, down to `TOP_OUT_LIP`, is a floor behind a lip the hands hold (a parapet's, in Damascus: the floor
+        // 0.21 m under the edge refused every pull-up there); the pull-up comes down onto it.
+        let below = (wrist.y + GRIP_DOWN) - top.point.y;
+        if !(-0.2..=TOP_OUT_LIP).contains(&below) || top.normal.y < 0.8 {
             debug!("climb: no top-out: top at {:.2}, grip at {:.2}, slope {:.2}", top.point.y, wrist.y + GRIP_DOWN, top.normal.y);
             return false;
         }
@@ -3859,7 +3866,7 @@ impl WallClimb {
                 debug!("climb: one-hand pull-up{}", if perch.is_some() { " onto a post" } else { "" });
                 (one, correct, if perch.is_some() { PERCH } else { ON_TOP })
             }
-            None => (clips, Vec3::ZERO, ON_TOP),
+            None => (clips, Vec3::NEG_Y * below.max(0.0), ON_TOP),
         };
         let n = clips.len();
         let tos = (0..n).map(|i| if i + 1 == n { end } else { KNEEL }.to_string()).collect();

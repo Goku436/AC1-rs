@@ -108,6 +108,9 @@ pub struct Authored {
 
 /// An authored ledge edge sloping more than this (rise over length) is a stair or roof slope, not a hold.
 const AUTHORED_MAX_SLOPE: f32 = 0.35;
+/// AC1's hold grid shortens a guidance edge this much at its ends (m; `BuildHoldGrid` 0xDF6A40, docs/PARKOUR.md
+/// section 4): a lone piece 0.2 m long or less holds nothing.
+const AUTHORED_TRIM: f32 = 0.1;
 /// A top behind a hold this deep or less (m), with a drop past it, is a narrow wall top to balance on, not to stand:
 /// a beam's width. (At 0.6 m Damascus had 10,557, its parapets among them, and running along a roof switched in and
 /// out of balancing at every one; AC1 runs on those as ground, its beams found by `GuidanceBeamDetectorAccurate`.)
@@ -378,6 +381,7 @@ impl Level {
                     }
                     let out = wall_side(mid.with_y(lo.y + 0.6)).map_or(across, |w| -w);
                     let half = along * (size.dot(along) * 0.5 - 0.2);
+                    debug!("bench at {:.2} to {:.2} (bounds {lo:.2} to {hi:.2})", mid.with_y(lo.y) - half, mid.with_y(lo.y) + half);
                     self.benches.push((mid.with_y(lo.y) - half, mid.with_y(lo.y) + half, out));
                     benches += 1;
                 }
@@ -409,12 +413,25 @@ impl Level {
         use forge::guidance::SubType;
         let mut ledges = vec![];
         let (mut ladders, mut bars) = (0, 0);
+        // How many ledge pieces end at each vertex (to the millimetre): a piece goes on into another there.
+        let key = |p: Vec3| ((p.x * 1000.0).round() as i64, (p.y * 1000.0).round() as i64, (p.z * 1000.0).round() as i64);
+        let mut ends: std::collections::HashMap<(i64, i64, i64), u32> = std::collections::HashMap::new();
+        for e in self.authored.iter().filter(|e| e.kind == SubType::LedgeGrab) {
+            *ends.entry(key(e.a)).or_default() += 1;
+            *ends.entry(key(e.b)).or_default() += 1;
+        }
         for e in std::mem::take(&mut self.authored) {
             let len = e.a.distance(e.b);
             match e.kind {
                 SubType::LedgeGrab => {
-                    if len > 0.05 && (e.b.y - e.a.y).abs() / len <= AUTHORED_MAX_SLOPE && e.out != Vec3::ZERO {
-                        ledges.push(Ledge { a: e.a, b: e.b, out: e.out });
+                    // (Shortened at its free ends, as AC1's hold grid takes an edge: the lone 8-12 cm window-frame
+                    // pieces leave nothing, where leaping to one hung him from the air. Not where it goes on into
+                    // another piece: a sill in three pieces of 0.15-0.23 m is one 0.87 m hold.)
+                    let free = |p: Vec3| if ends.get(&key(p)).copied().unwrap_or(0) <= 1 { AUTHORED_TRIM } else { 0.0 };
+                    let (ta, tb) = (free(e.a), free(e.b));
+                    if len > ta + tb + 0.01 && (e.b.y - e.a.y).abs() / len <= AUTHORED_MAX_SLOPE && e.out != Vec3::ZERO {
+                        let d = (e.b - e.a) / len;
+                        ledges.push(Ledge { a: e.a + d * ta, b: e.b - d * tb, out: e.out });
                     }
                 }
                 SubType::Ladder => {
@@ -438,6 +455,21 @@ impl Level {
         self.ledges = ledges;
         self.authored_ladders = ladders > 0;
         Some((holds, ladders, bars))
+    }
+
+    /// Leave out the authored holds that can't be reached from in front: AC1's markup has edges of shapes buried in a
+    /// wall (in Damascus a box's top 0.3 m behind a bare wall's face, grabbed through it). A hold stays where, at a
+    /// third of the points along it, the way in from 0.45 m out is open. Needs the grid built.
+    pub fn drop_buried_holds(&mut self) -> usize {
+        let before = self.ledges.len();
+        let ledges = std::mem::take(&mut self.ledges);
+        let open = |l: &Ledge, t: f32| {
+            let p = l.a.lerp(l.b, t) + Vec3::Y * 0.05;
+            self.raycast(p + l.out * 0.45, -l.out, 0.42).is_none()
+        };
+        let kept: Vec<Ledge> = ledges.into_iter().filter(|l| [0.2, 0.5, 0.8].iter().filter(|&&t| open(l, t)).count() >= 1).collect();
+        self.ledges = kept;
+        before - self.ledges.len()
     }
 
     pub fn add_beam_perches(&mut self) {
@@ -977,6 +1009,10 @@ pub fn spawn_level(
             info!("authored guidance: {holds} holds, {ladders} ladders, {bars} swing bars");
         }
         level.build_grid();
+        if authored.is_some() {
+            let buried = level.drop_buried_holds();
+            info!("{buried} authored holds left out: inside a wall, no way to them from in front");
+        }
         level.add_beam_perches();
         let narrow = level.add_narrow_tops();
         info!("{narrow} narrow wall tops to balance on");
@@ -996,6 +1032,18 @@ pub fn spawn_level(
         }
         level.build_grid();
         info!("{probed} more holds where walkable tops end over a wall (lips the edge test missed)");
+        // `AC1_HOLDS_AT="x,y,z,r"`: every hold within r of a point, logged (what a spot in a recording could grab).
+        if let Some(v) =
+            std::env::var("AC1_HOLDS_AT").ok().map(|s| s.split(',').filter_map(|v| v.trim().parse::<f32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 4)
+        {
+            let p = Vec3::new(v[0], v[1], v[2]);
+            for (i, l) in level.ledges.iter().enumerate() {
+                let d = Line { a: l.a, b: l.b }.closest(p).distance(p);
+                if d < v[3] {
+                    info!("hold {i}: {:.2} to {:.2}, out {:.2}, {d:.2} m away", l.a, l.b, l.out);
+                }
+            }
+        }
         // The player on a street (Masyaf: in the village below the fortress) and a crowd loop nearby where
         // the ground is at the same height.
         let on_ground = |level: &Level, x: f32, z: f32| level.ground(Vec3::new(x, 0.0, z), 400.0, 500.0).map(|h| h.point);
