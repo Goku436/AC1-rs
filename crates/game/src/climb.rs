@@ -339,11 +339,13 @@ const HOLD_TOLERANCE: f32 = 0.2;
 /// Climbing up or down, how far (m) a hand may end from a hold: a city's holds are not on the clips' 0.6 m steps (AC1
 /// bends its moves to the next hold), and the move's correction carries the hands onto it.
 const HOLD_TOLERANCE_UP: f32 = 0.35;
-/// AC1's climbing probe box round a grid cell (`BuildHoldGrid` 0xDF6A40, Banned445): 0.375 m along the wall (half a
-/// 0.75 m column), 0.3 m up or down (ours 0.32: the clips' hands are not exactly on the 0.6 m rows), 1.0 m in or out
-/// of the wall's plane (a storey set back, a sill sticking out).
-const GRID_ALONG: f32 = 0.375;
-const GRID_UP: f32 = 0.32;
+/// AC1's climbing grid (`BuildHoldGrid` 0xDF6A40): a hold found in a cell's probe box (0.375 m along, 0.3 m up or down)
+/// is kept only within 0.3 m along the wall and 0.15 m up or down of the cell's centre (here where the move's clip puts
+/// the hand), and up to 1.0 m in or out of the wall's plane (a storey set back, a sill sticking out). Strict as AC1's
+/// since 2026-10-08: the Damascus probe (9 of 20 over the top) and every climbing scenario are the same as with the
+/// looser 0.375 × 0.32 box.
+const GRID_ALONG: f32 = 0.3;
+const GRID_UP: f32 = 0.15;
 const GRID_DEPTH: f32 = 1.0;
 /// Room the body needs beside it climbing sideways (m), to its side's wall.
 const BODY_SIDE: f32 = 0.3;

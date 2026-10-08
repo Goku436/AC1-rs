@@ -171,10 +171,10 @@ Ours: in the six climbing poses the move comes from AC1's tables (`climb_table.r
 from Banned445's port; each id names its clip in the action blocks, `forge` example `action_clips`): the stick's ten
 directions, the long move first past half a stick, redirects followed, the pose it ends in taken from the table (the
 clip `xx_l_climb_2ru_u_2ru` ends in the 2lu pose, 3° from `xx_climb_wait_2lu` and 40° from `_2ru`: its name is
-wrong). A move is accepted when the clip's end hands land on holds in the probe box (0.375 along, 0.32 up or down, 1.0
-deep) and each foot has a hold under its hand (`IsGridMoveValid`), the root corrected onto them. Not yet: the grid
-cells themselves (holds snapped to 0.75 × 0.6 cells) and the root from the four holds (`sub_B1CC20`); the hangs,
-corners, leaps and reaches keep their own candidate lists.
+wrong). A move is accepted when each of the clip's end hands has a hold within AC1's grid tolerance of it (0.3 m along, 0.15
+m up or down, 1.0 m deep: the strict cell fit, the same results in Damascus and every climbing scenario as the looser
+box) and each foot has a hold under its hand (`IsGridMoveValid`), the root corrected onto them. Not yet: the root
+from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep their own candidate lists.
 
 ## 5. In the air (`HumanInAir`)
 - **Jumps are not ballistic.** A jump plays a takeoff item then a flight item (both `FROMAI`), chosen and weighted by
