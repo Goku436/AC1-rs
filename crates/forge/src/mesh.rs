@@ -31,6 +31,8 @@ use anyhow::{Result, bail, ensure};
 
 pub const CLASS_MESH: u32 = 0x415d9568;
 const CLASS_COMPILED: u32 = 0xfc9e1595;
+/// The cloth-simulation object embedded in cloth, vegetation and soft-body meshes (not decoded).
+const CLASS_CLOTH_SIM: u32 = 0x5755de7f;
 pub const POS_SCALE: f32 = 1.0 / 2048.0;
 /// Static (stride-24) vertex positions: i16 fractions of `|w| / 8` metres, `w` the position's fourth
 /// component (see the module docs).
@@ -88,7 +90,8 @@ fn cloth_bone_table(body: &[u8]) -> Result<usize> {
     let Some(c) = body.windows(4).position(|w| w == tag) else { bail!("cloth mesh: no compiled mesh tag") };
     ensure!(c >= 6, "cloth mesh: compiled mesh tag at {c:#x}");
     let h = c - 6;
-    (1..1024)
+    // (From no bones: static vegetation LODs carry the simulation object and an empty bone table.)
+    (0..1024)
         .map(|n| (n, h.checked_sub(n * 0x4C + 4)))
         .take_while(|(_, o)| o.is_some())
         .find_map(|(n, o)| o.filter(|&o| u32_at(body, o) as usize == n))
@@ -97,8 +100,13 @@ fn cloth_bone_table(body: &[u8]) -> Result<usize> {
 
 pub fn parse_mesh(body: &[u8]) -> Result<Mesh> {
     ensure!(body.len() > 12, "mesh body too short ({} bytes)", body.len());
+    // (The cloth-simulation object embedded after `u32 type, u32 1 or 5, u8 0`: on the robe (type 4), and on vegetation and
+    // soft bodies with type 0 or 1 (`Veg_Olivier_*`, `Herbe_Scatter_*`, `UCMA_*_Softbody`).)
+    let simulated = body.len() > 17 && body[8] == 0 && u32_at(body, 13) == CLASS_CLOTH_SIM;
     let count_at = match body[0] {
-        0 | 1 => 8,
+        0 | 1 if simulated => cloth_bone_table(body)?,
+        // (Type 2: effects meshes, `FX_*`, laid out as the static ones.)
+        0..=2 => 8,
         4 => cloth_bone_table(body)?,
         t => bail!("unexpected mesh header (type {t}) at 0x0"),
     };
