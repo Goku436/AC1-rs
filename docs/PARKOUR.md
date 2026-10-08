@@ -223,6 +223,32 @@ depth: see section 10).
   rebound 0xE365C0 and the beam's 0xEE8EC0 pass is still to map. **[V]** The ground's jump (the interpreter's call at 0xEE73ED) passes kind 0 (and a
   character field, Human+0x994, as kind-7): the general volume, 3.0 m up, 5.0 m down, 9 m; the scorer then keeps
   what is no lower than 3 m down.
+- **[V] How 0xE18970 classifies each guidance edge** (read in full, 2026-10-08). The guidance in the box is gathered
+  by three 45° sector queries (0x116CD50) around the wanted direction; edges of a kind masked out by the caller
+  (argument 13, a bit per edge kind) are skipped. For each edge left: P = the point on it nearest the query, n = its
+  outward normal (horizontal), h = P.z − start.z.
+  - Facing: an edge not crossing the query is dropped unless n · dir ≤ −0.707 (it faces the jumper within 45°).
+  - Volumes: P must be in the primary volume (then "on line") or one of two wider ones; a point in the excluded inner
+    volume is dropped.
+  - **Top depth** (+0x50 of the record): from Q = P + 0.5·n + 0.05 up, a sweep back along −n 1.75 m; depth = hit − 0.5:
+    < 0.03 → 0x40 (no top: a wall goes on up), < 0.3 → 0x10 (narrow), < 1.0 → 0x08, else 0x02 (wide). Edge kind 4
+    → 0x20; kind 7 → 0x02.
+  - **Under the edge** (+0x54): from Q a sweep down 3.05 m, drop = hit − 0.05: < 0.5 → 0x02 (a step), < 2.0 → 0x04,
+    else from P + 0.5·n − 1.0 up a sweep along −n 1.4 m: wall within 0.7 m → 0x08 (a wall under it), else 0x10 (over
+    nothing: free hang). Kind 7 → 0x01.
+  - **Moves allowed** (+0x58), starting from 0xC3 (kind 3: 0x40 only; kind 4: 0xC2; kind 7: 0x200 on line; kind 8:
+    0x400 on line): 0x01 free step onto the top, 0x02 run onto the top, 0x40 wall hang, 0x80 hang. Dropped: 0x02 if
+    h < −0.5; 0x01 and 0x02 if not on line; 0x40 if in no volume. Unless the top class is 0x40: 0x01 if the top is
+    narrow (< 0.3 m); 0x02 unless it is wide (≥ 1 m); 0x80 if the drop in front is under 2.5 m; 0x40 and 0x80 if the
+    edge is under 2 m above what is in front (a step or low wall); 0x40 over nothing.
+  - **Clear way**, from the chest (start + 0.75 up): to P + 0.2·n for the top moves (0x10703; a swing bar uses its own
+    sweep 0xE1C720), and to P + 0.2·n − 1.1 m (the hang's chest) for 0x40 and for 0x80: a hit short of it drops them.
+  - An edge with any move left is a candidate (point, edge end, normal, the three words above). Objects ≥ 2 m long
+    (the second list) give 0x1000; with argument 12 the beam detector (0x680260) adds beams (0.3 m checks, 1.0 m and
+    1.3 m clearances).
+  Ours: roof-edge targets from ledges (0.45 m in), the clear way from above the higher top, hangs aimed by the wall
+  below (`jump_hold_target`). The depth classes, the 2.5 m drop for a hang and the chest-height clear way are AC1's
+  rules still to adopt.
 
 ## 7. Ledge (`HumanLedge`)
 - Hangs on two hand contacts on guidance edges. Wall hang: root 1.1 m below the hands, 0.5 m out; free hang: 2.4 m

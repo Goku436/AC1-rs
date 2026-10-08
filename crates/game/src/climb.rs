@@ -1138,14 +1138,51 @@ fn jump_hold_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
     })
 }
 
+/// How AC1's jump-target finder (0xE18970, docs/PARKOUR.md section 6) sees a guidance edge at `p` facing `out`: probed
+/// from 5 cm over it and 0.5 m out, the top's depth behind it (a sweep back 1.75 m), the drop in front of it (down 3.05
+/// m) and, over a tall drop, whether a wall stands under it (from 1 m under, within 0.7 m).
+struct Ac1Edge {
+    depth: f32,
+    drop: f32,
+    wall_under: bool,
+}
+
+impl Ac1Edge {
+    fn probe(level: &Level, p: Vec3, out: Vec3) -> Self {
+        let q = p + out * 0.5 + Vec3::Y * 0.05;
+        let depth = level.raycast(q, -out, 1.75).map_or(1.75, |h| h.dist) - 0.5;
+        let drop = level.raycast(q, Vec3::NEG_Y, 3.05).map_or(f32::INFINITY, |h| h.dist - 0.05);
+        let wall_under = drop >= 2.0 && level.raycast(p + out * 0.5 - Vec3::Y, -out, 1.4).is_some_and(|h| h.dist - 0.5 < 0.7);
+        Ac1Edge { depth, drop, wall_under }
+    }
+
+    /// A free step onto its top (move bit 0x01): a top at least 0.3 m deep.
+    fn step_onto(&self) -> bool {
+        self.depth >= 0.3
+    }
+
+    /// A hang from it (0x40 wall hang, 0x80 hang): at least 2 m over what is in front with a wall under it, or 2.5 m.
+    fn hang(&self) -> bool {
+        (self.drop >= 2.0 && self.wall_under) || self.drop >= 2.5
+    }
+}
+
+/// AC1's clear way to a jump target (0xE18970): no wall on the line from the chest (0.75 m over the feet) to `to`.
+fn ac1_clear_way(level: &Level, from: Vec3, to: Vec3) -> bool {
+    let chest = from + Vec3::Y * 0.75;
+    let d = to - chest;
+    level.raycast(chest, d.normalize_or_zero(), d.length()).is_none()
+}
+
 /// The hold a running jump along `dir` from `from` reaches for (see `jump_hold_target`): the point on it the hands go to,
-/// and its outward normal.
+/// and its outward normal. As AC1: facing the jumper within 45 degrees, with room to hang under it (`Ac1Edge::hang`) and
+/// a clear way from the chest to the hang's chest (0.2 m out, 1.1 m under).
 fn jump_hold(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3)> {
     let dir = dir.with_y(0.0).normalize_or_zero();
     level
         .ledges
         .iter()
-        .filter(|l| l.out.dot(dir) < -0.5)
+        .filter(|l| l.out.dot(dir) <= -JUMP_TARGET_CONE)
         .filter(|l| l.a.distance(l.b) > 2.0 * JUMP_HOLD_INSET)
         .map(|l| {
             // (Both hands on it: in from its ends.)
@@ -1157,6 +1194,7 @@ fn jump_hold(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3)> {
             let flat = (*q - from).with_y(0.0);
             JUMP_TARGET_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_HOLD_RISE.contains(&(q.y - from.y))
         })
+        .filter(|(q, out)| Ac1Edge::probe(level, *q, *out).hang() && ac1_clear_way(level, from, *q + *out * 0.2 - Vec3::Y * 1.1))
         .min_by(|a, b| (a.0 - from).length().total_cmp(&(b.0 - from).length()))
 }
 
@@ -1245,6 +1283,10 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
         let ahead = from + dir * 4.0;
         let on = l.closest(Vec3::new(ahead.x, l.a.y, ahead.z));
         if (on - from).with_y(0.0).length() > *JUMP_TARGET_REACH.end() + 1.0 || l.out.dot((from - on).with_y(0.0)) <= 0.0 || on.y - from.y > 1.3 {
+            continue;
+        }
+        // (AC1: a top at least 0.3 m deep behind the edge, the way to it clear from the chest.)
+        if !Ac1Edge::probe(level, on, l.out).step_onto() || !ac1_clear_way(level, from, on + l.out * 0.2) {
             continue;
         }
         let land = on - l.out * ROOF_EDGE_INSET;
