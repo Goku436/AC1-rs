@@ -41,6 +41,7 @@ mod assets;
 mod character;
 mod city;
 mod climb;
+mod climb_table;
 mod crowd;
 mod gait;
 mod gallery;

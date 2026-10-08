@@ -883,6 +883,16 @@ impl EndPose {
     }
 }
 
+/// A coarse direction ("u", "d", "l", "r") as a full stick (x right, y up).
+fn dir_vector(dir: &str) -> Vec2 {
+    match dir {
+        "u" => Vec2::Y,
+        "d" => Vec2::NEG_Y,
+        "l" => Vec2::NEG_X,
+        _ => Vec2::X,
+    }
+}
+
 fn clip_state_names(lib: &AnimLib, from: &str, dir: &str) -> Vec<(String, String)> {
     let prefix = format!("xx_l_climb_{from}_{dir}_");
     lib.names
@@ -3828,10 +3838,28 @@ impl WallClimb {
             }
             return out;
         }
-        let mut wall: Vec<(String, String)> = clip_state_names(lib, &self.state, dir);
-        if vertical {
-            wall.sort_by_key(|(_, to)| !to.ends_with(prefer));
-        }
+        // In the climbing stance AC1's move tables pick the move (`climb_table`, `ChooseMove` 0xDFDE90): the pose and the
+        // stick's direction give the long move (stick past half) and the short one, each an action whose clip plays;
+        // the pose it ends in is the table's (the clip's name says otherwise for `xx_l_climb_2ru_u_2ru`).
+        let wall: Vec<(String, String)> = match crate::climb_table::pose_of(&self.state) {
+            Some(pose) => {
+                let stick = if input.length() > 0.3 { input } else { dir_vector(dir) };
+                crate::climb_table::moves(pose, stick)
+                    .into_iter()
+                    .filter_map(|m| {
+                        let clips = lib.graph.action_clips(m.action)?;
+                        Some((clips.first()?.first()?.clone(), crate::climb_table::POSES[m.to].to_string()))
+                    })
+                    .collect()
+            }
+            None => {
+                let mut wall = clip_state_names(lib, &self.state, dir);
+                if vertical {
+                    wall.sort_by_key(|(_, to)| !to.ends_with(prefer));
+                }
+                wall
+            }
+        };
         out.extend(wall.into_iter().map(|(name, to)| Cand::new(name, to, Feet::Wall)));
         if self.state == "1m" || self.state == "2m" {
             if !vertical {
@@ -4087,25 +4115,6 @@ impl WallClimb {
 
     #[allow(clippy::too_many_arguments)]
     fn try_move(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, input: Vec2, leap: bool) -> bool {
-        // AC1 splits the stick into diagonals too (`QuantizeStickDirection` 0xDEB8D0: 22.5-67.5 degrees off up or
-        // down): the climbing stance's diagonal moves (`xx_l_climb_<pose>_<ul|ur|dl|dr>_<pose>`) first, else on as for
-        // the nearer straight way (the move tables' redirects).
-        if !leap && (self.state.starts_with('1') || self.state.starts_with('2')) && self.mv.is_none() {
-            let a = input.x.atan2(input.y).to_degrees();
-            let diag = match a {
-                a if (22.5..67.5).contains(&a) => Some("ur"),
-                a if (112.5..157.5).contains(&a) => Some("dr"),
-                a if (-67.5..-22.5).contains(&a) => Some("ul"),
-                a if (-157.5..-112.5).contains(&a) => Some("dl"),
-                _ => None,
-            };
-            if let Some(d) = diag {
-                let cands: Vec<Cand> = clip_state_names(lib, &self.state, d).into_iter().map(|(name, to)| Cand::new(name, to, Feet::Wall)).collect();
-                if self.take_first(lib, level, root, rig, base, cr, cands) {
-                    return true;
-                }
-            }
-        }
         let vertical = input.y.abs() >= input.x.abs();
         let dir = if vertical {
             if input.y > 0.0 { "u" } else { "d" }

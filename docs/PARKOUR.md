@@ -161,9 +161,14 @@ The climbing is a grid, not free placement:
 - Climb → ground below: `xx_l_climb_{1m,2m}_tr_h_wait_hipm_footl_a/b` (0xDF1D20). **[B, ours]**
 - Lost grip (a hold's object gone, 0xE55A10) → InAir with action 0x1120E17B, blend 0.2. **[B]**
 
-Ours: moves are AC1's clips, accepted when the clip's end hands land within a tolerance of a hold (0.2 m, 0.35 m
-up/down), the root corrected onto it. The grid and the 1.0 m depth box are the next step (Damascus walls vary in
-depth: see section 10).
+Ours: in the six climbing poses the move comes from AC1's tables (`climb_table.rs`, the entries and action ids
+from Banned445's port; each id names its clip in the action blocks, `forge` example `action_clips`): the stick's ten
+directions, the long move first past half a stick, redirects followed, the pose it ends in taken from the table (the
+clip `xx_l_climb_2ru_u_2ru` ends in the 2lu pose, 3° from `xx_climb_wait_2lu` and 40° from `_2ru`: its name is
+wrong). A move is accepted when the clip's end hands land on holds in the probe box (0.375 along, 0.32 up or down, 1.0
+deep) and each foot has a hold under its hand (`IsGridMoveValid`), the root corrected onto them. Not yet: the grid
+cells themselves (holds snapped to 0.75 × 0.6 cells) and the root from the four holds (`sub_B1CC20`); the hangs,
+corners, leaps and reaches keep their own candidate lists.
 
 ## 5. In the air (`HumanInAir`)
 - **Jumps are not ballistic.** A jump plays a takeoff item then a flight item (both `FROMAI`), chosen and weighted by

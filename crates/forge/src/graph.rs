@@ -167,6 +167,12 @@ impl MoveGraph {
         out
     }
 
+    /// The clips of an action's items, in order (the first of a blend space's variants are listed with it), by the
+    /// action's key: the ids the game's code asks for (move tables, `0x019A05F1` ...).
+    pub fn action_clips(&self, action: u32) -> Option<Vec<&[String]>> {
+        self.actions.get(&action).map(|a| a.items.iter().map(|i| i.0.as_slice()).collect())
+    }
+
     pub fn len(&self) -> usize {
         self.actions.len()
     }
