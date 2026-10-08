@@ -132,8 +132,21 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 - **70** (pull-down): the flag clear, a profile bit (+0x3C bit 5) clear, the edge's normal along the facing, the drop
   over 2 m and room for the body → the ground's state 9, the report copied into the ledge context's data (+0xC50):
   the pull-down into a hang.
-- Who calls slots 186 / 191 / 385 is not found yet (no direct virtual call at those offsets: a second base's table or
-  a member-function table).
+- **The senders are the ground's input interpreter** (0xEE65A0), through `HumanGround`'s vtable in pairs: an even slot
+  asks whether the event would pass (it runs the guards, 0xDB48B0, and returns true on 2), the next one sends it
+  (0xDB4A40): 184/185 event 68 (0x44), 186/187 69, 191/192 70, 385/386 119. In the interpreter, in order:
+  - **119, look down**: an edge flagged for it (interpreter +0x1050) with more than 2 m under it, stood still for more
+    than 0.25 s (a timer, ticks / 30000), and the playing item allowing it (bit 29 of the item's 64-bit move mask).
+  - **69, ledge stop**: an edge report, queried within 0.15 m (0.0225 squared), sent only when it is ahead (direction
+    1) and the drop over 5 m.
+  - **68**, when no jump was just started (+0x112F): an edge report → sent at once (handled by a sub-state; with the
+    +0x112B flag set it is sent with 1.0).
+  - **70, pull-down**: an edge report and the playing item allowing it (bit 4 of the move mask), then either the legs
+    held 0.2 s (button 3, 0xED4A20) or the stick within 70° (1.2217 rad) of the edge; otherwise the interpreter only
+    marks the frame (+4 = 0x1D).
+  - The **jump** asks the playing item too (bit 0 of the mask) before `JumpToGuidanceTarget`. The mask is checked only
+    when the item has its flag 0x14 & 2 (0xEF0320), against the current item and the one blending out.
+  Events 68 and 119 are not in `HumanGround`'s handler: its sub-states take them.
 
 ### What the ground does with the input, in order (the interpreter 0xEE65A0 and the ground's update) **[B]**
 1. **Stick let go**: at jog or faster (high profile) → the run stop (`RunStop` 0xD98E30, guard 0xD7EC90), its root
@@ -346,6 +359,8 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 
 ## Open questions
 - The game's own jump candidate list (IHuman vt56/64/68) and whether jump links are used by the player.
-- Who calls the ground's edge-event methods (vtable slots 186, 191, 385; section 3), and event 119's guards.
+- Which gate bit our `forge::graph::Gate` word holds is the move mask's bit 0 / 4 / 29 (the 64-bit mask at item +8 is
+  not the 12-byte flag word we read).
+- Event 68's handler (a ground sub-state's) and event 119's guards in the game's own code (Banned445's values used).
 - Each item's gate word for every movement action (Banned's `item_flags.rs` is generated from the install: we can read
   the same with `forge`).
