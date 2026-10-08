@@ -19,8 +19,42 @@ pub struct Place {
     pub item: usize,
 }
 
-/// An item: its clips (names), blend-in time (s), and its ways out (connector, destination action keys).
-type ItemNode = (Vec<String>, f32, Vec<(u32, u32)>);
+/// An item: its clips (names), blend-in time (s), its ways out (connector, destination action keys), and its gate
+/// word (see `Gate`).
+type ItemNode = (Vec<String>, f32, Vec<(u32, u32)>, u16);
+
+/// An item's gate word, as the game reads it for the item playing (`ActionItem` +60, Banned445's trace; docs/PARKOUR.md
+/// section 2): the item's 12 flag bytes are its bits 0x10 << k.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Gate(pub u16);
+
+impl Gate {
+    /// The clip turns the body itself: the code's heading is not applied.
+    pub const TURNS: u16 = 0x10;
+    /// Locked: no new move or mode while it plays.
+    pub const LOCKED: u16 = 0x20;
+    /// May be left for standing, in low / high profile.
+    pub const STAND_LOW: u16 = 0x40;
+    pub const STAND_HIGH: u16 = 0x80;
+    /// May be left for moving, in low / high profile.
+    pub const MOVE_LOW: u16 = 0x200;
+    pub const MOVE_HIGH: u16 = 0x800;
+
+    pub fn has(self, bit: u16) -> bool {
+        self.0 & bit != 0
+    }
+
+    /// Whether the item may be left now: for moving (else standing), in high profile (else low); never while locked.
+    pub fn may_leave(self, moving: bool, high: bool) -> bool {
+        let bit = match (moving, high) {
+            (true, false) => Self::MOVE_LOW,
+            (true, true) => Self::MOVE_HIGH,
+            (false, false) => Self::STAND_LOW,
+            (false, true) => Self::STAND_HIGH,
+        };
+        !self.has(Self::LOCKED) && self.has(bit)
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 struct ActionNode {
@@ -49,7 +83,8 @@ impl MoveGraph {
                     for c in &clips {
                         g.places.entry(c.clone()).or_default().push(Place { block: block.to_string(), action: a.key, item: k });
                     }
-                    node.items.push((clips, item.blend.times[0], next));
+                    let gate = item.flags.iter().enumerate().fold(0u16, |w, (k, &f)| if f != 0 { w | (0x10 << k) } else { w });
+                    node.items.push((clips, item.blend.times[0], next, gate));
                 }
                 g.actions.insert(a.key, node);
             }
@@ -66,6 +101,12 @@ impl MoveGraph {
     pub fn blend_in(&self, clip: &str) -> Option<f32> {
         let p = self.places(clip).first()?;
         self.actions.get(&p.action)?.items.get(p.item).map(|i| i.1)
+    }
+
+    /// The gate word of the item a clip is in (its first listing).
+    pub fn gate(&self, clip: &str) -> Option<Gate> {
+        let p = self.places(clip).first()?;
+        self.actions.get(&p.action)?.items.get(p.item).map(|i| Gate(i.3))
     }
 
     /// The clips that may follow `clip`: the next item of its action, and the first item of every connector and

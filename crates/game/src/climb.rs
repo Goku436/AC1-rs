@@ -4508,6 +4508,34 @@ impl WallClimb {
         if self.bar.is_some() && self.swing_off.is_none() && leap && self.move_dir.dot(root.rotation * Vec3::NEG_Z) > 0.3 {
             self.swing_off = Some(true);
         }
+        // A landing or a jump's reception, the stick held: left for running as soon as its item allows leaving for moving
+        // in this profile (AC1's gate word, `forge::graph::Gate`; `HumanGround__AnimAllowsModeExit` 0xD80010), not played
+        // out.
+        if let Some(m) = &self.mv
+            && (m.to == LAND || m.to == GROUND)
+            && self.queue.iter().all(|q| q.to == GROUND || q.to == LAND)
+            && self.move_dir.with_y(0.0).length() > 0.3
+            && lib.graph.gate(&m.clip.name).is_some_and(|g| g.may_leave(true, self.high))
+        {
+            debug!("climb: {} left for running (its gate allows it)", m.clip.name);
+            self.last_clip = Some(m.clip.name.clone());
+            if self.exit_velocity.length() < 0.1 {
+                let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+                self.exit_velocity = fwd
+                    * if self.sprint {
+                        PERCH_OFF_RUN
+                    } else if self.high {
+                        TOP_OUT_JOG
+                    } else {
+                        TOP_OUT_WALK
+                    };
+            }
+            self.mv = None;
+            self.queue.clear();
+            self.state = GROUND.into();
+            self.finished = true;
+            return;
+        }
         // A move starting: fade into it over its item's blend time in AC1's move graph, where it gives one.
         if let Some(m) = &self.mv
             && self.blended_for.as_deref() != Some(m.clip.name.as_str())
