@@ -44,6 +44,12 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 - Input is read by `GoAssassinActionInterpreter` (0xEE65A0 on the ground, per-context states such as 0xEE9AF0 on a
   beam, 0xEE05E0 walling). Stick dead zone 0.35, speed = (|stick| − 0.35)/0.65; the legs button is buffered 0.3 s.
   **[B]**
+- **The keys** (the install's `DefaultBindings.map` and manual): WASD move, right mouse held = high profile, Space =
+  legs (low: blend; high: held, sprint and free run, "automatically adapt to any object in the path"; pressed, the
+  jump), Left Shift = empty hand (push; high: grab and throw, tackle), left mouse = weapon hand, E = head (first
+  person, Eagle Vision), F target lock, C centre camera, Tab map. A Legs press jumps only at a guidance target (the
+  jump interpreter: high profile + the legs buffered + the stick); with nothing in reach it does nothing more than the
+  sprint. **[V: manual, bindings; ours]**
 
 ## 2. Animation: actions, items, gates
 - Every clip plays as an item of an action in an `ActionBlock` (452 blocks, 15463 actions in the install). An item's

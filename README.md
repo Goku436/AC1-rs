@@ -20,9 +20,10 @@ in Rust from how the game behaves and from AC1's own move graph, the table that 
 |---|---|---|
 | WASD, mouse | left stick, right stick | move, camera |
 | Right mouse (held) | R1 / R2 | high profile |
-| Space | A / Cross | legs: jump, climb, free run (held in high profile) |
+| Space | A / Cross | legs: blend (low profile); in high profile held to free run (jumps, climbs and vaults on its own), pressed to jump at what is ahead |
 | Shift | B / Circle | empty hand: push, pickpocket, let go |
-| Q | Y / Triangle | Eagle Vision |
+| E | Y / Triangle | head: Eagle Vision |
+| C | left stick click | centre the camera |
 | P | Start / Options | free camera |
 | F9 | Back / Share | flight recorder: saves the last 10 s for bug reports |
 
@@ -37,7 +38,7 @@ whole from the install.
 | Ground: walk, jog, run, sprint, starts, stops, turns | Working. Turns on the spot follow the stick and hand straight into the gait |
 | Jumps, falls and landings | Working. Fall damage at the game's heights (from 3 m, fatal over 7 m) |
 | Climbing: walls, ledges, free hang, corners, climb jumps, pull-ups, pull-downs | Working, on the game's own holds in cities |
-| Wall runs | Working, including at an angle. The sideways wall run is procedural (AC1 ships no clips for it) |
+| Wall runs | Working, including at an angle. No sideways wall run: AC1 has none |
 | Beams, posts, narrow wall tops and two-step combos | Working. Climbing onto a fence or parapet ends crouched, balancing on it |
 | Ladders | Working, in both profiles, with the rebound and moving across to and from the wall |
 | Swing bars and kiosk monkey bars | Working. Free running swings through a row hands-free |

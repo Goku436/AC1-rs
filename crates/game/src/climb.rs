@@ -1555,6 +1555,19 @@ impl WallClimb {
         jump_target(level, from, dir, None).is_some()
     }
 
+    /// Anything a Legs press in high profile would jump at from `from` along `dir` (AC1's `JumpToGuidanceTarget`: a
+    /// press jumps only at a target): a top, post or beam, a hold to catch, a thin wall to go over, a swing bar. With a
+    /// wall right ahead (`wall_ahead`) only going over it counts (else it is climbed or leant on).
+    pub fn jump_reachable(level: &Level, from: Vec3, dir: Vec3, wall_ahead: bool) -> bool {
+        if wall_ahead {
+            return passover_target(level, from, dir).is_some();
+        }
+        jump_target(level, from, dir, None).is_some()
+            || jump_hold(level, from, dir).is_some()
+            || passover_target(level, from, dir).is_some()
+            || bar_ahead(level, from, dir).is_some()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn jump_aimed(
         lib: &mut AnimLib,

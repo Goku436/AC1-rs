@@ -239,7 +239,7 @@ pub struct Controller {
     /// Only grab or climb onto something in reach (no jump): the legs standing, or in low profile.
     pub grab_only: bool,
     /// The player's legs press: jump only with a drop just ahead (pressing them to start free running is not a jump).
-    pub jump_needs_edge: bool,
+    pub jump_needs_target: bool,
     /// The legs pressed while climbing: jump off a perch, rebound off a wall run, fling off a bar.
     pub wall_legs: bool,
     /// High profile (AC1's right button): faster, louder moves.
@@ -821,7 +821,7 @@ pub fn locomotion(
                 w.legs(lib, &level, &tf, ctl.climb_dir);
             }
             let grab_only = std::mem::take(&mut ctl.grab_only);
-            let needs_edge = std::mem::take(&mut ctl.jump_needs_edge);
+            let needs_target = std::mem::take(&mut ctl.jump_needs_target);
             if std::mem::take(&mut ctl.toggle_climb) {
                 match ch.wall.as_mut().map(|w| w.let_go(lib, &level, &tf, ctl.climb_dir)) {
                     // Letting go plays out in the climber (step down, or drop, fall and land).
@@ -866,14 +866,17 @@ pub fn locomotion(
                                 .flatten()
                                 .or_else(|| WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose()))
                         });
-                        let edge_near = || level.ground(tf.translation + v.normalize_or_zero() * 1.2, 0.5, 1.5).is_none();
-                        if ch.wall.is_none() && !grab_only && v.length() > 1.0 && !wall_ahead(v.normalize(), 1.2) && (!needs_edge || edge_near()) {
+                        // (A Legs press jumps only at a target, as AC1's `JumpToGuidanceTarget`; with a wall right ahead,
+                        // only over it.)
+                        let blocked = wall_ahead(v.normalize_or_zero(), 1.2);
+                        let target = || WallClimb::jump_reachable(&level, tf.translation, v, blocked);
+                        if ch.wall.is_none() && !grab_only && v.length() > 1.0 && (if needs_target { target() } else { !blocked }) {
                             // (Off the foot the run is on: AC1's takeoffs are by foot.)
                             let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
                             ch.wall = WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, lead_left, pose());
                         } else if ch.wall.is_none() {
                             ch.wall = WallClimb::jump_grab(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose())
-                                .or_else(|| (!grab_only && !needs_edge).then(|| WallClimb::jump_straight(lib, &tf, pose())).flatten());
+                                .or_else(|| (!grab_only && !needs_target).then(|| WallClimb::jump_straight(lib, &tf, pose())).flatten());
                         }
                     }
                 }

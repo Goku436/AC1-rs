@@ -22,15 +22,16 @@ pub enum Target {
     Mouse(MouseButton),
 }
 
-const MAP: [(GamepadButton, Target); 8] = [
+const MAP: [(GamepadButton, Target); 9] = [
     (GamepadButton::South, Target::Key(KeyCode::Space)),
     (GamepadButton::East, Target::Key(KeyCode::ShiftLeft)),
-    (GamepadButton::North, Target::Key(KeyCode::KeyQ)),
+    (GamepadButton::North, Target::Key(KeyCode::KeyE)),
     (GamepadButton::RightTrigger2, Target::Mouse(MouseButton::Right)),
     (GamepadButton::RightTrigger, Target::Mouse(MouseButton::Right)),
     (GamepadButton::Select, Target::Key(KeyCode::F9)),
     (GamepadButton::Start, Target::Key(KeyCode::KeyP)),
     (GamepadButton::RightThumb, Target::Key(KeyCode::KeyG)),
+    (GamepadButton::LeftThumb, Target::Key(KeyCode::KeyC)),
 ];
 
 /// Pass the first controller's buttons on and turn the camera (`yaw_pitch`: the orbit camera's).
