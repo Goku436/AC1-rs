@@ -16,11 +16,13 @@
 //!   - `0c` 32 bit: `[idx:2][a:10][b:10][c:10]`, (v-511)/511*R
 //!   - `10` 48 bit: three u16, 15-bit field (v-16383)/16383*R, idx = top bits of u16 1,0
 //!   - `18` 96 bit: three f32 of a smallest-three quaternion, idx = low bits of f32 1,0
-//!   - `14` 64 bit: not decoded yet (rare, Hips/Spine only)
+//!   - `14` 64 bit: not decoded yet (104 tracks, all on two bones of present-day Lucy's `ucfa_lucy_*` clips: none of
+//!     Altaïr's)
 //! - translations, millimetres: `20` u32 `[x:11][y:11][z:10]` signed; `24` i16 x3; `1c` f32 x3 (m)
-//! - scalar byte channels (facial, events): `2c`, `34`, `38`; `28` 4-byte camera channel (not decoded)
+//! - scalar byte channels (facial, events): `2c`, `34`, `38`; `28` f32, the camera clips' field of view (radians)
 //!
-//! Hash 0 tracks are root motion (translation + rotation); hash 2/3 are event channels.
+//! Hash 0 tracks are root motion (translation + rotation); hash 2/3 are event channels. Voice-line clips (`vo_*`, 16 of
+//! them) have a duration and no track table: read as clips without tracks.
 
 use crate::u32_at;
 use anyhow::{Result, bail, ensure};
@@ -37,6 +39,8 @@ pub enum Channel {
     /// Metres, local to the parent bone.
     Translation(Vec<[f32; 3]>),
     Scalar(Vec<u8>),
+    /// One float a key: type `28`, the camera clips' (`CAM_*`) field of view in radians (0.785 = 45 degrees).
+    Float(Vec<f32>),
     /// Codec not decoded yet (type byte kept).
     Unknown(u8),
 }
@@ -147,7 +151,11 @@ pub fn parse_animation(obj: &[u8]) -> Result<Animation> {
     let duration = f32::from_le_bytes(body[0..4].try_into().unwrap());
 
     let tag = TRACK_TAG.to_le_bytes();
-    let Some(first) = body.windows(4).position(|w| w == tag) else { bail!("no track table") };
+    // (Voice lines, `vo_*`: a duration and no bone tracks at all, only what goes with the speech.)
+    let Some(first) = body.windows(4).position(|w| w == tag) else {
+        ensure!(duration.is_finite() && duration > 0.0, "no track table and no duration");
+        return Ok(Animation { duration, tracks: vec![] });
+    };
     ensure!(first >= 8, "track table too early");
     let count = u32_at(body, first - 8) as usize;
     ensure!(count > 0 && count < 1024, "track count {count}");
@@ -189,6 +197,8 @@ pub fn parse_animation(obj: &[u8]) -> Result<Animation> {
             Channel::Translation(vals.chunks_exact(vs).map(|c| translation(kind, c).unwrap()).collect())
         } else if vs == 1 {
             Channel::Scalar(vals.to_vec())
+        } else if kind == 0x28 {
+            Channel::Float(vals.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect())
         } else {
             Channel::Unknown(t)
         };

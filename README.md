@@ -33,7 +33,7 @@ whole from the install.
 
 | Area | State |
 |---|---|
-| Game data | Working. `.forge` archives, meshes, textures, skeletons, animations (22212/22228 clips), the move graph, collision shapes, ragdolls and cloth all read from the install |
+| Game data | Working. `.forge` archives, meshes, textures, skeletons, animations (all 22228 clips), the move graph, collision shapes, ragdolls and cloth all read from the install |
 | Cities | Mostly working. Damascus and Masyaf load textured with collision; holds, ladders and swing poles come from AC1's own climbing markup (every city's parses); haystacks, benches and viewpoints are found by name. Acre, Jerusalem and Kingdom are unchecked; hay carts draw at the wrong scale |
 | Ground: walk, jog, run, sprint, starts, stops, turns | Working. Turns on the spot follow the stick and hand straight into the gait |
 | Jumps, falls and landings | Working. Fall damage at the game's heights (from 3 m, fatal over 7 m) |
