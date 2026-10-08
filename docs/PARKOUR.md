@@ -9,6 +9,30 @@ functions and tables (image base 0x400000).
 Marks: **[B]** from Banned445's work, **[V]** checked by us (in the exe, the data or play), **[ours]** our own
 finding, **[?]** not known yet.
 
+## 0. The context data (`Human*Data`) **[V]**
+Each context keeps its state in a `Human*Data` block inside one container at `[Human+0x30]` (getters
+`mov eax,[ecx+0x30]; add eax,X; ret` at 0xB2FC50..0xB2FD80: Ground +0x40, InAir +0x340, Ledge +0xC50, Climb +0xDA0,
+...); a context stores its block's address at its own +0x10. Property names are CRC32 hashes in the reflection
+data (`[name ptr]-0x20` = property list, 32 bytes each: hash, enum, type<<16, dword offset<<20); recovered by
+hashing the exe's own words:
+- `HumanClimbData` (0x70 bytes, 17 properties): +0x10 `CurDirection` (vec), +0x20 `SubState`, +0x24 `EntryType`,
+  +0x28 `EntryPoseType`, +0x2C `CurSpeedRatio`, +0x30 `DestSpeedRatio`, +0x34 `GridTileWidth` 0.75, +0x38
+  `GridTileHeight` 0.6, +0x3C `UseIK` (byte, false), +0x40 `LeftToePull` / `RightToePull` / `LeftHandPull` /
+  `RightHandPull` 0.5 each, +0x50..+0x5C four more per-limb floats 0.1 (names not recovered); unreflected +0x60 = 4
+  and +0x64..+0x6C = -1 (the reach's action ids, read by 0xDE8300, 0xDE9B50, 0xDEEE60, 0xDEF0C0). Of these the
+  climbing code (0xDE4000..0xE00000, all 453 functions decompiled) and every caller of the getter 0xB2FCB0 read only
+  the state, the two speed ratios and the action ids: the grid sizes, `UseIK` and the eight pull values are never read
+  in v1.02 (the grid hard-codes 0.75 × 0.6, `BuildHoldGrid` 0xDF6A40).
+- `HumanGroundData` (0x300 bytes, 38 properties): +0x10 `CollideNormal`, +0x20 `CurSight`, +0x30 `DestSight`,
+  +0x40 `FactorLinkReset`, +0x50 `DestHeading`, +0x70 `CollidePosition`, +0xB0 `SubState`, +0xB4 `CurSpeedRatio`,
+  +0xB8 `DestSpeedRatio`, +0xC4 `ParamFlags`, +0xC8 `InternalFlags`, +0xCC `LinkSettingsColor`, +0xD4
+  `CurrentBodyAngle` and +0xD8 (?) (both fed through the lean filter 0xD94C80 by 0xDA0810), +0xDC `ObstacleLeanType`,
+  +0xE0 `CollideHeight`, +0xE4 `CollideEntity`, +0x100 `PinDownData`, bits `Crouch`, `Sprint`, `IsSet`. Defaults:
+  +0xE8 0.4, +0xEC 1.5, +0xF0 (0, −0.4, 0.9) and unreflected +0x238 1.0, +0x23C 5.0: none read by the ground
+  locomotion (0xD80000..0xDD0000, 0xEE0000..0xF00000) or the getter's 72 callers: fight / pin-down values (the
+  class's groups are "pindown" and "fight system").
+So no hidden locomotion tuning lives in these blocks: the values are constants in the code (the rest of this file).
+
 ## 1. The frame: one locomotion context at a time
 - The player (`Human`) runs exactly one locomotion context: Ground 4, Ladder 5, Pole 6, Rope 7, InAir 8, Ledge 9,
   Climb 10, Walling 11, NarrowObject 12, HayStack 21 (`ActorContextID`). **[B]**

@@ -421,9 +421,10 @@ pure-Rust `oozextract` crate unpacks) list each forge's data files and their obj
   `HumanClimbData` "IK values", "Grid settings"; `HumanNarrowObjectData` "Lean Variables", "Edge variables",
   "Beam Variables", "Jump distances"; `HumanInAirData` "HumanGuidance"; `HumanLedgeData` "GuidanceObject reports";
   `HumanGroundData` "pindown", "fight system".
-- Defaults set by constructors (meanings unproven, names are hashes): `HumanClimbData` 0.75, 0.6, 4 x 0.5, 4 x 0.1 and
-  an int 4 (13 floats in "IK values"/"Grid settings"); `HumanGroundData` 1.5, 0.4, -0.4, 0.9. No `Human*Data` object
-  ships in the data: these are the values the game runs with.
+- Defaults set by constructors: `HumanClimbData` `GridTileWidth` 0.75, `GridTileHeight` 0.6, four limb pulls 0.5, four
+  0.1, an int 4; `HumanGroundData` 0.4, 1.5, (0, -0.4, 0.9). No `Human*Data` object ships in the data. Property names
+  are recovered by CRC32 of the exe's words, and which fields the code reads is in docs/PARKOUR.md section 0 (the
+  tuning ones are never read: the code uses constants).
 - `LandingEvent` is made through an event factory (vtable 0x16f0424), so its sender is not found by references to it;
   the landing heights are still to find (from the in-air decision code, not the `HumanInAir` wrappers).
 
