@@ -680,6 +680,7 @@ enum Feet {
 }
 
 /// A move to try: one clip, or a chain played back to back (leaps).
+#[derive(Clone)]
 struct Cand {
     names: Vec<String>,
     to: String,
@@ -881,6 +882,12 @@ impl EndPose {
         let r = world_rot(rot);
         WorldEnd { pos, rot, hands: self.hands.map(|h| pos + r * h), feet: self.feet.map(|f| pos + r * f) }
     }
+}
+
+/// From a hang sideways onto climbing holds (`TrySideMoveToClimbHolds` 0xDD48B0, `xx_h_hang<wall|free>_<d|u>?<l|r>_climb_1m`):
+/// lower down, level, higher up, in that order.
+fn side_to_climb(hang: &str, dir: &str) -> Vec<Cand> {
+    ["d", "", "u"].iter().map(|v| Cand::new(format!("xx_h_{hang}_{v}{dir}_climb_1m"), "1m", Feet::Wall)).collect()
 }
 
 /// A coarse direction ("u", "d", "l", "r") as a full stick (x right, y up).
@@ -3803,9 +3810,11 @@ impl WallClimb {
             match (hands, vertical) {
                 ("1m" | "open", false) => {
                     let (strafe, to) = if hands == "1m" { ("open", FREE_OPEN) } else { ("close", FREE) };
+                    // AC1's order (`Movement_ChooseAction` 0xDE29E0, `TrySideMoveToClimbHolds` 0xDD48B0): a wall under
+                    // the feet again, onto its holds lower down, then level, before the shimmy; up onto them after it.
+                    out.extend(side_to_climb("hangfree", dir).into_iter().take(2));
                     out.push(Cand::new(format!("xx_h_hangfree_strafe_{side}_050cm_{strafe}"), to, Feet::Free));
-                    // Wall under the feet again: swing back onto it.
-                    out.push(Cand::new(format!("xx_h_hangfree_{dir}_climb_1m"), "1m", Feet::Wall));
+                    out.extend(side_to_climb("hangfree", dir).into_iter().skip(2));
                     for kind in ["in", "out"] {
                         out.push(Cand::new(format!("xx_h_hangfree_corner_{side}_090_{kind}"), FREE, Feet::Free));
                     }
@@ -3824,12 +3833,17 @@ impl WallClimb {
             return out;
         }
         if self.state == HANGWALL || self.state == HANGWALL_OPEN {
-            if !vertical {
+            if vertical {
+                // Onto the wall's holds, up or down.
+                out.push(Cand::new(format!("xx_h_hangwall_{dir}_climb_1m"), "1m", Feet::Wall));
+            } else {
+                // Sideways in AC1's order (as the free hang's above): onto the holds lower down, level, the shimmy, up.
                 let (strafe, to) = if self.state == HANGWALL { ("open", HANGWALL_OPEN) } else { ("close", HANGWALL) };
+                let onto = side_to_climb("hangwall", dir);
+                out.extend(onto[..2].iter().cloned());
                 out.push(Cand::new(format!("xx_h_hangwall_strafe_{}_050cm_{strafe}", side_name(dir)), to, Feet::Wall));
+                out.push(onto[2].clone());
             }
-            // Onto the wall's holds (up, down, or along).
-            out.push(Cand::new(format!("xx_h_hangwall_{dir}_climb_1m"), "1m", Feet::Wall));
             // Round a corner: AC1 has the climbing stance's only (it ends in the hang again where the feet find no holds).
             if !vertical {
                 for kind in ["in", "out"] {
