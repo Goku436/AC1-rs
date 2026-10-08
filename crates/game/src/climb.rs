@@ -467,7 +467,8 @@ const LEAN_TALL: f32 = 1.5;
 const LEAN_DIST: f32 = 0.5;
 /// Pulling down onto a ledge: the edge within this far ahead of the feet (m), dropping at least this much.
 const PULL_DOWN_REACH: f32 = 0.9;
-const PULL_DOWN_DROP: f32 = 1.8;
+/// (AC1's pull-down guard, 0xD9D6C0: more than 2 m under the edge.)
+const PULL_DOWN_DROP: f32 = 2.0;
 const PERCH_WAIT: &str = "xx_h_beam_pilotis_wait";
 const PERCH_LAND: [&str; 2] = ["xx_h_beam_landing_soft_tr_pilotis_wait_a", "xx_h_beam_landing_soft_tr_pilotis_wait_b"];
 const PERCH_TAKEOFF: &str = "xx_h_beam_pilotis_tr_impultionstraight_a";

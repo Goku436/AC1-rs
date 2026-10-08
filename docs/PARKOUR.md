@@ -147,6 +147,8 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   - The **jump** asks the playing item too (bit 0 of the mask) before `JumpToGuidanceTarget`. The mask is checked only
     when the item has its flag 0x14 & 2 (0xEF0320), against the current item and the one blending out.
   Events 68 and 119 are not in `HumanGround`'s handler: its sub-states take them.
+  Ours: the look-down after standing still 0.25 s, the pull-down over a drop of more than 2 m (were: at once, 1.8 m);
+  the ledge stop still starts within 0.6 m of a 5 m drop (AC1: 0.15 m) and is placed by its own correction.
 
 ### What the ground does with the input, in order (the interpreter 0xEE65A0 and the ground's update) **[B]**
 1. **Stick let go**: at jog or faster (high profile) → the run stop (`RunStop` 0xD98E30, guard 0xD7EC90), its root

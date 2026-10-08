@@ -191,6 +191,8 @@ pub struct Character {
     pub wall_feet: [Option<f32>; 2],
     /// Each climbing hand's pull onto the nearest hold (0..1), changed at most `HAND_IK_RATE` a second.
     pub wall_hand_w: [f32; 2],
+    /// How long (s) he has stood still on the ground (AC1 looks down over an edge after `LOOK_DOWN_STILL`).
+    pub still_t: f32,
     /// The hold each climbing hand is pulled onto now: kept until the pull has faded, then the nearest one taken.
     pub wall_hand_t: [Option<crate::level::Ledge>; 2],
     /// How much the climbing IK (hands on holds, feet on the wall) applies now (0..1, faded).
@@ -430,6 +432,7 @@ pub fn spawn_character(
         gait: Default::default(),
         wall_feet: [None; 2],
         wall_hand_w: [0.0; 2],
+        still_t: 0.0,
         wall_hand_t: [None; 2],
         foot_ik_w: 0.0,
         wall_ik_w: 0.0,
@@ -535,6 +538,8 @@ const JOG_STOP_SPEED: f32 = 3.5;
 const LEDGE_STOP_DROP: f32 = 5.0;
 /// Standing at an edge dropping more than this looks down over it (m).
 const LOOK_DOWN_DROP: f32 = 2.0;
+/// Standing still this long (s) before looking down over an edge (the timer AC1's ground input interpreter checks).
+const LOOK_DOWN_STILL: f32 = 0.25;
 
 /// AC1's ground moves, as clip chains with root motion (see the module docs): turning round while running,
 /// the run and sprint stops, turns on the spot, the ledge stop (with the outward direction to hold back
@@ -1016,7 +1021,9 @@ pub fn locomotion(
         // Looking down over an edge while standing at it.
         let edge_ahead =
             |d: f32, drop: f32| level.ground(tf.translation + (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero() * d, 0.3, drop).is_none();
-        let look_down = ch.velocity.length() < 0.2 && edge_ahead(0.6, LOOK_DOWN_DROP);
+        ch.still_t = if ch.velocity.length() < 0.2 { ch.still_t + dt } else { 0.0 };
+        // (AC1's interpreter sends the look-down only after standing still a quarter of a second.)
+        let look_down = ch.still_t > LOOK_DOWN_STILL && edge_ahead(0.6, LOOK_DOWN_DROP);
         if let (Some(lib), Some(a)) = (lib.as_deref_mut(), ch.animator.as_mut()) {
             // Standing, the low and high profile stands put the feet and hands elsewhere: fade between them (switched at
             // once, the whole body jumped up to 13 cm as the right button went down or up).
