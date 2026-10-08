@@ -353,7 +353,7 @@ impl Animator {
 
     /// Move time on by `dt` at ground `speed` (m/s), the root facing `yaw` (radians about +Y; its rate of
     /// change banks the gait).
-    pub fn advance(&mut self, dt: f32, speed: f32, yaw: f32) {
+    pub fn advance(&mut self, dt: f32, speed: f32, yaw: f32, want: Option<f32>) {
         let rate = self.last_yaw.map_or(0.0, |l| {
             let mut d = yaw - l;
             if d > std::f32::consts::PI {
@@ -364,8 +364,21 @@ impl Animator {
             d / dt.max(1e-4)
         });
         self.last_yaw = Some(yaw);
-        let want = if speed > 0.15 { (rate / FULL_BANK).clamp(-1.0, 1.0) } else { 0.0 };
-        self.bank += (want - self.bank) * (dt * 6.0).min(1.0);
+        // The bank: AC1's (`HumanGround__UpdateLeanAngle` 0xD94C80, Banned445's port), the angle from the body's heading
+        // to the one wanted, filtered toward it at 5/s and back toward none by a tenth a frame with the stick let go, full
+        // at 90 degrees; without a wanted heading (scripted, NPCs), by the turn rate.
+        let wrap = |a: f32| (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        match want {
+            Some(w) if speed > 0.15 => {
+                let target = (wrap(w - yaw) / std::f32::consts::FRAC_PI_2).clamp(-1.0, 1.0);
+                self.bank += (target - self.bank) * (dt * 5.0).min(1.0);
+            }
+            Some(_) => self.bank *= 0.9,
+            None => {
+                let want = if speed > 0.15 { (rate / FULL_BANK).clamp(-1.0, 1.0) } else { 0.0 };
+                self.bank += (want - self.bank) * (dt * 6.0).min(1.0);
+            }
+        }
         // AC1's slow-down and take-off timers (`GAIT_ALTS`).
         let value = crate::gait::value_at(speed);
         let dv = value - self.last_value;

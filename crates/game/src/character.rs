@@ -151,6 +151,8 @@ pub struct Character {
     pub last_landing: Option<(f32, f32)>,
     /// Stopped at the edge of a big drop: its outward direction; walking on over it is held back.
     pub edge_lock: Option<Vec3>,
+    /// Where the stick asks to go (horizontal, zero when let go): the locomotion banks toward it (`Animator::advance`).
+    pub want_dir: Vec3,
     /// Walking with a crowd it blends into (legs held, no direction): the crowd's velocity.
     pub follow: Option<Vec3>,
     rig: Rig,
@@ -400,6 +402,7 @@ pub fn spawn_character(
         blend: false,
         follow: None,
         edge_lock: None,
+        want_dir: Vec3::ZERO,
         last_landing: None,
         pose: idle.clone(),
         anim_pose: idle.clone(),
@@ -1021,6 +1024,7 @@ pub fn locomotion(
             }
         }
         // Ground: accelerate toward desired velocity, turn to face it, follow the ground height.
+        ch.want_dir = ctl.move_dir.with_y(0.0).normalize_or_zero();
         let mut target_v = ctl.move_dir.normalize_or_zero() * ctl.speed;
         // AC1's low-profile edge halt (the interpreter's, 0xEE7BDA, docs/PARKOUR.md): walking at an edge with a drop
         // of more than 2 m, the walk stops right at it, no clip (deeper drops got the ledge stop above).
@@ -1318,7 +1322,9 @@ pub fn animate(
 
         let climbing = ch.climb.is_some();
         if let Some(a) = &mut ch.animator {
-            a.advance(dt, if climbing { 0.0 } else { speed }, root.rotation.to_euler(EulerRot::YXZ).0);
+            // (The heading wanted, for the bank: the stick's.)
+            let want = (ch.want_dir != Vec3::ZERO).then(|| (-ch.want_dir.x).atan2(-ch.want_dir.z));
+            a.advance(dt, if climbing { 0.0 } else { speed }, root.rotation.to_euler(EulerRot::YXZ).0, want);
         }
         // Clips drive the body on the ground; climbing still uses procedural IK on the idle clip.
         let animated = ch.animator.is_some();
