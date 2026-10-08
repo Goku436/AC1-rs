@@ -695,10 +695,10 @@ fn ragdoll_collide(level: &Level, prev: Vec3, p: Vec3, r: f32) -> (Vec3, bool) {
 const PALM_OFF: f32 = 0.05;
 /// A turn round's fade starts from the shown pose turned this much short of half round (rad).
 const TURN_FLIP_SHORT: f32 = 0.08;
-/// The climbing IK fades in or out over this long (s) as the hands take to the wall or leave it.
-const WALL_IK_FADE: f32 = 0.2;
-/// Ground foot placement fades in or out over this long (s) as moves off the ground start and end.
-const FOOT_IK_FADE: f32 = 0.2;
+/// The limb IK's weight rises this fast (/s) with a contact and falls this fast once released: 0.25 s in, 0.2 s out
+/// (AC1's `LimbIK__SolveEffectors` 0xE57570, Banned445). Both the climbing hands and feet and the ground's feet.
+const IK_IN_RATE: f32 = 4.0;
+const IK_OUT_RATE: f32 = 5.0;
 /// Changing profile while standing (slower than this, m/s) fades between the stands over this long (s).
 const STAND_FADE_SPEED: f32 = 0.5;
 const STAND_FADE: f32 = 0.3;
@@ -1446,10 +1446,10 @@ pub fn animate(
                 }
             }
         }
-        // --- Clip-driven climbing: snap hands onto holds and feet onto the wall. Faded in and out over `WALL_IK_FADE` as
+        // --- Clip-driven climbing: snap hands onto holds and feet onto the wall. Faded in and out at `IK_IN_RATE` / `IK_OUT_RATE` as
         // the hands take to the wall or leave it (a corner, a top out): switched at once, the feet jumped 10-13 cm.
         let hands_on = ch.wall.as_ref().is_some_and(|w| ik_on && w.hands_on_wall());
-        ch.wall_ik_w = if hands_on { (ch.wall_ik_w + dt / WALL_IK_FADE).min(1.0) } else { (ch.wall_ik_w - dt / WALL_IK_FADE).max(0.0) };
+        ch.wall_ik_w = if hands_on { (ch.wall_ik_w + dt * IK_IN_RATE).min(1.0) } else { (ch.wall_ik_w - dt * IK_OUT_RATE).max(0.0) };
         let ww = smooth(ch.wall_ik_w);
         if let Some(w) = ch.wall.as_ref().filter(|_| ww > 0.0) {
             let n = w.normal;
@@ -1530,10 +1530,10 @@ pub fn animate(
         }
 
         // --- Animated: AC1 clip + foot placement onto the level. Also through the moves made standing on the ground (a stop,
-        // a turn on the spot, leaning on a wall), and faded in and out over `FOOT_IK_FADE` where it starts or stops (off
+        // a turn on the spot, leaning on a wall), and faded in and out at `IK_IN_RATE` / `IK_OUT_RATE` where it starts or stops (off
         // and on at once, the feet popped by its correction at every move's seam).
         let feet_down = animated && !climbing && ik_on && ch.wall.as_ref().is_none_or(|w| w.legs_on_ground());
-        ch.foot_ik_w = if feet_down { (ch.foot_ik_w + dt / FOOT_IK_FADE).min(1.0) } else { (ch.foot_ik_w - dt / FOOT_IK_FADE).max(0.0) };
+        ch.foot_ik_w = if feet_down { (ch.foot_ik_w + dt * IK_IN_RATE).min(1.0) } else { (ch.foot_ik_w - dt * IK_OUT_RATE).max(0.0) };
         let foot_w = smooth(ch.foot_ik_w);
         if foot_w > 0.0
             && let Some(fp) = &mut ch.foot_ik
