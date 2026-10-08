@@ -429,7 +429,10 @@ impl Animator {
             }
         }
         if let Some((p, foot, w, t, len)) = &mut self.start {
-            *t += dt;
+            // (Held where it is while stopped, faded out with the move weight.)
+            if speed > 0.15 {
+                *t += dt;
+            }
             if *t >= *len {
                 // On into the gait on the other foot, from the top of its step, the start's end faded out into it.
                 self.side = 1 - *foot;
@@ -480,7 +483,8 @@ impl Animator {
                 debug!("anim: start from the stand (weights {w:.2?}, {len:.2} s, high {}, speed {speed:.2})", self.high);
             }
         } else if !moving && self.was_moving {
-            self.start = None;
+            // (A start cut short is not dropped here: the gait at its first frame took its place for the stop's fade,
+            // and the legs jumped 0.4 m from one stride to the other, at a low-profile edge halt.)
             self.stand = self.side ^ 1;
         }
         self.was_moving = moving;
@@ -504,6 +508,9 @@ impl Animator {
             }
         }
         self.move_w = (self.move_w + if moving { dt * 5.0 } else { -dt * 3.0 }).clamp(0.0, 1.0);
+        if self.move_w <= 0.0 {
+            self.start = None;
+        }
 
         // AC1's blend (`move_blend`): 17 clips weighted by the speed value, the bank and the timers, on one clock whose
         // step lasts Σw·T; played at the rate that matches its root speed to ours (the same, but for the turns' bank
