@@ -1440,7 +1440,22 @@ pub fn animate(
                     let target = hit.point + n * PALM_OFF;
                     ch.debug_targets.push((target, Color::srgb(0.4, 0.9, 0.5)));
                     let elbow = pose.model_of(rig, arm.lower).pos;
-                    two_bone_ik(&mut pose, rig, arm.upper, arm.lower, arm.hand, to_model(target), Some(elbow + Vec3::new(0.0, 0.0, -0.3)), None, 1.0);
+                    // (Only once the clip has brought the hand near the wall: pulled from a metre off at the collide's
+                    // start, the hand jumped 0.7 m.)
+                    let wgt = 1.0 - ((target.distance(hand) - 0.1) / 0.3).clamp(0.0, 1.0);
+                    if wgt > 0.0 {
+                        two_bone_ik(
+                            &mut pose,
+                            rig,
+                            arm.upper,
+                            arm.lower,
+                            arm.hand,
+                            to_model(target),
+                            Some(elbow + Vec3::new(0.0, 0.0, -0.3)),
+                            None,
+                            smooth(wgt),
+                        );
+                    }
                 }
             }
         }
