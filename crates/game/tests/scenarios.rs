@@ -211,6 +211,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "via xx_l_climb_1m_r_2m at [4"],
     },
     Scenario {
+        name: "climbing A with the stick up and right: AC1's diagonal moves (1m_ur_2ru, 2ru_ur_1m)",
+        env: &[("AC1_START", "1.0,4.0,180"), ("AC1_CLIMB", "upright=4")],
+        secs: 6.0,
+        want: &["via xx_l_climb_1m_ur_2ru", "via xx_l_climb_2ru_ur_1m"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "walking in low profile toward the 2.5 m block's edge: AC1's edge halt, stopped at it, not off it",
         env: &[("AC1_START", "-5,-13,180,3"), ("AC1_WALK", "1.9"), ("AC1_STICK", "1")],
         secs: 4.0,

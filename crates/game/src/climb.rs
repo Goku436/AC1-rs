@@ -4129,6 +4129,25 @@ impl WallClimb {
 
     #[allow(clippy::too_many_arguments)]
     fn try_move(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, input: Vec2, leap: bool) -> bool {
+        // AC1 splits the stick into diagonals too (`QuantizeStickDirection` 0xDEB8D0: 22.5-67.5 degrees off up or
+        // down): the climbing stance's diagonal moves (`xx_l_climb_<pose>_<ul|ur|dl|dr>_<pose>`) first, else on as for
+        // the nearer straight way (the move tables' redirects).
+        if !leap && (self.state.starts_with('1') || self.state.starts_with('2')) && self.mv.is_none() {
+            let a = input.x.atan2(input.y).to_degrees();
+            let diag = match a {
+                a if (22.5..67.5).contains(&a) => Some("ur"),
+                a if (112.5..157.5).contains(&a) => Some("dr"),
+                a if (-67.5..-22.5).contains(&a) => Some("ul"),
+                a if (-157.5..-112.5).contains(&a) => Some("dl"),
+                _ => None,
+            };
+            if let Some(d) = diag {
+                let cands: Vec<Cand> = clip_state_names(lib, &self.state, d).into_iter().map(|(name, to)| Cand::new(name, to, Feet::Wall)).collect();
+                if self.take_first(lib, level, root, rig, base, cr, cands) {
+                    return true;
+                }
+            }
+        }
         let vertical = input.y.abs() >= input.x.abs();
         let dir = if vertical {
             if input.y > 0.0 { "u" } else { "d" }
