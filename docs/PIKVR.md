@@ -272,3 +272,20 @@ Research:
   my earlier fixes: the beam walk's end check counted the root's centimetre off the line as past the end, and standing
   on it at an angle the step-off took the beam's own top for ground ahead. Fixed (along the beam only; not the perch's
   own top), and the stick walks the beam at up to 60 degrees off it, as the walk keeps going. Scenario.
+
+### 2026-10-08: third pass (Damascus, AC1's own rules)
+The user: "Damascus parkour is not good at all", then "figure out AC1's parkour system completely". AC1's rules are
+written down in `docs/PARKOUR.md` (from Banned445's traces, credited, and our own checks in the exe), and applied:
+- Climbing: the grab from the ground left the hands up to 0.3 m off their hold (between two rows); city holds are not
+  on the clips' 0.6 m steps; walls set back. Fixed, and holds are now found in AC1's grid probe box (0.375 m along,
+  0.3 up or down, 1.0 m in or out); diagonal moves (AC1's 10-way stick). Climbing probe in Damascus: 9 of 20 walls over
+  the top (was 6, 8 before the earlier changes); the rest are bare walls or window sills in the data (`AC1_CLIMB_WHY`).
+- Free running: jump targets from roof edges (AC1's candidates are guidance; checked: IHuman slot 0x38 -> 0xB13260 ->
+  0xE18970), across real gaps, with the way clear; no hold jumps under 1.3 m; no jumps off drops under 0.8 m or into a
+  knee-high wall (the loops in the streets); the vault from 0.5 m (roof tile edges were jumped); parapets are ground
+  (narrow tops to 0.35 m; Damascus balanced on 10,557 of them).
+- Ground: the low-profile edge halt, the instant walk stop, the pivot from a walk, 360°/s turns, landings by AC1's rule,
+  landings and receptions left for running by their item gates (read from the move graph), IK at AC1's limb rates,
+  catches in AC1's hand box.
+- Taken back: the capsule rim rule (the walk-off is at the edge line, 0xDA3F40) and the beam's edge stop clips (not used
+  by the game: the walk stops 0.3 m short).
