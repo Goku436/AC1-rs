@@ -29,6 +29,7 @@ pub struct Recorder {
 const POP_MIN: f32 = 0.04;
 const POP_FACTOR: f32 = 3.0;
 const POP_SPEED: f32 = 1.5;
+const POP_HITCH: f32 = 2.5;
 
 /// The live pop check (`AC1_POP_CHECK`): `POP <bone> <metres> | <playing> <- <playing before>` in the log for each pop.
 fn pop_check(rec: &mut Recorder, t: f32, root: Vec3, bones: Vec<Vec3>, state: String) {
@@ -47,6 +48,12 @@ fn pop_check(rec: &mut Recorder, t: f32, root: Vec3, bones: Vec<Vec3>, state: St
     let rel = |k: usize, i: usize| f(k).2[i] - f(k - 1).1;
     let v = |k: usize, i: usize| (f(k).2[i] - f(k - 1).2[i]) / (f(k).0 - f(k - 1).0);
     let (dt, dtp) = (f(2).0 - f(1).0, f(1).0 - f(0).0);
+    // (Not across a hitch, a frame much longer than the others: a screenshot's frame moved a running cycle's legs
+    // half a metre, and under load the scenarios have them.)
+    let gaps = [dtp, dt, f(3).0 - f(2).0];
+    if gaps.iter().cloned().fold(0.0, f32::max) > POP_HITCH * gaps.iter().cloned().fold(f32::MAX, f32::min) {
+        return;
+    }
     for (i, name) in BONES.iter().enumerate().take(f(3).2.len()) {
         let d = rel(3, i).distance(rel(2, i));
         let vp = rel(2, i).distance(rel(1, i)) / dtp;

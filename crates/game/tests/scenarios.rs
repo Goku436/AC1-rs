@@ -615,7 +615,7 @@ fn game_dir() -> Option<PathBuf> {
 }
 
 /// A pose pop this big (m: a bone jumping relative to the root in one frame) fails a scenario; smaller ones are reported.
-const POP_FAIL: f32 = 2.0;
+const POP_FAIL: f32 = 0.4;
 
 fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
     // (No screenshot, `-`: the run ends at `secs`; only the log is checked. `AC1_SCENARIO_SHOTS=1` saves them.)
