@@ -162,7 +162,7 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 4. **Low-profile edge halt** (0xEE7BDA): an edge in the stick's direction within 0.16 m, a drop of more than 2 m, its
    normal within 70° of the facing → the wanted speed is zeroed: the walk stops at the edge, no clip (2-5 m drops;
    deeper ones get the ledge stop).
-5. **Start from standing** (0xD98990) when the stick moves.
+5. **Start from standing** (0xD98990) when the stick moves: `xx_<l|h>_wait_<foot>_tr_<l_walk_slow|l_walk|h_jog>_<other>` (actions 0x09A08AC6 / 0x09A0A426 low, 0x09A0AA2D / 2E high), mixed by the speed band, then the gait on the other foot. **[B, ours]** Ladder (event 38, guard 0xD83970 → 0xB239D0): within 3 m, facing within 90°, the top's variant when the feet are more than 1.5 m off the ladder's base. **[V]**
 6. **Wall run** (event 49), tested before the jumps and the grab: high profile, the legs pressed, the stick within 45°
    of the facing, and the wall test 0xE18390.
 7. **Beam** (event 72): a beam in the box ahead (±0.75 m across, 0-1 m up, ±0.53 m) while moving.

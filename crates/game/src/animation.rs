@@ -245,6 +245,11 @@ pub struct Animator {
     /// AC1's 17 locomotion clips per foot (`move_blend::SLOTS`) and their weights now (`move_blend::weights`).
     slots: [Vec<Option<Arc<Clip>>>; 2],
     weights: [f32; 17],
+    /// AC1's starts from standing (`Start` 0xD98990, actions 0x09A08AC6 / 0x09A0A426 low, 0x09A0AA2D / 2E high):
+    /// [profile][foot] the stand's `xx_<l|h>_wait_<foot>_tr_<l_walk_slow|l_walk|h_jog>_<other foot>`, mixed by speed;
+    /// and the one playing (profile, foot, weights, time, length).
+    starts: [[Vec<Option<Arc<Clip>>>; 2]; 2],
+    start: Option<(usize, usize, [f32; 3], f32, f32)>,
     /// Banking: -1 (full right) to 1 (full left), smoothed; and the last root yaw seen.
     bank: f32,
     /// AC1's move-blend timers (`GAIT_ALTS`): the jog's slow-down weight and the sprint take-off's, and the speed value
@@ -325,6 +330,15 @@ impl Animator {
         }
         let stands = ["l", "h"].map(|p| ["footl", "footr"].map(|f| lib.get_for(rig, &format!("xx_{p}_wait_hipm_{f}"))));
         let slots = ["footl", "footr"].map(|f| crate::move_blend::SLOTS.iter().map(|n| lib.get_for(rig, &n.replace("{foot}", f))).collect::<Vec<_>>());
+        let feet = ["footl", "footr"];
+        let starts = ["l", "h"].map(|p| {
+            [0, 1].map(|f| {
+                ["l_walk_slow", "l_walk", "h_jog"]
+                    .iter()
+                    .map(|g| lib.get_for(rig, &format!("xx_{p}_wait_{}_tr_{g}_{}", feet[f], feet[1 - f])))
+                    .collect::<Vec<_>>()
+            })
+        });
         Some(Self {
             idle,
             stands,
@@ -335,6 +349,8 @@ impl Animator {
             mix: (0, 0, 0.0),
             slots,
             weights: [0.0; 17],
+            starts,
+            start: None,
             bank: 0.0,
             slowdown: 0.0,
             settle: 1.0,
@@ -401,6 +417,15 @@ impl Animator {
             self.settle = (self.settle - dt).max(0.0);
         }
         self.last_value = value;
+        if let Some((_, foot, _, t, len)) = &mut self.start {
+            *t += dt;
+            if *t >= *len {
+                // On into the gait on the other foot, from the top of its step.
+                self.side = 1 - *foot;
+                self.phase = 0.0;
+                self.start = None;
+            }
+        }
         if let Some((clip, t)) = &mut self.oneshot {
             *t += dt;
             if *t >= clip.anim.duration {
@@ -427,7 +452,23 @@ impl Animator {
         if moving && !self.was_moving && self.move_w < 0.3 {
             self.side = self.stand;
             self.phase = 0.0;
+            // AC1's start from the stand, by the speed it starts at (the walk in low profile, the jog in high): it ends on
+            // the other foot's step.
+            let v = crate::gait::value_at(speed).max(if self.high { 0.5 } else { 0.25 });
+            let w = if v <= 0.25 {
+                [1.0 - v * 4.0, v * 4.0, 0.0]
+            } else {
+                let f = ((v - 0.25) * 4.0).min(1.0);
+                [0.0, 1.0 - f, f]
+            };
+            let clips = &self.starts[self.high as usize][self.stand];
+            if clips.iter().all(Option::is_some) {
+                let len: f32 = clips.iter().zip(w).map(|(c, w)| c.as_ref().map_or(0.0, |c| c.anim.duration) * w).sum();
+                self.start = Some((self.high as usize, self.stand, w, 0.0, len.max(0.05)));
+                debug!("anim: start from the stand (weights {w:.2?}, {len:.2} s, high {}, speed {speed:.2})", self.high);
+            }
         } else if !moving && self.was_moving {
+            self.start = None;
             self.stand = self.side ^ 1;
         }
         self.was_moving = moving;
@@ -501,6 +542,27 @@ impl Animator {
             sample(c, t * FPS, &mut brk, self.reference);
             let w = (t / 0.4).min((c.anim.duration - t) / 0.4).min(1.0);
             pose.blend(&brk, smooth(w));
+        }
+        if let (Some((p, f, w, t, len)), true) = (self.start, self.move_w > 0.0) {
+            // The start from the stand: its clips at the same fraction of their length, mixed by their weights.
+            let mut out = base.clone();
+            let mut acc = 0.0;
+            for (k, c) in self.starts[p][f].iter().enumerate() {
+                let (Some(c), wk) = (c.as_ref(), w[k]) else { continue };
+                if wk <= 0.002 {
+                    continue;
+                }
+                let mut one = base.clone();
+                sample(c, (t / len).min(1.0) * c.frames(), &mut one, self.reference);
+                acc += wk;
+                if acc <= wk + 1e-6 {
+                    out = one;
+                } else {
+                    out.blend(&one, wk / acc);
+                }
+            }
+            pose.blend(&out, smooth(self.move_w));
+            return pose;
         }
         if self.move_w > 0.0 && self.weights.iter().any(|w| *w > 0.0) && self.slots[0].iter().any(Option::is_some) {
             // AC1's blend: every weighted clip at the shared phase, mixed by its share of the weights.

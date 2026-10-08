@@ -124,7 +124,8 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["ground"],
         env: &[("AC1_START", "20,-45,-90"), ("AC1_WALK", "3.5"), ("AC1_TURN", "2")],
         secs: 3.5,
-        want: &["via xx_h_runturn180_footl_tr_walk_hipm_footl"],
+        // (Either foot: the one the turn comes on depends on where in the step it is pressed.)
+        want: &["via xx_h_runturn180_foot", "_tr_walk_hipm_foot"],
         never: &["EMBED"],
     },
     Scenario {
