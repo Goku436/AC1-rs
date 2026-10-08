@@ -332,6 +332,9 @@ const GRIP_OUT: f32 = 0.09;
 const GRIP_DOWN: f32 = 0.08;
 /// How far a hand may end from a hold and still count as on it.
 const HOLD_TOLERANCE: f32 = 0.2;
+/// Climbing up or down, how far (m) a hand may end from a hold: a city's holds are not on the clips' 0.6 m steps (AC1
+/// bends its moves to the next hold), and the move's correction carries the hands onto it.
+const HOLD_TOLERANCE_UP: f32 = 0.35;
 /// Room the body needs beside it climbing sideways (m), to its side's wall.
 const BODY_SIDE: f32 = 0.3;
 /// Corner moves steer onto the next face's holds this far from where their clips put the hands (m): a sidestep moves the
@@ -340,12 +343,13 @@ const CORNER_TOLERANCE: f32 = 0.6;
 /// Leaps steer onto a hold this far from where their clips land (m).
 const LEAP_TOLERANCE: f32 = 0.75;
 /// A foot this close in front of a wall is braced on it.
-/// (Hanging on a flush wall the ankles are 0.15-0.23 m from it; a wall set further back than the hold, such
-/// as a pole under a cap, gives the feet nothing to stand on.)
-const FOOT_REACH: f32 = 0.32;
+/// (Hanging on a flush wall the ankles are 0.15-0.23 m from it; a Damascus wall set 0.24 m back under its top hold
+/// leaves them 0.41 m off it, still braced in AC1.)
+const FOOT_REACH: f32 = 0.45;
 /// A wall gives footing under a hold only if it is at most this far behind the hold line (m; a flush wall's
-/// holds stick out 0.06 m, a city wall leaning in under its cornice 0.18 m, a pole under a cap is 0.28 m back).
-const RECESS_MAX: f32 = 0.22;
+/// holds stick out 0.06 m, a city wall leaning in under its cornice 0.18 m, a Damascus storey's top hold 0.29 m; a
+/// pole under a cap is 0.28 m back, and hangs from the wall by the footholds rule, there being no holds under it).
+const RECESS_MAX: f32 = 0.32;
 const FADE: f32 = 0.12;
 /// Crossfade from ground locomotion into a climb or jump, and the time the root takes to turn.
 const ENTER_FADE: f32 = 0.25;
@@ -497,6 +501,12 @@ const JUMP_RECEPTION_HARD_SPEED: f32 = 5.0;
 
 /// A hold this close (m, across) to where he stands on a post is along its top edge, to pull down onto.
 const POST_HOLD_REACH: f32 = 0.6;
+
+/// `AC1_CLIMB_WHY`: log why each climbing move tried is turned down (for tracing a wall that will not climb).
+fn why() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AC1_CLIMB_WHY").is_ok())
+}
 
 /// How he stands on a beam: facing along it with that foot ahead (0 left, 1 right), or across it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1381,6 +1391,10 @@ impl WallClimb {
         let planned = Transform { translation: start, rotation: face, ..*root };
         let mut w = WallClimb::new(ENTRY_STATE, normal);
         w.start(clip, ENTRY_STATE.into(), &planned);
+        // (Up or down onto the hold over the move: AC1 has the one entry, and a city's first hold is not at its height.)
+        if let Some(m) = &mut w.mv {
+            m.correct = Vec3::Y * (target.y - reach.y);
+        }
         w.ease_in(from, root);
         w.wait = lib.get(&format!("xx_climb_wait_{ENTRY_STATE}"));
         Some(w)
@@ -3861,7 +3875,12 @@ impl WallClimb {
     fn take_first(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, cands: Vec<Cand>) -> bool {
         let to_hangwall: Vec<bool> = cands.iter().map(|c| c.to == HANGWALL || c.to == HANGWALL_OPEN).collect();
         for (k, c) in cands.into_iter().enumerate() {
-            let Some(clips) = c.names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { continue };
+            let Some(clips) = c.names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else {
+                if why() {
+                    debug!("climb: {} : missing clips", c.names.join(" + "));
+                }
+                continue;
+            };
             let Some(end) = chain_end(&clips, rig, base, cr) else { continue };
             let end = end.world(root);
             let normal = (end.rot * root.rotation.inverse()) * self.normal;
@@ -3870,10 +3889,13 @@ impl WallClimb {
             let leap = c.names.first().is_some_and(|n| n.starts_with("xx_h_climbing_") || n.starts_with("xx_h_ladder_wait_tr_"));
             // (Corners too: where their hands land on the next face depends on how far along the wall the hands were.)
             let corner = c.names.first().is_some_and(|n| n.contains("_corner_"));
+            let vertical = c.names.first().is_some_and(|n| n.starts_with("xx_l_climb_") && (n.contains("_u_") || n.contains("_d_")));
             let reach = if leap {
                 LEAP_TOLERANCE
             } else if corner {
                 CORNER_TOLERANCE
+            } else if vertical {
+                HOLD_TOLERANCE_UP
             } else {
                 HOLD_TOLERANCE
             };
@@ -3888,8 +3910,16 @@ impl WallClimb {
                 .filter_map(|d| holds_within(level, &end.hands.map(|h| h - Vec3::Y * d), normal, reach))
                 .find(|t| (t[0].distance(t[1]) - apart).abs() < HANDS_APART_SLACK)
             else {
-                if corner {
-                    debug!("climb: {} : the hands land off the holds ({:.2?})", c.names[0], end.hands.map(|h| nearest_hold(level, h, normal).map(|n| n.2)));
+                if corner || why() {
+                    // (By how much: out from the wall, up, along it.)
+                    let along = Vec3::Y.cross(normal).normalize_or_zero();
+                    let off = end.hands.map(|h| {
+                        nearest_hold(level, h, normal).map(|n| {
+                            let d = n.1 - h;
+                            Vec3::new(d.dot(normal), d.y, d.dot(along))
+                        })
+                    });
+                    debug!("climb: {} : the hands land off the holds (out, up, along: {:.2?})", c.names[0], off);
                 }
                 continue;
             };
@@ -3900,8 +3930,20 @@ impl WallClimb {
             };
             let land = (targets[0] - end.hands[0] + targets[1] - end.hands[1]) * 0.5;
             if !feet_fit_at(level, &end.feet.map(|f| f + land), normal, c.feet, Some((targets[0] + targets[1]) * 0.5)) {
-                if corner {
-                    debug!("climb: {} : no wall for the feet", c.names[0]);
+                if corner || why() {
+                    // (What is there: each foot's wall, how far in from the foot and how far behind the hold line.)
+                    let hold = (targets[0] + targets[1]) * 0.5;
+                    let seen: Vec<String> = end
+                        .feet
+                        .iter()
+                        .map(|f| {
+                            let f = *f + land;
+                            level
+                                .raycast(f + normal * 0.3, -normal, 1.5)
+                                .map_or("none".into(), |h| format!("{:.2} in, {:.2} behind the hold", h.dist - 0.3, (hold - h.point).dot(normal)))
+                        })
+                        .collect();
+                    debug!("climb: {} : no wall for the feet ({})", c.names[0], seen.join("; "));
                 }
                 continue;
             }
@@ -3912,6 +3954,9 @@ impl WallClimb {
             let mut to_hang = Vec3::ZERO;
             if (c.to == "1m" || c.to == "2m") && !footholds(level, (targets[0] + targets[1]) * 0.5, normal) {
                 if !corner && to_hangwall[k + 1..].iter().any(|&h| h) {
+                    if why() {
+                        debug!("climb: {} : no footholds there (a hang move further on)", c.names[0]);
+                    }
                     continue;
                 }
                 let (Some(rest), Some(last)) = (lib.get(HANGWALL_REST), clips.last()) else { continue };
@@ -3930,6 +3975,9 @@ impl WallClimb {
                     level.raycast(root.translation + Vec3::Y * *h, side.normalize(), side.length() + BODY_SIDE).is_some_and(|w| w.normal.y.abs() < 0.5)
                 });
                 if into {
+                    if why() {
+                        debug!("climb: {} : the body would go into a wall beside", c.names[0]);
+                    }
                     continue;
                 }
             }
@@ -3950,10 +3998,13 @@ impl WallClimb {
             let down = if hang_offset(&c.to, normal) != Vec3::ZERO { HANG_DOWN } else { 0.0 };
             // (A corner keeps its error out from the new wall too: stopped short of the corner, the turn would end
             // inside the next wall.)
-            let flat = if corner { err } else { err - normal * err.dot(normal) };
-            // Between hangs of one kind (on the wall, or free), he stays as far out from the wall: a clip that drifts in
-            // (AC1's free-hang leaps, made for a flat wall) would put the body into a cornice over the hold.
-            let keep = if !corner && is_free(&self.state) == is_free(&c.to) { -normal * (end.pos - root.translation).dot(normal) } else { Vec3::ZERO };
+            // (Onto the wall, the hands go onto the holds in depth too: a storey set back above, a hold recessed into the
+            // wall, and the body follows the wall in, the feet still on it.)
+            let on_wall = !is_free(&c.to);
+            let flat = if corner || on_wall { err } else { err - normal * err.dot(normal) };
+            // Between free hangs he stays as far out from the wall: a clip that drifts in (AC1's free-hang leaps, made for
+            // a flat wall) would put the body into a cornice over the hold.
+            let keep = if !corner && !on_wall && is_free(&self.state) { -normal * (end.pos - root.translation).dot(normal) } else { Vec3::ZERO };
             let err = flat + keep + normal * out - Vec3::Y * down + to_hang;
             let tos = chain_states(clips.len(), &self.state, &c.to);
             self.start_chain(clips, tos, root, err);
