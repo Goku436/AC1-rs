@@ -335,6 +335,12 @@ const HOLD_TOLERANCE: f32 = 0.2;
 /// Climbing up or down, how far (m) a hand may end from a hold: a city's holds are not on the clips' 0.6 m steps (AC1
 /// bends its moves to the next hold), and the move's correction carries the hands onto it.
 const HOLD_TOLERANCE_UP: f32 = 0.35;
+/// AC1's climbing probe box round a grid cell (`BuildHoldGrid` 0xDF6A40, Banned445): 0.375 m along the wall (half a
+/// 0.75 m column), 0.3 m up or down (ours 0.32: the clips' hands are not exactly on the 0.6 m rows), 1.0 m in or out
+/// of the wall's plane (a storey set back, a sill sticking out).
+const GRID_ALONG: f32 = 0.375;
+const GRID_UP: f32 = 0.32;
+const GRID_DEPTH: f32 = 1.0;
 /// Room the body needs beside it climbing sideways (m), to its side's wall.
 const BODY_SIDE: f32 = 0.3;
 /// Corner moves steer onto the next face's holds this far from where their clips put the hands (m): a sidestep moves the
@@ -476,8 +482,9 @@ const BEAM_JOG: [&str; 2] = ["xx_h_beam_crouchjog_footl", "xx_h_beam_crouchjog_f
 /// Crouched on a beam (`HumanNarrowObject`): facing along it on the left or right foot ahead, or across it.
 const BEAM_WAIT: [&str; 2] = ["xx_l_beam_crouchwait_footl", "xx_l_beam_crouchwait_footr"];
 const BEAM_WAIT_ACROSS: &str = "xx_l_beam_crouchwait_90";
-/// Walking to a beam's end with nothing past it: the stop at the edge, then into the crouch on the right foot.
-const BEAM_EDGE_STOP: [&str; 3] = ["xx_l_beam_edge_stop", "xx_l_beam_edge_stop_tr_crouchwait_footr_a", "xx_l_beam_edge_stop_tr_crouchwait_footr_b"];
+/// Walking to a beam's end with nothing past it, the walk stops this far short of it (m; AC1's
+/// `ConstrainRootMotionToBeam`; its `xx_l_beam_edge_stop` clips are not used by the game).
+const BEAM_END_STOP: f32 = 0.3;
 
 /// A wall to go over with a hand on it (AC1's passover): its top this high over the feet (m; lower ones are jumped
 /// onto, higher ones caught), at most this deep, under `PASSOVER_THIN` the 30 cm clips (else the 1 m ones); the root
@@ -893,6 +900,27 @@ fn clip_state_names(lib: &AnimLib, from: &str, dir: &str) -> Vec<(String, String
         .collect()
 }
 
+/// The hold for a wrist at `wrist` in AC1's climbing probe box (`BuildHoldGrid` 0xDF6A40, docs/PARKOUR.md section 4):
+/// `GRID_ALONG` along the wall, `GRID_UP` up or down and `GRID_DEPTH` in or out of the wall; the nearest one in it.
+fn hold_in_box(level: &Level, wrist: Vec3, normal: Vec3) -> Option<Vec3> {
+    let along = Vec3::Y.cross(normal).normalize_or_zero();
+    level
+        .ledges
+        .iter()
+        .filter(|l| l.out.dot(normal) > 0.7)
+        .map(|l| grip_target(l.closest(wrist - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN), l.out))
+        .filter(|t| {
+            let d = *t - wrist;
+            d.dot(along).abs() <= GRID_ALONG && d.y.abs() <= GRID_UP && d.dot(normal).abs() <= GRID_DEPTH
+        })
+        .min_by(|a, b| (*a - wrist).length().total_cmp(&(*b - wrist).length()))
+}
+
+/// Both hands' holds in AC1's probe box (`hold_in_box`).
+fn holds_in_box(level: &Level, hands: &[Vec3; 2], normal: Vec3) -> Option<[Vec3; 2]> {
+    Some([hold_in_box(level, hands[0], normal)?, hold_in_box(level, hands[1], normal)?])
+}
+
 fn holds_within(level: &Level, hands: &[Vec3; 2], normal: Vec3, reach: f32) -> Option<[Vec3; 2]> {
     let t0 = nearest_hold(level, hands[0], normal).filter(|h| h.2 < reach)?;
     let t1 = nearest_hold(level, hands[1], normal).filter(|h| h.2 < reach)?;
@@ -1218,6 +1246,13 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
         .filter(|q| {
             let flat = (*q - from).with_y(0.0);
             JUMP_TARGET_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_TARGET_RISE.contains(&(q.y - from.y))
+        })
+        // (The way across clear over the higher of the two: a top under an awning or past a wall the flight meets is
+        // no target, else the jump stops in the air and drops back, over and over.)
+        .filter(|q| {
+            let flat = (*q - from).with_y(0.0);
+            let over = from.with_y(from.y.max(q.y) + JUMP_AC1_CLEAR);
+            level.raycast(over, flat.normalize_or_zero(), flat.length()).is_none()
         })
         .max_by(|a, b| {
             // Higher, nearer, and on the line the player steers along.
@@ -2534,8 +2569,9 @@ impl WallClimb {
             let along = axis * dir.dot(axis).signum();
             // Walk unless already at that end.
             let end = if along.dot(axis) > 0.0 { line.b } else { line.a };
-            // (Past the edge stop's step back from it, 0.16 m: held on, it would walk up to the edge and stop again.)
-            if (end - root.translation).with_y(0.0).length() > 0.3 {
+            // (Not from where the walk stops short of an end, `BEAM_END_STOP`: held on, it would start and stop again.)
+            let beyond = level.ground(end + along * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8);
+            if (end - root.translation).with_y(0.0).length() > if beyond || self.sprint { 0.15 } else { BEAM_END_STOP + 0.05 } {
                 self.start_beam_walk(lib, along);
                 return;
             }
@@ -2644,6 +2680,15 @@ impl WallClimb {
         let next = root.translation + cy.dir * cy.speed * dt;
         let q = line.closest(next);
         root.rotation = root.rotation.slerp(facing(cy.dir), 1.0 - (-10.0 * dt).exp());
+        // Walking to an end with nothing past it to step onto: AC1 stops `BEAM_END_STOP` short of it
+        // (`ConstrainRootMotionToBeam`), crouched there; free running goes on to jump from the end.
+        let end = if cy.dir.dot(line.axis()) > 0.0 { line.b } else { line.a };
+        let beyond = level.ground(end + cy.dir * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8);
+        if !self.sprint && !beyond && (end - q).with_y(0.0).dot(cy.dir) < BEAM_END_STOP {
+            debug!("climb: stopped short of the beam's end at {:.2}", root.translation);
+            stop(self, lib);
+            return;
+        }
         // (Any step past the end, along the beam: a fixed margin pinned a slow walk at high frame rates, each step shorter
         // than it; and the root a centimetre off the line is not past an end.)
         if (next - q).with_y(0.0).dot(cy.dir) > 1e-3 {
@@ -2656,16 +2701,7 @@ impl WallClimb {
                 self.exit_velocity = dir * speed;
                 self.finished = true;
             } else if !(self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir))) {
-                // At the edge with nothing past it: AC1's edge stop (else just crouch there).
-                match BEAM_EDGE_STOP.map(|n| lib.get(n)) {
-                    [Some(a), Some(b), Some(c)] => {
-                        self.cycle = None;
-                        self.beam_stance = Some(BeamStance::Along(1));
-                        debug!("climb: stopped at the beam's edge");
-                        self.start_chain(vec![a, b, c], vec![PERCH.into(), PERCH.into(), PERCH.into()], root, Vec3::ZERO);
-                    }
-                    _ => stop(self, lib),
-                }
+                stop(self, lib);
             }
             return;
         }
@@ -3532,7 +3568,8 @@ impl WallClimb {
         let reach = (top.point - front).with_y(0.0).length() + TOP_OUT_STAND_IN + 0.3;
         let open = [0.5, 1.2].iter().all(|h| level.raycast(front + Vec3::Y * *h, -self.normal, reach).is_none());
         if !headroom || !open || level.inside_solid(stand + Vec3::Y * 0.5) {
-            debug!("climb: no top-out: no room to stand at {stand:.2} (headroom {headroom}, open {open})");
+            let wall = [0.5, 1.2].map(|h| level.raycast(front + Vec3::Y * h, -self.normal, 3.0).map(|w| w.dist - 0.3));
+            debug!("climb: no top-out: no room to stand at {stand:.2} (headroom {headroom}, open {open}: a wall {wall:.2?} m past the edge)");
             return false;
         }
         // Nothing to stand on beside the hands (a post, the end of a wall): pull up with one hand.
@@ -3905,9 +3942,15 @@ impl WallClimb {
             let drops: &[f32] = if leap && !up { &[0.0, 0.6, 1.2] } else { &[0.0] };
             // (Both hands as far apart on the holds as in the clip: not one on each side of a gap.)
             let apart = end.hands[0].distance(end.hands[1]);
+            // (A plain climbing move finds its holds as AC1's grid does, in a box round where the clip puts each hand;
+            // leaps and corners steer onto the nearest within their reach.)
+            let plain = !leap && !corner;
             let Some(targets) = drops
                 .iter()
-                .filter_map(|d| holds_within(level, &end.hands.map(|h| h - Vec3::Y * d), normal, reach))
+                .filter_map(|d| {
+                    let hands = end.hands.map(|h| h - Vec3::Y * d);
+                    if plain { holds_in_box(level, &hands, normal) } else { holds_within(level, &hands, normal, reach) }
+                })
                 .find(|t| (t[0].distance(t[1]) - apart).abs() < HANDS_APART_SLACK)
             else {
                 if corner || why() {

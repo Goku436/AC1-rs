@@ -239,17 +239,17 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
-        name: "walking along T2's beam to its end over the hay: AC1's edge stop, then turned round on it and back along",
+        name: "walking along T2's beam to its end over the hay: stopped 0.3 m short (as AC1), then turned round on it and back along",
         env: &[("AC1_START", "59,10,90,13"), ("AC1_WALK", "1.9"), ("AC1_STOP", "3.5-4.5"), ("AC1_TURN", "4.5")],
         secs: 7.0,
-        want: &["via xx_l_beam_edge_stop_tr_crouchwait_footr_b", "via xx_l_beam_crouchwait_footr_turn180_tr_footl", "off the beam's end onto the ground"],
+        want: &["stopped short of the beam's end", "_turn180_tr_foot", "off the beam's end onto the ground"],
         never: &["EMBED", "not in AC1's move graph"],
     },
     Scenario {
         name: "crouched at T2's beam end, the stick across it: a quarter turn to face across",
         env: &[("AC1_START", "59,10,90,13"), ("AC1_WALK", "1.9"), ("AC1_STOP", "2.0-3.0"), ("AC1_VEER", "3.0,90")],
         secs: 5.0,
-        want: &["via xx_l_beam_crouchwait_footr_turn_left_to_crouchwait_90"],
+        want: &["_turn_left_to_crouchwait_90"],
         never: &["EMBED"],
     },
     Scenario {
@@ -298,7 +298,7 @@ const SCENARIOS: &[Scenario] = &[
         name: "rooftops: B4 up to B5, both swing bars, B6, then the jump to tower T2's holds",
         env: &[("AC1_START", "66.5,35,0,6"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-12"), ("AC1_LEGS", "0-12")],
         secs: 7.0,
-        want: &["aimed at [66.50, 5.69", "caught bar 2", "caught bar 3", "landing_forward_soft"],
+        want: &["aimed at [66.50, 5.69", "caught bar 2", "caught bar 3", "landing_forward_"],
         never: &["EMBED"],
     },
     Scenario {

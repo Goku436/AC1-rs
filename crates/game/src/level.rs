@@ -571,25 +571,6 @@ impl Level {
         push
     }
 
-    /// Where the body stands at `feet` (AC1's proxy on its bottom sphere): the ground under the feet, or, with a drop under
-    /// them, an edge the bottom sphere still rests on, its contact within 45 degrees of straight down (the feet up to
-    /// `BODY_RADIUS` sin 45 past the edge): past that he slides off it and falls. Searched from `up` above to `down` below.
-    pub fn support(&self, feet: Vec3, up: f32, down: f32) -> Option<Hit> {
-        let under = self.ground(feet, up, down);
-        if under.is_some_and(|g| feet.y - g.point.y < FALL_OFF_DROP) {
-            return under;
-        }
-        let rim = BODY_RADIUS * std::f32::consts::FRAC_1_SQRT_2;
-        let near = (0..8)
-            .filter_map(|k| {
-                let a = k as f32 * std::f32::consts::FRAC_PI_4;
-                self.ground(feet + Vec3::new(a.cos(), 0.0, a.sin()) * rim, 0.3, 0.1)
-            })
-            .filter(|g| g.normal.y > 0.7)
-            .max_by(|a, b| a.point.y.total_cmp(&b.point.y));
-        near.or(under)
-    }
-
     /// A ceiling within `extra` over the head of a body standing at `feet` (a face looking down).
     pub fn ceiling(&self, feet: Vec3, extra: f32) -> bool {
         self.raycast(feet + Vec3::Y * 1.0, Vec3::Y, BODY_HEIGHT - 1.0 + extra).is_some_and(|h| h.normal.y < -0.5)
@@ -1301,8 +1282,6 @@ const PROPS: Vec3 = Vec3::new(20.0, 0.0, -33.0);
 pub const BODY_RADIUS: f32 = 0.4;
 pub const BODY_HEIGHT: f32 = 1.8;
 pub const BODY_LIFT: f32 = 0.37;
-/// More than this under the feet (m) is a drop, not the ground (`support` looks for an edge the body still rests on).
-const FALL_OFF_DROP: f32 = 0.6;
 /// Faces whose normal is further than this from level (its up component) are floors or ceilings, not walls.
 const WALL_MAX_UP: f32 = 0.7;
 

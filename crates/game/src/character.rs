@@ -1096,8 +1096,9 @@ pub fn locomotion(
             }
         }
         embed_check(&level, tf.translation, "ground");
-        // (On an edge the bottom of the body still rests on: AC1's fall-off rule, `Level::support`.)
-        if let Some(g) = level.support(tf.translation, 0.6, 20.0) {
+        // (The fall starts at the edge line, the feet past it: AC1's ground loss, `HumanGround__CheckGroundLoss`, not the
+        // capsule sliding off the rim.)
+        if let Some(g) = level.ground(tf.translation, 0.6, 20.0) {
             if tf.translation.y > g.point.y + 0.6
                 && ch.fall_v == 0.0
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
