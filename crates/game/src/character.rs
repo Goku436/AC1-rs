@@ -862,6 +862,13 @@ pub fn locomotion(
                             .flatten()
                             .or_else(|| WallClimb::into_hay(lib, &level, &tf, ctl.high, pose()))
                             .or_else(|| WallClimb::leap_of_faith(lib, &level, &tf, facing, pose()));
+                        // Sprinting at a wall: run up it (AC1's interpreter tests the wall run before the ladder: up a wall
+                        // with a ladder on it, onto the ladder).
+                        ch.wall = ch.wall.take().or_else(|| {
+                            (v.length() > SPRINT_SPEED && wall_ahead(v.normalize(), crate::climb::WALL_RUN_REACH))
+                                .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, pose()))
+                                .flatten()
+                        });
                         // A ladder's foot or top: onto it (before the edge it stands at).
                         ch.wall = ch.wall.take().or_else(|| WallClimb::ladder(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose()));
                         // At an edge in low profile, or standing there in high profile: lower onto it and hang.

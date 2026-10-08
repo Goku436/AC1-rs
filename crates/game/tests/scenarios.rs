@@ -161,6 +161,14 @@ const SCENARIOS: &[Scenario] = &[
         never: &["_tr_l_walk_hipm_"],
     },
     Scenario {
+        name: "free running at block L's ladder: up the wall and onto the ladder (AC1's wall run before the ladder)",
+        tags: &["ladder", "wallrun"],
+        env: &[("AC1_START", "23.5,2.0,0"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-5")],
+        secs: 3.0,
+        want: &["wall run onto ladder", "-> ladder_l via xx_h_wallingfront_step1_footr_tr_h_ladder_up_l"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "up block L's ladder in high profile, off the top into a free step",
         tags: &["ladder"],
         env: &[("AC1_START", "23.5,-5.4,0"), ("AC1_CLIMB", "up=8"), ("AC1_HIGH", "0-9")],

@@ -2031,6 +2031,31 @@ impl WallClimb {
         if set_back || !wide_wall(level, root.translation + Vec3::Y, fwd, hit.dist) {
             return None;
         }
+        // A ladder up the wall in front: up it onto the ladder (AC1's `xx_h_wallingfront_step1_footr_tr_h_ladder_up_l`, on
+        // into its left-hand climb), the root steered onto the ladder's climbing spot.
+        let p = root.translation;
+        let along = Vec3::Y.cross(n).normalize_or_zero();
+        if let Some((i, l)) = level
+            .ladders
+            .iter()
+            .enumerate()
+            .find(|(_, l)| l.out.dot(n) > 0.9 && (l.base - hit.point).dot(along).abs() < 0.5 && l.base.y <= p.y + 0.5 && l.top >= p.y + 3.0)
+            && let Some(clips) =
+                WALL_RUN.iter().chain(["xx_h_wallingfront_step1_footr_tr_h_ladder_up_l"].iter()).map(|n| lib.get(n)).collect::<Option<Vec<_>>>()
+        {
+            let planned = *root;
+            let travel: Vec3 = clips.iter().map(|c| world_rot(planned.rotation) * root_motion_at(c, c.frames())).sum();
+            let spot = l.base + l.out * LADDER_OFF;
+            let correct = (spot - (p + travel)).with_y(0.0);
+            let mut w = WallClimb::new(WALL_RUN_STATE, n);
+            w.ladder = Some(i);
+            let k = clips.len();
+            let tos = (0..k).map(|j| if j + 1 == k { LADDER_L } else { WALL_RUN_STATE }.to_string()).collect();
+            w.start_chain(clips, tos, &planned, correct);
+            w.ease_in(from, root);
+            debug!("climb: wall run onto ladder {i}");
+            return Some(w);
+        }
         let mut w = match Self::grab(lib, level, root, rig, base, cr, fwd, &wall_run_options(), WALL_RUN_REACH, Some(0)) {
             Some(w) => w,
             None => {

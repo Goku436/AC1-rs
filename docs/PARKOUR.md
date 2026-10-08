@@ -345,6 +345,9 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   Damascus → 1141 perches). **[V]**
 
 ## 9. Wall run, ladders, hay, swing bars
+- **Wall run onto a ladder** **[ours]**: sprinting at a wall with a ladder up it, the wall run comes first (as the
+  interpreter tests it before the ladder) and ends `xx_h_wallingfront_step1_footr_tr_h_ladder_up_l` (7° from
+  `xx_h_ladder_climb_up_l`'s start) on the ladder.
 - **Swing bars** **[V, ours]**: the stick not held forward at the top of a swing → AC1's stop
   (`xx_h_swing_stop_<front|back>_a..d`, the last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`: he
   hangs still from the bar; the stick forward swings him up again (`xx_h_swing_momentum_front_up`). The hay's hop out
