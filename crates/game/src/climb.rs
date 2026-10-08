@@ -702,6 +702,9 @@ struct Cycle {
     phase: f32,
     dir: Vec3,
     speed: f32,
+    /// A start played first (AC1's `xx_<l|h>_beam_crouchwait_<foot>_tr_crouch<walk|jog>_<other foot>`), the time into
+    /// it and its own speed; the cycle goes on from its end on the other foot.
+    intro: Option<(Arc<Clip>, f32, f32)>,
 }
 
 pub struct WallClimb {
@@ -2258,9 +2261,10 @@ impl WallClimb {
         Some(w)
     }
 
-    /// The clip playing now (a move), or the hang loop.
+    /// The clip playing now: a walk along a beam (its start, then its steps), a move, or the hang loop.
     pub fn clip_name(&self) -> Option<&str> {
-        self.mv.as_ref().map(|m| m.clip.name.as_str()).or(self.wait.as_ref().map(|w| w.name.as_str()))
+        let cycle = self.cycle.as_ref().map(|c| c.intro.as_ref().map_or(c.clips[c.foot].name.as_str(), |i| i.0.name.as_str()));
+        cycle.or(self.mv.as_ref().map(|m| m.clip.name.as_str())).or(self.wait.as_ref().map(|w| w.name.as_str()))
     }
 
     /// Velocity in the air (m/s), if falling.
@@ -2754,7 +2758,20 @@ impl WallClimb {
         let names = if self.sprint { BEAM_JOG } else { BEAM_WALK };
         let (Some(a), Some(b)) = (lib.get(names[0]), lib.get(names[1])) else { return };
         let speed = root_motion_at(&a, a.frames()).length() / a.anim.duration.max(1e-3);
-        self.cycle = Some(Cycle { clips: [a, b], foot: 0, phase: 0.0, dir, speed });
+        // From the crouch on a foot facing along the beam: AC1's start (0x34662CB4 / B5) on into the other foot's step.
+        let feet = ["footl", "footr"];
+        let intro = match self.beam_stance {
+            Some(BeamStance::Along(f)) => {
+                let (p, gait) = if self.sprint { ("h", "crouchjog") } else { ("l", "crouchwalk") };
+                lib.get(&format!("xx_{p}_beam_crouchwait_{}_tr_{gait}_{}", feet[f], feet[1 - f])).map(|c| {
+                    let v = root_motion_at(&c, c.frames()).length() / c.anim.duration.max(1e-3);
+                    (f, c, v)
+                })
+            }
+            _ => None,
+        };
+        let foot = intro.as_ref().map_or(0, |(f, _, _)| 1 - f);
+        self.cycle = Some(Cycle { clips: [a, b], foot, phase: 0.0, dir, speed, intro: intro.map(|(_, c, v)| (c, 0.0, v)) });
         self.fade = self.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
     }
 
@@ -2776,10 +2793,20 @@ impl WallClimb {
             w.fade = w.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
         };
         if self.move_dir.with_y(0.0).normalize_or_zero().dot(cy.dir) < BEAM_WALK_COS {
+            // Jogging, let go: AC1's jog stop on the foot it was on (0x3466339D / 9E), into the crouch on it.
+            let foot = cy.foot;
+            let feet = ["footl", "footr"];
+            let names = [format!("xx_h_beam_crouchjog_stop_{}", feet[foot]), format!("xx_h_beam_crouchjog_stop_{0}_tr_crouchwait_{0}", feet[foot])];
+            let clips = if self.sprint && cy.intro.is_none() { names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() } else { None };
             stop(self, lib);
+            if let Some(clips) = clips {
+                let r = Transform { translation: line.closest(root.translation), ..*root };
+                self.start_chain(clips, vec![PERCH.to_string(); 2], &r, Vec3::ZERO);
+            }
             return;
         }
-        let next = root.translation + cy.dir * cy.speed * dt;
+        let speed = cy.intro.as_ref().map_or(cy.speed, |i| i.2.max(0.3));
+        let next = root.translation + cy.dir * speed * dt;
         let q = line.closest(next);
         root.rotation = root.rotation.slerp(facing(cy.dir), 1.0 - (-10.0 * dt).exp());
         // Walking to an end with nothing past it to step onto: AC1 stops `BEAM_END_STOP` short of it
@@ -2808,6 +2835,13 @@ impl WallClimb {
             return;
         }
         root.translation = q;
+        if let Some((c, t, _)) = &mut cy.intro {
+            *t += dt;
+            if *t >= c.anim.duration {
+                cy.intro = None;
+            }
+            return;
+        }
         cy.phase += dt / cy.clips[cy.foot].anim.duration.max(1e-3);
         if cy.phase >= 1.0 {
             cy.phase -= 1.0;
@@ -4838,8 +4872,10 @@ impl WallClimb {
     pub fn pose(&mut self, base: &Pose, cr: ClimbRig, rig: &Rig, mirror: &ik::mirror::Mirror) -> Pose {
         let mut pose = base.clone();
         if let Some(cy) = &self.cycle {
-            let clip = &cy.clips[cy.foot];
-            sample(clip, cy.phase * clip.frames(), &mut pose, cr.reference);
+            match &cy.intro {
+                Some((c, t, _)) => sample(c, t * FPS, &mut pose, cr.reference),
+                None => sample(&cy.clips[cy.foot], cy.phase * cy.clips[cy.foot].frames(), &mut pose, cr.reference),
+            }
         } else {
             match (&self.mv, &self.wait) {
                 (Some(m), _) => {
