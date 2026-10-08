@@ -211,6 +211,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "via xx_l_climb_1m_r_2m at [4"],
     },
     Scenario {
+        name: "walking in low profile toward the 2.5 m block's edge: AC1's edge halt, stopped at it, not off it",
+        env: &[("AC1_START", "-5,-13,180,3"), ("AC1_WALK", "1.9"), ("AC1_STICK", "1")],
+        secs: 4.0,
+        want: &[],
+        never: &["landed from", "fall -> fall", "EMBED"],
+    },
+    Scenario {
         name: "running jump at the 1.4 m passover wall (0.3 m deep): a hand on its top, over it (AC1's passover) and down",
         env: &[("AC1_START", "-18,-34,0"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "0.9")],
         secs: 3.5,

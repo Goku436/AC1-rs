@@ -607,9 +607,11 @@ fn ground_move(
     // Standing, steered away from the facing: turn on the spot, a quarter or a half turn to that side (AC1's
     // `waitturn_<left|right>_<090|180>`, low or high profile), then on into the walk or jog (or, the stick let go
     // during the turn, its stand).
-    if speed < 0.3 && wants && !ch.blend {
+    let angle = fwd.cross(input).y.atan2(fwd.dot(input));
+    // (Also from a low-profile walk, steered more than 90 degrees off: AC1's pivot, state 25, guard 0xD84F10.)
+    let walking_round = !ctl.high && speed <= WALK_STOP_SPEED && angle.abs() > std::f32::consts::FRAC_PI_2;
+    if (speed < 0.3 || walking_round) && wants && !ch.blend {
         let p = if ctl.high { "h" } else { "l" };
-        let angle = fwd.cross(input).y.atan2(fwd.dot(input));
         let side = if angle > 0.0 { "left" } else { "right" };
         let turn = match angle.abs() {
             a if a < TURN_MIN => return None,
@@ -622,6 +624,12 @@ fn ground_move(
     }
     None
 }
+
+/// Walking in low profile at an edge, a drop deeper than this (m) halts the walk this close to it (AC1's interpreter).
+const EDGE_HALT_DROP: f32 = 2.0;
+const EDGE_HALT_REACH: f32 = 0.16;
+/// Up to this speed (m/s, the walk band's top) letting go of the stick stops at once, and steering round pivots.
+const WALK_STOP_SPEED: f32 = 2.1;
 
 /// Standing, steering this far off the facing (radians) turns on the spot; past `TURN_HALF`, a half turn.
 const TURN_MIN: f32 = 0.8;
@@ -1014,6 +1022,21 @@ pub fn locomotion(
         }
         // Ground: accelerate toward desired velocity, turn to face it, follow the ground height.
         let mut target_v = ctl.move_dir.normalize_or_zero() * ctl.speed;
+        // AC1's low-profile edge halt (the interpreter's, 0xEE7BDA, docs/PARKOUR.md): walking at an edge with a drop
+        // of more than 2 m, the walk stops right at it, no clip (deeper drops got the ledge stop above).
+        if !ctl.high && !ctl.free_run && !ch.blend {
+            let dir = target_v.with_y(0.0).normalize_or_zero();
+            let at = tf.translation + dir * EDGE_HALT_REACH;
+            if dir != Vec3::ZERO && level.ground(at, 0.3, EDGE_HALT_DROP).is_none() && level.ground(tf.translation, 0.3, 0.3).is_some() {
+                target_v = Vec3::ZERO;
+                ch.velocity = ch.velocity.with_x(0.0).with_z(0.0);
+            }
+        }
+        // Letting go of the stick at a walk: AC1 stops at once (Idle 0xD8B220, the wait blended in over 0.2 s); faster
+        // ones play the run stop (`ground_move`).
+        if ctl.move_dir.length() < 0.01 && ch.velocity.with_y(0.0).length() <= WALK_STOP_SPEED && ch.wall.is_none() {
+            ch.velocity = ch.velocity.with_x(0.0).with_z(0.0);
+        }
         // After a ledge stop, hold back from the edge until steering away or free running.
         if let Some(n) = ch.edge_lock {
             if ctl.free_run || ctl.move_dir.normalize_or_zero().dot(n) < 0.3 {

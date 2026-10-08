@@ -82,6 +82,32 @@ finding, **[?]** not known yet.
 - **Character proxy**: capsule radius 0.4 (0.35 + 0.05 keep distance), height 1.8, floating 0.37 m over the feet
   (step), stick-to-ground cast 0.58 m (0x57D240). **[B, ours]**
 
+### What the ground does with the input, in order (the interpreter 0xEE65A0 and the ground's update) **[B]**
+1. **Stick let go**: at jog or faster (high profile) → the run stop (`RunStop` 0xD98E30, guard 0xD7EC90), its root
+   motion, then its settle into the wait; in the walk band → the wait with a 0.2 s blend, stopped at once (Idle
+   0xD8B220). After a landing the landing's own exit leads to the wait (no second slide).
+2. **Stick pulled back** (more than 135° off the facing) at a run in high profile → the run stop (a skid), then from
+   standing the pivot: the skid turn.
+3. **Pivot** (state 25, 0xDA6150): the wanted heading more than 90° off, from standing or from a low-profile walk → a
+   turn clip by side, [from, to] profile and leading foot, blending its 90° and 180° clips by (|a| − 90°)/90°; the
+   clip's root yaw turns the body.
+4. **Low-profile edge halt** (0xEE7BDA): an edge in the stick's direction within 0.16 m, a drop of more than 2 m, its
+   normal within 70° of the facing → the wanted speed is zeroed: the walk stops at the edge, no clip (2-5 m drops;
+   deeper ones get the ledge stop).
+5. **Start from standing** (0xD98990) when the stick moves.
+6. **Wall run** (event 49), tested before the jumps and the grab: high profile, the legs pressed, the stick within 45°
+   of the facing, and the wall test 0xE18390.
+7. **Beam** (event 72): a beam in the box ahead (±0.75 m across, 0-1 m up, ±0.53 m) while moving.
+8. **Ladder** (event 38): a ladder within reach, the character in front of it within 90°.
+9. **Grab / climb start**: high profile + legs into a wall (section 3).
+10. **Ledge stop** (event 69): a front edge within 0.15 m with more than 5 m of drop, not free running (free running
+    jumps first).
+11. **Pull-down** (event 70) at an edge.
+12. **Jump** (`JumpToGuidanceTarget`, IHuman vt24): high profile + the legs buffered + the stick past the dead zone →
+    the best target (section 6); free running with the legs held also jumps at an edge (Banned445's model of it).
+- Busy: while the playing item is locked (gate 0x20) none of these start; a one-shot that allows leaving for moving
+  in this profile is left at once for the locomotion.
+
 ## 4. Climb (`HumanClimb`)
 The climbing is a grid, not free placement:
 - Every wait frame a **hold grid** is built around the feet (`BuildHoldGrid` 0xDF6A40): columns 0.75 m, rows 0.6 m,
