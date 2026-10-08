@@ -821,6 +821,12 @@ pub fn nearest_hold(level: &Level, wrist: Vec3, normal: Vec3) -> Option<(Ledge, 
         .min_by(|a, b| a.2.total_cmp(&b.2))
 }
 
+/// Where a hand at `wrist` grips ledge `l`, and how far that is (`nearest_hold` for one ledge).
+pub fn hold_on(l: &Ledge, wrist: Vec3) -> (Vec3, f32) {
+    let target = grip_target(l.closest(wrist - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN), l.out);
+    (target, (target - wrist).length())
+}
+
 /// World rotation of the model frame for a root rotation.
 fn world_rot(root_rot: Quat) -> Quat {
     root_rot * model_to_bevy()

@@ -189,6 +189,10 @@ pub struct Character {
     pub gait: crate::gait::Gait,
     /// Climbing: each foot's smoothed distance onto the wall (see the climbing IK).
     pub wall_feet: [Option<f32>; 2],
+    /// Each climbing hand's pull onto the nearest hold (0..1), changed at most `HAND_IK_RATE` a second.
+    pub wall_hand_w: [f32; 2],
+    /// The hold each climbing hand is pulled onto now: kept until the pull has faded, then the nearest one taken.
+    pub wall_hand_t: [Option<crate::level::Ledge>; 2],
     /// How much the climbing IK (hands on holds, feet on the wall) applies now (0..1, faded).
     pub wall_ik_w: f32,
     /// How much ground foot placement applies now (0..1, faded: see the IK).
@@ -425,6 +429,8 @@ pub fn spawn_character(
         limp: false,
         gait: Default::default(),
         wall_feet: [None; 2],
+        wall_hand_w: [0.0; 2],
+        wall_hand_t: [None; 2],
         foot_ik_w: 0.0,
         wall_ik_w: 0.0,
         mirror: ik::mirror::Mirror::new(&rig),
@@ -702,6 +708,8 @@ const TURN_FLIP_SHORT: f32 = 0.08;
 /// (AC1's `LimbIK__SolveEffectors` 0xE57570, Banned445). Both the climbing hands and feet and the ground's feet.
 const IK_IN_RATE: f32 = 4.0;
 const IK_OUT_RATE: f32 = 5.0;
+/// How fast a climbing hand's pull onto a hold may change (per second).
+const HAND_IK_RATE: f32 = 6.0;
 /// Changing profile while standing (slower than this, m/s) fades between the stands over this long (s).
 const STAND_FADE_SPEED: f32 = 0.5;
 const STAND_FADE: f32 = 0.3;
@@ -1453,9 +1461,27 @@ pub fn animate(
             for i in 0..2 {
                 let arm = b.arms[i];
                 let wrist = world_from_model.transform_point3(pose.model_of(rig, arm.hand).pos);
-                if let Some((_, target, d)) = crate::climb::nearest_hold(&level, wrist, n) {
-                    // Full correction near a hold, none while the hand travels between holds.
-                    let wgt = 1.0 - ((d - 0.06) / 0.14).clamp(0.0, 1.0);
+                let near = crate::climb::nearest_hold(&level, wrist, n);
+                // Full correction near a hold, none while the hand travels between holds; changed no faster than
+                // `HAND_IK_RATE` (a hand passing a hold on a 1.2 m reach was pulled onto it and let go in a frame or two,
+                // 10-16 cm).
+                // (One hold at a time: a hand pulled onto one lets go of it before the next is taken, else it jumped
+                // from hold to hold as the nearest changed.)
+                let same = |a: &crate::level::Ledge, b: &crate::level::Ledge| a.a == b.a && a.b == b.b;
+                let switching = matches!((&ch.wall_hand_t[i], &near), (Some(t), Some((l, _, _))) if !same(t, l));
+                if ch.wall_hand_t[i].is_none() || (switching && ch.wall_hand_w[i] <= 0.0) {
+                    ch.wall_hand_t[i] = near.map(|(l, _, _)| l);
+                }
+                let held = ch.wall_hand_t[i].as_ref().map(|l| crate::climb::hold_on(l, wrist));
+                let switching = matches!((&ch.wall_hand_t[i], &near), (Some(t), Some((l, _, _))) if !same(t, l));
+                let want = match held {
+                    Some((_, d)) if !switching => 1.0 - ((d - 0.06) / 0.14).clamp(0.0, 1.0),
+                    _ => 0.0,
+                };
+                let step = HAND_IK_RATE * dt;
+                ch.wall_hand_w[i] = (ch.wall_hand_w[i] + (want - ch.wall_hand_w[i]).clamp(-step, step)).clamp(0.0, 1.0);
+                if let Some((target, _)) = held {
+                    let wgt = ch.wall_hand_w[i];
                     if wgt > 0.0 {
                         ch.debug_targets.push((target, Color::srgb(0.95, 0.75, 0.2)));
                         let elbow = pose.model_of(rig, arm.lower).pos;
@@ -1500,6 +1526,8 @@ pub fn animate(
             }
         } else {
             ch.wall_feet = [None; 2];
+            ch.wall_hand_w = [0.0; 2];
+            ch.wall_hand_t = [None; 2];
         }
 
         // --- Animated: AC1 clip + foot placement onto the level. Also through the moves made standing on the ground (a stop,
