@@ -359,10 +359,20 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - Our street jumps picked tops past awnings and walls (the flight stopped in the air and dropped back, over and
   over): targets must have a clear way across. **[ours]**
 
+## How far ours follows AC1's tables (2026-10-08)
+Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
+climbing stance (short / long tables, 10-way stick, redirects), the hangs (ledge-jump table, the sideways order), the
+ladder (`HumanLadderData`), the ground (the 17-clip move blend, the starts from standing, run stops, pivots and turns by
+their action items, landings by AC1's stick / speed rule), beams and posts (starts, jog stop, turns, side entry,
+impulse jumps), jumps (takeoff / flight / reception tables, the edge classification of 0xE18970) and the edge events (as
+the input interpreter sends them). Checked by mapping every action id Banned445's port lists for each context to its
+clips (`forge` example `action_clips`) against the clips our code plays: what is left unplayed is combat's (hurt
+falls, stumbles), other characters' (`cmaa_*`), and the leap of faith's code-driven fall (`xx_h_faith_jump_fall`; ours
+stretches the dive over the whole fall).
+
 ## Open questions
-- The game's own jump candidate list (IHuman vt56/64/68) and whether jump links are used by the player.
-- Which gate bit our `forge::graph::Gate` word holds is the move mask's bit 0 / 4 / 29 (the 64-bit mask at item +8 is
-  not the 12-byte flag word we read).
+- Whether the player's jumps ever use the navigation meshes' jump links (the candidates come from the guidance).
+- The move mask the interpreter checks (64 bits at the playing item's +8: jump bit 0, pull-down bit 4, look-down bit 29)
+  is not the 12-byte flag word we read; where it comes from in the action data.
 - Event 68's handler (a ground sub-state's) and event 119's guards in the game's own code (Banned445's values used).
-- Each item's gate word for every movement action (Banned's `item_flags.rs` is generated from the install: we can read
-  the same with `forge`).
+- The ledge stop's 0.15 m trigger (ours starts within 0.6 m and corrects its placement).
