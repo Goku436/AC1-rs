@@ -49,6 +49,7 @@ mod gait;
 mod gallery;
 mod jump;
 mod level;
+mod move_blend;
 mod nav;
 mod npc;
 mod pad;
@@ -879,8 +880,8 @@ const PICKPOCKET_REACH: f32 = 1.2;
 /// (`xx_l_walk_hipm`), high profile run (`xx_h_run_hipm`), free-run sprint (`xx_h_sprint_hipm`). On the ground the
 /// player's speed comes from `gait`.
 const WALK: f32 = 1.9;
-const RUN: f32 = 5.2;
-const SPRINT: f32 = 6.2;
+const RUN: f32 = 5.12;
+const SPRINT: f32 = 6.28;
 
 fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut Controller, &Transform, &mut Character), With<Player>>) {
     let Ok((mut ctl, tf, mut ch)) = q.single_mut() else { return };

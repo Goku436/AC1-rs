@@ -240,8 +240,11 @@ pub struct Animator {
     /// Moving last frame (a start begins its gait on the foot it stood on).
     was_moving: bool,
     gaits: Vec<Gait>,
-    /// The two gaits mixed now (lower, upper) and the upper one's weight.
+    /// The two gaits mixed now (lower, upper) and the upper one's weight (picking a gait up to resume from).
     mix: (usize, usize, f32),
+    /// AC1's 17 locomotion clips per foot (`move_blend::SLOTS`) and their weights now (`move_blend::weights`).
+    slots: [Vec<Option<Arc<Clip>>>; 2],
+    weights: [f32; 17],
     /// Banking: -1 (full right) to 1 (full left), smoothed; and the last root yaw seen.
     bank: f32,
     /// AC1's move-blend timers (`GAIT_ALTS`): the jog's slow-down weight and the sprint take-off's, and the speed value
@@ -321,6 +324,7 @@ impl Animator {
             info!("gait {} (banks {} / {}): {:.2} m/s, {:.2} s", n(&g.clips[0][0]), n(&g.clips[0][1]), n(&g.clips[0][2]), g.speed, g.duration);
         }
         let stands = ["l", "h"].map(|p| ["footl", "footr"].map(|f| lib.get_for(rig, &format!("xx_{p}_wait_hipm_{f}"))));
+        let slots = ["footl", "footr"].map(|f| crate::move_blend::SLOTS.iter().map(|n| lib.get_for(rig, &n.replace("{foot}", f))).collect::<Vec<_>>());
         Some(Self {
             idle,
             stands,
@@ -329,6 +333,8 @@ impl Animator {
             was_moving: false,
             gaits,
             mix: (0, 0, 0.0),
+            slots,
+            weights: [0.0; 17],
             bank: 0.0,
             slowdown: 0.0,
             settle: 1.0,
@@ -446,8 +452,23 @@ impl Animator {
         }
         self.move_w = (self.move_w + if moving { dt * 5.0 } else { -dt * 3.0 }).clamp(0.0, 1.0);
 
-        // The two gaits around this speed, mixed by where it falls between their natural speeds; played
-        // at the mix's natural speed's rate (beyond the slowest or fastest, faster or slower).
+        // AC1's blend (`move_blend`): 17 clips weighted by the speed value, the bank and the timers, on one clock whose
+        // step lasts Σw·T; played at the rate that matches its root speed to ours (the same, but for the turns' bank
+        // clips and the timers' clips, a little faster or slower).
+        if moving {
+            let shape = crate::move_blend::Shape { lean: 0.0, bank: self.bank, slowdown: self.slowdown, settle: self.settle };
+            self.weights = crate::move_blend::weights(value, shape);
+        }
+        let (step, natural) = crate::move_blend::step(&self.weights);
+        if step > 1e-3 && natural > 1e-3 && self.slots[0].iter().any(Option::is_some) {
+            let rate = if moving { (speed / natural).clamp(0.6, 1.6) } else { 1.0 };
+            self.phase += dt * rate / step;
+            if self.phase >= 1.0 {
+                self.phase -= 1.0;
+                self.side ^= 1;
+            }
+            return;
+        }
         let n = self.gaits.len();
         let upper = self.gaits.iter().position(|g| g.speed >= speed).unwrap_or(n - 1);
         let lower = upper.saturating_sub(1);
@@ -480,6 +501,24 @@ impl Animator {
             sample(c, t * FPS, &mut brk, self.reference);
             let w = (t / 0.4).min((c.anim.duration - t) / 0.4).min(1.0);
             pose.blend(&brk, smooth(w));
+        }
+        if self.move_w > 0.0 && self.weights.iter().any(|w| *w > 0.0) && self.slots[0].iter().any(Option::is_some) {
+            // AC1's blend: every weighted clip at the shared phase, mixed by its share of the weights.
+            let mut walk = base.clone();
+            let mut acc = 0.0;
+            for (k, w) in self.weights.iter().enumerate().filter(|(_, w)| **w > 0.002) {
+                let Some(c) = self.slots[self.side][k].as_ref() else { continue };
+                let mut one = base.clone();
+                sample(c, self.phase * c.frames(), &mut one, self.reference);
+                acc += w;
+                if acc <= *w + 1e-6 {
+                    walk = one;
+                } else {
+                    walk.blend(&one, w / acc);
+                }
+            }
+            pose.blend(&walk, smooth(self.move_w));
+            return pose;
         }
         if self.move_w > 0.0 {
             let mut walk = base.clone();

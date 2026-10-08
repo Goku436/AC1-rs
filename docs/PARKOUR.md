@@ -84,7 +84,11 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 - **Locomotion** is one action (0x05923BDB), an item per leading foot, each blending 17 clips by speed, hip lean
   (crowd avoidance, walk band) and bank (heading change, jog and up), with a jog slow-down timer and a sprint settle
   weight (`HumanGround__UpdateMoveBlend` 0xDA0810). The character moves by the blend's root motion, not by a speed.
-  **[B]** (ours: bands and banks, not the full 17-weight blend.)
+  **[B]** Ours since 2026-10-08 (`move_blend.rs`): the 17 weights by AC1's rules (four bands; the walk band's hip lean,
+  none here as there is no crowd avoidance, so walks never lean; the bank from the jog up; the jog's slow-down timer
+  shared with the jog's weight; the sprint's take-off weight), the clips on one clock whose step lasts Σw·T, and the
+  ground speed is the blend's own, Σw·d / Σw·T (1.90 walk, 3.54 jog, 5.12 run, 6.28 sprint, slower between bands than
+  a straight mix). No pose pops over curving walks, runs and free runs (`pops` example).
 - **Run stop**: `xx_h_{jog,run,sprint}stop_foot?`, weights [jog 0, run 1 − f, sprint f], f = clamp((s − 0.75)·4),
   then the stop's own `_tr_h_wait`. **[B]**
 - **Ground loss** (`HumanGround__CheckGroundLoss` 0xD87720): the drop report (the nearest LedgeGrab edge in a 0.75 m

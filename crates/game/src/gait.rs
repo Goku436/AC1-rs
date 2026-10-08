@@ -6,7 +6,7 @@
 //! steering more than 45 degrees off the facing holds the speed back while turning.
 //!
 //! Model and numbers from Banned445's AC1-Movement-Rewritten (MIT, Copyright (c) 2026 Banned445), rewritten
-//! here; the speeds in m/s are those of our gait clips' root motion.
+//! here; the speeds in m/s are those of AC1's blended locomotion clips (`move_blend`).
 
 /// Upper ends of the walk, jog and run bands.
 pub const BAND_WALK: f32 = 0.25;
@@ -32,11 +32,6 @@ const TURN_RANGE: f32 = std::f32::consts::FRAC_PI_4;
 const TURN_FLOOR: f32 = 0.1;
 const TURN_UP: f32 = 5.0;
 const TURN_DOWN: f32 = 10.0;
-
-/// Speeds (m/s) at the band ends 0, 0.25, 0.5, 0.75 and 1: the slow walk (`xx_l_walk_slow_hipm`, a shuffle: 0.17 m in
-/// 1.67 s), walk
-/// (`xx_l_walk_hipm`), jog (`xx_h_jog_hipm`), run (`xx_h_run_hipm`) and sprint (`xx_h_sprint_hipm`).
-const SPEEDS: [f32; 5] = [0.1, 1.9, 3.5, 5.2, 6.2];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Band {
@@ -72,24 +67,26 @@ pub fn wanted(stick: f32, high: bool, free_run: bool) -> f32 {
     (base + STICK_SPAN * stick.min(1.0)).min(1.0)
 }
 
-/// Ground speed (m/s) for a value.
+/// Ground speed (m/s) for a value: AC1's, the speed of its blended locomotion clips (`move_blend::steady_speed`: 1.9
+/// m/s at the walk band's top, 3.54 jog, 5.12 run, 6.28 sprint, slower between bands than a straight mix).
 pub fn speed(v: f32) -> f32 {
-    if v <= 0.0 {
-        return 0.0;
-    }
-    let x = v.min(1.0) * 4.0;
-    let i = (x.floor() as usize).min(3);
-    SPEEDS[i] + (SPEEDS[i + 1] - SPEEDS[i]) * (x - i as f32)
+    crate::move_blend::steady_speed(v.min(1.0))
 }
 
-/// The value for a ground speed (m/s): `speed`'s inverse (0 at or under the slow walk's).
+/// The value for a ground speed (m/s): `speed`'s inverse (0 at or under the slow walk's, 1 at or over the sprint's).
 pub fn value_at(s: f32) -> f32 {
-    if s <= SPEEDS[0] {
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    if s <= speed(1e-4) {
         return 0.0;
     }
-    let i = SPEEDS.windows(2).position(|w| s <= w[1]).unwrap_or(3);
-    let x = i as f32 + ((s - SPEEDS[i]) / (SPEEDS[i + 1] - SPEEDS[i])).min(1.0);
-    x / 4.0
+    if s >= speed(1.0) {
+        return 1.0;
+    }
+    for _ in 0..30 {
+        let mid = 0.5 * (lo + hi);
+        if speed(mid) < s { lo = mid } else { hi = mid }
+    }
+    0.5 * (lo + hi)
 }
 
 fn fall_rate(v: f32) -> f32 {
@@ -142,7 +139,8 @@ mod tests {
         assert_eq!(band(wanted(1.0, true, false)), Band::Run);
         assert_eq!(band(wanted(1.0, true, true)), Band::Sprint);
         assert_eq!(band(wanted(0.5, true, false)), Band::Run);
-        assert!((speed(1.0) - 6.2).abs() < 1e-5 && (speed(0.75) - 5.2).abs() < 1e-5 && (speed(0.25) - 1.9).abs() < 1e-5);
+        // (AC1's blended clips: walk 1.90, run 5.12, sprint 6.28 m/s.)
+        assert!((speed(1.0) - 6.28).abs() < 0.01 && (speed(0.75) - 5.12).abs() < 0.01 && (speed(0.25) - 1.9).abs() < 0.01);
     }
 
     #[test]
