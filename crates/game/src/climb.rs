@@ -2429,7 +2429,9 @@ impl WallClimb {
     pub fn lean(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, from: Option<Pose>) -> Option<WallClimb> {
         let dir = dir.with_y(0.0).normalize_or_zero();
         let p = root.translation;
-        let hit = level.raycast(p + Vec3::Y * 1.2, dir, 1.0).filter(|h| h.normal.y.abs() < 0.3)?;
+        // (Met at the waist: a wall about a metre tall leans too, with AC1's 70 cm clips mixed in; lower ones are the
+        // foot-up collide's.)
+        let hit = level.raycast(p + Vec3::Y * (LEAN_MIN_HEIGHT + 0.1), dir, 1.0).filter(|h| h.normal.y.abs() < 0.3)?;
         let normal = hit.normal.with_y(0.0).normalize();
         if dir.dot(-normal) < 0.8 || level.raycast(p + Vec3::Y * LEAN_MIN_HEIGHT, dir, hit.dist + 0.3).is_none() {
             return None;
@@ -4525,6 +4527,9 @@ impl WallClimb {
             && (m.to == LAND || m.to == GROUND)
             && self.queue.iter().all(|q| q.to == GROUND || q.to == LAND)
             && self.move_dir.with_y(0.0).length() > 0.3
+            // (Not before a jump onto a top has brought the root onto it: left early, he stood in the air short of a
+            // low wall and walked on through its face.)
+            && self.vault_path.is_none()
             && lib.graph.gate(&m.clip.name).is_some_and(|g| g.may_leave(true, self.high))
         {
             debug!("climb: {} left for running (its gate allows it)", m.clip.name);
