@@ -2538,6 +2538,13 @@ impl WallClimb {
             if err.length() > 1.0 || !feet_fit_at(level, &feet_end, normal, feet, Some((targets[0] + targets[1]) * 0.5)) {
                 continue;
             }
+            // (Not with the body inside the wall under the edge: a narrow wall top's own wall, the feet inside it
+            // seeing no wall and taking it for a free hang.)
+            let hips = end_pos + err + hang_offset(to, normal) + Vec3::Y * 1.0;
+            if level.inside_solid(hips) || level.inside_solid(hips - Vec3::Y * 0.6) {
+                debug!("climb: no pull-down into {to}: the body would be inside the wall");
+                continue;
+            }
             let mut w = WallClimb::new(to, normal);
             let k = clips.len();
             let tos = (0..k).map(|i| if i + 1 == k { to } else { DROP }.to_string()).collect();
