@@ -209,12 +209,20 @@ const GAITS: [[&str; 3]; 5] = [
     ["xx_h_run_hipm_{foot}", "xx_h_run_bank_left_{foot}", "xx_h_run_bank_right_{foot}"],
     ["xx_h_sprint_hipm_{foot}", "xx_h_run_bank_left_{foot}", "xx_h_run_bank_right_{foot}"],
 ];
+/// A gait's second straight clip, mixed in by a timer (AC1's `HumanGround__UpdateMoveBlend` 0xDA0810, Banned445's
+/// port): the jog's slow-down while slowing (the timer rises 1/s decelerating, falls 8/s accelerating and 4/s steady),
+/// the sprint's take-off at its start (held at 1 below the sprint band, falling 1/s once at full sprint).
+const GAIT_ALTS: [Option<&str>; 5] = [None, None, Some("xx_h_jog_slowdown_{foot}"), None, Some("xx_h_sprint_impultion_{foot}")];
 /// Turn rate (rad/s) at which a gait is fully banked.
 const FULL_BANK: f32 = 2.5;
 
-/// One gait: per foot, its straight clip and (if any) the left- and right-banking ones.
+/// One gait: per foot, its straight clip and (if any) the left- and right-banking ones, and its second straight clip
+/// (`GAIT_ALTS`).
 struct Gait {
     clips: [[Option<Arc<Clip>>; 3]; 2],
+    alt: [Option<Arc<Clip>>; 2],
+    /// Which timer weights `alt`: 1 the slow-down, 2 the sprint take-off.
+    alt_kind: u8,
     speed: f32,
     duration: f32,
 }
@@ -236,6 +244,11 @@ pub struct Animator {
     mix: (usize, usize, f32),
     /// Banking: -1 (full right) to 1 (full left), smoothed; and the last root yaw seen.
     bank: f32,
+    /// AC1's move-blend timers (`GAIT_ALTS`): the jog's slow-down weight and the sprint take-off's, and the speed value
+    /// last frame (`gait::value_at`).
+    slowdown: f32,
+    settle: f32,
+    last_value: f32,
     last_yaw: Option<f32>,
     side: usize,
     phase: f32,
@@ -276,11 +289,19 @@ impl Animator {
         let idle = lib.get_for(rig, IDLE)?;
         let mut gaits: Vec<Gait> = GAITS
             .iter()
-            .filter_map(|names| {
+            .zip(GAIT_ALTS)
+            .enumerate()
+            .filter_map(|(k, (names, alt))| {
                 let clips = ["footl", "footr"].map(|f| names.map(|n| lib.get_for(rig, &n.replace("{foot}", f))));
                 let straight = clips[0][0].clone()?;
                 clips[1][0].as_ref()?;
-                Some(Gait { speed: straight.speed, duration: straight.anim.duration, clips })
+                let alt = ["footl", "footr"].map(|f| alt.and_then(|n| lib.get_for(rig, &n.replace("{foot}", f))));
+                let alt_kind = match k {
+                    2 => 1,
+                    4 => 2,
+                    _ => 0,
+                };
+                Some(Gait { speed: straight.speed, duration: straight.anim.duration, clips, alt, alt_kind })
             })
             .collect();
         if gaits.is_empty() {
@@ -309,6 +330,9 @@ impl Animator {
             gaits,
             mix: (0, 0, 0.0),
             bank: 0.0,
+            slowdown: 0.0,
+            settle: 1.0,
+            last_value: 0.0,
             last_yaw: None,
             side: 0,
             phase: 0.0,
@@ -342,6 +366,22 @@ impl Animator {
         self.last_yaw = Some(yaw);
         let want = if speed > 0.15 { (rate / FULL_BANK).clamp(-1.0, 1.0) } else { 0.0 };
         self.bank += (want - self.bank) * (dt * 6.0).min(1.0);
+        // AC1's slow-down and take-off timers (`GAIT_ALTS`).
+        let value = crate::gait::value_at(speed);
+        let dv = value - self.last_value;
+        self.slowdown = if dv.abs() <= 0.0005 * dt.max(1e-3) * 60.0 {
+            (self.slowdown - dt * 4.0).max(0.0)
+        } else if dv < 0.0 {
+            (self.slowdown + dt).min(1.0)
+        } else {
+            (self.slowdown - dt * 8.0).max(0.0)
+        };
+        if value <= crate::gait::BAND_RUN {
+            self.settle = 1.0;
+        } else if value > 0.99 || dv < 0.0 {
+            self.settle = (self.settle - dt).max(0.0);
+        }
+        self.last_value = value;
         if let Some((clip, t)) = &mut self.oneshot {
             *t += dt;
             if *t >= clip.anim.duration {
@@ -436,6 +476,17 @@ impl Animator {
                 let at = |c: &Arc<Clip>, out: &mut Pose| sample(c, self.phase * c.frames(), out, self.reference);
                 if let Some(c) = &clips[0] {
                     at(c, out);
+                }
+                // (The jog's slow-down, the sprint's take-off, mixed into the straight clip by their timers.)
+                let alt_w = match self.gaits[g].alt_kind {
+                    1 => self.slowdown,
+                    2 => self.settle,
+                    _ => 0.0,
+                };
+                if let Some(c) = self.gaits[g].alt[self.side].as_ref().filter(|_| alt_w > 0.01) {
+                    let mut a = base.clone();
+                    at(c, &mut a);
+                    out.blend(&a, alt_w);
                 }
                 let banked = if self.bank > 0.0 { &clips[1] } else { &clips[2] };
                 if let Some(c) = banked.as_ref().filter(|_| self.bank.abs() > 0.02) {

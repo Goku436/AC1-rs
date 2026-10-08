@@ -1223,7 +1223,7 @@ fn bar_ahead(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
 
 /// Velocity that flies from `from` to `to` under gravity, and the flight time (longer for longer jumps).
 /// Where to jump to along `dir` from `from` (AC1's target choice, as the movement notes have it: within
-/// 45 degrees of the wanted direction, at most 3 m down, the highest first, then the nearest): a post or
+/// 45 degrees of the wanted direction, at most 3 m down, the nearest of the free-step ones): a post or
 /// beam (`skip`: the one stood on), or a walkable top across a gap.
 fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Option<Vec3> {
     let dir = dir.with_y(0.0).normalize_or_zero();
@@ -1289,14 +1289,9 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
             let top = from.y.max(q.y);
             [0.3, JUMP_AC1_CLEAR, 1.0].iter().all(|h| level.raycast(from.with_y(top + h), flat.normalize_or_zero(), (flat.length() - 0.3).max(0.0)).is_none())
         })
-        .max_by(|a, b| {
-            // Higher, nearer, and on the line the player steers along.
-            let score = |q: &Vec3| {
-                let flat = (*q - from).with_y(0.0);
-                (q.y - from.y) - 0.25 * flat.length() - 4.0 * (1.0 - flat.normalize().dot(dir))
-            };
-            score(a).total_cmp(&score(b))
-        })
+        // AC1's scorer (0xE96BF0, docs/PARKOUR.md section 6): of the free-step targets in the cone (tops, posts, beams),
+        // the nearest.
+        .min_by(|a, b| (*a - from).with_y(0.0).length().total_cmp(&(*b - from).with_y(0.0).length()))
 }
 
 fn ballistic(from: Vec3, to: Vec3) -> (Vec3, f32) {
@@ -4669,12 +4664,17 @@ impl WallClimb {
                     self.state = FALL.into();
                 }
                 debug!("climb: {} -> {} via {} at {:.2}", self.state, next.to, next.clip.name, root.translation);
-                // Crossfade the seam by how far the hands and feet jump (AC1 chains do not all line up).
+                // Crossfade the seam over the blend AC1's move graph gives that way (the transition's own time), else by how
+                // far the hands and feet jump (AC1 chains do not all line up).
                 if let Some(last) = &self.last {
-                    let mut next_pose = base.clone();
-                    sample(&next.clip, 0.0, &mut next_pose, cr.reference);
-                    let gap = seam_gap(rig, cr, last, &next_pose);
-                    let len = (gap * 0.3).clamp(0.05, 0.25);
+                    let len = match lib.graph.transition_blend(&done.clip.name, &next.clip.name).filter(|t| *t > 0.0) {
+                        Some(t) => t,
+                        None => {
+                            let mut next_pose = base.clone();
+                            sample(&next.clip, 0.0, &mut next_pose, cr.reference);
+                            (seam_gap(rig, cr, last, &next_pose) * 0.3).clamp(0.05, 0.25)
+                        }
+                    };
                     self.fade = Some((last.clone(), len, len));
                 }
                 self.mv = Some(Move {

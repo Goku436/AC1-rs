@@ -171,6 +171,12 @@ depth: see section 10).
 ## 6. Jump targets
 - AC1 always jumps at a target. The candidates are scored by `0xE96BF0`: within 45° of the wanted direction, no lower
   than 3 m down, the **highest** first, then the nearest. **[B]**
+  **[V]** More exactly, the scorer keeps a best candidate per kind (by the candidate's type bits): free-step targets
+  (type 1, or 0x10000 with sub-type 2) the **nearest**; the hang-type ones (type bits 0x80 with sub-types 0x10/0x20)
+  the nearest unless another is more than 2.5 m higher; the rest (within 45°, more than 3 m down excluded) the
+  **highest**. At the end a hang-type best wins over the nearest free-step one when it is at least as high and either
+  nearer or 2.5 m higher (target type 0x80 returned); else the free-step one. So onto tops, posts and beams AC1 jumps
+  at the nearest in the cone, not the highest.
 - The candidates are guidance: LedgeGrab edges facing the player (a roof edge: land 0.45 m in from it if at most
   1.3 m up; a ledge to hang from if higher, wall hang when a wall is under it, else free), thin wall tops (passover),
   beams, posts, ladders, bars. **[B: a reduced port; the game's own candidate list (IHuman vt56/64/68) is not
@@ -188,7 +194,9 @@ depth: see section 10).
   below within 9 m; kinds 1 and 2 (and kind-7 = 4) 2.7 m up, 5 m down, 4.2 m; kind-7 = 3: 3.7 m up, 4.3 m down, 9 m,
   the probe 0.7 m higher; kind 4: 1.3 m up within 2.0 m, from 0.45 m below; kind 3: 1.3 m up within 1.3 m, from 0.45
   m below. Which kind each caller passes (the ground's running jump, the wall's rebound 0xE365C0, the beam's
-  0xEE8EC0, ...) is still to map.
+  0xEE8EC0, ...) is still to map. **[V]** The ground's jump (the interpreter's call at 0xEE73ED) passes kind 0 (and a
+  character field, Human+0x994, as kind-7): the general volume, 3.0 m up, 5.0 m down, 9 m; the scorer then keeps
+  what is no lower than 3 m down.
 
 ## 7. Ledge (`HumanLedge`)
 - Hangs on two hand contacts on guidance edges. Wall hang: root 1.1 m below the hands, 0.5 m out; free hang: 2.4 m

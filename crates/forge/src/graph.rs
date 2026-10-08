@@ -19,40 +19,30 @@ pub struct Place {
     pub item: usize,
 }
 
-/// An item: its clips (names), blend-in time (s), its ways out (connector, destination action keys), and its gate
-/// word (see `Gate`).
-type ItemNode = (Vec<String>, f32, Vec<(u32, u32)>, u16);
+/// An item: its clips (names), blend-in time (s), its ways out (connector, destination action keys, the blend-in
+/// time of each), and its gate word (`Item::word`, see `Gate`).
+type ItemNode = (Vec<String>, f32, Vec<(u32, u32, f32)>, u32);
 
 /// An item's gate word, as the game reads it for the item playing (`ActionItem` +60, Banned445's trace; docs/PARKOUR.md
-/// section 2): the item's 12 flag bytes are its bits 0x10 << k.
+/// section 2; bits in `action::gate`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Gate(pub u16);
+pub struct Gate(pub u32);
 
 impl Gate {
-    /// The clip turns the body itself: the code's heading is not applied.
-    pub const TURNS: u16 = 0x10;
-    /// Locked: no new move or mode while it plays.
-    pub const LOCKED: u16 = 0x20;
-    /// May be left for standing, in low / high profile.
-    pub const STAND_LOW: u16 = 0x40;
-    pub const STAND_HIGH: u16 = 0x80;
-    /// May be left for moving, in low / high profile.
-    pub const MOVE_LOW: u16 = 0x200;
-    pub const MOVE_HIGH: u16 = 0x800;
-
-    pub fn has(self, bit: u16) -> bool {
+    pub fn has(self, bit: u32) -> bool {
         self.0 & bit != 0
     }
 
     /// Whether the item may be left now: for moving (else standing), in high profile (else low); never while locked.
     pub fn may_leave(self, moving: bool, high: bool) -> bool {
+        use crate::action::gate;
         let bit = match (moving, high) {
-            (true, false) => Self::MOVE_LOW,
-            (true, true) => Self::MOVE_HIGH,
-            (false, false) => Self::STAND_LOW,
-            (false, true) => Self::STAND_HIGH,
+            (true, false) => gate::LEAVE_MOVE_LOW,
+            (true, true) => gate::LEAVE_MOVE_HIGH,
+            (false, false) => gate::LEAVE_STAND_LOW,
+            (false, true) => gate::LEAVE_STAND_HIGH,
         };
-        !self.has(Self::LOCKED) && self.has(bit)
+        !self.has(gate::LOCKED) && self.has(bit)
     }
 }
 
@@ -78,13 +68,13 @@ impl MoveGraph {
                 let mut node = ActionNode::default();
                 for (k, item) in a.items.iter().enumerate() {
                     let clips: Vec<String> = item.clips.iter().filter_map(|&c| clip_name(c)).collect();
-                    let next: Vec<(u32, u32)> = item.transitions.iter().filter_map(Slot::inline).map(|t| (t.action, t.action2)).collect();
-                    g.targeted.extend(next.iter().flat_map(|&(c, d)| [c, d]));
+                    let next: Vec<(u32, u32, f32)> =
+                        item.transitions.iter().filter_map(Slot::inline).map(|t| (t.action, t.action2, t.blend.times[0])).collect();
+                    g.targeted.extend(next.iter().flat_map(|&(c, d, _)| [c, d]));
                     for c in &clips {
                         g.places.entry(c.clone()).or_default().push(Place { block: block.to_string(), action: a.key, item: k });
                     }
-                    let gate = item.flags.iter().enumerate().fold(0u16, |w, (k, &f)| if f != 0 { w | (0x10 << k) } else { w });
-                    node.items.push((clips, item.blend.times[0], next, gate));
+                    node.items.push((clips, item.blend.times[0], next, item.word()));
                 }
                 g.actions.insert(a.key, node);
             }
@@ -109,6 +99,26 @@ impl MoveGraph {
         self.actions.get(&p.action)?.items.get(p.item).map(|i| Gate(i.3))
     }
 
+    /// The blend-in time (s) of the way from `a` to `b` the graph lists: the transition of `a`'s item whose connector (or
+    /// destination) starts with `b`, else `b`'s next-item blend when `b` follows `a` in its action.
+    pub fn transition_blend(&self, a: &str, b: &str) -> Option<f32> {
+        for p in self.places(a) {
+            let Some(act) = self.actions.get(&p.action) else { continue };
+            let Some(item) = act.items.get(p.item) else { continue };
+            for &(c, d, t) in &item.2 {
+                for key in [c, d] {
+                    if self.actions.get(&key).and_then(|x| x.items.first()).is_some_and(|i| i.0.iter().any(|n| n == b)) {
+                        return Some(t);
+                    }
+                }
+            }
+            if let Some(next) = act.items.get(p.item + 1).filter(|i| i.0.iter().any(|n| n == b)) {
+                return Some(next.1);
+            }
+        }
+        None
+    }
+
     /// The clips that may follow `clip`: the next item of its action, and the first item of every connector and
     /// destination its item lists (all its listings).
     pub fn successors(&self, clip: &str) -> HashSet<&str> {
@@ -120,7 +130,7 @@ impl MoveGraph {
             }
             let Some(item) = a.items.get(p.item) else { continue };
             // (Through a connector, its own first item; the destination's too, for chains that skip it.)
-            for key in item.2.iter().flat_map(|&(c, d)| [c, d]) {
+            for key in item.2.iter().flat_map(|&(c, d, _)| [c, d]) {
                 if let Some(i) = self.actions.get(&key).and_then(|a| a.items.first()) {
                     out.extend(i.0.iter().map(String::as_str));
                 }
