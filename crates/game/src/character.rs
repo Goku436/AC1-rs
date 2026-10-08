@@ -1127,7 +1127,9 @@ pub fn locomotion(
                 WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.anim_pose.clone()))
             };
             ch.wall = low.or_else(|| edge.then(|| WallClimb::leap_of_faith(lib, &level, &tf, v, Some(ch.anim_pose.clone()))).flatten()).or_else(|| {
-                edge.then(|| WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, lead_left, Some(ch.anim_pose.clone()))).flatten()
+                // (Aimed by the stick too: landed on a post, the body still went the way of the last jump, and the jump on
+                // to a post off to the side went that way, found nothing and fell.)
+                edge.then(|| WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, lead_left, Some(ch.anim_pose.clone()))).flatten()
             });
             if ch.wall.is_some() {
                 ch.velocity = Vec3::ZERO;

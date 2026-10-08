@@ -666,6 +666,133 @@ fn hold_rows(strips: &mut Builder, level: &mut Level, origin: Vec3, along: Vec3,
     }
 }
 
+/// The parkour gauntlet (north-west, x -100 to -55, z 30 to 130): ten lanes run along +X, each a chain of moves for
+/// one scenario (tag `combo` in the scenarios), built from the spacings the course and the rooftops prove: 2 m
+/// platforms, posts 2.4 m apart, swing bars 4.4 m up and 2 m out, 2 m roof gaps, AC1's 0.6 m hold rows.
+fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec<(&'static str, Vec3)> {
+    let top = |k: f32| 1.79 + 0.6 * k;
+    let ramp = |w: &mut Builder, x0: f32, x1: f32, z: f32, h: f32| {
+        w.quad(Vec3::new(x0, 0.0, z - 2.0), Vec3::new(x0, 0.0, z + 2.0), Vec3::new(x1, h, z + 2.0), Vec3::new(x1, h, z - 2.0));
+        w.cuboid(Vec3::new(x0, 0.0, z - 2.0), Vec3::new(x1, 0.01, z + 2.0));
+    };
+    let platform = |w: &mut Builder, x0: f32, x1: f32, z: f32, h: f32| w.cuboid(Vec3::new(x0, 0.0, z - 2.0), Vec3::new(x1, h, z + 2.0));
+    // A beam along X with its top at `y`, 0.3 m wide.
+    let beam = |w: &mut Builder, level: &mut Level, x0: f32, x1: f32, z: f32, y: f32| {
+        w.cuboid(Vec3::new(x0, y - 0.2, z - 0.15), Vec3::new(x1, y, z + 0.15));
+        level.perches.push(Line { a: Vec3::new(x0, y, z), b: Vec3::new(x1, y, z) });
+    };
+    let post = |w: &mut Builder, level: &mut Level, x: f32, z: f32, y: f32| {
+        w.cuboid(Vec3::new(x - 0.2, 0.0, z - 0.2), Vec3::new(x + 0.2, y, z + 0.2));
+        level.perches.push(Line { a: Vec3::new(x, y, z), b: Vec3::new(x, y, z) });
+    };
+    // A swing bar across the lane (along Z), its uprights outside the path.
+    let bar = |w: &mut Builder, level: &mut Level, x: f32, z: f32, y: f32| {
+        for dz in [-1.7, 1.7] {
+            w.cuboid(Vec3::new(x - 0.1, 0.0, z + dz - 0.1), Vec3::new(x + 0.1, y + 0.1, z + dz + 0.1));
+        }
+        level.bars.push(Line { a: Vec3::new(x, y, z - 1.6), b: Vec3::new(x, y, z + 1.6) });
+    };
+    let up = |x: f32, z: f32| Vec3::new(x, 0.0, z);
+
+    // G1: up a ramp onto box L, along two beams with a gap between them, a swing bar, down onto a lower beam.
+    let z = 34.0;
+    ramp(walls, -96.0, -92.0, z, 2.0);
+    platform(walls, -92.0, -89.0, z, 2.0);
+    beam(walls, level, -89.0, -85.0, z, 2.0);
+    beam(walls, level, -83.0, -79.0, z, 2.0);
+    bar(walls, level, -77.0, z, 4.4);
+    beam(walls, level, -74.5, -70.5, z, 1.5);
+    platform(walls, -70.5, -67.0, z, 1.5);
+
+    // G2: a ladder up a 5 m block, a beam across to a second block, its beam out over a haystack: the leap of faith.
+    let z = 44.0;
+    walls.cuboid(Vec3::new(-90.0, 0.0, z - 1.5), Vec3::new(-87.0, 5.0, z + 1.5));
+    level.ladders.push(Ladder { base: Vec3::new(-90.08, 0.0, z), top: 5.0, out: Vec3::NEG_X });
+    beam(walls, level, -87.0, -83.0, z, 5.0);
+    walls.cuboid(Vec3::new(-83.0, 0.0, z - 1.5), Vec3::new(-79.0, 5.0, z + 1.5));
+    beam(walls, level, -79.0, -77.6, z, 5.0);
+    level.haystacks.push(HayStack { centre: Vec3::new(-76.2, 0.0, z), half: 1.3, height: 1.7 });
+
+    // G3: a wall with holds to run up (its west face) and climb over, across its roof, a 2 m gap to the next roof, off
+    // its far end to the ground.
+    let z = 55.0;
+    building(walls, strips, level, up(-90.0, z - 4.0), Vec3::new(-86.0, top(5.0), z + 4.0), &[Vec3::NEG_X]);
+    building(walls, strips, level, up(-84.0, z - 4.0), Vec3::new(-80.0, top(5.0), z + 4.0), &[]);
+
+    // G4: step up 0.6, jump onto a 1.2 m wall, up a ramp, a 2.5 m gap, down 1 m across a gap, down to the ground, over
+    // a 1.4 m passover wall.
+    let z = 64.0;
+    platform(walls, -94.0, -92.8, z, 0.6);
+    platform(walls, -89.0, -88.7, z, 1.2);
+    ramp(walls, -86.0, -82.0, z, 2.0);
+    platform(walls, -82.0, -78.0, z, 2.0);
+    platform(walls, -75.5, -71.0, z, 2.0);
+    platform(walls, -69.0, -64.0, z, 1.0);
+    walls.cuboid(Vec3::new(-59.0, 0.0, z - 2.0), Vec3::new(-58.7, 1.4, z + 2.0));
+
+    // G5: from box L, four posts zigzagging a metre off the line, a beam, a 2 m box at its end with a haystack 0.4 m
+    // past it to dive into (AC1 dives into hay from a top beside it; it has no dive off a beam).
+    let z = 74.0;
+    ramp(walls, -96.0, -92.0, z, 2.0);
+    platform(walls, -92.0, -89.0, z, 2.0);
+    for (x, dz) in [(-86.6, 0.0), (-84.4, 1.0), (-82.2, 0.0), (-80.0, 1.0)] {
+        post(walls, level, x, z + dz, 2.0);
+    }
+    beam(walls, level, -77.8, -73.8, z, 2.0);
+    platform(walls, -73.8, -71.8, z, 2.0);
+    level.haystacks.push(HayStack { centre: Vec3::new(-70.1, 0.0, z), half: 1.3, height: 1.7 });
+
+    // G6: two swing bars off a platform, down onto a post, post to post, onto a beam, along it to a platform.
+    let z = 84.0;
+    ramp(walls, -96.0, -92.0, z, 2.0);
+    platform(walls, -92.0, -89.0, z, 2.0);
+    bar(walls, level, -87.0, z, 4.4);
+    bar(walls, level, -83.6, z, 4.4);
+    post(walls, level, -80.5, z, 2.0);
+    post(walls, level, -78.1, z, 2.0);
+    beam(walls, level, -75.7, -71.7, z, 2.0);
+    platform(walls, -71.7, -68.0, z, 2.0);
+
+    // G7: climb a wall's holds (its west face), leap right across a 1.2 m gap onto the next wall's holds, up to its top.
+    let z = 94.0;
+    building(walls, strips, level, up(-92.0, z - 3.0), Vec3::new(-88.0, top(5.0), z + 1.0), &[Vec3::NEG_X]);
+    building(walls, strips, level, up(-92.0, z + 2.2), Vec3::new(-88.0, top(5.0), z + 6.0), &[Vec3::NEG_X]);
+
+    // G8: on a 5.39 m roof (AC1's ledge stop wants a drop over 5 m): the ledge stop at its east edge, the pull down into
+    // the hang, down its holds to the ground, on to a 1.2 m wall to jump onto.
+    let z = 104.0;
+    building(walls, strips, level, up(-96.0, z - 3.0), Vec3::new(-90.0, top(6.0), z + 3.0), &[Vec3::X]);
+    platform(walls, -84.0, -83.7, z, 1.2);
+
+    // G9: a 1.4 m passover wall, a wall with holds to run up and over, across its roof, a jump down onto a post.
+    let z = 114.0;
+    walls.cuboid(Vec3::new(-92.0, 0.0, z - 2.0), Vec3::new(-91.7, 1.4, z + 2.0));
+    building(walls, strips, level, up(-86.0, z - 3.0), Vec3::new(-82.0, top(3.0), z + 3.0), &[Vec3::NEG_X]);
+    post(walls, level, -79.0, z, 2.0);
+
+    // G10: a swing bar off a platform flung at a wall's holds 3 m on, up them, across its roof, a jump down onto a lower
+    // roof, off its end to the ground.
+    let z = 124.0;
+    ramp(walls, -96.0, -92.0, z, 2.0);
+    platform(walls, -92.0, -89.0, z, 2.0);
+    bar(walls, level, -87.0, z, 4.4);
+    building(walls, strips, level, up(-84.0, z - 3.0), Vec3::new(-80.0, top(4.0), z + 3.0), &[Vec3::NEG_X]);
+    building(walls, strips, level, up(-78.0, z - 3.0), Vec3::new(-74.0, top(2.0), z + 3.0), &[]);
+
+    vec![
+        ("G1: box L, two beams, swing bar, beam", Vec3::new(-90.0, 3.0, 34.0)),
+        ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
+        ("G3: wall run up, over, roof gap, drop", Vec3::new(-88.0, 6.5, 55.0)),
+        ("G4: step, jump onto, gaps, passover", Vec3::new(-80.0, 3.0, 64.0)),
+        ("G5: zigzag posts, beam, hay", Vec3::new(-83.0, 3.0, 74.0)),
+        ("G6: two bars, posts, beam", Vec3::new(-85.0, 5.4, 84.0)),
+        ("G7: climb, leap across, climb on", Vec3::new(-90.0, 6.5, 96.0)),
+        ("G8: ledge stop, pull down, climb down, jump onto", Vec3::new(-93.0, 6.5, 104.0)),
+        ("G9: passover, wall run up, roof, post", Vec3::new(-84.0, 5.5, 114.0)),
+        ("G10: bar to a wall, climb, roof, down a roof", Vec3::new(-82.0, 5.5, 124.0)),
+    ]
+}
+
 /// A test-level building from `lo` to `hi` (ground to roof): a hold along the roof's edge on every side, and on the
 /// faces listed (by outward normal) rows of holds every 0.6 m from 1.79 m up to it, to climb.
 fn building(walls: &mut Builder, strips: &mut Builder, level: &mut Level, lo: Vec3, hi: Vec3, climb: &[Vec3]) {
@@ -1136,7 +1263,8 @@ pub fn spawn_level(
     }
     add(f, Color::srgb(0.72, 0.68, 0.62), &mut level, &mut commands);
     let mut roofs = Builder { tris: vec![] };
-    let roof_labels = rooftops(&mut roofs, &mut ledge_geo, &mut level);
+    let mut roof_labels = rooftops(&mut roofs, &mut ledge_geo, &mut level);
+    roof_labels.extend(gauntlet(&mut roofs, &mut ledge_geo, &mut level));
     add(roofs, Color::srgb(0.8, 0.74, 0.64), &mut level, &mut commands);
     add(ledge_geo, Color::srgb(0.55, 0.5, 0.42), &mut level, &mut commands);
     // Haystacks are drawn but not part of the collision geometry.

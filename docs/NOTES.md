@@ -522,7 +522,7 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
 - Scenarios: `AC1_SCENARIOS=1 cargo test --release -p ac1 --test scenarios -- --nocapture`. They run 6 games at once
   (`AC1_SCENARIO_JOBS=n`), each ending at its time without a screenshot (`AC1_SCENARIO_SHOTS=1` keeps them);
   `AC1_SCENARIO_FILTER=text` runs only those whose name holds it, `AC1_SCENARIO_LOGS=dir` keeps each game's log there.
-  66 scenarios, about 135 s (56 took 560 s one at a time with screenshots, 108 s side by side; 4 at a time 161 s, 8
+  80 scenarios, about 150 s (56 took 560 s one at a time with screenshots, 108 s side by side; 4 at a time 161 s, 8
   104 s but with timing flakes). A game's start and exit cost about 4 s of each run
   (the scenarios themselves 339 s): one game teleporting between zones would save that, below what running them side
   by side gives, at the risk of one run's state leaking into the next.
@@ -531,7 +531,18 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
   `gaitseams` (how a gait's half-cycles join), `clipjumps` (jumps baked into a clip) and `clipseam` (which clips start
   where another ends: what a code-driven move goes on into when the move graph does not say). `AC1_VEER=secs,deg`
   turns a scripted walk's direction then (the stick swung mid-move); `AC1_STICK=1` has a scripted walk hold the stick
-  over (the speed from the gait model, as the player's).
+  over (the speed from the gait model, as the player's). `AC1_PATH="x,z;x,z;..[;stop]"` steers it through waypoints
+  (each passed within 1 m, at any height; `stop` lets go of the stick at the last).
+- The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
+  each, with a `combo` scenario each (`AC1_SCENARIO_TAGS=combo`, about 40 s): G1 box, two beams across a gap, a swing
+  bar, down onto a low beam (AC1's beam landing); G2 free running onto a ladder, up, a beam bridge, the leap of faith
+  into hay and the hop out; G3 a wall run up hold to hold, over, a roof gap, off the far end into the damage roll; G4
+  step up, jump onto 1.2 m, a ramp, a 2.5 m gap, down across a gap, the wall run over a passover wall; G5 four posts
+  zigzagging (the jump aimed by the stick), a beam, a box, the dive into hay beside it; G6 two swing bars, down onto a
+  post, post to post, onto a beam; G7 up a wall, along, the jump across a gap to the next wall, up and over; G8 the
+  ledge stop on a 5.4 m roof, the pull down, down the holds, the turn round into a run, the jump onto a wall; G9 the
+  passover, a wall run up and over, a jump down onto a post; G10 a swing bar flung at a wall's holds (the catch), up,
+  a jump down onto a lower roof, off it into the roll.
 The PIKVR test campaign (parkour, IK, visuals, research) is planned in `docs/PIKVR.md`.
 - `AC1_SURFACES="x,z,..."` logs every collision surface down a vertical line at each point and `AC1_RAYS` what rays
   hit (and whether from behind); `AC1_START="x,z,yaw,y"` starts on the ground under height y (not the highest roof).

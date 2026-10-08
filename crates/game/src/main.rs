@@ -26,7 +26,7 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
@@ -124,6 +124,11 @@ struct Script {
     steer: f32,
     /// Walking: from this time the direction is turned this far (radians, positive to the left; `AC1_VEER=secs,deg`).
     veer: Option<(f32, f32)>,
+    /// Walking: waypoints (x, z) the direction points at in turn (`AC1_PATH="x,z;x,z;.."`), each passed within
+    /// `PATH_REACH` (at any height); after the last, on the way the last leg went (or, ended by `;stop`, the stick let go).
+    path: Vec<Vec2>,
+    path_stop: bool,
+    path_at: std::sync::Mutex<(usize, Option<Vec3>)>,
     dir: std::sync::OnceLock<Vec3>,
     climb: Option<String>,
     jump: Vec<f32>,
@@ -150,6 +155,18 @@ fn main() {
             let (t, d) = s.split_once(',')?;
             Some((t.parse().ok()?, d.parse::<f32>().ok()?.to_radians()))
         }),
+        path: std::env::var("AC1_PATH")
+            .map(|s| {
+                s.split(';')
+                    .filter_map(|p| {
+                        let (x, z) = p.split_once(',')?;
+                        Some(Vec2::new(x.trim().parse().ok()?, z.trim().parse().ok()?))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        path_stop: std::env::var("AC1_PATH").is_ok_and(|s| s.trim_end().ends_with("stop")),
+        path_at: Default::default(),
         // (`secs`, or `from-to`: the direction let go only then, taken up again after.)
         stop: std::env::var("AC1_STOP").ok().and_then(|s| match s.split_once('-') {
             Some((a, b)) => Some((a.parse().ok()?, b.parse().ok()?)),
@@ -880,6 +897,8 @@ const PICKPOCKET_REACH: f32 = 1.2;
 /// (`xx_l_walk_hipm`), high profile run (`xx_h_run_hipm`), free-run sprint (`xx_h_sprint_hipm`). On the ground the
 /// player's speed comes from `gait`.
 const WALK: f32 = 1.9;
+/// A scripted waypoint (`AC1_PATH`) counts as passed this close (m, along the ground).
+const PATH_REACH: f32 = 1.0;
 const RUN: f32 = 5.12;
 const SPRINT: f32 = 6.277;
 
@@ -890,7 +909,24 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
         // (The direction first faced, kept: turning round must not follow the body.)
         let dir = *script.dir.get_or_init(|| Quat::from_rotation_y(script.steer) * tf.rotation * Vec3::NEG_Z);
         let dir = Quat::from_rotation_y(script.curve * t) * dir;
-        let dir = script.veer.filter(|(at, _)| t > *at).map_or(dir, |(_, a)| Quat::from_rotation_y(a) * dir);
+        let mut dir = script.veer.filter(|(at, _)| t > *at).map_or(dir, |(_, a)| Quat::from_rotation_y(a) * dir);
+        if !script.path.is_empty()
+            && let Ok(mut at) = script.path_at.lock()
+        {
+            let here = Vec2::new(tf.translation.x, tf.translation.z);
+            while at.0 < script.path.len() && here.distance(script.path[at.0]) < PATH_REACH {
+                info!("script: waypoint {} reached at [{:.2}, {:.2}]", at.0 + 1, here.x, here.y);
+                at.0 += 1;
+            }
+            if let Some(w) = script.path.get(at.0) {
+                let to = (*w - here).normalize_or_zero();
+                at.1 = Some(Vec3::new(to.x, 0.0, to.y));
+            }
+            dir = at.1.unwrap_or(dir);
+            if script.path_stop && at.0 >= script.path.len() {
+                dir = Vec3::ZERO;
+            }
+        }
         ctl.move_dir = if script.turn.is_some_and(|at| t > at) { -dir } else { dir };
         ctl.speed = speed;
         ctl.stick = script.stick.then_some(1.0);

@@ -3086,6 +3086,15 @@ impl WallClimb {
                 let (dir, reach) = (flat.normalize_or_zero(), flat.length() * t);
                 let q = l.closest((p + dir * reach.min(1.0)).with_y(y));
                 let q = if (q - p).with_y(0.0).dot(dir) < 0.5 { l.closest((p + dir * reach).with_y(y)) } else { q };
+                // (On a beam, not within 0.4 m of its ends: a landing there is ground's, as a beam's end meets a top, and
+                // a swing let go at a beam's near end came down there in a ground landing.)
+                let len = (l.b - l.a).length();
+                let q = if len > 1e-3 {
+                    let k = 0.4f32.min(len * 0.5);
+                    l.a + (l.b - l.a) / len * (q - l.a).dot((l.b - l.a) / len).clamp(k, len - k)
+                } else {
+                    q
+                };
                 let d = (q - p).with_y(0.0);
                 let (along, side) = (d.dot(dir), (d - dir * d.dot(dir)).length());
                 (t > 0.15 && along > 0.5 && along < reach + PERCH_MAGNET && side < 0.8 && arc_clear(level, p, (q - p).with_y(0.0) / t + Vec3::Y * v.y, t))
