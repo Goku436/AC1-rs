@@ -191,6 +191,8 @@ pub struct Character {
     pub wall_feet: [Option<f32>; 2],
     /// Each climbing hand's pull onto the nearest hold (0..1), changed at most `HAND_IK_RATE` a second.
     pub wall_hand_w: [f32; 2],
+    /// Each climbing foot's pull onto the wall (0..1), changed at most `HAND_IK_RATE` a second.
+    pub wall_foot_w: [f32; 2],
     /// How long (s) he has stood still on the ground (AC1 looks down over an edge after `LOOK_DOWN_STILL`).
     pub still_t: f32,
     /// The hold each climbing hand is pulled onto now: kept until the pull has faded, then the nearest one taken.
@@ -432,6 +434,7 @@ pub fn spawn_character(
         gait: Default::default(),
         wall_feet: [None; 2],
         wall_hand_w: [0.0; 2],
+        wall_foot_w: [0.0; 2],
         still_t: 0.0,
         wall_hand_t: [None; 2],
         foot_ik_w: 0.0,
@@ -1507,20 +1510,33 @@ pub fn animate(
             for i in 0..2 {
                 let leg = b.legs[i];
                 let ankle = world_from_model.transform_point3(pose.model_of(rig, leg.foot).pos);
-                let Some(hit) = level.raycast(ankle + n * 0.3, -n, 0.8) else {
-                    ch.wall_feet[i] = None;
-                    continue;
-                };
-                // How far to move the foot onto the wall, smoothed: a foot passing a hold meets its front 12 cm out
-                // from the wall for a moment, and a target jumping out and back twitches the leg.
-                let raw = (hit.point + n * 0.11 - ankle).dot(-n);
-                let d = match ch.wall_feet[i] {
-                    Some(prev) => prev + (raw - prev) * (1.0 - (-WALL_FOOT_RATE * dt).exp()),
-                    None => raw,
+                // (No wall in front of the foot, at a top: its pull fades out on the last offset, not at once: the foot
+                // jumped 15 cm going over a top.)
+                let hit = level.raycast(ankle + n * 0.3, -n, 0.8);
+                let d = match (hit, ch.wall_feet[i]) {
+                    (Some(hit), prev) => {
+                        // How far to move the foot onto the wall, smoothed: a foot passing a hold meets its front 12 cm
+                        // out from the wall for a moment, and a target jumping out and back twitches the leg.
+                        let raw = (hit.point + n * 0.11 - ankle).dot(-n);
+                        prev.map_or(raw, |p| p + (raw - p) * (1.0 - (-WALL_FOOT_RATE * dt).exp()))
+                    }
+                    (None, Some(prev)) => prev,
+                    (None, None) => {
+                        ch.wall_foot_w[i] = 0.0;
+                        continue;
+                    }
                 };
                 ch.wall_feet[i] = Some(d);
-                // Only pull feet that are near the wall onto it (not dangling ones), faded in by distance.
-                let wgt = 0.8 * (1.0 - ((d.abs() - 0.2) / 0.1).clamp(0.0, 1.0));
+                // Only pull feet that are near the wall onto it (not dangling ones), faded in by distance, changed no
+                // faster than `HAND_IK_RATE`.
+                let want = if hit.is_some() { 1.0 - ((d.abs() - 0.2) / 0.1).clamp(0.0, 1.0) } else { 0.0 };
+                let step = HAND_IK_RATE * dt;
+                ch.wall_foot_w[i] = (ch.wall_foot_w[i] + (want - ch.wall_foot_w[i]).clamp(-step, step)).clamp(0.0, 1.0);
+                if ch.wall_foot_w[i] <= 0.0 {
+                    ch.wall_feet[i] = None;
+                    continue;
+                }
+                let wgt = 0.8 * ch.wall_foot_w[i];
                 if wgt > 0.0 {
                     let t = ankle - n * d;
                     ch.debug_targets.push((t, Color::srgb(0.2, 0.9, 0.3)));
@@ -1542,6 +1558,7 @@ pub fn animate(
             ch.wall_feet = [None; 2];
             ch.wall_hand_w = [0.0; 2];
             ch.wall_hand_t = [None; 2];
+            ch.wall_foot_w = [0.0; 2];
         }
 
         // --- Animated: AC1 clip + foot placement onto the level. Also through the moves made standing on the ground (a stop,

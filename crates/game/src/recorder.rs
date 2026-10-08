@@ -22,14 +22,15 @@ pub struct Recorder {
     recent: VecDeque<(f32, Vec3, Vec<Vec3>, String)>,
 }
 
-/// A pose pop: a bone, relative to the root, moving at least this far (m) in a frame...
+/// A pose pop has to show both ways: a bone, relative to the root, moving at least `POP_MIN` (m) in a frame and more
+/// than `POP_FACTOR` times plus `POP_SPEED` (m/s) faster than the frame before (the `pops` example's test); and, in
+/// the world, its move jerking by `POP_MIN` from the frame before's. (Relative to the root alone a top-out read as a pop,
+/// the root at the feet shooting up while the hands hold; in the world alone every running foot plant did.)
 const POP_MIN: f32 = 0.04;
-/// ...and more than `POP_FACTOR` times and `POP_JUMP` m/s faster than the frame before (as the `pops` example).
 const POP_FACTOR: f32 = 3.0;
-const POP_JUMP: f32 = 1.5;
+const POP_SPEED: f32 = 1.5;
 
-/// The live pop check (`AC1_POP_CHECK`): `POP <bone> <metres> | <playing> <- <playing before>` in the log for each pop,
-/// judged as the `pops` example judges a recording.
+/// The live pop check (`AC1_POP_CHECK`): `POP <bone> <metres> | <playing> <- <playing before>` in the log for each pop.
 fn pop_check(rec: &mut Recorder, t: f32, root: Vec3, bones: Vec<Vec3>, state: String) {
     rec.recent.push_back((t, root, bones, state));
     while rec.recent.len() > 4 {
@@ -39,16 +40,18 @@ fn pop_check(rec: &mut Recorder, t: f32, root: Vec3, bones: Vec<Vec3>, state: St
         return;
     }
     let f = |k: usize| &rec.recent[k];
-    // (The bones are as of the frame before the root: each taken relative to the root a frame earlier.)
-    let rel = |k: usize, i: usize| f(k).2.get(i).copied().unwrap_or(Vec3::ZERO) - f(k - 1).1;
-    let (dt, dtp) = (f(2).0 - f(1).0, f(1).0 - f(0).0);
-    if dt <= 0.0 || dtp <= 0.0 || f(3).2.len() != f(2).2.len() || f(2).2.len() != f(1).2.len() {
+    if (1..4).any(|k| f(k).2.len() != f(0).2.len() || f(k).0 <= f(k - 1).0) {
         return;
     }
+    // (The bones are as of the frame before the root: each taken relative to the root a frame earlier.)
+    let rel = |k: usize, i: usize| f(k).2[i] - f(k - 1).1;
+    let v = |k: usize, i: usize| (f(k).2[i] - f(k - 1).2[i]) / (f(k).0 - f(k - 1).0);
+    let (dt, dtp) = (f(2).0 - f(1).0, f(1).0 - f(0).0);
     for (i, name) in BONES.iter().enumerate().take(f(3).2.len()) {
         let d = rel(3, i).distance(rel(2, i));
         let vp = rel(2, i).distance(rel(1, i)) / dtp;
-        if d > POP_MIN && d / dt > POP_FACTOR * vp + POP_JUMP {
+        let jerk = (v(3, i) - v(2, i)).length() * (f(3).0 - f(2).0);
+        if d > POP_MIN && d / dt > POP_FACTOR * vp + POP_SPEED && jerk > POP_MIN {
             warn!("POP {name} {d:.3} m at {t:.2} | {} <- {}", f(3).3, f(2).3);
         }
     }

@@ -4889,8 +4889,10 @@ impl WallClimb {
             }
             let done = self.mv.take().expect("move in progress");
             self.last_clip = Some(done.clip.name.clone());
-            // Move done: the wall normal turns with the root.
-            self.normal = (root.rotation * done.start_rot.inverse()) * self.normal;
+            // Move done: the wall normal turns with the clip's own turn of the root (not with an ease still under way:
+            // carried on into the next clip, it turned the normal off the wall and the hang squared up with a jump).
+            let turn = done.start_rot * root_delta(root_rotation_at(&done.clip, done.clip.frames())) * done.start_rot.inverse();
+            self.normal = turn * self.normal;
             self.state = done.to;
             if !self.queue.is_empty() {
                 let mut next = self.queue.remove(0);
