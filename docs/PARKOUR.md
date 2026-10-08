@@ -116,6 +116,25 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 - **Character proxy**: capsule radius 0.4 (0.35 + 0.05 keep distance), height 1.8, floating 0.37 m over the feet
   (step), stick-to-ground cast 0.58 m (0x57D240). **[B, ours]**
 
+### The edge events (69, 70, 119) **[V]**
+- Posted by three methods of `HumanGround` (its vtable 0x016FFEFC, slots 186 / 191 / 385: 0xDB6340, 0xDB63D0,
+  0xDB6AD0, each through the dispatcher 0xDB48B0) and handled in `HumanGround`'s event handler 0xDB1470: an event id,
+  then guards in order, the first that passes switching the ground's state machine. The payload is an edge report:
+  +0x10 the point, +0x20 the edge's normal, +0x30 the drop, +0x38 a flag (the guards want it clear), +0x40 a range
+  (squared), +0x44 a byte.
+- The report's direction (0xD9D7F0): nothing unless the drop is over 1.3 m and the edge within the range; then by
+  the angle from the facing to the normal: within 60° → 1 (ahead), 60-120° → 3 or 4 (to one side or the other),
+  past 120° → 2 (behind); with +0x44 set, only ahead or behind count.
+- **69**: an edge to the side (3 / 4) → the ground's state 12, filled into the context data at +0xE40 (the one the
+  mid-air catch also fills for posts and beams: the narrow-object context's, likely: walking along the edge) [?];
+  else an edge ahead, the drop over 2 m, not grabbed (0xC7F150) and room for a 0.5 × 2 m body (0xB2E4F0) → 0xDA99F0
+  (the stop at the edge, turning to its normal when +0x44 is set).
+- **70** (pull-down): the flag clear, a profile bit (+0x3C bit 5) clear, the edge's normal along the facing, the drop
+  over 2 m and room for the body → the ground's state 9, the report copied into the ledge context's data (+0xC50):
+  the pull-down into a hang.
+- Who calls slots 186 / 191 / 385 is not found yet (no direct virtual call at those offsets: a second base's table or
+  a member-function table).
+
 ### What the ground does with the input, in order (the interpreter 0xEE65A0 and the ground's update) **[B]**
 1. **Stick let go**: at jog or faster (high profile) → the run stop (`RunStop` 0xD98E30, guard 0xD7EC90), its root
    motion, then its settle into the wait; in the walk band → the wait with a 0.2 s blend, stopped at once (Idle
@@ -322,7 +341,6 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 
 ## Open questions
 - The game's own jump candidate list (IHuman vt56/64/68) and whether jump links are used by the player.
-- The senders of several ground events (69 ledge stop, 70 pull-down, 119 look down).
-- The response curve of the speed parameter's fall, and the 17 locomotion weights (Banned has them in `move_blend`).
+- Who calls the ground's edge-event methods (vtable slots 186, 191, 385; section 3), and event 119's guards.
 - Each item's gate word for every movement action (Banned's `item_flags.rs` is generated from the install: we can read
   the same with `forge`).
