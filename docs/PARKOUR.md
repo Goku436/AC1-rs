@@ -235,7 +235,7 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   hang → the swing reception; post / beam → their mounts (0xE50190, 0xE52AD0). **[B, ours]**
 - **Ground landing** (`HumanInAir__SetupToGround_Landing` 0xE05940): the drop from the apex; over 3 m the damage
   landing (`xx_h_landing_damage_footl`, or `_roll` when moving) with a camera shake of (drop − 3)/7; heavy over 6.3 m,
-  fatal over 7.0 m (0xE00FE0). Up to 3 m: moving with the stick within 75° of the motion → the forward landings
+  fatal over 7.0 m (0xE00FE0; **[V]** its limits are `HumanInAir` fields set by its constructor 0xE0FE80: small damage at the largest float, so from 3 m to 6.3 m only the animation, no health; heavy costs 10 health, fatal 200; a flagged mode (+0xE2 & 8) uses a fixed table instead, 10-20 m in 2 m steps costing 20-160). Up to 3 m: moving with the stick within 75° of the motion → the forward landings
   (`landing_forward_{soft,hard}`, by the speed bucket [< 0.2, < 0.5, < 0.9, else] into walk, jog or sprint impulsion,
   or into the wait when slow); no stick → the straight landings. **[B, ours]**
 - **Catching** while falling (0xE0A990 / 0xE0AC70): a hand box 0.4 × 0.3 m, edges within 70°, reach +1.4 m (ledge) /

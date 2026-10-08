@@ -77,10 +77,10 @@
 //! (No side wall run: AC1 has the code for one, `WallingType_Horizontal`, but ships no clips and the game never runs
 //! along walls. A procedural one built here was taken out, 2026-10-08: it ran through walls in Damascus.)
 //!
-//! Landing damage, by the height fallen (thresholds are guesses; the game's `LandingType` has Safe,
-//! SmallDamage, HeavyDamage and Fatal): under 4.5 m safe; to 8 m `xx_h_landing_damage_footl` (20%);
-//! to 13 m `xx_h_hurt_fall_balanced_front_short_500cm_landing` (50%); beyond, or when the damage would
-//! empty the health, `xx_h_landing_death_back`. Haystacks are always safe.
+//! Landing damage, by the height fallen (AC1's landing type, 0xE00FE0, its limits set by `HumanInAir`'s constructor
+//! 0xE0FE80: safe = never, heavy over 6.3 m, fatal over 7.0 m): from 3 m the damage landing plays
+//! (`xx_h_landing_damage_footl`) but costs nothing; over 6.3 m it hurts (AC1 takes 10 health points); over 7 m, or
+//! when the damage would empty the health, `xx_h_landing_death_back` (200 points). Haystacks are always safe.
 //!
 //! Posts and beams (AC1's "pilotis" and "beam" sets): a fall that lands on a narrow top lands with
 //! `xx_h_beam_landing_soft_tr_pilotis_wait_a/b` and balances in `xx_h_beam_pilotis_wait`. Running jumps
@@ -406,12 +406,13 @@ const FALL_POSE: &str = "xx_h_jumpstraight_clear_footall_tr_fall";
 const FAITH_MIN_DROP: f32 = 3.0;
 const FAITH_MAX_DIST: f32 = 8.0;
 /// Landing damage by the drop from the top of the fall (m), as AC1 types landings (`LandingType` Safe / SmallDamage /
-/// HeavyDamage / Fatal): damaging from 3 m, heavy over 6.3 m, fatal over 7 m (the game's landing function, via
+/// HeavyDamage / Fatal): the damage landing from 3 m (no health lost), heavy over 6.3 m, fatal over 7 m (the game's landing function, via
 /// Banned445's AC1-Movement-Rewritten); and the share of health lost.
 const SAFE_DROP: f32 = 3.0;
 const HEAVY_DROP: f32 = 6.3;
 const FATAL_DROP: f32 = 7.0;
-const SMALL_DAMAGE: f32 = 0.2;
+/// (AC1's limit for small damage is the largest float: from 3 to 6.3 m the damage landing plays, no health is lost.)
+const SMALL_DAMAGE: f32 = 0.0;
 const HEAVY_DAMAGE: f32 = 0.5;
 const LAND_DAMAGE: &str = "xx_h_landing_damage_footl";
 /// Running into a damaging landing, or from a drop over `ROLL_LANDING_DROP`, rolls on (`xx_roll_hipm` recovery).
@@ -5028,7 +5029,7 @@ mod tests {
     #[test]
     fn landing_damage_by_height() {
         assert_eq!(landing_damage(2.5, 1.0), 0.0);
-        assert_eq!(landing_damage(5.0, 1.0), SMALL_DAMAGE);
+        assert_eq!(landing_damage(5.0, 1.0), 0.0);
         assert_eq!(landing_damage(6.5, 1.0), HEAVY_DAMAGE);
         assert_eq!(landing_damage(7.5, 0.7), 0.7);
     }

@@ -441,7 +441,7 @@ no code):
 - Haystack: `EntityDescriptorObject_HayStack`, `BhvHayStack(Data)`, `HumanHayStackData`, actor state
   `InHayStack`, entry types `Top`, `Ground`, `FreeStep`, `SideJump` (only Top is recreated).
 - Leap of faith: actor state `LeapOfFaith`, `LeapOfFaithClip` resolved on jump start/end.
-- Landing: `LandingType` Safe / SmallDamage / HeavyDamage / Fatal: damaging from 3 m, heavy over 6.3 m, fatal over 7 m
+- Landing: `LandingType` Safe / SmallDamage / HeavyDamage / Fatal: the damage landing from 3 m (no health lost: small damage's limit is the largest float, `HumanInAir`'s constructor 0xE0FE80), heavy over 6.3 m (10 health), fatal over 7 m (200)
   of drop from the top of the fall (the game's landing function, as Banned445's AC1-Movement-Rewritten reads it).
 - In-air jump types: `JumpType_Straight`, `JumpType_1m`, `JumpType_3m5m`.
 
