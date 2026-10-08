@@ -221,7 +221,15 @@ depth: see section 10).
 - Sub-states: idle, walk, stop, the 90° wait (facing across), turn 180, the turns to and from the 90° wait; exits:
   the pull-down to a hang (event 9, the empty hand), the wall run (event 15, walking), the corner hop onto a beam
   beside (event 7). The edge stop (`xx_l_beam_edge_stop`) and NarrowObject → ladder are not used by v1.02. **[B]**
-  (Ours plays the edge stop at a beam's end: to remove, AC1 just stops 0.3 m short.)
+  (Ours stopped playing the edge stop: AC1 just stops 0.3 m short.)
+- Where beams come from: `GuidanceBeamDetectorAccurate` (vtable 0x0169A1CC, constructor 0x678F80) is never loaded
+  from data (no objects of the class in any forge); it is built on the stack with fixed values (1.0, 0.15, 5° =
+  0.0873 rad, 0.5, 0.2) by 0xC7E810, which runs lazily when a query box overlaps a guidance object's bounds
+  (0xC7EAA0, AABB test 0x61E880) and caches the result. It does not search city geometry: 0x680260 cuts the guidance
+  object's own shape (object +0x170) into beam segments (start, end, half widths, the two side normals), and
+  0x67DA30 builds each beam's volumes: the top and both sides, tilted ±5° about the beam's line, 0.15 m past its
+  half width, 0.5 m along the up normal. So city beams are the authored guidance beams, which we already load (937 in
+  Damascus → 1141 perches). **[V]**
 
 ## 9. Wall run, ladders, hay, swing bars
 - **Walling** (event 49, wall test 0xE18390): entry A → B → vertical → end (0xE37590); probes A-D hand over to the
