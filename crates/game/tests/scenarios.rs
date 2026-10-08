@@ -91,7 +91,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["jump"],
         env: &[("AC1_START", "66.5,34,0,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
         secs: 3.0,
-        want: &["aimed at [66.50, 5.69,", "AC1's jump tables: xx_h_run_up_300cm_footl_to_air"],
+        want: &["aimed at [66.50, 5.69,", "AC1's jump tables: xx_h_run_up_300cm_foot"],
         never: &["EMBED"],
     },
     Scenario {
@@ -260,7 +260,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["jump", "hang"],
         env: &[("AC1_START", "-18,-34,0"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "0.9")],
         secs: 3.5,
-        want: &["_to_passover", "via xx_h_passover_handr_030cm_tr_fall", "landed from 1."],
+        want: &["_to_passover", "via xx_h_passover_hand", "_030cm_tr_fall", "landed from 1."],
         never: &["EMBED", "not in AC1's move graph", "landed from -"],
     },
     Scenario {
@@ -268,7 +268,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["jump", "hang"],
         env: &[("AC1_START", "-12,-34,0"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "0.9")],
         secs: 3.5,
-        want: &["via xx_h_passover_handr_100cm_tr_fall", "landed from 1."],
+        want: &["via xx_h_passover_hand", "_100cm_tr_fall", "landed from 1."],
         never: &["EMBED", "landed from -"],
     },
     Scenario {

@@ -1625,7 +1625,10 @@ impl WallClimb {
         let at_hold = top.is_none();
         // A thin wall ahead, too high to land on: over it, a hand on its top (AC1's passover).
         if top.is_none()
+            // (Off the other foot when this one's passover can't be made: the game has no right foot's
+            // `xx_h_air_up_300cm_footr_to_passover`.)
             && let Some(w) = Self::jump_passover(lib, level, root, rig, base, cr, dir, left, from.clone())
+                .or_else(|| Self::jump_passover(lib, level, root, rig, base, cr, dir, !left, from.clone()))
         {
             return Some(w);
         }
@@ -1730,20 +1733,22 @@ impl WallClimb {
         let touch = edge - Vec3::Y * PASSOVER_ROOT_DOWN + normal * 0.4;
         let way = (touch - p).with_y(0.0);
         let j = crate::jump::passover(touch.y - p.y, way.length(), left);
-        // Each flight's own reception onto the edge (`<flight>_tr_passover_[entry_]hand?`), mixed as the flights are.
-        let reception: Vec<(String, f32)> = j
+        // Each flight's own reception onto the edge (`<flight>_tr_passover_[entry_]hand?`), mixed as the flights are; a
+        // flight the game lacks (it has no `xx_h_air_up_300cm_footr_to_passover`, only its reception) is left out of both.
+        let (flights, reception): (Vec<(String, f32)>, Vec<(String, f32)>) = j
             .flight
             .iter()
+            .filter(|(n, _)| lib.names.iter().any(|m| m == n))
             .filter_map(|(n, w)| {
                 let stem = format!("{n}_tr_passover");
-                lib.names.iter().find(|m| m.starts_with(&stem) && m.ends_with(hand)).map(|m| (m.clone(), *w))
+                lib.names.iter().find(|m| m.starts_with(&stem) && m.ends_with(hand)).map(|m| ((n.clone(), *w), (m.clone(), *w)))
             })
-            .collect();
+            .unzip();
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
         };
-        let (takeoff, flight, touch_clip) = (mix(&j.takeoff)?, mix(&j.flight)?, mix(&reception)?);
+        let (takeoff, flight, touch_clip) = (mix(&j.takeoff)?, mix(&flights)?, mix(&reception)?);
         let (over, down) = (lib.get(&format!("xx_h_passover_{hand}_{cm}cm"))?, lib.get(&format!("xx_h_passover_{hand}_{cm}cm_tr_fall"))?);
         let planned = Transform { rotation: facing(fwd), ..*root };
         let to_touch = [takeoff.clone(), flight.clone(), touch_clip.clone()];
