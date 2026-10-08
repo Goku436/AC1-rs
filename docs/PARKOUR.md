@@ -184,6 +184,11 @@ depth: see section 10).
   flags 5 (0x15 in one character mode), in `0xE18970` (107 KB: the full candidate finder; it calls the guidance
   queries at 0x1173590 seven times; its constants include 0.45, 1.1, 1.3, 2.5, 2.7, 3.0, 3.1, 3.7, 4.2, 4.3 and
   cos 40°). The scorer 0xE96BF0 then picks among them. Reading 0xE18970 in full is the next step for exact targets.
+- **[V]** 0xE18970's search volumes by query kind (its 7th/8th arguments): the general one up to 3.0 m above and 5.0 m
+  below within 9 m; kinds 1 and 2 (and kind-7 = 4) 2.7 m up, 5 m down, 4.2 m; kind-7 = 3: 3.7 m up, 4.3 m down, 9 m,
+  the probe 0.7 m higher; kind 4: 1.3 m up within 2.0 m, from 0.45 m below; kind 3: 1.3 m up within 1.3 m, from 0.45
+  m below. Which kind each caller passes (the ground's running jump, the wall's rebound 0xE365C0, the beam's
+  0xEE8EC0, ...) is still to map.
 
 ## 7. Ledge (`HumanLedge`)
 - Hangs on two hand contacts on guidance edges. Wall hang: root 1.1 m below the hands, 0.5 m out; free hang: 2.4 m
