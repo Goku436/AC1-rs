@@ -60,6 +60,13 @@ finding, **[?]** not known yet.
 - **Ground loss** (`HumanGround__CheckGroundLoss` 0xD87720): the drop report (the nearest LedgeGrab edge in a 0.75 m
   zone, |dz| < 0.3, with at least 0.5 m of drop; else the drop under the feet) says the feet are on or past the edge
   line and the velocity does not point back from it → InAir fall. The fall starts at the edge line. **[B]**
+  **[V]** the 0.5 m minimum drop and the 0.01 m edge distance are in the function; but it returns at once unless
+  0xC7F150 says so (a byte at HumanGroundData+0x2F8), which Banned445 found set only while grabbed in a fight. **[V]**
+  The ordinary walk-off is 0xDA3F40 (tried right after it by the ground update 0xDA6750 / 0xDB4F00): the character's
+  cached edge report (Human+0xB00) says its distance to the edge is under 0.01 m and its type is 4 → 0xD9D1F0, the
+  fall type from 0xD8C380 (drop < 1 m, or < 8 m on probe type 1 → 0/1 split at 2 m into 2/3; else 4; the faster one
+  of each at a horizontal speed ≥ 2.5 m/s), then the switch to InAir (`SwitchLocomotionContext(8, ...)`). So the walk-off
+  is at the edge line. Ours: the ground under the root gone.
 - **Fall type** by height (1 / 2 / 8 m) and a horizontal speed of 2.5 m/s (0xD8C380). **[B]**
 - **Obstacles** (event 42, guard 0xB25230: vertical speed ≤ 0.2 m/s, a contact within 45° of the facing at least
   0.5 m over the feet): at least 0.7·h high → the hand collide `collide_full_hand_{070,150}cm` then the two-hand lean;
@@ -81,6 +88,9 @@ The climbing is a grid, not free placement:
   7-8 each way. Cells are foot cells; the hand of that side holds the cell two rows higher. A cell holds when a
   guidance edge passes through its probe box: 0.375 m along the wall, 0.3 m up or down, and **1.0 m in or out** of
   the grid plane (edges up to 45° off level; each edge piece shortened 0.1 m at both ends). **[B]**
+  **[V]** in the function: cells 0.75 × 0.6 m, rows counted from 1.5 m under the feet, the probe centred on a cell
+  (column·0.75 + 0.375, row·0.6 − 1.5 + 0.3) with a depth of 1.0, the grid 5.25 × 4.8 m (7 × 8 cells); a hold found
+  is snapped to its cell (rounded) and kept only within 0.3 m along and 0.15 m up or down of the cell's centre.
 - **Poses** (0x1A2CD70): 0 hands level ("1m"), 1 left higher, 2 right higher, 3 a column apart level ("2m"), 4 / 5
   apart with the left / right higher. Each pose has its wait action (0x012DA39F + pose). **[B]**
 - The stick is quantised into 10 directions (`QuantizeStickDirection` 0xDEB8D0: up and down split by which side
@@ -141,8 +151,13 @@ depth: see section 10).
   traced]**
 - The world also carries precomputed **jump links** in the navigation meshes (`NavMeshMetaLink`, types
   `MetaLinkTypeID_JumpLink`, `_JumpLinkUniDir_0_1 / _1_0`, `_ObjectJumpLink`, `_ObjectToObjectJumpLink`, ranges
-  `WorldArea::JumpLinkRange_Normal / _Extended`). **[V: the names are in the exe]** Whether the player's jumps use
-  them or only the AI's routes do: **[?]**.
+  `WorldArea::JumpLinkRange_Normal / _Extended`). **[V: the names are in the exe]**
+- **[V]** The player's candidates come from the guidance, not from those links: the ground interpreter (0xEE65A0)
+  asks the character (`IHuman`, Human's vtable at 0x016D91B4 for that interface, slot 0x38 → 0xB13260) for them;
+  0xB13260 queries from a point 0.15 m along the wanted direction, 8 m range, with a bound 9·(character scale), query
+  flags 5 (0x15 in one character mode), in `0xE18970` (107 KB: the full candidate finder; it calls the guidance
+  queries at 0x1173590 seven times; its constants include 0.45, 1.1, 1.3, 2.5, 2.7, 3.0, 3.1, 3.7, 4.2, 4.3 and
+  cos 40°). The scorer 0xE96BF0 then picks among them. Reading 0xE18970 in full is the next step for exact targets.
 
 ## 7. Ledge (`HumanLedge`)
 - Hangs on two hand contacts on guidance edges. Wall hang: root 1.1 m below the hands, 0.5 m out; free hang: 2.4 m

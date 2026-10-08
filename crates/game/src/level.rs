@@ -108,8 +108,10 @@ pub struct Authored {
 
 /// An authored ledge edge sloping more than this (rise over length) is a stair or roof slope, not a hold.
 const AUTHORED_MAX_SLOPE: f32 = 0.35;
-/// A top behind a hold this deep or less (m), with a drop past it, is a narrow wall top to balance on, not to stand.
-const NARROW_TOP_MAX: f32 = 0.6;
+/// A top behind a hold this deep or less (m), with a drop past it, is a narrow wall top to balance on, not to stand:
+/// a beam's width. (At 0.6 m Damascus had 10,557, its parapets among them, and running along a roof switched in and
+/// out of balancing at every one; AC1 runs on those as ground, its beams found by `GuidanceBeamDetectorAccurate`.)
+const NARROW_TOP_MAX: f32 = 0.35;
 /// Rays this long (m) decide whether a point is inside a solid (`inside_solid`).
 const INSIDE_PROBE: f32 = 12.0;
 

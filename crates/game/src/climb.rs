@@ -499,6 +499,10 @@ const PASSOVER_CLEAR: f32 = 0.3;
 /// Going over it no faster than this (m/s).
 const PASSOVER_SPEED: f32 = 4.0;
 
+/// A jump onto a roof lands this far in from its edge (m; Banned445's port of the game's target, which uses the
+/// guidance contact).
+const ROOF_EDGE_INSET: f32 = 0.45;
+
 /// A swing bar this far ahead (m) and this high over the feet is what a jump flies at.
 const BAR_JUMP_REACH: std::ops::RangeInclusive<f32> = 1.0..=6.5;
 const BAR_JUMP_RISE: std::ops::RangeInclusive<f32> = 0.5..=4.0;
@@ -561,9 +565,11 @@ const JUMP_AC1_FAST_SPEED: f32 = 6.2;
 const JUMP_EDGE_CLEAR: f32 = 0.25;
 /// A top jumped onto needs this much room over it (m).
 const JUMP_TOP_HEADROOM: f32 = 1.7;
-/// With no top in reach, a running jump aims at a hold to catch facing it: from this far under the feet to this far over
-/// them (m), the root arriving this far under it (the catch onto the wall has the hands about 1.1 m over the root).
-const JUMP_HOLD_RISE: std::ops::RangeInclusive<f32> = -1.0..=2.6;
+/// With no top in reach, a running jump aims at a hold to catch facing it: from this far over the feet to this far (m),
+/// the root arriving this far under it (the catch onto the wall has the hands about 1.1 m over the root). AC1 takes an
+/// edge at most 1.3 m up as a top to land on (`Human__ComputeJumpAnimBlend` 0xB1EC40, Banned445): only higher ones
+/// are hung from (a waist-high wall's top is no hold to jump at).
+const JUMP_HOLD_RISE: std::ops::RangeInclusive<f32> = 1.3..=2.6;
 const JUMP_HOLD_HANG: f32 = 0.9;
 /// ...this far in from the hold's ends (m), for both hands.
 const JUMP_HOLD_INSET: f32 = 0.35;
@@ -614,7 +620,9 @@ const MONKEY_REACH: f32 = 1.0;
 const MONKEY_HANG: f32 = 1.9;
 /// A low obstacle run onto (see `vault`): top height above the feet, and how far ahead it is spotted; tops
 /// up to `STEP_UP_MAX` are stepped onto from stopping against them (`collide`); the root ends this far in from the edge.
-const VAULT_HEIGHT: std::ops::RangeInclusive<f32> = 0.35..=1.3;
+/// (From 0.5 m: AC1's obstacle response starts there (event 42's guard 0xB25230, a contact at least 0.5 m over the
+/// feet), lower steps are walked up by the capsule (0.37 m step); a roof's raised tile edges are run over.)
+const VAULT_HEIGHT: std::ops::RangeInclusive<f32> = 0.5..=1.3;
 const VAULT_REACH: f32 = 2.3;
 const STEP_UP_MAX: f32 = 0.85;
 /// On a beam the stick walks along it while it leans along it at least this much (cos: 60 degrees), as the walk
@@ -1241,6 +1249,24 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
             }
         }
     }
+    // Roof edges from the climbing markup (AC1's candidates are guidance edges, `0xE96BF0`): an edge facing us, its top
+    // at most 1.3 m up, landed on 0.45 m in from it, across a gap.
+    for l in &level.ledges {
+        let ahead = from + dir * 4.0;
+        let on = l.closest(Vec3::new(ahead.x, l.a.y, ahead.z));
+        if (on - from).with_y(0.0).length() > *JUMP_TARGET_REACH.end() + 1.0 || l.out.dot((from - on).with_y(0.0)) <= 0.0 || on.y - from.y > 1.3 {
+            continue;
+        }
+        let land = on - l.out * ROOF_EDGE_INSET;
+        let Some(g) = level.ground(land + Vec3::Y * 0.3, 0.0, 0.5).filter(|g| g.normal.y > 0.8) else { continue };
+        // (A gap: no ground half a metre under the lower of the two anywhere between, looking from over the higher one: a
+        // roof rising a little between is no gap.)
+        let (low, high) = (from.y.min(g.point.y), from.y.max(g.point.y));
+        let gap = [0.25, 0.5, 0.75].iter().any(|t| level.ground(from.lerp(g.point, *t).with_y(high + 0.3), 0.0, high + 0.3 - (low - 0.5)).is_none());
+        if gap {
+            cands.push(g.point);
+        }
+    }
     cands
         .into_iter()
         .filter(|q| {
@@ -1251,8 +1277,10 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
         // no target, else the jump stops in the air and drops back, over and over.)
         .filter(|q| {
             let flat = (*q - from).with_y(0.0);
-            let over = from.with_y(from.y.max(q.y) + JUMP_AC1_CLEAR);
-            level.raycast(over, flat.normalize_or_zero(), flat.length()).is_none()
+            // (At the knees and the chest too, where a flight is stopped: a low wall or a rail between is vaulted, not
+            // jumped across.)
+            let top = from.y.max(q.y);
+            [0.3, JUMP_AC1_CLEAR, 1.0].iter().all(|h| level.raycast(from.with_y(top + h), flat.normalize_or_zero(), (flat.length() - 0.3).max(0.0)).is_none())
         })
         .max_by(|a, b| {
             // Higher, nearer, and on the line the player steers along.
@@ -4266,6 +4294,11 @@ impl WallClimb {
             root.translation.y = g.point.y;
             v.y = v.y.max(0.0);
         } else if flat.length() > 0.01 && (wall(1.0) || wall(0.3)) {
+            if why() {
+                let hit =
+                    [1.0, 0.3].map(|h| level.raycast(root.translation + Vec3::Y * h, flat.normalize(), flat.length() * dt + 0.35).map(|w| (w.point, w.normal)));
+                debug!("climb: a wall stops the flight at {:.2} ({hit:.2?})", root.translation);
+            }
             v.x = 0.0;
             v.z = 0.0;
         }

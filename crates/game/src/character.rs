@@ -704,6 +704,9 @@ const GAIT_RESYNC: f32 = 1.5;
 /// cast, 0.58 m); further down is a fall.
 const STICK_TO_GROUND: f32 = 0.58;
 
+/// Free running jumps at a target off a drop at least this deep (m): a seam in a roof or a step down is run over, not
+/// jumped (a fence's top, 1 m, is jumped from).
+const FREE_RUN_JUMP_DROP: f32 = 0.8;
 /// Free running grabs or runs up a wall this close ahead (m).
 const FREE_RUN_REACH: f32 = 1.3;
 /// Running at least this fast vaults low obstacles on its own.
@@ -1049,11 +1052,15 @@ pub fn locomotion(
             // Sprinting (or free running at any speed, as AC1 does) off an edge jumps. Free running along a top that ends in a drop of any size (a fence, a low
             // wall run onto) with something to jump to ahead springs on to it straight away (AC1's two-step: onto the
             // fence, on to the post).
+            // (Not against a wall at the knees: a low wall or a planter is vaulted or stopped at, not jumped from, else the
+            // jump starts into it and drops back, over and over.)
+            let clear = level.raycast(tf.translation + Vec3::Y * 0.3, dir, 0.6).is_none_or(|h| h.normal.y.abs() > 0.5);
             let edge = on_ground
+                && clear
                 && (v.length() > SPRINT_SPEED || ctl.free_run)
                 && (level.ground(tf.translation + dir * 0.6, 0.8, 1.2).is_none()
                     || (ctl.free_run
-                        && level.ground(tf.translation + dir * 0.6, 0.3, 0.4).is_none()
+                        && level.ground(tf.translation + dir * 0.6, 0.3, FREE_RUN_JUMP_DROP).is_none()
                         && WallClimb::jump_target_ahead(&level, tf.translation, dir)));
             // Free running steps or jumps onto a low obstacle; otherwise running stops against it or glances off.
             // (Toward where the stick points: sliding along a wall, the body's own velocity runs along it.)
@@ -1111,7 +1118,13 @@ pub fn locomotion(
                 }
             }
             // Stepped onto a post, or onto a beam away from its ends: balance on it.
+            // (Not where a floor goes on at its height the way he moves: balancing there, he would step straight back off it
+            // onto that floor, and on again, every frame.)
+            let way = if ch.velocity.with_y(0.0).length() > 0.3 { ch.velocity.with_y(0.0).normalize() } else { ctl.move_dir.with_y(0.0).normalize_or_zero() };
+            let ahead = tf.translation + way * 0.5;
+            let floor_on = way != Vec3::ZERO && level.perch_at(ahead, 0.35).is_none() && level.ground(ahead, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8);
             if ch.fall_v == 0.0
+                && !floor_on
                 && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some()
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
             {
