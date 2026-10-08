@@ -16,6 +16,16 @@ Full format notes and status table are in `docs/NOTES.md` (the README is the sho
 - `crates/ik`: pure math, unit-tested: IK, the Verlet ragdoll (`ragdoll.rs`) and cloth (`cloth.rs`). No Bevy, no game data.
 - `crates/game`: Bevy runtime, run with `-p ac1`. Controls and test hooks are in the header of `src/main.rs`.
 
+## Branches
+- `main`: stable. Always builds and passes the full scenario suite; what the user plays and shares. Only merged into
+  from `dev` (or a finished feature), never committed to directly.
+- `dev`: day-to-day work. Commit and push here; merge into `main` (`git checkout main && git merge --no-ff dev`) when a
+  batch is tested (full suite green, the user happy with a play-test), then tag it.
+- `feature/<name>`: bigger separate lines of work off `dev`, merged back when ready: `feature/multiplayer` (the p2p UDP
+  test, `AC1_HOST=port` / `AC1_JOIN=ip:port`, from before v0.1.0: rebase onto `dev` before resuming it).
+- Tags `vMAJOR.MINOR.PATCH` (annotated) mark snapshots on `main` to go back to: `git checkout v0.1.0` to look,
+  `git switch -c fix/<name> v0.1.0` to work from one. v0.1.0 = movement on AC1's tables, every clip and mesh parsing.
+
 ## Commands
 - Run: `cargo run -p ac1` (`AC1_GAME_DIR` overrides the install path; `AC1_LEVEL=masyaf` / `damascus` loads a city)
 - List an archive: `cargo run --release -p forge --bin forge -- list "<game>/DataPC_Masyaf.forge"`
