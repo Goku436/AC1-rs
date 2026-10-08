@@ -300,8 +300,10 @@ const WALL_RUN_HEADROOM: f32 = 2.6;
 const WALL_RUN_HEADROOM_OUT: f32 = 0.35;
 /// How far a wall run may start from where its first step should be (the approach is pulled in).
 const WALL_RUN_SLACK: f32 = 0.9;
-/// How far the hands may be from holds for a mid-air catch (m; the body is pulled in over the catch).
-const CATCH_REACH: f32 = 0.3;
+/// How far the hands may be from holds for a mid-air catch (m; the body is pulled in over the catch): AC1's hand box,
+/// 0.4 m across and 0.3 m up or down (0xE0A990 / 0xE0AC70, Banned445).
+const CATCH_ACROSS: f32 = 0.4;
+const CATCH_UP: f32 = 0.3;
 /// Catching a wall's holds, the hands end this far out from its face (m).
 const CATCH_HAND_OUT: f32 = 0.08;
 /// Where a wall hang's hands hold, from its root: up, and in toward the wall (m).
@@ -4257,7 +4259,11 @@ impl WallClimb {
             let out = (((end.hands[0] + end.hands[1]) * 0.5 - hit.point).dot(normal) - CATCH_HAND_OUT).max(0.0);
             end.hands = end.hands.map(|h| h - normal * out);
             end.feet = end.feet.map(|f| f - normal * out);
-            let Some(targets) = holds_within(level, &end.hands, normal, CATCH_REACH) else { continue };
+            let in_box = |h: Vec3| {
+                nearest_hold(level, h, normal).map(|n| n.1).filter(|t| (*t - h).with_y(0.0).length() <= CATCH_ACROSS && (t.y - h.y).abs() <= CATCH_UP)
+            };
+            let (Some(a), Some(b)) = (in_box(end.hands[0]), in_box(end.hands[1])) else { continue };
+            let targets = [a, b];
             if self.catch_below.is_some_and(|y| (targets[0].y + targets[1].y) * 0.5 > y) {
                 continue;
             }

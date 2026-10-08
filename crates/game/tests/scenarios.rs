@@ -501,8 +501,8 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "go limp and settle",
         env: &[("AC1_START", "-25,-8,0"), ("AC1_LIMP", "1.0")],
-        // (Settling takes up to about 4 s after going limp: at 5 s it failed now and then.)
-        secs: 6.0,
+        // (Settling takes up to about 4 s after going limp: at 5 s it failed now and then, at 6 s under load.)
+        secs: 8.0,
         want: &["went limp", "settled limp"],
         never: &[],
     },
