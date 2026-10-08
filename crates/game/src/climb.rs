@@ -3903,7 +3903,10 @@ impl WallClimb {
                     bases.push((format!("xx_h_climbing_{from}_tr_hangwall_{side}_{n}"), HANGWALL_OPEN, Feet::Wall));
                     bases.push((format!("xx_h_climbing_{from}_tr_hangfree_{side}_{n}"), FREE, Feet::Free));
                 }
-                _ if !free => {
+                // From a wall hang AC1's ledge-jump table (0x1A2C780) has only the left hand's leap up onto climbing
+                // holds, and none down.
+                "u" if from == "hangwall" => bases.push((format!("xx_h_climbing_hangwall_tr_climb1m_up_l_hand_{n}"), "1m", Feet::Wall)),
+                _ if !free && from == "climb1m" => {
                     let way = if dir == "u" { "up" } else { "down" };
                     let mut hands = ["l", "r"];
                     hands.sort_by_key(|h| !self.prefer_hand(input).starts_with(h));
