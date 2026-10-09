@@ -14,3 +14,7 @@ ac1-shot-*.png
 ac1-recording-*
 # Videos made from the game (its data): never committed.
 *.mp4
+
+# Replays (feature/multiplayer) and flight recordings
+replays/
+ac1-replay-*.bin

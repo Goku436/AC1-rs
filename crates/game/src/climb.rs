@@ -1283,8 +1283,11 @@ fn passover_target(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3, 
     if depth > PASSOVER_DEPTH || level.ground(hit.point.with_y(top.point.y) + fwd * (depth + 0.3), 0.0, 10.0).is_some_and(|g| top.point.y - g.point.y < 0.5) {
         return None;
     }
-    // (Room over the top for the body going over.)
-    if level.raycast(hit.point.with_y(top.point.y + 0.4) + normal * 0.3, fwd, depth + 1.0).is_some() {
+    // (Room over the top for the body going over, open above it: probed from inside a tall wall, an inner face read
+    // as a top.)
+    if level.raycast(hit.point.with_y(top.point.y + 0.4) + normal * 0.3, fwd, depth + 1.0).is_some()
+        || level.raycast(top.point + Vec3::Y * 0.05, Vec3::Y, PASSOVER_RISE.end() + 0.3).is_some()
+    {
         return None;
     }
     Some((hit.point.with_y(top.point.y), normal, depth))
@@ -2042,7 +2045,14 @@ impl WallClimb {
             .ladders
             .iter()
             .enumerate()
-            .find(|(_, l)| l.out.dot(n) > 0.9 && (l.base - hit.point).dot(along).abs() < 0.5 && l.base.y <= p.y + 0.5 && l.top >= p.y + 3.0)
+            // (On this wall: the distance off it too, or a ladder on a wall in line 94 m further on was run onto, in Damascus.)
+            .find(|(_, l)| {
+                l.out.dot(n) > 0.9
+                    && (l.base - hit.point).dot(along).abs() < 0.5
+                    && (l.base - hit.point).dot(n).abs() < 0.5
+                    && l.base.y <= p.y + 0.5
+                    && l.top >= p.y + 3.0
+            })
             && let Some(clips) =
                 WALL_RUN.iter().chain(["xx_h_wallingfront_step1_footr_tr_h_ladder_up_l"].iter()).map(|n| lib.get(n)).collect::<Option<Vec<_>>>()
         {
@@ -2107,6 +2117,14 @@ impl WallClimb {
         let top = level.ground(face.with_y(p.y + 2.8) + fwd * 0.05, 0.0, 2.8)?;
         let h = top.point.y - p.y;
         if !(1.25..=2.55).contains(&h) || top.normal.y < 0.8 {
+            return None;
+        }
+        // (Open over the top, and the way across it clear for the body: in Damascus a 4 m wall's inside read as a 1.4 m
+        // top, the probe starting within it, and the passover went through the wall.)
+        let open_above = level.raycast(top.point + Vec3::Y * 0.05, Vec3::Y, (p.y + 2.8 - top.point.y).max(0.1)).is_none();
+        let across = level.raycast(face.with_y(top.point.y + 0.5) + n * 0.3, fwd, PASSOVER_DEPTH + 0.9).is_none();
+        if !open_above || !across {
+            debug!("climb: no wall run over the wall: not open above its top at {:.2}", top.point.y);
             return None;
         }
         let on_top = |d: f32| level.ground(face.with_y(top.point.y + 0.2) + fwd * d, 0.0, 0.4).is_some_and(|g| (g.point.y - top.point.y).abs() < 0.1);
