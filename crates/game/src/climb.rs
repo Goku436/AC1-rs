@@ -3910,38 +3910,58 @@ impl WallClimb {
     }
 
     /// Climb off the wall sideways onto ground just below the feet (from "1m" only):
-    /// `xx_l_climb_1m_to_groundentry_<left|right>`, then its stand.
+    /// `xx_l_climb_1m_to_groundentry_<left|right>`, then its stand; or, where the ground stepped onto ends in an edge
+    /// facing out from the wall (within 45 degrees of its normal), the turned step-off `..._<side>_90`, ending side on
+    /// to the wall along that edge (AC1's choice, 0xDFA0C0: the edge report's normal against the facing, cos 45 degrees).
     fn try_step_off_side(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, left: bool) -> bool {
         if self.state != "1m" {
             return false;
         }
         let side = if left { "left" } else { "right" };
-        let foot = if left { "footl" } else { "footr" };
-        let (Some(off), Some(stand)) =
-            (lib.get(&format!("xx_l_climb_1m_to_groundentry_{side}")), lib.get(&format!("xx_l_climb_1m_to_groundentry_{side}_tr_h_wait_{foot}")))
-        else {
-            return false;
+        // Where a step-off clip lands: ground there, near the feet's height, room to stand and a clear way to it; else
+        // up to a metre in toward the wall, the landing corrected onto it (the clips end in front of a roof flush with
+        // the wall, the climber hanging 0.6 m out from it).
+        let lands = |off: &Arc<Clip>| -> Option<(Vec3, crate::level::Hit)> {
+            let end = root.translation + world_rot(root.rotation) * root_motion_at(off, off.frames()).with_z(0.0);
+            let (to, ground) = (0..=20).map(|k| end - self.normal * (k as f32 * 0.05)).find_map(|to| level.ground(to, 0.3, STEP_OFF_MAX).map(|g| (to, g)))?;
+            let to = to - self.normal * 0.15;
+            let way = (to - root.translation).with_y(0.0);
+            (!level.inside_solid(ground.point + Vec3::Y * 0.5)
+                && level.raycast(root.translation + Vec3::Y * 0.5, way.normalize_or_zero(), way.length()).is_none())
+            .then_some((to, ground))
         };
-        // Where it steps to: ground there, near the feet's height, and room to stand.
-        let to = root.translation + world_rot(root.rotation) * root_motion_at(&off, off.frames()).with_z(0.0);
-        let Some(ground) = level.ground(to, 0.3, STEP_OFF_MAX) else { return false };
-        if level.inside_solid(ground.point + Vec3::Y * 0.5)
-            || level
-                .raycast(
-                    root.translation + Vec3::Y * 0.5,
-                    (to - root.translation).with_y(0.0).normalize_or_zero(),
-                    (to - root.translation).with_y(0.0).length(),
-                )
-                .is_some()
-        {
-            return false;
-        }
+        // The nearer drop from where it lands: out from the wall, or back toward the climber (side on).
+        let edge_out = |g: Vec3| {
+            let back = (root.translation - g).with_y(0.0).normalize_or_zero();
+            let drop = |dir: Vec3| (1..=12).map(|k| k as f32 * 0.05).find(|&d| level.ground(g + dir * d, 0.3, 0.6).is_none());
+            match (drop(self.normal), drop(back)) {
+                (Some(out), Some(b)) => out <= b,
+                (Some(_), None) => true,
+                _ => false,
+            }
+        };
+        let plain = lib.get(&format!("xx_l_climb_1m_to_groundentry_{side}"));
+        let turned = lib.get(&format!("xx_l_climb_1m_to_groundentry_{side}_90"));
+        let pick = turned
+            .as_ref()
+            .and_then(|c| lands(c).filter(|(to, g)| edge_out(to.with_y(g.point.y))).map(|l| (c.clone(), l, true)))
+            .or_else(|| plain.as_ref().and_then(|c| lands(c).map(|l| (c.clone(), l, false))));
+        let Some((off, (to, ground), turn)) = pick else { return false };
+        let end = root.translation + world_rot(root.rotation) * root_motion_at(&off, off.frames()).with_z(0.0);
+        // (The turned step-off stands on the other foot.)
+        let foot = if left != turn { "footl" } else { "footr" };
+        let stand_name = if turn {
+            format!("xx_l_climb_1m_to_groundentry_{side}_90_tr_h_wait_{foot}")
+        } else {
+            format!("xx_l_climb_1m_to_groundentry_{side}_tr_h_wait_{foot}")
+        };
+        let Some(stand) = lib.get(&stand_name) else { return false };
         self.queue = vec![Queued::new(stand, GROUND)];
         self.start(off, STEP_DOWN.into(), root);
         if let Some(m) = &mut self.mv {
-            m.correct = Vec3::Y * (ground.point.y - to.y);
+            m.correct = (to - end).with_y(0.0) + Vec3::Y * (ground.point.y - to.y);
         }
-        debug!("climb: stepped off the wall sideways ({side}) onto the ground");
+        debug!("climb: stepped off the wall sideways ({side}{}) onto the ground", if turn { ", turned" } else { "" });
         true
     }
 

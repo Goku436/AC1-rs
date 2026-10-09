@@ -762,6 +762,14 @@ const SCENARIOS: &[Scenario] = &[
         ],
         never: &["EMBED"],
     },
+    Scenario {
+        name: "level with a lower roof flush with the wall, on sideways: AC1's turned step-off onto it (groundentry _90)",
+        tags: &["climb"],
+        env: &[("AC1_START", "-92.6,132.6,-90"), ("AC1_CLIMB", "up=1.6,none=0.8,right=4")],
+        secs: 7.0,
+        want: &["stepped off the wall sideways (right, turned)", "-> ground via xx_l_climb_1m_to_groundentry_right_90_tr_h_wait_footl"],
+        never: &["EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {

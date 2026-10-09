@@ -817,6 +817,12 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     building(walls, strips, level, up(-84.0, z - 3.0), Vec3::new(-80.0, top(4.0), z + 3.0), &[Vec3::NEG_X]);
     building(walls, strips, level, up(-78.0, z - 3.0), Vec3::new(-74.0, top(2.0), z + 3.0), &[]);
 
+    // A tall wall with holds up its west face and a lower roof flush with it to its right: climbed level with that roof
+    // and on sideways, the turned step-off onto it (AC1's `groundentry_<side>_90`: the roof's edge faces out as the wall).
+    let z = 134.0;
+    building(walls, strips, level, up(-92.0, z - 4.0), Vec3::new(-88.0, top(4.0), z), &[Vec3::NEG_X]);
+    walls.cuboid(Vec3::new(-92.0, 0.0, z), Vec3::new(-88.0, 1.8, z + 4.0));
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
