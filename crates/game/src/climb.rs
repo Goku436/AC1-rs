@@ -295,8 +295,9 @@ const JUMP_HANG: [(&str, u32, &str, &str); 4] = [
 /// How far the hands of a jump up to a hold may miss it (the root is moved over the jump).
 const JUMP_HANG_REACH: f32 = 0.45;
 /// A wall run up with nothing to grab needs this much clear space above the root plus 1 m (m), this
-/// far out from the wall (where the head goes).
-const WALL_RUN_HEADROOM: f32 = 2.6;
+/// far out from the wall (where the head goes). (The real game runs up under a Damascus overhang 3.51 m over the feet
+/// there, its run topping out with the root 1.95 m up: 2.6 refused it.)
+const WALL_RUN_HEADROOM: f32 = 2.4;
 const WALL_RUN_HEADROOM_OUT: f32 = 0.35;
 /// How far a wall run may start from where its first step should be (the approach is pulled in).
 const WALL_RUN_SLACK: f32 = 0.9;
@@ -372,6 +373,9 @@ const EASE_TURN: f32 = 0.25;
 /// Wall run: the steps up the wall, and its ending when nothing is in reach.
 const WALL_RUN: [&str; 3] = ["xx_h_wallingfront_entry_footl_a", "xx_h_wallingfront_entry_footl_b", "xx_h_wallingfront_step1_footr"];
 const WALL_RUN_FALL: &str = "xx_h_wallingfront_step1_footr_tr_fall";
+/// The wall run's top with nothing to grab and the legs held: the kick off backwards (AC1, seen in the running game).
+const WALL_RUN_REBOUND: [&str; 3] =
+    ["xx_h_wallingfront_step1_footr_tr_rebound_footr_a", "xx_h_wallingfront_step1_footr_tr_rebound_footr_b", "xx_h_rebound_footr_tr_fall"];
 /// A wall run rebounds until this share of its fall back off the wall has played.
 const REBOUND_LATE: f32 = 0.6;
 /// Sprinting at a wall closer than this (m) runs up it.
@@ -4957,6 +4961,20 @@ impl WallClimb {
             let turn = done.start_rot * root_delta(root_rotation_at(&done.clip, done.clip.frames())) * done.start_rot.inverse();
             self.normal = turn * self.normal;
             self.state = done.to;
+            // Topping a wall run with nothing to grab and the legs held: AC1 kicks off it backwards
+            // (`xx_h_wallingfront_step1_footr_tr_rebound_footr_a/b`, then `xx_h_rebound_footr_tr_fall`, seen in the
+            // running game, Damascus), not the slide down (`..._step1_footr_tr_fall`): away from the wall, it catches
+            // nothing on the way down.
+            if done.clip.name == WALL_RUN[2]
+                && self.legs_held
+                && self.queue.first().is_some_and(|q| q.clip.name == WALL_RUN_FALL)
+                && let Some(clips) = WALL_RUN_REBOUND.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>()
+            {
+                let n = clips.len();
+                self.queue = clips.into_iter().enumerate().map(|(k, c)| Queued::new(c, if k + 1 == n { FALL } else { WALL_RUN_STATE })).collect();
+                self.can_catch = false;
+                debug!("climb: the wall run tops out with nothing to grab: rebound off it");
+            }
             if !self.queue.is_empty() {
                 let mut next = self.queue.remove(0);
                 // Topping out with the stick pushed on: up off the knee straight into walking (or, free running, jogging),
