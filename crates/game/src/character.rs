@@ -611,7 +611,9 @@ fn ground_move(
         }
     }
     // Walking at the edge of a big drop (not free running): stop at it.
-    if speed > 1.0 && wants && !ctl.free_run && ch.edge_lock.is_none() {
+    // (High profile only: walking in low profile at an 8 m drop AC1 halts at the edge, no clip, and looks down, seen in the
+    // running game.)
+    if speed > 1.0 && wants && ctl.high && !ctl.free_run && ch.edge_lock.is_none() {
         let dir = v / speed;
         if let Some(d) = (1..=12).map(|k| k as f32 * 0.05).find(|&d| level.ground(tf.translation + dir * d, 0.3, LEDGE_STOP_DROP).is_none()) {
             let names = vec!["xx_h_ledge_stop_start_footl".to_string(), "xx_h_ledge_stop_end_footl".into(), "xx_h_ledge_stop_end_tr_h_wait_footr".into()];
@@ -643,6 +645,8 @@ fn ground_move(
     None
 }
 
+/// After a ledge stop, the stick this close to the edge's way (cos 70 degrees) pulls down onto it (AC1's event 70).
+const PULL_DOWN_STICK_COS: f32 = 0.342;
 /// Walking in low profile at an edge, a drop deeper than this (m) halts the walk this close to it (AC1's interpreter).
 const EDGE_HALT_DROP: f32 = 2.0;
 const EDGE_HALT_REACH: f32 = 0.16;
@@ -1074,6 +1078,26 @@ pub fn locomotion(
         // ones play the run stop (`ground_move`).
         if ctl.move_dir.length() < 0.01 && ch.velocity.with_y(0.0).length() <= WALK_STOP_SPEED && ch.wall.is_none() {
             ch.velocity = ch.velocity.with_x(0.0).with_z(0.0);
+        }
+        // (The ledge stop's exit can leave into the run at its speed: none of it over the edge while held back.)
+        if let Some(n) = ch.edge_lock
+            && !ctl.free_run
+        {
+            ch.velocity -= n * ch.velocity.with_y(0.0).dot(n).max(0.0);
+        }
+        // After a ledge stop, still pushing at the edge (within 70 degrees of it, AC1's pull-down event): down onto it,
+        // into the hang (AC1's `xx_l_ledge_stop_start_footl_pulldown_front_orientation`, seen in the running game).
+        if let Some(n) = ch.edge_lock
+            && !ctl.free_run
+            && ctl.move_dir.normalize_or_zero().dot(n) >= PULL_DOWN_STICK_COS
+            && ch.velocity.with_y(0.0).length() < 0.5
+            && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
+            && let Some(w) = crate::climb::WallClimb::pull_down(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, false, Some(ch.anim_pose.clone()))
+        {
+            ch.wall = Some(w);
+            ch.edge_lock = None;
+            ch.velocity = Vec3::ZERO;
+            continue;
         }
         // After a ledge stop, hold back from the edge until steering away or free running.
         if let Some(n) = ch.edge_lock {

@@ -560,14 +560,14 @@ const SCENARIOS: &[Scenario] = &[
         never: &["onto kiosk frame", "EMBED"],
     },
     Scenario {
-        name: "standing at block A's edge in high profile, pull down and climb down to the ground",
+        // (As the running AC1 does at a Damascus roof's edge: the ledge stop, then still pushing at the edge, down onto it.)
+        name: "walking to block A's edge in high profile, still pushing: pull down and climb down to the ground",
         tags: &["hang", "climb"],
         env: &[
             ("AC1_START", "0,5.6,0"),
             ("AC1_WALK", "1.5"),
-            ("AC1_STOP", "1.2"),
+            ("AC1_STOP", "2.4"),
             ("AC1_HIGH", "0-6"),
-            ("AC1_LEGS", "2.6-2.7"),
             ("AC1_CLIMB", "nograb,wait=4,down=6"),
         ],
         secs: 11.0,
