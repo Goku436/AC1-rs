@@ -276,12 +276,14 @@ fn pose_skinned(m: &mut forge::mesh::Mesh, skel: &forge::skeleton::Skeleton) {
 
 /// What a city mesh is for parkour, by its name: hay to jump into (`Hay_Bale_Charette`, `_Chariot`, `Hay_Bale_01`; not the
 /// straw strewn on the ground, `Hay_Bale_Tile`),
-/// a ladder (`Ladder_<h>m`), a bench (`Banc_*`), a pole (`Pole_*`: horizontal ones are swing bars).
+/// a rooftop hiding spot (`Hiding_Spot_*`, not its `_Tarp`), a ladder (`Ladder_<h>m`), a bench (`Banc_*`), a pole (`Pole_*`: horizontal ones are swing bars).
 fn city_object(name: &str) -> Option<crate::level::CityObject> {
     use crate::level::CityObject;
     let n = name.to_lowercase();
     if n.starts_with("hay_bale_charette") || n.starts_with("hay_bale_chariot") || n.starts_with("hay_bale_0") {
         Some(CityObject::Hay)
+    } else if n.starts_with("hiding_spot_") && !n.contains("tarp") {
+        Some(CityObject::HidingSpot)
     } else if n.starts_with("ladder_") {
         Some(CityObject::Ladder)
     } else if n.starts_with("banc_") {
@@ -774,6 +776,15 @@ fn spawn_world(
             .first()
             .and_then(|(_, o)| forge::skeleton::parse_skeleton(o.body).ok())
             .filter(|s| s.bones.len() <= PROP_SKELETON_BONES);
+        // `AC1_MESHES_AT="x,y,z,r"` (game Y-up space): the meshes of every entity standing within r of a point, logged
+        // (what an unknown object in a recording is).
+        if let Some(v) =
+            std::env::var("AC1_MESHES_AT").ok().map(|s| s.split(',').filter_map(|v| v.trim().parse::<f32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 4)
+            && world.w_axis.truncate().distance(Vec3::new(v[0], v[1], v[2])) < v[3]
+        {
+            let names: Vec<&str> = ent_meshes.iter().map(|m| m.name.as_str()).collect();
+            info!("meshes at {:.2}: {names:?}", world.w_axis.truncate());
+        }
         for mesh in ent_meshes {
             // Hay whose mesh can't be read yet (its vertex format is one not decoded): a cart-sized stack where the
             // entity stands.

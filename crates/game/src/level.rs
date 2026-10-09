@@ -94,6 +94,9 @@ impl HayStack {
 
 /// A city haystack is at most this wide each side of its middle (m).
 const HAY_HALF_MAX: f32 = 1.5;
+/// A rooftop hiding spot's rim over the roof (m; `Hiding_Spot_P_01a` in Damascus, the running game: AC1 hopped up onto
+/// it, 1.07 m, and dived in).
+const HIDING_SPOT_RIM: f32 = 1.07;
 /// A city haystack's height when its mesh gives none (m).
 const CITY_HAY_HEIGHT: f32 = 1.8;
 
@@ -122,6 +125,8 @@ const INSIDE_PROBE: f32 = 12.0;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CityObject {
     Hay,
+    /// A rooftop hiding spot (`Hiding_Spot_*`: a plank box under a tarp): dived into as hay, from its rim.
+    HidingSpot,
     Ladder,
     Bench,
     Pole,
@@ -398,6 +403,12 @@ impl Level {
                     }
                 }
                 CityObject::Hay => {}
+                CityObject::HidingSpot => {
+                    // (Its top for diving in is the box's rim, not the tarp's frame over it.)
+                    let half = (size.x.min(size.z) * 0.5).min(HAY_HALF_MAX);
+                    self.haystacks.push(HayStack { centre: Vec3::new((lo.x + hi.x) * 0.5, lo.y, (lo.z + hi.z) * 0.5), half, height: HIDING_SPOT_RIM });
+                    hay += 1;
+                }
             }
         }
         (hay, ladders, benches, bars)

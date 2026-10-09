@@ -5,6 +5,10 @@
 //! With `ac1-hook.window` beside the exe (`x y w h`, screen pixels), the game draws at `w`×`h` in a window there: its
 //! `/windowed` mode otherwise makes a borderless window the size of the desktop, and resizing that window afterwards
 //! stops its rendering. The size is set where the device is made and on every `Reset`.
+//!
+//! With `ac1-hook.background` beside the exe, its window is told it was put behind another (`WM_ACTIVATEAPP`,
+//! `WM_ACTIVATE`, `WM_KILLFOCUS`) no more: the game stopped taking any keys out of focus, the scripted ones too
+//! (`wndproc`). Off without the file: with it on, the user could not click in the game.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -15,9 +19,8 @@ static CREATE9: AtomicUsize = AtomicUsize::new(0);
 static CREATE_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static PRESENT: AtomicUsize = AtomicUsize::new(0);
 static RESET: AtomicUsize = AtomicUsize::new(0);
-/// The game's window (where its device draws), for `GetActiveWindow`.
-static WINDOW: AtomicUsize = AtomicUsize::new(0);
-static ACTIVE_WINDOW: AtomicUsize = AtomicUsize::new(0);
+/// The game's own window procedure, called by ours (`wndproc`).
+static WNDPROC: AtomicUsize = AtomicUsize::new(0);
 
 /// IDirect3D9::CreateDevice, IDirect3DDevice9::Present / GetBackBuffer, IUnknown::Release (vtable slots).
 const SLOT_CREATE_DEVICE: usize = 16;
@@ -36,25 +39,29 @@ type GetBackBuffer = unsafe extern "system" fn(*mut c_void, u32, u32, u32, *mut 
 type Release = unsafe extern "system" fn(*mut c_void) -> u32;
 type SaveSurface = unsafe extern "system" fn(*const u8, u32, *mut c_void, *const c_void, *const c_void) -> i32;
 
-type ActiveWindow = unsafe extern "system" fn() -> *mut c_void;
+const WM_ACTIVATE: u32 = 0x0006;
+const WM_KILLFOCUS: u32 = 0x0008;
+const WM_ACTIVATEAPP: u32 = 0x001c;
+const GWL_WNDPROC: i32 = -4;
 
-/// `GetActiveWindow`: the game's own window, whatever is in front, so it goes on as the active app while another
-/// window has the focus (it takes the keys `cmd` gives it).
-unsafe extern "system" fn active_window() -> *mut c_void {
-    match WINDOW.load(Ordering::SeqCst) {
-        // SAFETY: the real function, with its signature.
-        0 => unsafe { std::mem::transmute::<usize, ActiveWindow>(ACTIVE_WINDOW.load(Ordering::SeqCst))() },
-        w => w as *mut c_void,
+/// The game's window procedure, but for being put behind another window: that is not passed on, so the game goes on
+/// as the app in front (and takes the keys `cmd` gives it). Coming back to the front is passed on as usual.
+unsafe extern "system" fn wndproc(window: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize {
+    let deactivated = match msg {
+        WM_ACTIVATEAPP => wparam == 0,
+        WM_ACTIVATE => wparam & 0xffff == 0,
+        WM_KILLFOCUS => true,
+        _ => false,
+    };
+    if deactivated {
+        return 0;
     }
+    // SAFETY: the game's own window procedure, with the message it was sent.
+    unsafe { sys::CallWindowProcA(WNDPROC.load(Ordering::SeqCst), window, msg, wparam, lparam) }
 }
 
 /// Hook Direct3D's creation (from `DllMain`: the exe's imports are bound, none of its code has run).
 pub fn install() {
-    // SAFETY: patching our own process's import table before its code runs.
-    if let Some(real) = unsafe { patch::import("user32.dll", "GetActiveWindow", active_window as *const () as usize) } {
-        ACTIVE_WINDOW.store(real, Ordering::SeqCst);
-        sys::log("user32: GetActiveWindow answers the game's window");
-    }
     // SAFETY: patching our own process's import table before its code runs.
     match unsafe { patch::import("d3d9.dll", "Direct3DCreate9", direct3d_create9 as *const () as usize) } {
         Some(real) => {
@@ -85,9 +92,18 @@ unsafe extern "system" fn create_device(
     params: *mut c_void,
     out: *mut *mut c_void,
 ) -> i32 {
-    WINDOW.store(window as usize, Ordering::SeqCst);
     // SAFETY: the game's D3DPRESENT_PARAMETERS.
     unsafe { place(params, window) };
+    // Its window keeps believing it is in front (`wndproc`), once, when asked for (`ac1-hook.background` beside the exe):
+    // off otherwise, as the user could not click in the game with it on.
+    if !window.is_null() && WNDPROC.load(Ordering::SeqCst) == 0 && sys::game_file("ac1-hook.background").exists() {
+        // SAFETY: the game's live window; its procedure swapped for ours, which calls it.
+        let old = unsafe { sys::SetWindowLongA(window, GWL_WNDPROC, wndproc as *const () as usize as i32) };
+        if old != 0 {
+            WNDPROC.store(old as u32 as usize, Ordering::SeqCst);
+            sys::log("window: its deactivation messages are held back (it takes keys behind other windows)");
+        }
+    }
     // SAFETY: the real method, with its signature.
     let r = unsafe { std::mem::transmute::<usize, CreateDevice>(CREATE_DEVICE.load(Ordering::SeqCst))(this, adapter, kind, window, flags, params, out) };
     // SAFETY: on success `out` holds a live device.

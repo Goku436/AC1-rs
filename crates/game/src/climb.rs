@@ -325,6 +325,9 @@ const HANG_HOLD_UP: f32 = 1.13;
 const CATCH_BELOW_LET_GO: f32 = 0.45;
 /// Diving into hay from a top beside it: its edge within this far (m); the dives taken in turn.
 const HAY_DIVE_REACH: f32 = 2.2;
+/// Free running, the dive in is taken this close to the haystack's edge (m): AC1 dived from the hiding spot's rim, 1.4 m
+/// from its middle (the running game, Damascus); from further, the dive went through the box it stood on.
+const HAY_RUN_DIVE_REACH: f32 = 0.6;
 static HAY_DIVES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 /// Standing within this of a viewpoint (m), the leap of faith goes to its hay.
 const VIEWPOINT_REACH: f32 = 2.0;
@@ -648,6 +651,8 @@ const MONKEY_HANG: f32 = 1.9;
 /// feet), lower steps are walked up by the capsule (0.37 m step); a roof's raised tile edges are run over.)
 const VAULT_HEIGHT: std::ops::RangeInclusive<f32> = 0.5..=1.3;
 const VAULT_REACH: f32 = 2.3;
+/// The low obstacle is looked for this far either side of the run's middle too (m, the body's half-width).
+const VAULT_SIDE: f32 = 0.3;
 const STEP_UP_MAX: f32 = 0.85;
 /// On a beam the stick walks along it while it leans along it at least this much (cos: 60 degrees), as the walk
 /// keeps going (`beam_step`).
@@ -2439,6 +2444,21 @@ impl WallClimb {
         }
     }
 
+    /// Free running on a top level with a haystack just ahead (within 45 degrees of `dir`): dived into, as AC1 does off the
+    /// hay box's rim it hopped onto (`xx_h_freestep_footr_to_haystack_02`, the running game, Damascus).
+    pub fn hay_dive_ahead(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, from: Option<Pose>) -> Option<WallClimb> {
+        let p = root.translation;
+        let dir = dir.with_y(0.0).normalize_or_zero();
+        let ahead = level.haystacks.iter().any(|h| {
+            let to = (h.centre - p).with_y(0.0);
+            to.length() < h.half + HAY_RUN_DIVE_REACH && to.normalize_or_zero().dot(dir) > 0.7 && (-0.3..FAITH_MIN_DROP).contains(&(p.y - h.top()))
+        });
+        if !ahead {
+            return None;
+        }
+        Self::into_hay(lib, level, root, true, from)
+    }
+
     /// Next to a haystack, the legs: jump into it and hide (`xx_h_air_to_haystack`, steered into its middle); in
     /// low profile only (`high`: free running goes past it), except the dive in from a top beside it.
     pub fn into_hay(lib: &mut AnimLib, level: &Level, root: &Transform, high: bool, from: Option<Pose>) -> Option<WallClimb> {
@@ -3260,20 +3280,52 @@ impl WallClimb {
     pub fn vault(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, speed: f32, from: Option<Pose>) -> Option<WallClimb> {
         let dir = dir.with_y(0.0).normalize_or_zero();
         let p = root.translation;
-        let hit = level.raycast(p + Vec3::Y * 0.25, dir, VAULT_REACH).filter(|h| h.normal.y.abs() < 0.3)?;
+        // (Down the middle, then at the body's sides: running past a corner, the middle missed it while the body ran into
+        // it and stood there. AC1 looks for these tops in a box 0.5 m either side.)
+        let side = dir.cross(Vec3::Y);
+        let hit = [0.0, -VAULT_SIDE, VAULT_SIDE]
+            .iter()
+            .find_map(|&s| level.raycast(p + side * s + Vec3::Y * 0.25, dir, VAULT_REACH).filter(|h| h.normal.y.abs() < 0.3))?;
         let normal = hit.normal.with_y(0.0).normalize();
         let fwd = -normal;
         if fwd.dot(dir) < 0.7 {
+            if why() {
+                debug!(
+                    "climb: no jump onto the obstacle {:.2} m ahead: its face is turned {:.0} degrees off the run",
+                    hit.dist,
+                    fwd.dot(dir).acos().to_degrees()
+                );
+            }
             return None;
         }
         // Its top just past the face, in range, walkable, with room above to stand on it.
-        let top = level.ground(hit.point.with_y(p.y + VAULT_HEIGHT.end() + 0.2) + fwd * 0.08, 0.0, VAULT_HEIGHT.end() + 0.2)?;
+        // (A little further in too: at a corner, or a face with a lip under its top, the top starts past where it was met.)
+        let Some(top) =
+            [0.08, 0.2, 0.35].iter().find_map(|&d| level.ground(hit.point.with_y(p.y + VAULT_HEIGHT.end() + 0.2) + fwd * d, 0.0, VAULT_HEIGHT.end() + 0.2))
+        else {
+            if why() {
+                debug!("climb: no jump onto the obstacle {:.2} m ahead: no top over it within {:.1} m", hit.dist, VAULT_HEIGHT.end());
+            }
+            return None;
+        };
         let h = top.point.y - p.y;
-        if !VAULT_HEIGHT.contains(&h)
-            || top.normal.y < 0.8
-            || rise(level, p, fwd, hit.dist, top.point.y) < *VAULT_HEIGHT.start()
-            || level.raycast(p.with_y(top.point.y + 0.3), fwd, hit.dist + 1.0).is_some()
-        {
+        // (A haystack's rim: hopped onto with no room to stand, under its cover, as AC1 does before diving in.)
+        let hay = level.haystacks.iter().any(|y| y.contains(top.point + fwd * 0.6, -0.3) && y.top() < top.point.y + 0.3);
+        let (rose, blocked) = (rise(level, p, fwd, hit.dist, top.point.y), level.raycast(p.with_y(top.point.y + 0.3), fwd, hit.dist + 1.0).filter(|_| !hay));
+        if !VAULT_HEIGHT.contains(&h) || top.normal.y < 0.8 || rose < *VAULT_HEIGHT.start() || blocked.is_some() {
+            if why() {
+                debug!(
+                    "climb: no jump onto the {h:.2} m top {:.2} m ahead: its normal {:.2}, rise {rose:.2}, something over it {:?} m on (nearest haystack {:?})",
+                    hit.dist,
+                    top.normal.y,
+                    blocked.map(|b| b.dist),
+                    level.haystacks.iter().min_by(|a, b| (a.centre - top.point).length().total_cmp(&(b.centre - top.point).length())).map(|h| (
+                        h.centre,
+                        h.half,
+                        h.top()
+                    ))
+                );
+            }
             return None;
         }
         let edge = hit.point.with_y(top.point.y);

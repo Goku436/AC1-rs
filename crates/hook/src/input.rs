@@ -2,8 +2,11 @@
 //! `GetDeviceData`, buffered presses and releases) given keys of ours too: `cmd`'s `key` holds a key down for some
 //! frames, whatever has the focus.
 //!
-//! Out of focus the game's devices cannot be acquired and their reads fail; `Acquire` is answered as done and a failed
-//! read as an empty one (plus ours), so the game goes on taking our keys while another window is in front.
+//! Out of focus the game's devices cannot be acquired and their reads fail. With `ac1-hook.background` beside the exe,
+//! `Acquire` is answered as done and a failed read as an empty one (plus ours), so the game goes on taking our keys
+//! while another window is in front. Off without the file: answered as done at startup, before its window was in
+//! front, the game never acquired the mouse again and the player could not click in its menus. Without it, a failed
+//! read is ours alone only while we hold something.
 
 use std::ffi::c_void;
 use std::sync::Mutex;
@@ -93,6 +96,9 @@ unsafe extern "system" fn get_state(this: *mut c_void, size: u32, data: *mut u8)
         }
         let buttons = BUTTONS.lock().unwrap();
         let motion = MOTION.lock().unwrap();
+        if r < 0 && buttons.is_empty() && motion.is_empty() && !background() {
+            return r;
+        }
         // SAFETY: a DIMOUSESTATE of `size` bytes.
         unsafe {
             if r < 0 {
@@ -115,14 +121,19 @@ unsafe extern "system" fn get_state(this: *mut c_void, size: u32, data: *mut u8)
         if !SAID_STATE.swap(true, Ordering::SeqCst) {
             sys::log("dinput: the game reads the keyboard by GetDeviceState");
         }
-        // (Not acquired, out of focus: the state is ours alone.)
-        if r < 0 {
-            // SAFETY: a 256-byte key array.
-            unsafe { std::ptr::write_bytes(data, 0, 256) };
+        let held = HELD.lock().unwrap();
+        // (Not acquired, out of focus: the state is ours alone, in background mode or while we hold a key.)
+        if r < 0 && held.is_empty() && !background() {
+            return r;
         }
-        for &(k, _) in HELD.lock().unwrap().iter() {
-            // SAFETY: a 256-byte key array.
-            unsafe { *data.add(k as usize) |= 0x80 };
+        // SAFETY: a 256-byte key array.
+        unsafe {
+            if r < 0 {
+                std::ptr::write_bytes(data, 0, 256);
+            }
+            for &(k, _) in held.iter() {
+                *data.add(k as usize) |= 0x80;
+            }
         }
         return 0;
     }
@@ -175,10 +186,27 @@ type Acquire = unsafe extern "system" fn(*mut c_void) -> i32;
 unsafe extern "system" fn acquire(this: *mut c_void) -> i32 {
     // SAFETY: the real method, with its signature.
     let r = unsafe { std::mem::transmute::<usize, Acquire>(ACQUIRE.load(Ordering::SeqCst))(this) };
-    if r < 0 && !SAID_UNACQUIRED.swap(true, Ordering::SeqCst) {
-        sys::log(&format!("dinput: Acquire failed ({r:#x}, out of focus): answered as done"));
+    if r >= 0 || !background() {
+        return r;
+    }
+    if !SAID_UNACQUIRED.swap(true, Ordering::SeqCst) {
+        sys::log(&format!("dinput: Acquire failed ({r:#x}, out of focus): answered as done (background mode)"));
     }
     0
+}
+
+/// Background mode (`ac1-hook.background` beside the exe), looked at once a second at most.
+fn background() -> bool {
+    static AT: Mutex<Option<(std::time::Instant, bool)>> = Mutex::new(None);
+    let mut at = AT.lock().unwrap();
+    match *at {
+        Some((t, on)) if t.elapsed().as_secs_f32() < 1.0 => on,
+        _ => {
+            let on = sys::game_file("ac1-hook.background").exists();
+            *at = Some((std::time::Instant::now(), on));
+            on
+        }
+    }
 }
 
 fn is_mouse(device: *mut c_void) -> bool {

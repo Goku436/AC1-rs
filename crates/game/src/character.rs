@@ -1152,7 +1152,8 @@ pub fn locomotion(
             let toward = target_v.with_y(0.0).try_normalize().map_or(v, |d| d * v.length());
             let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
             let low = if ctl.free_run {
-                WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.anim_pose.clone()))
+                WallClimb::hay_dive_ahead(lib, &level, &tf, toward, Some(ch.anim_pose.clone()))
+                    .or_else(|| WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.anim_pose.clone())))
             } else {
                 WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.anim_pose.clone()))
             };

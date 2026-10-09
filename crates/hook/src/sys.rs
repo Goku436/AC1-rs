@@ -29,6 +29,8 @@ unsafe extern "system" {
 unsafe extern "system" {
     pub fn SetCursorPos(x: i32, y: i32) -> i32;
     pub fn SetWindowPos(window: *mut c_void, after: *mut c_void, x: i32, y: i32, w: i32, h: i32, flags: u32) -> i32;
+    pub fn SetWindowLongA(window: *mut c_void, index: i32, value: i32) -> i32;
+    pub fn CallWindowProcA(proc: usize, window: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
 }
 
 /// `MEMORY_BASIC_INFORMATION` (32-bit).
