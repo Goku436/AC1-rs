@@ -25,11 +25,14 @@ unsafe extern "system" {
     fn LoadLibraryA(name: *const u8) -> Hmodule;
     fn GetProcAddress(module: Hmodule, name: *const u8) -> *mut c_void;
     fn GetSystemDirectoryA(buf: *mut u8, len: u32) -> u32;
+    #[cfg(target_pointer_width = "32")]
     fn GetModuleHandleA(name: *const u8) -> Hmodule;
     fn GetModuleFileNameA(module: Hmodule, buf: *mut u8, len: u32) -> u32;
+    #[cfg(target_pointer_width = "32")]
     fn VirtualProtect(addr: *mut c_void, size: usize, prot: u32, old: *mut u32) -> i32;
 }
 
+#[cfg(target_pointer_width = "32")]
 const PAGE_READWRITE: u32 = 0x04;
 /// `ERROR_NO_DATA`: what `GetAdaptersInfo` returns with no adapters.
 const ERROR_NO_DATA: u32 = 232;
@@ -121,7 +124,7 @@ unsafe fn patch_import(dll: &str, func: &str, to: usize) -> bool {
     // SAFETY: the exe's own image, its headers as the PE format lays them out.
     unsafe {
         let base = GetModuleHandleA(std::ptr::null()) as usize;
-        let rd = |off: usize| (base + off as usize) as *const u32;
+        let rd = |off: usize| (base + off) as *const u32;
         let nt = base + *rd(0x3c) as usize;
         // The import directory: the optional header's data directory 1 (32-bit layout).
         let imports = *((nt + 24 + 96 + 8) as *const u32) as usize;
