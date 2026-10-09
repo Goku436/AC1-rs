@@ -647,7 +647,7 @@ const SCENARIOS: &[Scenario] = &[
         env: &[("AC1_START", "-96,55,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-20"), ("AC1_LEGS", "0-20"), ("AC1_CLIMB", "nograb,wait=2.5,leap-up=8")],
         secs: 16.0,
         want: &[
-            "tr_hangwall_430cm_000cm_a",
+            "tr_hangwall_251cm_000cm_a",
             "climb1m_up_l_hand_2_c",
             "-> top via xx_h_hangknee_footl_tr_h_jog_footr_b",
             "running jump aimed at [-83.61, 4.79",

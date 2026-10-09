@@ -858,6 +858,12 @@ pub fn locomotion(
                         // climb on from the ground, else a running jump (unless a wall is right ahead), else a
                         // standing jump up to a ledge, else straight up.
                         let facing = if v.length() > 0.5 { v } else { tf.rotation * Vec3::NEG_Z };
+                        // (Free running, AC1 runs up a wall at any speed, from a walk too, seen in the running game; the
+                        // facing gives the way when nearly stopped.)
+                        let run_v = if v.length() > 0.5 { v } else { facing.with_y(0.0).normalize_or_zero() * 1.0 };
+                        let wall_run_now = |v: Vec3, free_run: bool, wall_ahead: &dyn Fn(Vec3, f32) -> bool| {
+                            (v.length() > SPRINT_SPEED || free_run) && wall_ahead(run_v.normalize_or_zero(), crate::climb::WALL_RUN_REACH)
+                        };
                         // (Hiding on a bench or in hay from the ground is low profile's; in high profile the legs free
                         // run past them.)
                         ch.wall = (!ctl.high)
@@ -868,8 +874,8 @@ pub fn locomotion(
                         // Sprinting at a wall: run up it (AC1's interpreter tests the wall run before the ladder: up a wall
                         // with a ladder on it, onto the ladder).
                         ch.wall = ch.wall.take().or_else(|| {
-                            (v.length() > SPRINT_SPEED && wall_ahead(v.normalize(), crate::climb::WALL_RUN_REACH))
-                                .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, pose()))
+                            wall_run_now(v, ctl.free_run, &wall_ahead)
+                                .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose()))
                                 .flatten()
                         });
                         // A ladder's foot or top: onto it (before the edge it stands at).
@@ -884,8 +890,8 @@ pub fn locomotion(
                         }
                         ch.wall = ch.wall.take().or_else(|| WallClimb::monkey_bars(lib, &level, &tf, pose()));
                         ch.wall = ch.wall.take().or_else(|| {
-                            (v.length() > SPRINT_SPEED && wall_ahead(v.normalize(), crate::climb::WALL_RUN_REACH))
-                                .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, pose()))
+                            wall_run_now(v, ctl.free_run, &wall_ahead)
+                                .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose()))
                                 .flatten()
                                 .or_else(|| WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose()))
                         });

@@ -373,6 +373,8 @@ const EASE_TURN: f32 = 0.25;
 /// Wall run: the steps up the wall, and its ending when nothing is in reach.
 const WALL_RUN: [&str; 3] = ["xx_h_wallingfront_entry_footl_a", "xx_h_wallingfront_entry_footl_b", "xx_h_wallingfront_step1_footr"];
 const WALL_RUN_FALL: &str = "xx_h_wallingfront_step1_footr_tr_fall";
+/// How fast the wall run's kick off the top carries him away from the wall (m/s; `xx_h_rebound_footr_tr_fall`'s root).
+const REBOUND_OFF_SPEED: f32 = 1.7;
 /// The wall run's top with nothing to grab and the legs held: the kick off backwards (AC1, seen in the running game).
 const WALL_RUN_REBOUND: [&str; 3] =
     ["xx_h_wallingfront_step1_footr_tr_rebound_footr_a", "xx_h_wallingfront_step1_footr_tr_rebound_footr_b", "xx_h_rebound_footr_tr_fall"];
@@ -1158,15 +1160,17 @@ fn wall_run_options() -> Vec<GrabOpt> {
     let stand_l = vec![STAND_UP.to_string()];
     let wall = GrabEnd::Hang(HANGWALL_OPEN, HANGWALL_REST);
     let free = GrabEnd::Hang(FREE, "xx_h_hangfree_waitclose");
+    // In the order the run reaches them, lowest first: AC1 catches the first hold on the way up (in the running game, Damascus,
+    // the hold 2.5 m up rather than the one at 4.3 m above it).
     vec![
-        GrabOpt { names: run(&[&format!("{step}_hangwall_430cm_000cm_a"), &format!("{step}_hangwall_430cm_000cm_b")]), catch: 2, end: wall, after: vec![] },
-        GrabOpt { names: run(&[&format!("{step}_hangknee_250cm_footr")]), catch: 1, end: GrabEnd::Onto(2.5), after: stand_r.clone() },
-        GrabOpt { names: run(&[&format!("{step}_hangknee_201cm_footr")]), catch: 1, end: GrabEnd::Onto(2.0), after: stand_r },
-        GrabOpt { names: run(&[&format!("{step}_hangfree_400cm_swingback_min")]), catch: 1, end: free, after: vec![] },
-        GrabOpt { names: run(&[&format!("{step}_hangfree_350cm_swingback_min")]), catch: 1, end: free, after: vec![] },
-        GrabOpt { names: run(&[&format!("{step}_hangwall_251cm_000cm_a"), &format!("{step}_hangwall_251cm_000cm_b")]), catch: 2, end: wall, after: vec![] },
+        GrabOpt { names: entry("xx_h_wallingfront_entry_footl_tr_hangknee_131cm_footl"), catch: 1, end: GrabEnd::Onto(1.31), after: stand_l.clone() },
         GrabOpt { names: entry("xx_h_wallingfront_entry_footl_tr_hangknee_200cm_footl"), catch: 1, end: GrabEnd::Onto(2.0), after: stand_l.clone() },
-        GrabOpt { names: entry("xx_h_wallingfront_entry_footl_tr_hangknee_131cm_footl"), catch: 1, end: GrabEnd::Onto(1.31), after: stand_l },
+        GrabOpt { names: run(&[&format!("{step}_hangknee_201cm_footr")]), catch: 1, end: GrabEnd::Onto(2.0), after: stand_r.clone() },
+        GrabOpt { names: run(&[&format!("{step}_hangknee_250cm_footr")]), catch: 1, end: GrabEnd::Onto(2.5), after: stand_r.clone() },
+        GrabOpt { names: run(&[&format!("{step}_hangwall_251cm_000cm_a"), &format!("{step}_hangwall_251cm_000cm_b")]), catch: 2, end: wall, after: vec![] },
+        GrabOpt { names: run(&[&format!("{step}_hangfree_350cm_swingback_min")]), catch: 1, end: free, after: vec![] },
+        GrabOpt { names: run(&[&format!("{step}_hangfree_400cm_swingback_min")]), catch: 1, end: free, after: vec![] },
+        GrabOpt { names: run(&[&format!("{step}_hangwall_430cm_000cm_a"), &format!("{step}_hangwall_430cm_000cm_b")]), catch: 2, end: wall, after: vec![] },
     ]
 }
 
@@ -4741,13 +4745,15 @@ impl WallClimb {
             return;
         }
         // AC1's choice (`HumanInAir__SetupToGround_Landing` 0xE05940, docs/PARKOUR.md): moving with the stick within 75
-        // degrees of the motion, the forward landing, going on by the speed against a sprint (< 0.2 the wait, < 0.5
-        // the walk, < 0.9 the jog, else the sprint's takeoff); no stick, or turned further, the straight one (into the
-        // wait with the stick let go, else as the profile asks).
+        // degrees of the motion, the forward landing, else the straight one; either goes on by the speed against a sprint
+        // while the stick is held (< 0.2 the wait, < 0.5 the walk, < 0.9 the jog, else the sprint's takeoff), into the
+        // wait with it let go.
         let stick = self.move_dir.with_y(0.0);
         let along = v.with_y(0.0).try_normalize().unwrap_or((root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero());
         let forward = stick.length() > 0.3 && stick.normalize().dot(along) >= LAND_FORWARD_COS;
-        let into = if forward {
+        // (The straight one with the stick held goes on by the speed too: off a wall run's rebound, slow, AC1 landed straight
+        // into the walk, `..._straight_soft_footr_tr_l_walk_footl`, free running, seen in the running game.)
+        let into = if stick.length() > 0.3 {
             match flat_speed / LAND_SPRINT_SPEED {
                 r if r < 0.2 => LandInto::Wait,
                 r if r < 0.5 => LandInto::Walk,
@@ -4755,7 +4761,7 @@ impl WallClimb {
                 _ => LandInto::Sprint,
             }
         } else {
-            LandInto::from(stick.length() > 0.3, self.high, self.sprint)
+            LandInto::from(false, self.high, self.sprint)
         };
         let names: [String; 2] = match running {
             _ if damage >= HEAVY_DAMAGE => LAND_HEAVY.map(String::from),
@@ -4973,6 +4979,8 @@ impl WallClimb {
                 let n = clips.len();
                 self.queue = clips.into_iter().enumerate().map(|(k, c)| Queued::new(c, if k + 1 == n { FALL } else { WALL_RUN_STATE })).collect();
                 self.can_catch = false;
+                // (Flying off backwards as `rebound_footr_tr_fall` moves, 0.8 m in 0.47 s: AC1 lands 0.65 m out.)
+                self.fall_with = Some(self.normal.with_y(0.0).normalize_or_zero() * REBOUND_OFF_SPEED);
                 debug!("climb: the wall run tops out with nothing to grab: rebound off it");
             }
             if !self.queue.is_empty() {
