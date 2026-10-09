@@ -4,11 +4,14 @@
 //! `cargo build --release -p ac1-hook --target i686-pc-windows-msvc`.
 //!
 //! - DirectInput: `DirectInput8Create` and the COM entry points go on to the real `dinput8.dll` in the system folder,
-//!   loaded on first use (not from `DllMain`, under the loader lock).
+//!   loaded on first use (not from `DllMain`, under the loader lock). The keyboard the game makes takes keys of ours
+//!   too (`input`).
 //! - Startup fix: with a network adapter up, AC1 starts its online thread (`gconnect.ubi.com`, long shut down) as a
 //!   seventh engine thread, and the engine has slots for six: it stops itself at a breakpoint 6 s in. The game's
 //!   import of `iphlpapi!GetAdaptersInfo` is pointed at ours, which reports no adapters, as with the network off. Only
 //!   this game sees it.
+//! - Direct3D 9: its `Present` runs the hook once a frame (`d3d`), reading commands from a file (`cmd`: screenshots,
+//!   key presses), so the game can be driven and seen from outside whatever window has the focus.
 //!
 //! What it does is written to `ac1-hook.log` beside the exe. Nothing here runs outside a 32-bit build (the 64-bit
 //! build is only for the workspace's checks).
@@ -16,39 +19,25 @@
 #![allow(clippy::missing_safety_doc)]
 
 use std::ffi::c_void;
-use std::io::Write;
-
-type Hmodule = *mut c_void;
-
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn LoadLibraryA(name: *const u8) -> Hmodule;
-    fn GetProcAddress(module: Hmodule, name: *const u8) -> *mut c_void;
-    fn GetSystemDirectoryA(buf: *mut u8, len: u32) -> u32;
-    #[cfg(target_pointer_width = "32")]
-    fn GetModuleHandleA(name: *const u8) -> Hmodule;
-    fn GetModuleFileNameA(module: Hmodule, buf: *mut u8, len: u32) -> u32;
-    #[cfg(target_pointer_width = "32")]
-    fn VirtualProtect(addr: *mut c_void, size: usize, prot: u32, old: *mut u32) -> i32;
-}
 
 #[cfg(target_pointer_width = "32")]
-const PAGE_READWRITE: u32 = 0x04;
+mod cmd;
+#[cfg(target_pointer_width = "32")]
+mod d3d;
+#[cfg(target_pointer_width = "32")]
+mod input;
+#[cfg(target_pointer_width = "32")]
+mod patch;
+mod sys;
+#[cfg(target_pointer_width = "32")]
+mod trace;
+
+use sys::{GetProcAddress, GetSystemDirectoryA, Hmodule, LoadLibraryA, log};
+
 /// `ERROR_NO_DATA`: what `GetAdaptersInfo` returns with no adapters.
+#[cfg(target_pointer_width = "32")]
 const ERROR_NO_DATA: u32 = 232;
 const E_FAIL: i32 = 0x8000_4005_u32 as i32;
-
-/// A line in `ac1-hook.log` beside the exe.
-fn log(msg: &str) {
-    let mut buf = [0u8; 520];
-    // SAFETY: the buffer is as long as we say; a null module is the exe.
-    let n = unsafe { GetModuleFileNameA(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
-    let exe = String::from_utf8_lossy(&buf[..n]).into_owned();
-    let path = std::path::Path::new(&exe).with_file_name("ac1-hook.log");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(f, "{msg}");
-    }
-}
 
 /// The real `dinput8.dll`'s export `name` (NUL-terminated), the DLL loaded from the system folder on first use.
 fn real(name: &[u8]) -> *mut c_void {
@@ -82,7 +71,13 @@ pub unsafe extern "system" fn DirectInput8Create(inst: *mut c_void, version: u32
         return E_FAIL;
     }
     // SAFETY: the real export, with the real signature.
-    unsafe { std::mem::transmute::<*mut c_void, Create>(f)(inst, version, riid, out, outer) }
+    let r = unsafe { std::mem::transmute::<*mut c_void, Create>(f)(inst, version, riid, out, outer) };
+    #[cfg(target_pointer_width = "32")]
+    if r >= 0 && !out.is_null() {
+        // SAFETY: on success `out` holds the new IDirectInput8.
+        input::hook_direct_input(unsafe { *out });
+    }
+    r
 }
 
 #[unsafe(no_mangle)]
@@ -114,69 +109,26 @@ pub unsafe extern "system" fn DllUnregisterServer() -> i32 {
 }
 
 /// `GetAdaptersInfo` as the game sees it: no adapters (as with the network off).
+#[cfg(target_pointer_width = "32")]
 unsafe extern "system" fn no_adapters(_info: *mut c_void, _len: *mut u32) -> u32 {
     ERROR_NO_DATA
 }
 
-/// Point the exe's import `dll!func` at `to`. Returns whether it was found.
-#[cfg(target_pointer_width = "32")]
-unsafe fn patch_import(dll: &str, func: &str, to: usize) -> bool {
-    // SAFETY: the exe's own image, its headers as the PE format lays them out.
-    unsafe {
-        let base = GetModuleHandleA(std::ptr::null()) as usize;
-        let rd = |off: usize| (base + off) as *const u32;
-        let nt = base + *rd(0x3c) as usize;
-        // The import directory: the optional header's data directory 1 (32-bit layout).
-        let imports = *((nt + 24 + 96 + 8) as *const u32) as usize;
-        if imports == 0 {
-            return false;
-        }
-        let cstr = |at: usize| std::ffi::CStr::from_ptr((base + at) as *const std::ffi::c_char).to_string_lossy().into_owned();
-        let mut desc = base + imports;
-        loop {
-            let names = *(desc as *const u32) as usize;
-            let name = *((desc + 12) as *const u32) as usize;
-            let thunks = *((desc + 16) as *const u32) as usize;
-            if name == 0 {
-                return false;
-            }
-            if cstr(name).eq_ignore_ascii_case(dll) {
-                let mut k = 0;
-                loop {
-                    let by_name = *((base + if names != 0 { names } else { thunks }) as *const u32).add(k) as usize;
-                    if by_name == 0 {
-                        break;
-                    }
-                    // (Not by ordinal: the high bit clear, then a hint and the name.)
-                    if by_name & 0x8000_0000 == 0 && cstr(by_name + 2) == func {
-                        let slot = ((base + thunks) as *mut u32).add(k);
-                        let mut old = 0;
-                        VirtualProtect(slot as *mut c_void, 4, PAGE_READWRITE, &mut old);
-                        *slot = to as u32;
-                        VirtualProtect(slot as *mut c_void, 4, old, &mut old);
-                        return true;
-                    }
-                    k += 1;
-                }
-            }
-            desc += 20;
-        }
-    }
-}
-
-#[cfg(not(target_pointer_width = "32"))]
-unsafe fn patch_import(_dll: &str, _func: &str, _to: usize) -> bool {
-    false
-}
-
-/// Windows calls this when the DLL loads: the startup fix goes in before the game's code runs.
+/// Windows calls this when the DLL loads: the startup fix and the hooks go in before the game's code runs.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn DllMain(_module: Hmodule, reason: u32, _reserved: *mut c_void) -> i32 {
     const DLL_PROCESS_ATTACH: u32 = 1;
     if reason == DLL_PROCESS_ATTACH {
-        // SAFETY: patching our own process's import table, before its code runs.
-        let patched = unsafe { patch_import("iphlpapi.dll", "GetAdaptersInfo", no_adapters as *const () as usize) };
-        log(&format!("ac1-hook loaded; GetAdaptersInfo {}", if patched { "now reports no adapters (startup fix)" } else { "not found in the imports" }));
+        #[cfg(target_pointer_width = "32")]
+        {
+            // SAFETY: patching our own process's import table, before its code runs.
+            let patched = unsafe { patch::import("iphlpapi.dll", "GetAdaptersInfo", no_adapters as *const () as usize) }.is_some();
+            log(&format!("ac1-hook loaded; GetAdaptersInfo {}", if patched { "now reports no adapters (startup fix)" } else { "not found in the imports" }));
+            d3d::install();
+            trace::install();
+        }
+        #[cfg(not(target_pointer_width = "32"))]
+        log("ac1-hook loaded (64-bit build: does nothing)");
     }
     1
 }
