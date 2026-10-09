@@ -823,6 +823,14 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     building(walls, strips, level, up(-92.0, z - 4.0), Vec3::new(-88.0, top(4.0), z), &[Vec3::NEG_X]);
     walls.cuboid(Vec3::new(-92.0, 0.0, z), Vec3::new(-88.0, 1.8, z + 4.0));
 
+    // A slab sticking out 0.6 m over a wall with holds 2.4 m and more below it: hanging from its edge the feet find no
+    // wall (a free hang), and down drops onto the wall's holds (AC1's `hangfree_tr_climb2m_down_*` / `hangfree_tr_hangwall_down_*`).
+    let z = 144.0;
+    walls.cuboid(Vec3::new(-92.0, 0.0, z - 2.0), Vec3::new(-88.0, top(6.0), z + 2.0));
+    hold_rows(strips, level, Vec3::new(-92.0, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &[top(0.0), top(1.0), top(2.0)]);
+    walls.cuboid(Vec3::new(-92.6, top(6.0) - 0.2, z - 2.0), Vec3::new(-92.0, top(6.0), z + 2.0));
+    hold_rows(strips, level, Vec3::new(-92.6, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &[top(6.0)]);
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),

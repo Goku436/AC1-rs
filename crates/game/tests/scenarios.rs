@@ -770,6 +770,14 @@ const SCENARIOS: &[Scenario] = &[
         want: &["stepped off the wall sideways (right, turned)", "-> ground via xx_l_climb_1m_to_groundentry_right_90_tr_h_wait_footl"],
         never: &["EMBED"],
     },
+    Scenario {
+        name: "pulled down off a slab into a free hang, down: AC1's drop onto the wall's holds 2.4 m below (hangfree_tr_climb2m_down)",
+        tags: &["hang", "climb"],
+        env: &[("AC1_START", "-90.5,144,90,6"), ("AC1_WALK", "1.5"), ("AC1_STOP", "2.5-30"), ("AC1_JUMP", "3.0"), ("AC1_CLIMB", "nograb,wait=5,down=1.5")],
+        secs: 8.0,
+        want: &["-> free_1m via xx_l_ledge_pulldown_soft_front_to_hangfree_b", "via xx_h_climbing_hangfree_tr_climb2m_down_", "leap -> 2m via"],
+        never: &["EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
