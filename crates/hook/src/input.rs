@@ -11,10 +11,15 @@ use crate::{patch, sys};
 static CREATE_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static GET_STATE: AtomicUsize = AtomicUsize::new(0);
 static GET_DATA: AtomicUsize = AtomicUsize::new(0);
-/// The keyboard devices the game made (it makes more than one).
+/// The keyboard devices the game made (it makes more than one), and its mice.
 static KEYBOARDS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+static MICE: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+/// Mouse buttons held (button, frames left), and motion to give (dx, dy per frame, frames left).
+static BUTTONS: Mutex<Vec<(u8, u32)>> = Mutex::new(Vec::new());
+static MOTION: Mutex<Vec<(i32, i32, u32)>> = Mutex::new(Vec::new());
 static SAID_STATE: AtomicBool = AtomicBool::new(false);
 static SAID_DATA: AtomicBool = AtomicBool::new(false);
+static SAID_MOUSE: AtomicBool = AtomicBool::new(false);
 
 /// Keys held now (DIK code, frames left), and the presses and releases not yet handed to a buffered read.
 static HELD: Mutex<Vec<(u8, u32)>> = Mutex::new(Vec::new());
@@ -27,6 +32,8 @@ const SLOT_GET_STATE: usize = 9;
 const SLOT_GET_DATA: usize = 10;
 /// GUID_SysKeyboard {6F1D2B61-D5A0-11CF-BFC7-444553540000}.
 const GUID_KEYBOARD: [u8; 16] = [0x61, 0x2b, 0x1d, 0x6f, 0xa0, 0xd5, 0xcf, 0x11, 0xbf, 0xc7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00];
+/// GUID_SysMouse {6F1D2B60-D5A0-11CF-BFC7-444553540000}.
+const GUID_MOUSE: [u8; 16] = [0x60, 0x2b, 0x1d, 0x6f, 0xa0, 0xd5, 0xcf, 0x11, 0xbf, 0xc7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00];
 
 type CreateDevice = unsafe extern "system" fn(*mut c_void, *const [u8; 16], *mut *mut c_void, *mut c_void) -> i32;
 type GetState = unsafe extern "system" fn(*mut c_void, u32, *mut u8) -> i32;
@@ -47,6 +54,14 @@ unsafe extern "system" fn create_device(this: *mut c_void, guid: *const [u8; 16]
     let r = unsafe { std::mem::transmute::<usize, CreateDevice>(CREATE_DEVICE.load(Ordering::SeqCst))(this, guid, out, outer) };
     // SAFETY: on success `out` holds a live device; the GUID is 16 bytes.
     unsafe {
+        if r >= 0 && !guid.is_null() && *guid == GUID_MOUSE && !(*out).is_null() {
+            MICE.lock().unwrap().push(*out as usize);
+            if GET_STATE.load(Ordering::SeqCst) == 0 {
+                GET_STATE.store(patch::vtable(*out, SLOT_GET_STATE, get_state as *const () as usize), Ordering::SeqCst);
+                GET_DATA.store(patch::vtable(*out, SLOT_GET_DATA, get_data as *const () as usize), Ordering::SeqCst);
+            }
+            sys::log("dinput: mouse made, its reads hooked");
+        }
         if r >= 0 && !guid.is_null() && *guid == GUID_KEYBOARD && !(*out).is_null() {
             KEYBOARDS.lock().unwrap().push(*out as usize);
             if GET_STATE.load(Ordering::SeqCst) == 0 {
@@ -62,6 +77,34 @@ unsafe extern "system" fn create_device(this: *mut c_void, guid: *const [u8; 16]
 unsafe extern "system" fn get_state(this: *mut c_void, size: u32, data: *mut u8) -> i32 {
     // SAFETY: the real method, with its signature.
     let r = unsafe { std::mem::transmute::<usize, GetState>(GET_STATE.load(Ordering::SeqCst))(this, size, data) };
+    // The mouse (DIMOUSESTATE or DIMOUSESTATE2: x, y, wheel, then the buttons): our motion and buttons added.
+    if is_mouse(this) && size >= 16 && !data.is_null() {
+        if !SAID_MOUSE.swap(true, Ordering::SeqCst) {
+            sys::log(&format!("dinput: the game reads the mouse by GetDeviceState ({size} bytes)"));
+        }
+        let buttons = BUTTONS.lock().unwrap();
+        let motion = MOTION.lock().unwrap();
+        if r < 0 && buttons.is_empty() && motion.is_empty() {
+            return r;
+        }
+        // SAFETY: a DIMOUSESTATE of `size` bytes.
+        unsafe {
+            if r < 0 {
+                std::ptr::write_bytes(data, 0, size as usize);
+            }
+            let xy = data as *mut i32;
+            for &(dx, dy, _) in motion.iter() {
+                *xy += dx;
+                *xy.add(1) += dy;
+            }
+            for &(b, _) in buttons.iter() {
+                if 12 + (b as u32) < size {
+                    *data.add(12 + b as usize) = 0x80;
+                }
+            }
+        }
+        return 0;
+    }
     if is_keyboard(this) && size >= 256 && !data.is_null() {
         if !SAID_STATE.swap(true, Ordering::SeqCst) {
             sys::log("dinput: the game reads the keyboard by GetDeviceState");
@@ -118,6 +161,20 @@ unsafe extern "system" fn get_data(this: *mut c_void, item: u32, data: *mut u8, 
     r
 }
 
+fn is_mouse(device: *mut c_void) -> bool {
+    MICE.lock().unwrap().contains(&(device as usize))
+}
+
+/// Hold mouse button `b` (0 left, 1 right, 2 middle) for `frames` frames.
+pub fn button(b: u8, frames: u32) {
+    BUTTONS.lock().unwrap().push((b, frames.max(1)));
+}
+
+/// Move the mouse (dx, dy) each frame for `frames` frames (the camera).
+pub fn motion(dx: i32, dy: i32, frames: u32) {
+    MOTION.lock().unwrap().push((dx, dy, frames.max(1)));
+}
+
 fn is_keyboard(device: *mut c_void) -> bool {
     KEYBOARDS.lock().unwrap().contains(&(device as usize))
 }
@@ -137,6 +194,14 @@ pub fn tick() {
         if *left == 0 {
             events.push((*k, false));
         }
+        *left > 0
+    });
+    BUTTONS.lock().unwrap().retain_mut(|(_, left)| {
+        *left -= 1;
+        *left > 0
+    });
+    MOTION.lock().unwrap().retain_mut(|(_, _, left)| {
+        *left -= 1;
         *left > 0
     });
 }

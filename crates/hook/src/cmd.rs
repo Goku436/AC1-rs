@@ -3,7 +3,10 @@
 //! - `shot <path>`: save the frame just drawn as PNG;
 //! - `key <DIK hex> [frames]`: hold a key that many frames (6 by default), e.g. `key 1c` Enter, `key 01` Escape;
 //! - `log <text>`: write a line to the log (to mark places in it);
-//! - `trace <path>` / `trace off`: the player frame by frame into a file (`trace`); `where`: one line to the log.
+//! - `trace <path>` / `trace off`: the player frame by frame into a file (`trace`); `where`: one line to the log;
+//! - `tp <x> <y> <z> [yaw]`: put the player there (game space, Z up; yaw in degrees from +X toward +Y);
+//! - `mouse <button> [frames]`: hold a mouse button (0 left, 1 right = high profile); `look <dx> <dy> <frames>`: move
+//!   the mouse that much each frame (the camera); `cursor <x> <y>`: the Windows cursor (the menus follow it).
 //!
 //! `ac1-hook.status` holds the frame count, rewritten every second or so: the game is alive and drawing.
 
@@ -49,6 +52,26 @@ pub fn frame(device: *mut c_void) {
             }
             "log" => rest.to_string(),
             "trace" => trace::command(rest),
+            "tp" => trace::teleport(rest),
+            "mouse" => {
+                // mouse <button 0|1|2> <frames>
+                let v: Vec<u32> = rest.split_whitespace().filter_map(|w| w.parse().ok()).collect();
+                input::button(*v.first().unwrap_or(&1) as u8, *v.get(1).unwrap_or(&6));
+                format!("mouse button {rest}")
+            }
+            "cursor" => {
+                // cursor <x> <y>: the Windows cursor, which the menus follow
+                let v: Vec<i32> = rest.split_whitespace().filter_map(|w| w.parse().ok()).collect();
+                // SAFETY: plain call.
+                let ok = unsafe { sys::SetCursorPos(*v.first().unwrap_or(&0), *v.get(1).unwrap_or(&0)) } != 0;
+                format!("cursor to {rest}: {}", if ok { "done" } else { "failed" })
+            }
+            "look" => {
+                // look <dx> <dy> <frames>: mouse motion each frame
+                let v: Vec<i32> = rest.split_whitespace().filter_map(|w| w.parse().ok()).collect();
+                input::motion(*v.first().unwrap_or(&0), *v.get(1).unwrap_or(&0), *v.get(2).unwrap_or(&1) as u32);
+                format!("look {rest}")
+            }
             "where" => trace::here(),
             _ => format!("unknown command: {line}"),
         };

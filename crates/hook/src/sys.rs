@@ -24,6 +24,12 @@ unsafe extern "system" {
     pub fn GetCurrentProcess() -> *mut c_void;
 }
 
+#[cfg(target_pointer_width = "32")]
+#[link(name = "user32")]
+unsafe extern "system" {
+    pub fn SetCursorPos(x: i32, y: i32) -> i32;
+}
+
 /// `MEMORY_BASIC_INFORMATION` (32-bit).
 #[cfg(target_pointer_width = "32")]
 #[repr(C)]

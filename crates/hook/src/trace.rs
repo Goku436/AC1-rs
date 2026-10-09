@@ -6,7 +6,8 @@
 //!   holds its `Human` at +0x10 and `Entity` at +0x14: hooked to learn which Human is the player;
 //! - `Human` +0x48: the locomotion context now (`HumanGround`, `HumanClimb`, ...: its class names the mode); +0x104
 //!   the `Entity`; +0x7DC its `ActionComponent`;
-//! - `Entity` +0x10..+0x4C: its world matrix, rows X, Y, Z, then the position (game space, Z up; a character faces +X);
+//! - `Entity` +0x10..+0x4C: its world matrix, rows X, Y, Z, then the position (game space, Z up; the character faces
+//!   its Y row, the yaw logged is that row's);
 //! - `ActionComponent::Play` (0x501190, `thiscall`, 4 arguments, the action id first): every action started, by id
 //!   (the action blocks' ids: `forge` example `action_index` names them).
 //!
@@ -88,7 +89,8 @@ fn now() -> Option<([f32; 3], f32, String)> {
     }
     // SAFETY: checked readable: 16 floats.
     let f = |k: usize| unsafe { ((m + 4 * k) as *const f32).read_unaligned() };
-    let yaw = f(1).atan2(f(0)).to_degrees();
+    // (The character faces the matrix's Y row: walking toward -Y, its X row pointed -X.)
+    let yaw = f(5).atan2(f(4)).to_degrees();
     let context = sys::peek(human + HUMAN_CONTEXT).and_then(|c| sys::class_of(c as usize)).unwrap_or_else(|| "?".into());
     Some(([f(12), f(13), f(14)], yaw, context))
 }
@@ -129,4 +131,33 @@ pub fn here() -> String {
         Some((p, yaw, context)) => format!("player at ({:.3}, {:.3}, {:.3}) yaw {yaw:.1} in {context}", p[0], p[1], p[2]),
         None => "player not known yet (found when the ground interpreter first runs)".into(),
     }
+}
+
+/// `tp x y z [yaw]`: write the player's position (and facing) into his Entity's world matrix (game space).
+pub fn teleport(arg: &str) -> String {
+    let v: Vec<f32> = arg.split_whitespace().filter_map(|w| w.parse().ok()).collect();
+    if v.len() < 3 {
+        return format!("tp: want x y z [yaw], got {arg}");
+    }
+    let human = HUMAN.load(Ordering::Relaxed);
+    let Some(entity) = sys::peek(human + HUMAN_ENTITY).filter(|_| human != 0) else { return "tp: player not known yet".into() };
+    let m = entity as usize + ENTITY_MATRIX;
+    if !sys::readable(m, 64) {
+        return "tp: the entity's matrix is not readable".into();
+    }
+    // SAFETY: checked readable: the entity's 16 floats, rows X, Y, Z, position.
+    unsafe {
+        let f = m as *mut f32;
+        if let Some(&yaw) = v.get(3) {
+            let (s, c) = yaw.to_radians().sin_cos();
+            // (Facing along the Y row; the X row its right-hand side, Y × Z.)
+            for (k, x) in [s, -c, 0.0, 0.0, c, s, 0.0, 0.0].iter().enumerate() {
+                *f.add(k) = *x;
+            }
+        }
+        *f.add(12) = v[0];
+        *f.add(13) = v[1];
+        *f.add(14) = v[2];
+    }
+    format!("tp to ({}, {}, {}); now {}", v[0], v[1], v[2], here())
 }
