@@ -1,0 +1,12 @@
+[package]
+name = "ac1-hook"
+version = "0.1.0"
+edition = "2024"
+
+# Loaded into the real Assassin's Creed as `dinput8.dll` (see src/lib.rs). Build it 32-bit:
+# cargo build --release -p ac1-hook --target i686-pc-windows-msvc
+[lib]
+name = "dinput8"
+crate-type = ["cdylib"]
+
+[dependencies]
