@@ -1058,6 +1058,21 @@ pub fn spawn_level(
                 }
             }
         }
+        // `AC1_GROUND_LINE="x0,z0,x1,z1,y"`: the ground every 10 cm along a line, looking down from y (game Y-up
+        // space), logged (where a top ends, to set beside the real game's trace walked along it).
+        if let Some(v) = std::env::var("AC1_GROUND_LINE")
+            .ok()
+            .map(|s| s.split(',').filter_map(|v| v.trim().parse::<f32>().ok()).collect::<Vec<_>>())
+            .filter(|v| v.len() == 5)
+        {
+            let (a, b) = (Vec3::new(v[0], v[4], v[1]), Vec3::new(v[2], v[4], v[3]));
+            let n = ((b - a).length() / 0.1).ceil() as usize;
+            for k in 0..=n {
+                let p = a.lerp(b, k as f32 / n.max(1) as f32);
+                let g = level.ground(p, 0.0, 30.0).map(|h| h.point.y);
+                info!("ground line [{:.2}, {:.2}]: {}", p.x, p.z, g.map_or("none".into(), |y| format!("{y:.2}")));
+            }
+        }
         // The player on a street (Masyaf: in the village below the fortress) and a crowd loop nearby where
         // the ground is at the same height.
         let on_ground = |level: &Level, x: f32, z: f32| level.ground(Vec3::new(x, 0.0, z), 400.0, 500.0).map(|h| h.point);

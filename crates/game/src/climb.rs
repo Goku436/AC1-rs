@@ -505,12 +505,20 @@ const PASSOVER_CLEAR: f32 = 0.3;
 /// Going over it no faster than this (m/s).
 const PASSOVER_SPEED: f32 = 4.0;
 
+/// Where a reception's step, past its fastest, slows to the run's `speed` (frame): handed over there, the run goes on
+/// at its pace.
+fn reception_cut(clip: &Clip, speed: f32) -> Option<f32> {
+    let pace = |f: f32| (root_motion_at(clip, f) - root_motion_at(clip, f - 1.0)).with_z(0.0).length() * FPS;
+    let peak = (1..=clip.frames() as usize).map(|f| f as f32).max_by(|a, b| pace(*a).total_cmp(&pace(*b))).unwrap_or(1.0);
+    (peak as usize..=clip.frames() as usize).map(|f| f as f32).find(|&f| pace(f) <= speed)
+}
+
 /// A jump's target needs this much room past it at the chest (m).
 const JUMP_LAND_ROOM: f32 = 0.6;
 
-/// A jump onto a roof lands this far in from its edge (m; Banned445's port of the game's target, which uses the
-/// guidance contact).
-const ROOF_EDGE_INSET: f32 = 0.45;
+/// A jump onto a roof ends its landing this far in from the edge (m): in the running game (Damascus, through ac1-hook)
+/// the reception (`..._tr_freestep_entry`) starts 0.47 m short of the edge, over the gap, and its step ends on it.
+const ROOF_EDGE_INSET: f32 = 0.05;
 
 /// A swing bar this far ahead (m) and this high over the feet is what a jump flies at.
 const BAR_JUMP_REACH: std::ops::RangeInclusive<f32> = 1.0..=6.5;
@@ -1345,7 +1353,13 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
                         && level.ground(g.point + d * 0.4, 0.2, 0.2).is_some()
                         && level.raycast_sided(g.point + Vec3::Y * 0.05, Vec3::Y, 20.0).is_none_or(|(h, behind)| !behind && h.dist > JUMP_TOP_HEADROOM) =>
                 {
-                    cands.push(g.point + d * 0.4);
+                    // (At the edge: back in 5 cm steps to where the top begins.)
+                    let edge = (1..5)
+                        .map(|k| t - k as f32 * 0.05)
+                        .take_while(|&s| level.ground(from + d * s, 1.2, -JUMP_TARGET_RISE.start() + 0.2).is_some_and(|h| (h.point.y - g.point.y).abs() < 0.15))
+                        .last()
+                        .unwrap_or(t);
+                    cands.push(from + d * (edge + ROOF_EDGE_INSET) + Vec3::Y * (g.point.y - from.y));
                     break;
                 }
                 _ => {}
@@ -1911,7 +1925,12 @@ impl WallClimb {
         let (takeoff, flight, reception) = (mix(&j.takeoff)?, mix(&j.flight)?, mix(&j.reception)?);
         let planned = Transform { rotation: facing(aim), ..*root };
         let rot = world_rot(planned.rotation);
-        let landed = p + rot * (root_motion_at(&takeoff, takeoff.frames()) + root_motion_at(&flight, flight.frames()));
+        // (Where the reception's step ends, handed over to the run: see `cut` below.)
+        let cut = (speed > RECEPTION_CUT_SPEED).then(|| reception_cut(&reception, speed)).flatten();
+        // The reception's own step lands on the target, as AC1 aims it: in the running game the reception starts about
+        // half a metre short of the edge (or beam) and its step ends there.
+        let step = root_motion_at(&reception, cut.unwrap_or(reception.frames())).with_z(0.0);
+        let landed = p + rot * (root_motion_at(&takeoff, takeoff.frames()) + root_motion_at(&flight, flight.frames()) + step);
         let correct = to - landed;
         // (The clips' own way should be most of it: a correction this big would slide through the air.)
         if correct.with_y(0.0).length() > JUMP_AC1_SLACK * (to - p).with_y(0.0).length().max(1.0) {
@@ -1931,16 +1950,8 @@ impl WallClimb {
         // reception ends once its step is taken, not standing out the rest of it (played faster instead, its front-loaded
         // step lurched the root to 16 m/s).
         w.exit_velocity = aim * speed;
-        if speed > RECEPTION_CUT_SPEED
-            && let Some(r) = w.queue.last()
-        {
-            // (Where the step, past its fastest, slows to the run's speed: handed over there, the run goes on at its pace.)
-            let pace = |f: f32| (root_motion_at(&r.clip, f) - root_motion_at(&r.clip, f - 1.0)).with_z(0.0).length() * FPS;
-            let peak = (1..=r.clip.frames() as usize).map(|f| f as f32).max_by(|a, b| pace(*a).total_cmp(&pace(*b))).unwrap_or(1.0);
-            let done = (peak as usize..=r.clip.frames() as usize).map(|f| f as f32).find(|&f| pace(f) <= speed);
-            if let Some(f) = done {
-                w.cut = Some((r.clip.name.clone(), f / FPS));
-            }
+        if let (Some(f), Some(r)) = (cut, w.queue.last()) {
+            w.cut = Some((r.clip.name.clone(), f / FPS));
         }
         w.ease_in(from, root);
         debug!("climb: running jump aimed at {to:.2} (takeoff and flight from AC1's jump tables: {} then {})", takeoff.name, flight.name);
@@ -1967,7 +1978,9 @@ impl WallClimb {
         let rot = world_rot(planned.rotation);
         // (The flight goes on from the takeoff's end, turned with it.)
         let turned = world_rot(planned.rotation * root_delta(root_rotation_at(&takeoff, takeoff.frames())));
-        let landed = p + rot * root_motion_at(&takeoff, takeoff.frames()) + turned * root_motion_at(&flight, flight.frames());
+        // (The reception's step ends on the target, as AC1 aims it: see `jump_ac1`.)
+        let step = root_motion_at(&reception, reception.frames()).with_z(0.0);
+        let landed = p + rot * root_motion_at(&takeoff, takeoff.frames()) + turned * (root_motion_at(&flight, flight.frames()) + step);
         let correct = to - landed;
         if correct.with_y(0.0).length() > JUMP_AC1_SLACK * way.length().max(1.0) {
             debug!("climb: AC1's free-step clips land {:.2} m off", correct.length());
@@ -4857,6 +4870,9 @@ impl WallClimb {
             // (Not before a jump onto a top has brought the root onto it: left early, he stood in the air short of a
             // low wall and walked on through its face.)
             && self.vault_path.is_none()
+            // (Nor while still over the gap: AC1 aims the reception to start half a metre short of the edge, its step
+            // carrying him onto it; left there, the run found no ground and fell.)
+            && level.ground(root.translation, 0.3, 0.3).is_some()
             && lib.graph.gate(&m.clip.name).is_some_and(|g| g.may_leave(true, self.high))
         {
             debug!("climb: {} left for running (its gate allows it)", m.clip.name);

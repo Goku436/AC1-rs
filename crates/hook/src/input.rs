@@ -1,6 +1,9 @@
 //! DirectInput: the keyboard device the game makes, its reads (`GetDeviceState`, a snapshot of every key, and
 //! `GetDeviceData`, buffered presses and releases) given keys of ours too: `cmd`'s `key` holds a key down for some
 //! frames, whatever has the focus.
+//!
+//! Out of focus the game's devices cannot be acquired and their reads fail; `Acquire` is answered as done and a failed
+//! read as an empty one (plus ours), so the game goes on taking our keys while another window is in front.
 
 use std::ffi::c_void;
 use std::sync::Mutex;
@@ -11,6 +14,8 @@ use crate::{patch, sys};
 static CREATE_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static GET_STATE: AtomicUsize = AtomicUsize::new(0);
 static GET_DATA: AtomicUsize = AtomicUsize::new(0);
+static ACQUIRE: AtomicUsize = AtomicUsize::new(0);
+static SAID_UNACQUIRED: AtomicBool = AtomicBool::new(false);
 /// The keyboard devices the game made (it makes more than one), and its mice.
 static KEYBOARDS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 static MICE: Mutex<Vec<usize>> = Mutex::new(Vec::new());
@@ -28,6 +33,8 @@ static SEQUENCE: AtomicUsize = AtomicUsize::new(0x7000_0000);
 
 /// IDirectInput8::CreateDevice, IDirectInputDevice8::GetDeviceState / GetDeviceData (vtable slots).
 const SLOT_CREATE_DEVICE: usize = 3;
+/// IDirectInputDevice8::Acquire.
+const SLOT_ACQUIRE: usize = 7;
 const SLOT_GET_STATE: usize = 9;
 const SLOT_GET_DATA: usize = 10;
 /// GUID_SysKeyboard {6F1D2B61-D5A0-11CF-BFC7-444553540000}.
@@ -59,6 +66,7 @@ unsafe extern "system" fn create_device(this: *mut c_void, guid: *const [u8; 16]
             if GET_STATE.load(Ordering::SeqCst) == 0 {
                 GET_STATE.store(patch::vtable(*out, SLOT_GET_STATE, get_state as *const () as usize), Ordering::SeqCst);
                 GET_DATA.store(patch::vtable(*out, SLOT_GET_DATA, get_data as *const () as usize), Ordering::SeqCst);
+                ACQUIRE.store(patch::vtable(*out, SLOT_ACQUIRE, acquire as *const () as usize), Ordering::SeqCst);
             }
             sys::log("dinput: mouse made, its reads hooked");
         }
@@ -67,6 +75,7 @@ unsafe extern "system" fn create_device(this: *mut c_void, guid: *const [u8; 16]
             if GET_STATE.load(Ordering::SeqCst) == 0 {
                 GET_STATE.store(patch::vtable(*out, SLOT_GET_STATE, get_state as *const () as usize), Ordering::SeqCst);
                 GET_DATA.store(patch::vtable(*out, SLOT_GET_DATA, get_data as *const () as usize), Ordering::SeqCst);
+                ACQUIRE.store(patch::vtable(*out, SLOT_ACQUIRE, acquire as *const () as usize), Ordering::SeqCst);
             }
             sys::log("dinput: keyboard made, its reads hooked");
         }
@@ -84,9 +93,6 @@ unsafe extern "system" fn get_state(this: *mut c_void, size: u32, data: *mut u8)
         }
         let buttons = BUTTONS.lock().unwrap();
         let motion = MOTION.lock().unwrap();
-        if r < 0 && buttons.is_empty() && motion.is_empty() {
-            return r;
-        }
         // SAFETY: a DIMOUSESTATE of `size` bytes.
         unsafe {
             if r < 0 {
@@ -109,14 +115,16 @@ unsafe extern "system" fn get_state(this: *mut c_void, size: u32, data: *mut u8)
         if !SAID_STATE.swap(true, Ordering::SeqCst) {
             sys::log("dinput: the game reads the keyboard by GetDeviceState");
         }
+        // (Not acquired, out of focus: the state is ours alone.)
+        if r < 0 {
+            // SAFETY: a 256-byte key array.
+            unsafe { std::ptr::write_bytes(data, 0, 256) };
+        }
         for &(k, _) in HELD.lock().unwrap().iter() {
             // SAFETY: a 256-byte key array.
             unsafe { *data.add(k as usize) |= 0x80 };
         }
-        // (Not acquired, out of focus: the state is ours alone.)
-        if r < 0 && !HELD.lock().unwrap().is_empty() {
-            return 0;
-        }
+        return 0;
     }
     r
 }
@@ -159,6 +167,18 @@ unsafe extern "system" fn get_data(this: *mut c_void, item: u32, data: *mut u8, 
         }
     }
     r
+}
+
+type Acquire = unsafe extern "system" fn(*mut c_void) -> i32;
+
+/// `Acquire`: tried, and answered as done (out of focus it fails, and the game would stop reading the device).
+unsafe extern "system" fn acquire(this: *mut c_void) -> i32 {
+    // SAFETY: the real method, with its signature.
+    let r = unsafe { std::mem::transmute::<usize, Acquire>(ACQUIRE.load(Ordering::SeqCst))(this) };
+    if r < 0 && !SAID_UNACQUIRED.swap(true, Ordering::SeqCst) {
+        sys::log(&format!("dinput: Acquire failed ({r:#x}, out of focus): answered as done"));
+    }
+    0
 }
 
 fn is_mouse(device: *mut c_void) -> bool {

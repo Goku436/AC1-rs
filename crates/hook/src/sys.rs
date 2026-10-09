@@ -28,6 +28,7 @@ unsafe extern "system" {
 #[link(name = "user32")]
 unsafe extern "system" {
     pub fn SetCursorPos(x: i32, y: i32) -> i32;
+    pub fn SetWindowPos(window: *mut c_void, after: *mut c_void, x: i32, y: i32, w: i32, h: i32, flags: u32) -> i32;
 }
 
 /// `MEMORY_BASIC_INFORMATION` (32-bit).

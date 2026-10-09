@@ -35,7 +35,7 @@
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
 //! as dir/frame_00000.png ..., then exit; encode with ffmpeg at 30 fps),
 //! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; `-` exits then without one), AC1_BACKGROUND=1 (open
-//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" (place the window), AC1_NO_IK=1,
+//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1,
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only.
 
 mod animation;
@@ -270,7 +270,9 @@ const SCHOLAR_BLOCK: &str = "Acre_Outskirts Setup Acre_DataBlock";
 /// The window. Scripted runs (`AC1_SHOT`) and `AC1_BACKGROUND=1` stay out of the way of whatever else is on screen:
 /// on the second monitor if there is one, unfocused, behind other windows.
 fn game_window() -> Window {
-    let window = Window { title: "ac1-rs".into(), resolution: (1280u32, 720u32).into(), ..default() };
+    // (`AC1_WINDOW_SIZE="w,h"`: its size.)
+    let size = env_f32s("AC1_WINDOW_SIZE").filter(|v| v.len() >= 2).map_or((1280u32, 720u32), |v| (v[0] as u32, v[1] as u32));
+    let window = Window { title: "ac1-rs".into(), resolution: size.into(), ..default() };
     // (`AC1_WINDOW_AT="x,y"`: a desktop position.)
     let window = match env_f32s("AC1_WINDOW_AT").filter(|v| v.len() >= 2) {
         Some(v) => Window { position: bevy::window::WindowPosition::At(IVec2::new(v[0] as i32, v[1] as i32)), ..window },
@@ -279,9 +281,12 @@ fn game_window() -> Window {
     if std::env::var("AC1_BACKGROUND").is_err() {
         return window;
     }
-    // In the background: on the second monitor if there is one (unless placed), unfocused, behind other windows.
-    let position =
-        if env_f32s("AC1_WINDOW_AT").is_some() { window.position } else { bevy::window::WindowPosition::Centered(bevy::window::MonitorSelection::Index(1)) };
+    // In the background: unfocused; placed, where it was put (to be watched beside the real game), else on the second
+    // monitor if there is one, behind other windows.
+    if env_f32s("AC1_WINDOW_AT").is_some() {
+        return Window { focused: false, ..window };
+    }
+    let position = bevy::window::WindowPosition::Centered(bevy::window::MonitorSelection::Index(1));
     Window { position, focused: false, window_level: bevy::window::WindowLevel::AlwaysOnBottom, ..window }
 }
 
@@ -907,7 +912,11 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
     let t = clock.t;
     if let Some(speed) = script.walk {
         // (The direction first faced, kept: turning round must not follow the body.)
-        let dir = *script.dir.get_or_init(|| Quat::from_rotation_y(script.steer) * tf.rotation * Vec3::NEG_Z);
+        let dir = *script.dir.get_or_init(|| {
+            let d = Quat::from_rotation_y(script.steer) * tf.rotation * Vec3::NEG_Z;
+            info!("script: walking toward [{:.2}, {:.2}] from [{:.2}, {:.2}, {:.2}]", d.x, d.z, tf.translation.x, tf.translation.y, tf.translation.z);
+            d
+        });
         let dir = Quat::from_rotation_y(script.curve * t) * dir;
         let mut dir = script.veer.filter(|(at, _)| t > *at).map_or(dir, |(_, a)| Quat::from_rotation_y(a) * dir);
         if !script.path.is_empty()
@@ -1287,6 +1296,7 @@ fn screenshot(
     mut script: ResMut<Script>,
     mut exit: MessageWriter<AppExit>,
     mut frame: Local<u32>,
+    player: Query<&Transform, With<Player>>,
 ) {
     // Video hook: every frame saved (`AC1_FRAMES=dir`: dir/frame_00000.png, ...), as many as the orbit's `secs` at
     // `FRAMES_FPS`, then exit (encode them with ffmpeg at that rate). The first second is left out (the city loading in).
@@ -1311,6 +1321,13 @@ fn screenshot(
         let t = clock.t;
         // (`AC1_SHOT=-`: no picture, just the end of the run: the scenarios read only the log.)
         if path.as_os_str() == "-" && t > secs {
+            // (Where he ended, for comparing a run with the real game's.)
+            if !std::mem::replace(&mut script.taken, true)
+                && let Ok(tf) = player.single()
+            {
+                let p = tf.translation;
+                info!("script: the run ends at [{:.2}, {:.2}, {:.2}] (game ({:.2}, {:.2}, {:.2}))", p.x, p.y, p.z, p.x, -p.z, p.y);
+            }
             exit.write(AppExit::Success);
         } else if !script.taken && t > secs {
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
