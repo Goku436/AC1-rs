@@ -372,6 +372,15 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - **Wall run onto a ladder** **[ours]**: sprinting at a wall with a ladder up it, the wall run comes first (as the
   interpreter tests it before the ladder) and ends `xx_h_wallingfront_step1_footr_tr_h_ladder_up_l` (7° from
   `xx_h_ladder_climb_up_l`'s start) on the ladder.
+- **Ladders and haystack boxes** **[V, ours]** (the running game at the Damascus bureau): moving into a ladder's foot
+  from up to 1 m in front gets on with no button. Walking into a haystack's 1.06 m box, AC1 leans on it
+  (`xx_h_collide_full_hand_070cm`), and pushing on 0.2 s climbs onto the rim
+  (`xx_h_lean_wait_025cm_twohand_070cm_to_hangknee_footl_070cm`, `_tr_hangknee_footl`, the free-step stand) and
+  dives in (`xx_h_freestep_footr_to_haystack_02`). From the hay, the stick toward a side with a drop past it goes out
+  over the rim (`xx_l_haystack_wait_to_passover_handl`, `xx_h_passover_handl_030cm`) and down into a hang from it
+  (`_pulldown_soft_orientation`, `_pulldown_soft`, the ledge pull-down's hang); the pull-up from there lands on the
+  rim and dives back in (`xx_h_freestep_footr_to_haystack_01`). The hay heap is solid in the collision built from its
+  mesh: ours leaves out the holds found on it (up to 3 m over the rim).
 - **Swing bars** **[V, ours]**: the stick not held forward at the top of a swing → AC1's stop
   (`xx_h_swing_stop_<front|back>_a..d`, the last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`: he
   hangs still from the bar; the stick forward swings him up again (`xx_h_swing_momentum_front_up`). The hay's hop out

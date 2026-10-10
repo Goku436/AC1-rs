@@ -618,6 +618,17 @@ fn ground_move(
             return Some((w, None));
         }
     }
+    // Walking into a wall from in front of it, pushing on: hands on it, lean there, as running does (the running game
+    // walking into a haystack's box leant on it, `xx_h_collide_full_hand_070cm`).
+    if speed > 1.0
+        && speed <= STOP_SPEED
+        && wants
+        && !ctl.free_run
+        && input.dot(v / speed) > 0.9
+        && let Some(w) = crate::climb::WallClimb::lean(lib, level, tf, v / speed, from())
+    {
+        return Some((w, None));
+    }
     // Walking at the edge of a big drop (not free running): stop at it.
     // (High profile only: walking in low profile at an 8 m drop AC1 halts at the edge, no clip, and looks down, seen in the
     // running game.)

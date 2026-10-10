@@ -92,6 +92,12 @@ impl HayStack {
     }
 }
 
+/// A hold within `HAY_HEAP_MARGIN` outside a haystack's footprint (a beam inside it), `HAY_HEAP_ABOVE` to `HAY_HEAP_TOP`
+/// above its rim, is on its heap (m).
+const HAY_HEAP_MARGIN: f32 = 0.5;
+const HAY_HEAP_ABOVE: f32 = 0.3;
+/// (Up to this over the rim: the Damascus bureau's roof heap stands 2.5 m over it; above, a balcony over the hay.)
+const HAY_HEAP_TOP: f32 = 3.0;
 /// A city haystack is at most this wide each side of its middle (m).
 const HAY_HALF_MAX: f32 = 1.5;
 /// A rooftop hiding spot's rim over the roof (m; `Hiding_Spot_P_01a` in Damascus, the running game: AC1 hopped up onto
@@ -459,6 +465,25 @@ impl Level {
             }
         }
         (hay, ladders, benches, bars)
+    }
+
+    /// Leave out the holds and beams found on a haystack's heap (over its footprint, above its rim): the hay is solid in
+    /// the collision built from its mesh but is sunk into, not climbed; ours climbed from the rim to the heap's top.
+    /// Returns how many.
+    pub fn drop_hay_holds(&mut self) -> usize {
+        let hay = self.haystacks.clone();
+        // (A hold on the heap faces out from its middle; a wall's beside the hay faces toward it, and stays.)
+        let on_heap = |p: Vec3, margin: f32, out: Option<Vec3>| {
+            hay.iter().any(|h| {
+                h.contains(p, -margin)
+                    && (HAY_HEAP_ABOVE..HAY_HEAP_TOP).contains(&(p.y - h.top()))
+                    && out.is_none_or(|o| (p - h.centre).with_y(0.0).dot(o) > 0.0)
+            })
+        };
+        let (ledges, perches) = (self.ledges.len(), self.perches.len());
+        self.ledges.retain(|l| !(on_heap(l.a, HAY_HEAP_MARGIN, Some(l.out)) && on_heap(l.b, HAY_HEAP_MARGIN, Some(l.out))));
+        self.perches.retain(|l| !(on_heap(l.a, 0.0, None) && on_heap(l.b, 0.0, None)));
+        ledges - self.ledges.len() + perches - self.perches.len()
     }
 
     /// Use AC1's own climbing markup where the city has it: its ledge grabs become the holds (instead of the edges and
@@ -1296,6 +1321,8 @@ pub fn spawn_level(
         }
         let (hay, ladders, benches, bars) = level.add_city_objects();
         info!("{hay} haystacks, {ladders} ladders, {benches} benches, {bars} swing bars");
+        let heaped = level.drop_hay_holds();
+        info!("{heaped} holds and beams left out: on a haystack's heap");
         for v in &level.viewpoints {
             let near = level.haystacks.iter().map(|h| ((h.centre - *v).with_y(0.0).length(), v.y - h.top())).min_by(|a, b| a.0.total_cmp(&b.0));
             debug!("viewpoint {v:.1}: nearest hay {near:.1?} (out, down)");

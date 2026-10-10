@@ -515,6 +515,17 @@ const LEAN_MIN_HEIGHT: f32 = 0.7;
 const LEAN_TALL: f32 = 1.5;
 /// The root stands this far out of the wall while leaning on it (m).
 const LEAN_DIST: f32 = 0.5;
+/// Leaning on a wall and pushing on this long (s), a low one is climbed onto, the root ending on the first top found this
+/// far in from its face (m).
+const LEAN_CLIMB_AFTER: f32 = 0.2;
+/// Out of a haystack over its rim: a hold along the rim within this of where the stick's way meets it (m), a drop of
+/// more than `HAY_OVER_DROP` past it, the passover ending this far in from the rim's edge.
+const HAY_OVER_REACH: f32 = 0.6;
+const HAY_OVER_DROP: f32 = 1.5;
+const HAY_OVER_IN: f32 = 0.1;
+/// Leaning, the stick within this of straight into the wall (cos 72 degrees) keeps pushing; further off it leaves.
+const LEAN_PUSH_COS: f32 = 0.3;
+const LEAN_CLIMB_IN: [f32; 4] = [0.3, 0.2, 0.12, 0.06];
 /// Pulling down onto a ledge: the edge within this far ahead of the feet (m), dropping at least this much.
 const PULL_DOWN_REACH: f32 = 0.9;
 /// (AC1's pull-down guard, 0xD9D6C0: more than 2 m under the edge.)
@@ -896,6 +907,10 @@ pub struct WallClimb {
     pub get_up: bool,
     /// Leaning: how much of the 150 cm lean clips (the rest the 70 cm ones).
     lean_mix: f32,
+    /// How long it has leant on the wall, still (s).
+    lean_t: f32,
+    /// Going out of a haystack over its rim (AC1's passover): the rim's hold to hang from once over it.
+    hay_over: Option<usize>,
     /// Just landed: the drop (m) and the damage taken (for the HUD).
     pub landed: Option<(f32, f32)>,
     /// A vault's root path, followed instead of its clips' root motion (see `VaultPath`).
@@ -1780,6 +1795,8 @@ impl WallClimb {
             last_hand_up: 0,
             want_drop: false,
             eject_after: None,
+            lean_t: 0.0,
+            hay_over: None,
             clear_of: None,
             fall_v: None,
             launch: 0.0,
@@ -3198,10 +3215,19 @@ impl WallClimb {
 
     /// Leaning on a wall: keep leaning while pushing into it; steering away pushes off it to that side
     /// (or back) into a jog, letting go stands up.
-    fn lean_step(&mut self, lib: &mut AnimLib, root: &Transform) {
+    fn lean_step(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) {
         let n = self.normal;
         let d = self.move_dir.with_y(0.0);
-        if d.length() > 0.3 && d.normalize().dot(-n) > 0.7 {
+        // (Pushing into it within 72 degrees: walking at a haystack's box about 60 degrees off square, the running game leant
+        // and climbed it.)
+        if d.length() > 0.3 && d.normalize().dot(-n) > LEAN_PUSH_COS {
+            // Still pushing a while: up onto it, if it is low enough with room on top (AC1's
+            // `xx_h_lean_wait_025cm_twohand_<070|150>cm_to_hangknee_footl_<070|150>cm` and its `_tr_hangknee_footl`, then
+            // the stand: the running game, walking into a haystack's 1.06 m box at the Damascus bureau, leant on it and
+            // after 0.2 s climbed onto its rim).
+            if self.lean_t >= LEAN_CLIMB_AFTER && self.mv.is_none() {
+                self.climb_from_lean(lib, level, root);
+            }
             return;
         }
         let mix = self.lean_mix;
@@ -3218,6 +3244,51 @@ impl WallClimb {
         let k = clips.len();
         let tos = (0..k).map(|i| if i + 1 == k { GROUND } else { GROUND_ACT }.to_string()).collect();
         self.start_chain(clips, tos, root, Vec3::ZERO);
+    }
+
+    /// From leaning on a low wall, up onto its top: the lean's climb, blended by the top's height, then AC1's stand.
+    fn climb_from_lean(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        let n = self.normal;
+        let p = root.translation;
+        // (The top nearest in from the face that is high enough: a haystack's box is a thin rim round hay that is not
+        // solid, the running game stood on the rim.)
+        let Some(face) = level.raycast(p + Vec3::Y * LEAN_MIN_HEIGHT, -n, LEAN_DIST + 0.5).map(|h| h.point.with_y(p.y)) else { return false };
+        let Some(top) = LEAN_CLIMB_IN.iter().find_map(|&d| {
+            level
+                .ground(face - n * d + Vec3::Y * (LEAN_TALL + 0.3), 0.0, LEAN_TALL + 0.3)
+                .filter(|t| (LEAN_MIN_HEIGHT - 0.1..=LEAN_TALL + 0.1).contains(&(t.point.y - p.y)) && t.normal.y > 0.8)
+        }) else {
+            return false;
+        };
+        let h = top.point.y - p.y;
+        // (Room to stand on it.)
+        if level.raycast(top.point + Vec3::Y * 0.1, Vec3::Y, 1.6).is_some() {
+            return false;
+        }
+        let mix = ((h - LEAN_MIN_HEIGHT) / (LEAN_TALL - LEAN_MIN_HEIGHT)).clamp(0.0, 1.0);
+        let names = [
+            lean_name("xx_h_lean_wait_025cm_twohand_{h}cm_to_hangknee_footl_{h}cm", mix),
+            lean_name("xx_h_lean_wait_025cm_twohand_{h}cm_to_hangknee_footl_{h}cm_tr_hangknee_footl", mix),
+            STAND_UP.to_string(),
+        ];
+        let Some(mut clips) = names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { return false };
+        let at = Transform { rotation: facing(-n), ..*root };
+        // (A haystack's rim: on into the hay, as the running game went on from it, still pushing.)
+        let hay = level.haystacks.iter().find(|hs| (hs.centre - top.point).with_y(0.0).length() < hs.half + 0.3 && (top.point.y - hs.top()).abs() < 0.3);
+        let hay = hay.and_then(|hs| Some((hs.centre, lib.get("xx_h_freestep_footr_to_haystack_02")?)));
+        let mut tos: Vec<String> = (0..clips.len()).map(|i| if i + 1 == clips.len() { ON_TOP } else { KNEEL }.to_string()).collect();
+        let mut end = top.point;
+        let into_hay = hay.is_some();
+        if let Some((centre, dive)) = hay {
+            clips.push(dive);
+            tos.push(HAY.into());
+            end = centre;
+        }
+        let travel: Vec3 = clips.iter().map(|c| world_rot(at.rotation) * root_motion_at(c, c.frames())).sum();
+        let correct = end - (p + travel);
+        debug!("climb: up onto the {h:.2} m wall from leaning on it{}", if into_hay { ", and into the haystack" } else { "" });
+        self.start_chain(clips, tos, &at, correct);
+        true
     }
 
     /// Low profile at the edge of a drop, the legs pressed: lower onto the edge and hang from it (turning
@@ -4243,15 +4314,58 @@ impl WallClimb {
         true
     }
 
-    /// In the hay: hop out forward and stand up.
-    fn hop_out(&mut self, lib: &mut AnimLib, root: &Transform) -> bool {
+    /// In the hay: hop out forward and stand up; toward a side of the box with a drop past it, out over its rim and
+    /// down into a hang from it (`hay_over_rim`).
+    fn hop_out(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
         if self.state != HAY || self.mv.is_some() {
             return false;
+        }
+        if self.hay_over_rim(lib, level, root) {
+            return true;
         }
         // (Into the stand of the profile held: AC1 has the hop out's end into either, `_tr_l_wait` / `_tr_h_wait`.)
         let end = if self.high { "xx_l_haystack_hop_out_tr_h_wait" } else { HAY_HOP_OUT[1] };
         let Some(clips) = [HAY_HOP_OUT[0], end].iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { return false };
         self.start_chain(clips, vec![HAY_OUT.into(), GROUND.into()], root, Vec3::ZERO);
+        true
+    }
+
+    /// In the hay, the stick toward a side of the box with a drop past it: AC1's `xx_l_haystack_wait_to_passover_handl`
+    /// and `xx_h_passover_handl_030cm`, turning to the way out, a hand on the rim, then (once over, at the move's end) the
+    /// passover's pull-down into a hang from the rim (the running game, the Damascus bureau's roof haystack: out over the
+    /// side over the street, hanging there).
+    fn hay_over_rim(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        let p = root.translation;
+        let d = self.move_dir.with_y(0.0);
+        if d.length() < 0.3 {
+            return false;
+        }
+        let d = d.normalize();
+        let Some(hs) = level.haystacks.iter().find(|h| h.contains(p, 0.3)) else { return false };
+        let exit = hs.centre + d * (hs.half / d.x.abs().max(d.z.abs()).max(0.5));
+        let found = level
+            .ledges
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.out.dot(d) > 0.7 && (l.a.y - hs.top()).abs() < 0.3 && (l.closest(exit) - exit).with_y(0.0).length() < HAY_OVER_REACH)
+            .min_by(|a, b| (a.1.closest(exit) - exit).length().total_cmp(&(b.1.closest(exit) - exit).length()));
+        let Some((i, l)) = found else { return false };
+        let rim = l.closest(exit);
+        if level.ground(rim + l.out * 0.5 + Vec3::Y * 0.2, 0.3, HAY_OVER_DROP).is_some() {
+            return false;
+        }
+        let Some(clips) = ["xx_l_haystack_wait_to_passover_handl", "xx_h_passover_handl_030cm"].iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else {
+            return false;
+        };
+        let at = Transform { rotation: facing(l.out), ..*root };
+        let travel: Vec3 = clips.iter().map(|c| world_rot(at.rotation) * root_motion_at(c, c.frames())).sum();
+        let end = rim - l.out * HAY_OVER_IN;
+        self.start_chain(clips, vec![KNEEL.into(), KNEEL.into()], &at, end - (p + travel));
+        if let Some(m) = &mut self.mv {
+            m.ease_rot = root.rotation * at.rotation.inverse();
+        }
+        self.hay_over = Some(i);
+        debug!("climb: out of the haystack over its rim at {rim:.2}");
         true
     }
 
@@ -4456,9 +4570,10 @@ impl WallClimb {
         sample(&clips[0], 0.0, &mut pose, cr.reference);
         let m = pose.model(rig);
         let wrist = root.translation + world_rot(root.rotation) * ((m[cr.hands[0]].pos + m[cr.hands[1]].pos) * 0.5);
-        // Top surface just behind the holds, level with them.
+        // Top surface just behind the holds, level with them (nearer in on a thin top: a haystack's rim, round hay that is
+        // not solid; the running game pulled up onto it).
         let probe = wrist - self.normal * 0.45 + Vec3::Y * 0.5;
-        let Some(top) = level.ground(probe, 0.0, 0.8) else {
+        let Some(top) = [0.45, 0.25, 0.12].iter().find_map(|d| level.ground(wrist - self.normal * *d + Vec3::Y * 0.5, 0.0, 0.8)) else {
             debug!("climb: no top-out: no top behind the hold (probed at {probe:.2})");
             return false;
         };
@@ -4479,8 +4594,10 @@ impl WallClimb {
         let headroom = level.raycast(stand + Vec3::Y * 0.1, Vec3::Y, TOP_OUT_HEADROOM).is_none();
         let front = Vec3::new(wrist.x, top.point.y, wrist.z) + self.normal * 0.3;
         let reach = (top.point - front).with_y(0.0).length() + TOP_OUT_STAND_IN + 0.3;
-        let open = [0.5, 1.2].iter().all(|h| level.raycast(front + Vec3::Y * *h, -self.normal, reach).is_none());
-        if !headroom || !open || level.inside_solid(stand + Vec3::Y * 0.5) {
+        // (A haystack's rim: the hay heaped past it is in the way of the probes, not of the climb into it.)
+        let hay = level.haystacks.iter().find(|h| (h.centre - top.point).with_y(0.0).length() < h.half + 0.3 && (top.point.y - h.top()).abs() < 0.3).copied();
+        let open = hay.is_some() || [0.5, 1.2].iter().all(|h| level.raycast(front + Vec3::Y * *h, -self.normal, reach).is_none());
+        if !headroom || !open || (hay.is_none() && level.inside_solid(stand + Vec3::Y * 0.5)) {
             let wall = [0.5, 1.2].map(|h| level.raycast(front + Vec3::Y * h, -self.normal, 3.0).map(|w| w.dist - 0.3));
             debug!("climb: no top-out: no room to stand at {stand:.2} (headroom {headroom}, open {open}: a wall {wall:.2?} m past the edge)");
             return false;
@@ -4491,7 +4608,7 @@ impl WallClimb {
         // rounded lip, and one side missed the roof there; the running game pulled up there with both hands.)
         let p = top.point - self.normal * ONEHAND_PROBE_IN;
         let drops = |s: f32| level.ground(p + along * ONEHAND_SIDE * s + Vec3::Y * 0.05, 0.0, 0.25).is_none();
-        let one = if drops(1.0) || drops(-1.0) {
+        let one = if hay.is_none() && (drops(1.0) || drops(-1.0)) {
             let names: &[&str] = if is_free(&self.state) { &TOP_OUT_FREE_ONEHAND } else { &TOP_OUT_ONEHAND };
             names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>()
         } else {
@@ -4513,7 +4630,17 @@ impl WallClimb {
             None => {
                 let edge = Vec3::new(wrist.x, root.translation.y, wrist.z);
                 let to = (edge - self.normal * STAND_FROM_WRISTS - (root.translation + travel(&clips))).with_y(0.0);
-                (clips, Vec3::NEG_Y * below.max(0.0) + to, ON_TOP)
+                // (Onto a haystack's rim: on into the hay, as the running game went, `xx_h_freestep_footr_to_haystack_01`.)
+                match hay.and_then(|h| Some((h.centre, lib.get("xx_h_freestep_footr_to_haystack_01")?))) {
+                    Some((centre, dive)) => {
+                        let mut clips = clips;
+                        clips.push(dive);
+                        let correct = centre - (root.translation + travel(&clips));
+                        debug!("climb: pull-up onto a haystack's rim, and into it");
+                        (clips, correct, HAY)
+                    }
+                    None => (clips, Vec3::NEG_Y * below.max(0.0) + to, ON_TOP),
+                }
             }
         };
         let n = clips.len();
@@ -4674,7 +4801,7 @@ impl WallClimb {
             self.swing_off = Some(self.move_dir.dot(root.rotation * Vec3::NEG_Z) > -0.3);
             return true;
         }
-        if self.try_rebound(lib, level, root) || self.hop_out(lib, root) {
+        if self.try_rebound(lib, level, root) || self.hop_out(lib, level, root) {
             return true;
         }
         false
@@ -4725,7 +4852,7 @@ impl WallClimb {
             self.swing_off = Some(self.move_dir.dot(root.rotation * Vec3::NEG_Z) > -0.3);
             return true;
         }
-        if self.try_rebound(lib, level, root) || self.hop_out(lib, root) {
+        if self.try_rebound(lib, level, root) || self.hop_out(lib, level, root) {
             return true;
         }
         // Falling (or dropping off): the empty hand grabs the next hold the hands come to on the way down (AC1's catch
@@ -5778,6 +5905,17 @@ impl WallClimb {
                 self.finished = true;
                 return;
             }
+            // Over a haystack's rim: down into the hang from it.
+            if let Some(i) = self.hay_over.take() {
+                let l = level.ledges[i];
+                let edge = l.closest(root.translation);
+                let first = ["xx_h_passover_handl_030cm_pulldown_soft_orientation", "xx_h_passover_handl_030cm_pulldown_soft"];
+                if let Some(w) = Self::pull_down_onto(lib, level, root, rig, base, cr, &l, edge, first, self.last.clone()) {
+                    *self = w;
+                    return;
+                }
+                debug!("climb: no hang from the haystack's rim");
+            }
             if self.state == SWING && self.swing_next(lib, level, root, &done.clip) {
                 return;
             }
@@ -5831,7 +5969,8 @@ impl WallClimb {
             return;
         }
         if self.state == LEAN {
-            self.lean_step(lib, root);
+            self.lean_t += dt;
+            self.lean_step(lib, level, root);
             return;
         }
         if self.state == COLLIDE {
@@ -5861,7 +6000,7 @@ impl WallClimb {
             self.start(c, SWING.into(), root);
             return;
         }
-        let moved = input.length() > 0.3 && !self.hop_out(lib, root) && self.try_move(lib, level, root, rig, base, cr, input, leap);
+        let moved = input.length() > 0.3 && !self.hop_out(lib, level, root) && self.try_move(lib, level, root, rig, base, cr, input, leap);
         self.look_around(lib, (!moved && input.length() > 0.3).then_some(input));
     }
 

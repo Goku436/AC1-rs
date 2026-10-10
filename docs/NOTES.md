@@ -554,7 +554,8 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
   within 2 degrees of the route's way), traced frame by frame, and played in ours (`AC1_CONTROL`, the same inputs:
   the stick held with the speed from ours' gait model, AC1's headings, held legs on a wall as leaps), compared by the
   distance at the inputs' end, where each comes to rest, and when each takeoff, landing, wall run, hang and climb step
-  starts. Every change to movement is scored on all of them.
+  starts. Every change to movement is scored on all of them. 41 routes (with ladder 68 by the bureau and the roof
+  haystack north-east of it): 32 within 1 m at the inputs' end, mean path gap 0.46 m.
 - The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
   each, with a `combo` scenario each (`AC1_SCENARIO_TAGS=combo`, about 40 s): G1 box, two beams across a gap, a swing
   bar, down onto a low beam (AC1's beam landing); G2 free running onto a ladder, up, a beam bridge, the leap of faith

@@ -195,14 +195,14 @@ mod tests {
     }
 
     #[test]
-    fn the_speed_starts_at_the_jog_and_rises_to_the_sprint() {
+    fn free_running_starts_at_the_run_and_rises_to_the_sprint() {
         let mut g = Gait::default();
         g.update(1.0, 0.0, true, true, 0.01);
-        assert!((g.value - BAND_JOG).abs() < 1e-5, "{g:?}");
-        for _ in 0..30 {
+        assert!((g.value - BAND_RUN).abs() < 1e-5, "{g:?}");
+        for _ in 0..10 {
             g.update(1.0, 0.0, true, true, 0.01);
         }
-        assert!((g.value - 0.8).abs() < 1e-3, "rises at 1/s: {g:?}");
+        assert!((g.value - 0.85).abs() < 1e-3, "rises at 1/s: {g:?}");
         for _ in 0..100 {
             g.update(1.0, 0.0, true, true, 0.01);
         }
