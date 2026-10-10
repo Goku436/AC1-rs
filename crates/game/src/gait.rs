@@ -129,7 +129,15 @@ impl Gait {
             self.value = 0.0;
         } else if self.value <= 0.0 {
             // Starting from standing: straight into the walk or the jog.
-            self.value = want.min(if high || free_run { BAND_JOG } else { BAND_WALK });
+            // (Free running, straight into the run: the running game's free-run starts reach 5.6 m/s in 0.45 s, the
+            // run's speed; from the jog ours took 0.65 s.)
+            self.value = want.min(if free_run {
+                BAND_RUN
+            } else if high {
+                BAND_JOG
+            } else {
+                BAND_WALK
+            });
             self.hold = if high && !free_run { HIGH_START_HOLD } else { 0.0 };
             self.since = 0.0;
         } else if high && !free_run && self.since < 0.1 && self.value < BAND_JOG && self.hold <= 0.0 {

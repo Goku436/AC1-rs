@@ -768,6 +768,9 @@ const FREE_RUN_PROBE: f32 = 1.3;
 /// In high profile without the legs, a top this high over the feet (m) with its face within `HIGH_HOP_REACH` is hopped onto.
 const HIGH_HOP_RISE: std::ops::RangeInclusive<f32> = 0.45..=1.3;
 const HIGH_HOP_REACH: f32 = 1.3;
+/// Getting up to a speed over `RUN_START_MIN` (m/s), the body speeds up at `RUN_ACCEL` (m/s²).
+const RUN_START_MIN: f32 = 2.5;
+const RUN_ACCEL: f32 = 13.0;
 /// Running at least this fast vaults low obstacles on its own.
 const RUN_VAULT_SPEED: f32 = 2.5;
 const HANG_DROP: f32 = 1.75;
@@ -1038,7 +1041,13 @@ pub fn locomotion(
             let have = ch.velocity.with_y(0.0).length();
             if crate::gait::speed(ch.gait.value) > have + GAIT_RESYNC {
                 // (Not under where a start from standing goes, the jog in high profile.)
-                let start = if ctl.high || ctl.free_run { crate::gait::BAND_JOG } else { crate::gait::BAND_WALK };
+                let start = if ctl.free_run {
+                    crate::gait::BAND_RUN
+                } else if ctl.high {
+                    crate::gait::BAND_JOG
+                } else {
+                    crate::gait::BAND_WALK
+                };
                 ch.gait.value = crate::gait::value_at(have + GAIT_RESYNC).max(start).min(ch.gait.value);
             }
             let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
@@ -1161,6 +1170,17 @@ pub fn locomotion(
             let dir = if angle > 1e-4 { Quat::from_axis_angle(axis, step) * a } else { b };
             let speed = cur.length() + (want.length() - cur.length()) * k;
             ch.velocity = dir * speed + Vec3::Y * ch.velocity.y;
+        } else if want.length() > RUN_START_MIN
+            && want.length() > cur.length() + 0.01
+            && cur.dot(want) >= 0.0
+            // (Facing the way already: out of a turn on the spot broken off into the run, speeding up before the body had
+            // come round swung a hand 0.5 m in a frame.)
+            && (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero().dot(want.normalize()) > 0.707
+        {
+            // Getting up to a run: at a steady rate, as the running game's free-run starts (about 13 m/s² from a standstill
+            // to 5.6 m/s in 0.45 s; ours, easing in, took 0.65 s).
+            let speed = (cur.length() + RUN_ACCEL * dt).min(want.length());
+            ch.velocity = want.normalize() * speed + Vec3::Y * ch.velocity.y;
         } else {
             ch.velocity = ch.velocity.lerp(target_v, k);
         }
