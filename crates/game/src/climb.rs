@@ -520,6 +520,11 @@ fn reception_cut(clip: &Clip, speed: f32) -> Option<f32> {
 const BEAM_CHAIN_GAP: f32 = 0.45;
 const BEAM_CHAIN_COS: f32 = 0.82;
 
+/// A beam this close to the jump's way (cos 30 degrees) is along it, not across.
+const JUMP_ALONG_BEAM_COS: f32 = 0.866;
+/// The way forward comes near a beam along it when it passes this close to the beam's line (m).
+const JUMP_ALONG_BEAM_MEET: f32 = 0.6;
+
 /// A jump's target needs this much room past it at the chest (m).
 const JUMP_LAND_ROOM: f32 = 0.6;
 
@@ -1343,7 +1348,20 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
     let mut cands: Vec<Vec3> = vec![];
     for (i, l) in level.perches.iter().enumerate() {
         if Some(i) != skip {
-            cands.extend([1.5, 2.5, 3.5, 4.5].map(|d| l.closest(from + dir * d)));
+            // (A beam along the way, within 30 degrees, that the way forward never comes near is no target: AC1's
+            // candidates are where the forward line crosses an edge. Off a roof beside a beam running on from it, a metre
+            // off the way, the running game jumped with no target and came down on it 2.9 m on, hurt; ours aimed 2 m
+            // along it.)
+            let axis = l.axis();
+            let apart = |q: Vec3| (q - l.closest(q)).with_y(0.0).length();
+            if axis != Vec3::ZERO
+                && axis.dot(dir).abs() > JUMP_ALONG_BEAM_COS
+                && (2..=(JUMP_TARGET_REACH.end() / 0.25) as usize).all(|k| apart(from + dir * (k as f32 * 0.25)) > JUMP_ALONG_BEAM_MEET)
+            {
+                continue;
+            } else {
+                cands.extend([1.5, 2.5, 3.5, 4.5].map(|d| l.closest(from + dir * d)));
+            }
         }
     }
     // Tops beyond a drop: the first ground after a gap, a little in from its edge.
@@ -1356,9 +1374,11 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
                 None => gap = true,
                 // (Room to stand over it, and not inside a block: a probe starting inside one finds the floor under it,
                 // and looking up from there meets the block's roof from below.)
+                // (Not a beam's top: beams are targets by their own rule above.)
                 Some(g)
                     if gap
                         && g.normal.y > 0.8
+                        && level.perch_at(g.point, 0.3).is_none()
                         && level.ground(g.point + d * 0.4, 0.2, 0.2).is_some()
                         && level.raycast_sided(g.point + Vec3::Y * 0.05, Vec3::Y, 20.0).is_none_or(|(h, behind)| !behind && h.dist > JUMP_TOP_HEADROOM) =>
                 {
