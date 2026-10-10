@@ -372,6 +372,8 @@ const HOLD_TOLERANCE_UP: f32 = 0.35;
 const GRID_ALONG: f32 = 0.3;
 const GRID_UP: f32 = 0.15;
 const GRID_DEPTH: f32 = 1.0;
+/// A plain move's hand that goes up or down more than this (m) must change holds (half AC1's 0.6 m row).
+const GRID_ROW_MIN: f32 = 0.3;
 /// Room the body needs beside it climbing sideways (m), to its side's wall.
 const BODY_SIDE: f32 = 0.3;
 /// Corner moves steer onto the next face's holds this far from where their clips put the hands (m): a sidestep moves the
@@ -1100,6 +1102,21 @@ fn footholds(level: &Level, hands: Vec3, normal: Vec3) -> bool {
             FOOTHOLD_BELOW.contains(&-d.y) && d.dot(along).abs() < FOOTHOLD_SIDE && d.dot(normal).abs() < FOOTHOLD_DEPTH
         })
 }
+
+/// A hold (or the ground) where AC1's grid puts the feet for a hand on `hand`: `FOOT_ROWS` under it, within a cell
+/// (`GRID_ALONG` along the wall, `FOOT_CELL_UP` up or down, `GRID_DEPTH` deep).
+fn foot_cell(level: &Level, hand: Vec3, normal: Vec3) -> bool {
+    let along = Vec3::Y.cross(normal).normalize_or_zero();
+    let at = hand - Vec3::Y * FOOT_ROWS;
+    level.ground(at + normal * 0.3 + Vec3::Y * FOOT_CELL_UP, 0.0, 2.0 * FOOT_CELL_UP + 0.3).is_some()
+        || level.ledges.iter().filter(|l| l.out.dot(normal) > 0.7).any(|l| {
+            let d = l.closest(at) - at;
+            d.dot(along).abs() <= GRID_ALONG && d.y.abs() <= FOOT_CELL_UP && d.dot(normal).abs() <= GRID_DEPTH
+        })
+}
+/// The feet's cell is two of AC1's 0.6 m rows under the hand's; a hold within this of it (m, up or down) counts.
+const FOOT_ROWS: f32 = 1.2;
+const FOOT_CELL_UP: f32 = 0.3;
 
 /// How far under the hands (m) a hold counts as one for the feet in "1m" (they stand about 1.1 m under), how far
 /// along the wall to either side, and how far out of the wall's plane.
@@ -4890,6 +4907,34 @@ impl WallClimb {
                 None => (c, clips, end),
             };
             let land = (targets[0] - end.hands[0] + targets[1] - end.hands[1]) * 0.5;
+            // A plain move up or down goes a row of AC1's grid (0.6 m): a hand the clip moves that way more than `GRID_ROW_MIN`
+            // takes a hold that far from where it was, not the same one again (the grid snaps holds to rows; off the
+            // bureau's wall-run hang, the next hold 1.35 m up, the running game reached for it, ours stepped onto the
+            // same hold and shuffled up).
+            if plain && vertical {
+                let mut start = base.clone();
+                sample(&clips[0], 0.0, &mut start, cr.reference);
+                let m = start.model(rig);
+                let r = world_rot(root.rotation);
+                let from = cr.hands.map(|b| root.translation + r * m[b].pos);
+                let same = (0..2).any(|k| (end.hands[k].y - from[k].y).abs() > GRID_ROW_MIN && (targets[k].y - from[k].y).abs() < GRID_ROW_MIN);
+                if same {
+                    if why() {
+                        debug!("climb: {} : a hand stays on its hold, no row up or down", c.names[0]);
+                    }
+                    continue;
+                }
+            }
+            // A plain move needs a hold for each foot two rows (1.2 m) under its hand's, as AC1's grid cells go
+            // (`IsGridMoveValid`), or the ground there: off the bureau's hang the holds 9.3 and 9.9 m up had nothing at 8.7
+            // for the feet; the running game reached past them, ours stepped up them.
+            let grid = plain && c.names.first().is_some_and(|n| n.starts_with("xx_l_climb_"));
+            if grid && !targets.iter().all(|t| foot_cell(level, *t, normal)) {
+                if why() {
+                    debug!("climb: {} : no hold for the feet two rows under the hands", c.names[0]);
+                }
+                continue;
+            }
             // A shimmy along a hang: room for the body on the way (a beam stuck out of the wall under the hold stopped the
             // running game's, at the bureau; ours went through it).
             // (And a leap to the side, past the same.)
