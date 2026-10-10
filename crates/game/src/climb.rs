@@ -631,8 +631,9 @@ const EJECT_UP: f32 = 2.5;
 /// Wall runs need a wall at least this wide (m).
 const WALL_RUN_WIDTH: f32 = 0.7;
 /// Jump targets: this far across (m), and within this cosine of the wanted direction (45 degrees).
-/// A running jump's targets, from 1 m on, as far as AC1's reach zone goes (`in_jump_zone`).
-const JUMP_TARGET_REACH: std::ops::RangeInclusive<f32> = 1.0..=8.0;
+/// A running jump's targets, from 0.5 m on (the reach zone's own start: the running game jumped onto a beam crossing its
+/// way 1.1 m on, off the Damascus bureau's roof), as far as AC1's reach zone goes (`in_jump_zone`).
+const JUMP_TARGET_REACH: std::ops::RangeInclusive<f32> = 0.5..=8.0;
 /// AC1's scorer's front plane: a target is in front when it is less than 0.5 m under the hips (0.5 m up) per metre
 /// on × this (0.5 / 0.7).
 const JUMP_FRONT_SLOPE: f32 = 0.5 / 0.7;
@@ -655,6 +656,7 @@ const JUMP_UP_MIN: f32 = 1.5;
 /// A jump up onto a top crosses its edge with the feet this far over it (m).
 /// AC1's jump clips are used while the correction onto the target is at most this share of the distance.
 const JUMP_AC1_SLACK: f32 = 0.5;
+const JUMP_AC1_SHORT: f32 = 1.5;
 /// Topping out into the walk or the jog hands over at their speeds (m/s).
 const TOP_OUT_WALK: f32 = 1.9;
 const TOP_OUT_JOG: f32 = 3.5;
@@ -765,6 +767,9 @@ const STEP_UP_MAX: f32 = 0.85;
 /// On a beam the stick walks along it while it leans along it at least this much (cos: 60 degrees), as the walk
 /// keeps going (`beam_step`).
 const BEAM_WALK_COS: f32 = 0.5;
+/// Free running onto a beam with less than this of it left the stick's way along it (m), a target off its side is jumped
+/// at rather than walking on.
+const BEAM_JUMP_ON_LEFT: f32 = 2.0;
 /// Ground this near a perch's line (m) is the perch itself, not ground to step off onto.
 const PERCH_OWN: f32 = 0.35;
 /// Stepping off a perch onto ground ahead: the speed it walks (or, free running, runs) off at (m/s).
@@ -2293,7 +2298,9 @@ impl WallClimb {
         let landed = p + rot * (root_motion_at(&takeoff, takeoff.frames()) + root_motion_at(&flight, flight.frames()) + step);
         let correct = to - landed;
         // (The clips' own way should be most of it: a correction this big would slide through the air.)
-        if correct.with_y(0.0).length() > JUMP_AC1_SLACK * (to - p).with_y(0.0).length().max(1.0) {
+        // (Against at least `JUMP_AC1_SHORT`: the shortest clips go 1.6 m, and the running game made a 1.1 m jump onto a
+        // beam crossing its way with them, off the Damascus bureau's roof.)
+        if correct.with_y(0.0).length() > JUMP_AC1_SLACK * (to - p).with_y(0.0).length().max(JUMP_AC1_SHORT) {
             debug!("climb: AC1's jump clips land {:.2} m off; the planned arc instead", correct.length());
             return None;
         }
@@ -3495,6 +3502,36 @@ impl WallClimb {
         if axis != Vec3::ZERO && self.beam_turn(lib, root, dir, axis) {
             return;
         }
+        // (Free running, the stick over 30 degrees off the beam with a target that way: on at it, not along the beam. Off
+        // the Damascus bureau's roof the running game came down on a beam crossing its way and free-stepped on south-west,
+        // 45 degrees off it, to the next beam 0.08 s later.)
+        let left_along = {
+            let end = if dir.dot(axis) > 0.0 { line.b } else { line.a };
+            (end - root.translation).with_y(0.0).length()
+        };
+        if self.sprint
+            && axis != Vec3::ZERO
+            && dir.dot(axis).abs() <= JUMP_ALONG_BEAM_COS
+            && left_along < BEAM_JUMP_ON_LEFT
+            && jump_target(level, root.translation, dir, self.perch).is_some()
+            && self.perch_jump(lib, level, root, dir)
+        {
+            return;
+        }
+        // (The stick over 30 degrees off the beam with a roof beside it that way, level with it: off onto the roof. The
+        // running game walked a Damascus beam west with the stick 45 degrees off it, over the street, and stepped off it
+        // south-west where a roof came up beside it.)
+        let beside = root.translation + dir * 0.5;
+        if axis != Vec3::ZERO
+            && dir.dot(axis).abs() <= JUMP_ALONG_BEAM_COS
+            && level.perch_at(beside, PERCH_OWN).is_none()
+            && level.ground(beside, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8)
+        {
+            debug!("climb: stepped off the beam onto the roof beside it at {:.2}", root.translation);
+            self.exit_velocity = dir * if self.sprint { PERCH_OFF_RUN } else { PERCH_OFF_WALK };
+            self.finished = true;
+            return;
+        }
         // (Along the beam while the stick leans along it, as the walk keeps going: at an angle to it too.)
         if axis != Vec3::ZERO && dir.dot(axis).abs() > BEAM_WALK_COS {
             let along = axis * dir.dot(axis).signum();
@@ -3615,6 +3652,21 @@ impl WallClimb {
             self.cycle = None;
             return;
         };
+        // (Walking it with the stick over 30 degrees off, a roof beside it that way: off onto it, as `perch_step`.)
+        let stick = self.move_dir.with_y(0.0).normalize_or_zero();
+        let beside = root.translation + stick * 0.5;
+        if self.cycle.is_some()
+            && stick != Vec3::ZERO
+            && stick.dot(line.axis()).abs() <= JUMP_ALONG_BEAM_COS
+            && level.perch_at(beside, PERCH_OWN).is_none()
+            && level.ground(beside, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8)
+        {
+            debug!("climb: stepped off the beam onto the roof beside it at {:.2}", root.translation);
+            let speed = self.cycle.take().map_or(PERCH_OFF_WALK, |c| c.speed);
+            self.exit_velocity = stick * speed;
+            self.finished = true;
+            return;
+        }
         let Some(cy) = &mut self.cycle else { return };
         // (Stopped: crouched on the foot it was on.)
         let stop = |w: &mut Self, lib: &mut AnimLib| {

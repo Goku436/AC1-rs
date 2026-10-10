@@ -389,6 +389,12 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   within 2.5 m under, no wall under) is also a swing bar (Damascus 1341); a free-step jump onto a beam ends on it,
   its reception cut once its step is taken; from a post or beam with no top in reach, a bar ahead down to 0.5 m under
   the feet is jumped at with the free-step takeoff and the `_to_swing` flight.
+- **Free running across beams** **[V, ours]** (route roof1_free_sw, off the Damascus bureau's roof south-west): AC1
+  jumped onto a beam crossing its way 1.1 m on (its reach zone starts at 0.5 m; ours' targets started at 1 m, and its
+  shortest clips' 1.6 m was too far to correct within 50% of 1 m: now of at least 1.5 m), then, with 1.45 m of that
+  beam left along the stick's way and the stick 45 degrees off it, free-stepped on to the next beam 0.08 s later; on
+  that one, 4 m of it left, it walked along. Ours jumps on first free running with under 2 m left. Walking the beam with
+  the stick over 30 degrees off it, AC1 stepped off onto a roof that came up beside it, level with it; ours does too.
 - **Swing bars** **[V, ours]**: the stick not held forward at the top of a swing → AC1's stop
   (`xx_h_swing_stop_<front|back>_a..d`, the last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`: he
   hangs still from the bar; the stick forward swings him up again (`xx_h_swing_momentum_front_up`). The hay's hop out
