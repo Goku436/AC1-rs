@@ -200,11 +200,15 @@ _to_air`, blended like the running takeoff's slots, the side groups turning the 
 as he faced the wall is the turned body's right, the `right` group), then the running jump's flight and reception
 (logged by AC1 under its blend's first clips, `rebound_frontleft_front_050cm`, `air_front_050cm`). Ours does this from
 the wall hang and the climb (`WallClimb::rebound_jump`, `crate::jump::rebound`; back and left land within 0.12 m of
-AC1's; scenarios tagged `eject`), from a wall hang after AC1's 0.2 s rebound pose against the wall
+AC1's; scenarios tagged `eject`), from a wall hang or a climb after AC1's 0.2 s rebound pose against the wall
 (`xx_h_hangwall_tr_rebound_<foot>`, the takeoff on the same foot 0.22 s after it in all four recorded ejects; the eject
 routes now stay within 0.45 m of the running game's all the way), and with nothing to land on pushes off
 backwards and falls. An eject's targets start 0.5 m off (running jumps' at 1 m): AC1's right eject took a beam stuck out
-of the wall 0.95 m off, and so does ours now (route `wall1_eject_right` 3.34 -> 0.45 m). Not yet: the ladder's rebound (`xx_h_ladder_wait_<l|r>_tr_rebound`), the mid-air one (`xx_h_air_all_<foot>_tr_rebound`) and the wall
+of the wall 0.95 m off, and so does ours now (route `wall1_eject_right` 3.34 -> 0.45 m). As AC1's interpreter checks
+the jump off before any move (Banned445's port, verified live), high profile + legs ejects in the middle of a move from
+hold to hold too (a hand step, a reach, a shimmy), cutting it; pressed during a leap between holds it is kept 0.3 s
+(the legs buffer) and ejects as the hand lands. Still to do (audit WALL-8): AC1 turns the root away from the wall in one
+frame at the takeoff; ours eases it (cut in after the rebound pose, the takeoff's first frame jumped 1 m). Not yet: the ladder's rebound (`xx_h_ladder_wait_<l|r>_tr_rebound`), the mid-air one (`xx_h_air_all_<foot>_tr_rebound`) and the wall
 run's one-piece ejects (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`). Wall runs and free
 running's own grabs need a wall at least 0.7 m wide (not a pole's side). Footing under a hold needs a wall within
 0.16 m behind the hold line, probed at each foot and between them (a thin pole flush with a cap is footing, one set
@@ -555,7 +559,8 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
   the stick held with the speed from ours' gait model, AC1's headings, held legs on a wall as leaps), compared by the
   distance at the inputs' end, where each comes to rest, and when each takeoff, landing, wall run, hang and climb step
   starts. Every change to movement is scored on all of them. 41 routes (with ladder 68 by the bureau and the roof
-  haystack north-east of it): 33 within 1 m at the inputs' end (32 at rest), mean path gap 0.42 m.
+  haystack north-east of it): 31 within 1 m at the inputs' end (30 at rest), mean path gap 0.48 m (roof2_free_ne, where AC1 misses its own
+  target, 5.6 m of it).
 - The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
   each, with a `combo` scenario each (`AC1_SCENARIO_TAGS=combo`, about 40 s): G1 box, two beams across a gap, a swing
   bar, down onto a low beam (AC1's beam landing); G2 free running onto a ladder, up, a beam bridge, the leap of faith

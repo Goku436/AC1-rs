@@ -696,7 +696,7 @@ const SCENARIOS: &[Scenario] = &[
             "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a",
             "free-step jump aimed at [-78.10, 2.00",
             // (On to the beam along the way: aimed at its far end as AC1's are, out of reach, the jump steers onto it.)
-            "steering onto the perch at [-75.",
+            "onto perch 23 at [-74.",
             "onto perch 23",
         ],
         never: &["EMBED"],

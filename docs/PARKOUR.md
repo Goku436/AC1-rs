@@ -117,7 +117,16 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   onto the floor a step down (at most 1.2 m): AC1's two such hops, off that beam and off a 0.57 m block on the open roof
   (1.07 m down, 3.2 m on in 0.6 s), are both a launch of 5.4 m/s on and 1 m/s up under gravity. A jump onto a post or a
   beam that short stops on it to balance (the block counts as a post), then free-steps on. **[ours, measured]**
-- **Jump reach and the pick** (`jump_target`): a running jump's targets lie in AC1's reach zone 1 (`JumpZones`
+- **AC1's candidate query and scorer** (`crate::jump_query`, after Banned445's port of 0xE18970 / 0xE96BF0): the hold
+  edges in a box ahead (1 m either side of the way, 0.5-9 m on, 5 m down to 3 m up), chained, a grab point per chain
+  where the forward line meets it, classed by three rays (room on top, what is below, a clear line from the chest) and
+  AC1's reach zones (from the ground zones 1-3, from a beam or post zone 7 only); beams along the way within 40 degrees;
+  far ends of tops. The scorer: a bar, the nearest roof edge in front (a top 1 m deep or more, or a beam), the highest
+  other target in a 45 degree cone, a far edge below, then behind. Ours' own: side edges count only up to 90 degrees
+  (Banned's 135 made a roof's own corner a target), a beam along the way only where the forward line passes within 0.6 m
+  of it, beams across the way and posts read as roof edges (ours has beams without hold edges). `AC1_OLD_TARGETS` keeps
+  the older search below, `AC1_JUMP_CANDS` logs the candidates.
+- **Jump reach and the pick** (the older search, `jump_target_within`, still used by the ejects): a running jump's targets lie in AC1's reach zone 1 (`JumpZones`
   0x1A2BF40, read live by Banned445: up to 1.3 m up to 3.5 m on, 0.8 at 4.7, -0.5 at 6, -3 at 8, down to 5 m below),
   only on the forward line (tops are looked for straight on, not 20° to the sides), the far end of a top too (landed
   0.2 m short of it). The scorer (0xE96BF0): a target over a plane through the hips tilted down ahead (normal 0.5 on,
@@ -168,7 +177,13 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
     when the item has its flag 0x14 & 2 (0xEF0320), against the current item and the one blending out.
   Events 68 and 119 are not in `HumanGround`'s handler: its sub-states take them.
   Ours: the look-down after standing still 0.25 s, the pull-down over a drop of more than 2 m (were: at once, 1.8 m);
-  the ledge stop still starts within 0.6 m of a 5 m drop (AC1: 0.15 m) and is placed by its own correction.
+  the ledge stop starts with the edge within 0.15 m, or a frame's run (0.05 s) at speed (it started within 0.6 m and
+  the pull-down after it slid the body 0.4 m to the edge). The ledge stop is high profile only, never free running;
+  let go during it, it plays out (start, end, its exit into the wait) and he stands at the edge; still pushing as its
+  start ends, the pull-down (`xx_l_ledge_stop_start_footl_pulldown_front_orientation`, code-driven in the graph).
+  The empty hand (Shift) at an edge with over 2 m of drop, either profile, walking or standing, pressed within 0.2 s:
+  straight down into the hang with the look-down's turn (`xx_l_ledge_lookdown_front_pulldown_front_orientation`, AC1's
+  pull-down type Wait, event 70), no ledge stop; a pending press keeps the ledge stop from starting.
 
 ### What the ground does with the input, in order (the interpreter 0xEE65A0 and the ground's update) **[B]**
 1. **Stick let go**: at jog or faster (high profile) → the run stop (`RunStop` 0xD98E30, guard 0xD7EC90), its root
@@ -385,7 +400,8 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   reception), not only from poles: off the beam frame east of the Damascus bureau's ladder, it free-stepped onto the
   frame's near beam (NarrowObject), jumped on 0.08 s later (`xx_h_freestep_front_front_050cm_footr_to_air`,
   `xx_h_air_front_050cm_footr_to_swing`) at the 0.2 m beam 5.6 m across, level with its feet (inside the narrow-object
-  reach zone 7), and swung. Ours: a thin beam over open space (two holds facing apart at most 0.35 m across, nothing
+  reach zone 7), and caught it. (It did not swing on: legs let go, it hung still 0.25 s into the first upswing; see
+  Swing bars.) Ours: a thin beam over open space (two holds facing apart at most 0.35 m across, nothing
   within 2.5 m under, no wall under) is also a swing bar (Damascus 1341); a free-step jump onto a beam ends on it,
   its reception cut once its step is taken; from a post or beam with no top in reach, a bar ahead down to 0.5 m under
   the feet is jumped at with the free-step takeoff and the `_to_swing` flight.
@@ -400,9 +416,13 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   its line over 1.5 m (route seams_free_north); off the open roof north, a beam carrying on in line from the edge, it
   jumped along it (roof2_free_north). Ours steps on when a beam's near end is within 1.2 m ahead, 0.3-0.6 m to the side
   and within 0.35 m in height; walking a beam, the root comes onto its line at most 1.5 m/s across (it snapped before).
-- **Swing bars** **[V, ours]**: the stick not held forward at the top of a swing → AC1's stop
-  (`xx_h_swing_stop_<front|back>_a..d`, the last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`: he
-  hangs still from the bar; the stick forward swings him up again (`xx_h_swing_momentum_front_up`). The hay's hop out
+- **Swing bars** **[V, ours]**: AC1 swings on while high profile and the legs are held, and stops when they are let
+  go (the interpreter's ledge events 5 / 6, Banned445's port and reanalysis), not by the stick. Caught with them let go
+  (route ladder68_free), it hung still from the bar 0.25 s into the first upswing, no stop chain; ours settles into
+  `xx_h_hangfree_waitclose` after that upswing. Let go mid-swing: AC1's stop (`xx_h_swing_stop_<front|back>_a..d`, the
+  last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`. Which stop is front and which back is to be
+  checked live (the reanalysis says the port's are swapped). The stick forward swings him up again
+  (`xx_h_swing_momentum_front_up`). The hay's hop out
   ends in the stand of the profile held (`xx_l_haystack_hop_out_tr_<l|h>_wait`).
 - **Walling** (event 49, wall test 0xE18390): entry A → B → vertical → end (0xE37590); probes A-D hand over to the
   ledge with the `wallingfront_*_tr_*` exits; the rebound (0xE365C0) pushes off straight back when the stick is
@@ -453,4 +473,3 @@ stretches the dive over the whole fall).
 - The move mask the interpreter checks (64 bits at the playing item's +8: jump bit 0, pull-down bit 4, look-down bit 29)
   is not the 12-byte flag word we read; where it comes from in the action data.
 - Event 68's handler (a ground sub-state's) and event 119's guards in the game's own code (Banned445's values used).
-- The ledge stop's 0.15 m trigger (ours starts within 0.6 m and corrects its placement).

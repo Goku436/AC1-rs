@@ -258,6 +258,9 @@ pub struct Controller {
     pub blend_walk: bool,
     /// Low profile empty hand: a gentle push.
     pub push: bool,
+    /// The empty hand pressed off a wall, either profile, this long ago at most (s, counting down from
+    /// `HAND_DROP_BUFFER`): at an edge, lower onto it and hang (AC1's pull-down, event 70), no ledge stop first.
+    pub hand_drop: f32,
     /// The empty hand next to a scholar: pickpocket it.
     pub pickpocket: bool,
 }
@@ -537,6 +540,12 @@ const SPRINT_STOP_SPEED: f32 = 6.2;
 const RUN_STOP_SPEED: f32 = 5.2;
 /// The jog stop's speed (m/s, `xx_h_jogstop_<foot>`).
 const JOG_STOP_SPEED: f32 = 3.5;
+/// AC1 takes an empty hand pressed within this long (s) for the pull-down (`sub_ED4A20(3, 0.2)`, Banned445's port).
+pub const HAND_DROP_BUFFER: f32 = 0.2;
+/// The ledge stop starts with the edge this close ahead (m; AC1's interpreter, 0.15 m), or as far as a run goes in
+/// `LEDGE_STOP_FRAME` (s).
+const LEDGE_STOP_REACH: f32 = 0.15;
+const LEDGE_STOP_FRAME: f32 = 0.05;
 /// Walking at an edge dropping more than this stops at it (m; AC1's ledge stop, not when free running).
 const LEDGE_STOP_DROP: f32 = 5.0;
 /// The drop goes on at least this far past the edge (m) for a ledge stop: not a crack between two roofs.
@@ -632,7 +641,8 @@ fn ground_move(
     // Walking at the edge of a big drop (not free running): stop at it.
     // (High profile only: walking in low profile at an 8 m drop AC1 halts at the edge, no clip, and looks down, seen in the
     // running game.)
-    if speed > 1.0 && wants && ctl.high && !ctl.free_run && ch.edge_lock.is_none() {
+    // (Not with the empty hand just pressed: AC1's interpreter sends the pull-down before the ledge stop.)
+    if speed > 1.0 && wants && ctl.high && !ctl.free_run && ch.edge_lock.is_none() && ctl.hand_drop <= 0.0 {
         let dir = v / speed;
         // (A drop wider than a crack: off a Damascus roof ending in a beam over a 0.1 m crack, the next roof 0.7 m below
         // past it, AC1 ran on onto the beam and free-stepped off it; ours stopped at the crack.)
@@ -645,7 +655,12 @@ fn ground_move(
             let p = tf.translation + dir * d;
             deep(p) || (level.ground(p, 0.3, LEDGE_STOP_DROP).is_some_and(|g| p.y - g.point.y > 2.0) && deep(p + dir * 0.4))
         };
-        if let Some(d) = (1..=12).map(|k| k as f32 * 0.05).find(|&d| drop(d) && drop(d + LEDGE_STOP_CRACK)) {
+        // (At the edge: AC1's interpreter sends the ledge stop for a front edge within 0.15 m (0xEE8899, as Banned445's port
+        // reads it), its guard wanting the feet on the edge line; ours stopped 0.6 m short and pulled back, and the
+        // pull-down after it slid the body 0.4 m to the edge.)
+        // (Within a long frame's run too, `LEDGE_STOP_FRAME`: at a run the 0.15 m alone was stepped over and he ran off.)
+        let reach = LEDGE_STOP_REACH.max(speed * LEDGE_STOP_FRAME);
+        if let Some(d) = (1..=(reach / 0.05).ceil() as usize).map(|k| k as f32 * 0.05).find(|&d| drop(d) && drop(d + LEDGE_STOP_CRACK)) {
             let names = vec!["xx_h_ledge_stop_start_footl".to_string(), "xx_h_ledge_stop_end_footl".into(), "xx_h_ledge_stop_end_tr_h_wait_footr".into()];
             let at = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir), ..*tf };
             let travel = WallClimb::travel(lib, &at, &names)?;
@@ -841,6 +856,26 @@ pub fn locomotion(
                 ctl.toggle_climb = true;
                 ctl.grab_only = true;
             }
+        }
+        // The empty hand at an edge with a drop of over 2 m ahead, either profile, walking or standing: down onto it into
+        // the hang at once, no ledge stop (AC1's pull-down, event 70: the interpreter sends it for the empty hand pressed
+        // within 0.2 s with an edge within 0.5 m ahead, as Banned445's port reads it). Elsewhere the hand pushes.
+        ctl.hand_drop = (ctl.hand_drop - dt).max(0.0);
+        if ctl.hand_drop > 0.0
+            && ch.wall.is_none()
+            && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
+            // (Its turn is the look-down's, `xx_l_ledge_lookdown_front_pulldown_front_orientation`: AC1's pull-down type
+            // Wait, the ledge stop's own being for the stop.)
+            && let Some(w) = crate::climb::WallClimb::pull_down(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, true, Some(ch.anim_pose.clone()))
+        {
+            debug!("climb: the empty hand at the edge: down onto it");
+            ctl.hand_drop = 0.0;
+            ch.exit_fade = None;
+            ch.wall = Some(w);
+            ch.velocity = Vec3::ZERO;
+            ctl.push = false;
+            ctl.pickpocket = false;
+            continue;
         }
         // A gentle push (low profile empty hand), played over the walk.
         // Pickpocketing (`xx_pickpocket_attempt_walk_<foot>`, `_success_finish_<foot>`), a short ground move.
@@ -1178,6 +1213,10 @@ pub fn locomotion(
             ch.wall = Some(w);
             ch.edge_lock = None;
             ch.velocity = Vec3::ZERO;
+            // (Not the ledge stop's fade back to the ground still going under it: the pull-down fades in from the pose
+            // shown itself, and the stop's pose faced the other way round the turned root, the blend flipping half way
+            // (the hands jumped 0.9 m in one frame).)
+            ch.exit_fade = None;
             continue;
         }
         // After a ledge stop, hold back from the edge until steering away or free running.

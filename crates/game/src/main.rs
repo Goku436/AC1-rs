@@ -26,7 +26,7 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
@@ -51,6 +51,7 @@ mod crowd;
 mod gait;
 mod gallery;
 mod jump;
+mod jump_query;
 mod level;
 mod move_blend;
 mod nav;
@@ -226,7 +227,7 @@ fn main() {
             edges: if (std::env::var("AC1_SHOT").is_ok() || std::env::var("AC1_FRAMES").is_ok()) && std::env::var("AC1_EDGES").is_err() { 3 } else { 0 },
         })
         .insert_resource(script)
-        .add_systems(Startup, (level::spawn_level, setup, grab_cursor).chain())
+        .add_systems(Startup, (level::spawn_level, setup, grab_cursor, slow_motion).chain())
         .init_resource::<Eagle>()
         .init_resource::<recorder::Recorder>()
         .init_resource::<pad::PadStick>()
@@ -469,6 +470,14 @@ fn fps_log(time: Res<Time>, mut acc: Local<(f32, u32)>) {
     if acc.0 >= 2.0 {
         info!("fps {:.0}", acc.1 as f32 / acc.0);
         *acc = (0.0, 0);
+    }
+}
+
+/// `AC1_SLOWMO=<factor>`: the whole game at that speed (0.1 = a tenth), to watch a move frame by frame.
+fn slow_motion(mut time: ResMut<Time<Virtual>>) {
+    if let Some(k) = std::env::var("AC1_SLOWMO").ok().and_then(|v| v.parse::<f32>().ok()).filter(|k| *k > 0.0) {
+        time.set_relative_speed(k);
+        info!("slow motion: {k}x");
     }
 }
 
@@ -853,6 +862,9 @@ fn player_input(
     if ch.wall.is_some() {
         *legs_buffer = 0.0;
     }
+    if hand && ch.wall.is_none() {
+        ctl.hand_drop = character::HAND_DROP_BUFFER;
+    }
     ctl.push |= hand && !high && ch.wall.is_none() && !by_scholar;
     ctl.pickpocket |= hand && !high && ch.wall.is_none() && by_scholar;
 }
@@ -1149,6 +1161,7 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
     }
     if script.hand.iter().any(|&at| t > at && t - clock.dt <= at) {
         ctl.push = !ctl.high;
+        ctl.hand_drop = character::HAND_DROP_BUFFER;
     }
     if let Some(c) = &script.climb {
         // "grab" just grabs; otherwise a list of `dir[=seconds]` (up, down, left, right, `leap-<dir>`, or "drop" to
