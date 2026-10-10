@@ -109,6 +109,12 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 - **Edges**: the ledge stop (event 69, only for a drop over 5 m), the low-profile halt within 0.16 m (normal within
   70°), look down (event 119: a LedgeGrab edge within 0.6 m, not behind, more than 2 m of drop), the pull-down
   (event 70: an edge within 0.8 m ahead, normal along the facing, more than 2 m of drop). **[B]**
+  Seen in the running game (Damascus, the route library): running in high profile to a roof's end that is a beam over a
+  0.1 m crack, the next roof 0.74 m below, AC1 ran onto the beam (`beam_crouchwalk`) and free-stepped off it 2.5 m on
+  (`freestep_front_front`, low: 6 cm up, 5 m/s); at the same kind of beam over 8 m it made the ledge stop. Ours: the
+  ledge stop needs the drop to go on 0.3 m past the edge (no stop at a crack), a beam crossed running in high profile
+  is got onto when past it the floor steps down 0.5-5 m, and off a beam in high profile the stick across it free-steps
+  onto the floor a step down (at most 1 m) about 2.5 m on. **[ours, measured]**
 - **Grabbing a wall** (high profile + legs pushing into it), in order: a climb start (hand holds 1.8-2.4 m up and
   foot holds 1.2 m below them) → `xx_h_wait_hipm_foot?_tr_climbing_1m` with the root interpolated onto the holds;
   else a ledge 0.53-3.0 m up → the standing straight jump at it (0xB21DA0: knee and waist heights pull up onto the

@@ -539,6 +539,12 @@ const RUN_STOP_SPEED: f32 = 5.2;
 const JOG_STOP_SPEED: f32 = 3.5;
 /// Walking at an edge dropping more than this stops at it (m; AC1's ledge stop, not when free running).
 const LEDGE_STOP_DROP: f32 = 5.0;
+/// The drop goes on at least this far past the edge (m) for a ledge stop: not a crack between two roofs.
+const LEDGE_STOP_CRACK: f32 = 0.3;
+/// Running across a beam in high profile, he gets onto it only with a step down past it deeper than this (m) and short of
+/// `LEDGE_STOP_DROP`: one ending the floor (a Damascus roof's end over a crack, the next roof 0.7 m down), not a seam in a
+/// roof.
+const BEAM_EDGE_DROP: f32 = 0.5;
 /// Standing at an edge dropping more than this looks down over it (m).
 const LOOK_DOWN_DROP: f32 = 2.0;
 /// Standing still this long (s) before looking down over an edge (the timer AC1's ground input interpreter checks).
@@ -615,7 +621,10 @@ fn ground_move(
     // running game.)
     if speed > 1.0 && wants && ctl.high && !ctl.free_run && ch.edge_lock.is_none() {
         let dir = v / speed;
-        if let Some(d) = (1..=12).map(|k| k as f32 * 0.05).find(|&d| level.ground(tf.translation + dir * d, 0.3, LEDGE_STOP_DROP).is_none()) {
+        // (A drop wider than a crack: off a Damascus roof ending in a beam over a 0.1 m crack, the next roof 0.7 m below
+        // past it, AC1 ran on onto the beam and free-stepped off it; ours stopped at the crack.)
+        let drop = |d: f32| level.ground(tf.translation + dir * d, 0.3, LEDGE_STOP_DROP).is_none();
+        if let Some(d) = (1..=12).map(|k| k as f32 * 0.05).find(|&d| drop(d) && drop(d + LEDGE_STOP_CRACK)) {
             let names = vec!["xx_h_ledge_stop_start_footl".to_string(), "xx_h_ledge_stop_end_footl".into(), "xx_h_ledge_stop_end_tr_h_wait_footr".into()];
             let at = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir), ..*tf };
             let travel = WallClimb::travel(lib, &at, &names)?;
@@ -1237,7 +1246,17 @@ pub fn locomotion(
             let along = |i: usize| {
                 let l = &level.perches[i];
                 let axis = l.axis().with_y(0.0).normalize_or_zero();
-                axis == Vec3::ZERO || axis.dot(way).abs() > 0.866 || (still && (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15)
+                axis == Vec3::ZERO
+                    || axis.dot(way).abs() > 0.866
+                    || (still && (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15)
+                    // (Running in high profile across a beam that ends the floor, a step down past it: AC1 runs onto it; over a
+                    // drop it stops at the edge, the ledge stop.)
+                    || (ctl.high && !still && {
+                        let q = l.closest(tf.translation);
+                        [0.5, 0.8].iter().all(|&d| {
+                            level.ground(q + way * d, 0.3, BEAM_EDGE_DROP).is_none() && level.ground(q + way * d, 0.3, LEDGE_STOP_DROP).is_some()
+                        })
+                    })
             };
             if ch.fall_v == 0.0
                 && !floor_on

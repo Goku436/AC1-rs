@@ -566,6 +566,10 @@ pub const PERCH_REACH: f32 = 0.3;
 const PERCH_MAGNET: f32 = 1.2;
 /// Perch-to-perch jumps reach this far.
 const PERCH_JUMP: std::ops::Range<f32> = 0.8..4.5;
+/// With no target, the free step off a beam lands on the floor this far on (m, the nearest first), at most
+/// `PERCH_FREE_STEP_DROP` below.
+const PERCH_FREE_STEP_ON: [f32; 3] = [2.5, 2.0, 3.0];
+const PERCH_FREE_STEP_DROP: f32 = 1.0;
 /// A back eject leaves the wall at this speed (m/s), and this fast upward.
 const EJECT_SPEED: f32 = 4.0;
 const EJECT_UP: f32 = 2.5;
@@ -3096,7 +3100,9 @@ impl WallClimb {
             self.finished = true;
             return;
         }
-        if self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir)) {
+        // (Or in high profile, the stick off its side: AC1's free step off it, as off the beam ending a Damascus roof.)
+        let off_side = self.high && axis != Vec3::ZERO && dir.dot(axis).abs() <= BEAM_WALK_COS;
+        if (self.sprint || off_side) && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir)) {
             return;
         }
         // (On a post he turns on the spot; on a beam the turns above face him.)
@@ -3122,7 +3128,7 @@ impl WallClimb {
                 let n = format!("xx_l_beam_crouchwait_{}_turn180", feet[f]);
                 (vec![n.clone(), format!("{n}_tr_{}", feet[1 - f])], BeamStance::Along(1 - f))
             }
-            (BeamStance::Along(f), false) if !self.sprint => {
+            (BeamStance::Along(f), false) if !self.sprint && !self.high => {
                 // (AC1 names the right turns with a space.)
                 let sep = if side == "right" { " " } else { "_" };
                 (vec![format!("xx_l_beam_crouchwait_{}_turn_{side}{sep}to_crouchwait_90", feet[f])], BeamStance::Across)
@@ -3272,7 +3278,18 @@ impl WallClimb {
         let to = jump_target(level, from, dir, self.perch).filter(|q| PERCH_JUMP.contains(&(*q - from).with_y(0.0).length()));
         // To a target: AC1's free-step jump, the takeoff group by the way it goes off the facing (sideways or back off a
         // post without turning first: the takeoff turns the body).
-        if let Some(to) = to
+        // (No target: the free step down onto the floor ahead, as AC1 hopped off a beam ending a Damascus roof onto the next
+        // roof 0.7 m below, 2.5 m on, low and fast (6 cm up, 5 m/s); its free jump's rise carried ours 5 m.)
+        // (A beam's only, onto a floor a step down: off a post, or over a deeper drop (G1's beam stuck out of a wall, the street
+        // 1.5 m below, a platform further on), the jump below.)
+        let beam = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() != Vec3::ZERO);
+        let floor = || {
+            if !beam {
+                return None;
+            }
+            PERCH_FREE_STEP_ON.iter().find_map(|&d| level.ground(from + dir * d, 0.3, PERCH_FREE_STEP_DROP).map(|g| g.point).filter(|g| g.y < from.y - 0.2))
+        };
+        if let Some(to) = to.or_else(floor)
             && let Some(w) = Self::jump_freestep(lib, level, root, to, self.freestep_left, self.last.clone())
         {
             *self = w;
