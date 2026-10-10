@@ -908,7 +908,7 @@ pub fn locomotion(
                             wall_run_now(v, ctl.free_run, &wall_ahead)
                                 .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose()))
                                 .flatten()
-                                .or_else(|| WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose()))
+                                .or_else(|| WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v.length() > 1.0, pose()))
                         });
                         // (A Legs press jumps only at a target, as AC1's `JumpToGuidanceTarget`; with a wall right ahead,
                         // only over it.)
@@ -1154,11 +1154,15 @@ pub fn locomotion(
             tf.rotation = tf.rotation.slerp(face, 1.0 - (-8.0 * dt).exp());
         }
         // Running: vault a low obstacle ahead, and jump off an edge (AC1's free running).
-        if v.length() > RUN_VAULT_SPEED
+        // (Free running, from a standstill too, the stick held: AC1's free-run target jump only asks for the stick
+        // (0xEE7F7A, as Banned445's port reads it); off the Damascus street the running game hopped onto a box 1.2 m ahead
+        // at once, ours 0.2 s later once up to speed, and was that late all the way up the wall after.)
+        let starting = ctl.free_run && target_v.with_y(0.0).length() > 0.1 && v.length() <= RUN_VAULT_SPEED;
+        if (v.length() > RUN_VAULT_SPEED || starting)
             && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
         {
             use crate::climb::WallClimb;
-            let dir = v.normalize();
+            let dir = if starting { target_v.with_y(0.0).normalize() } else { v.normalize() };
             let on_ground = level.ground(tf.translation, 0.3, 0.3).is_some();
             // Sprinting (or free running at any speed, as AC1 does) off an edge jumps. Free running along a top that ends in a drop of any size (a fence, a low
             // wall run onto) with something to jump to ahead springs on to it straight away (AC1's two-step: onto the
@@ -1175,7 +1179,7 @@ pub fn locomotion(
                         && WallClimb::jump_target_ahead(&level, tf.translation, dir)));
             // Free running steps or jumps onto a low obstacle; otherwise running stops against it or glances off.
             // (Toward where the stick points: sliding along a wall, the body's own velocity runs along it.)
-            let toward = target_v.with_y(0.0).try_normalize().map_or(v, |d| d * v.length());
+            let toward = target_v.with_y(0.0).try_normalize().map_or(v, |d| d * v.length().max(if starting { RUN_VAULT_SPEED } else { 0.0 }));
             let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
             let low = if ctl.free_run {
                 WallClimb::hay_dive_ahead(lib, &level, &tf, toward, Some(ch.anim_pose.clone()))

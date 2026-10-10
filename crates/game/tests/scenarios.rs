@@ -396,7 +396,8 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["wallrun", "climb"],
         env: &[("AC1_START", "33,13,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-1.6"), ("AC1_JUMP", "1.75")],
         secs: 4.0,
-        want: &["step1rebound_back", "-> free_1m via xx_fall_tr_hangfree"],
+        // (AC1's eject off a wall run is a hang's: its rebound takeoff at the hold, as the running game's off the bureau.)
+        want: &["wall run eject (step1rebound)", "xx_h_rebound_front", "-> free_1m via xx_fall_tr_hangfree"],
         never: &["EMBED"],
     },
     Scenario {

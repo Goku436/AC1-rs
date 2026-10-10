@@ -403,6 +403,11 @@ const WALL_RUN_REBOUND: [&str; 3] =
     ["xx_h_wallingfront_step1_footr_tr_rebound_footr_a", "xx_h_wallingfront_step1_footr_tr_rebound_footr_b", "xx_h_rebound_footr_tr_fall"];
 /// A wall run rebounds until this share of its fall back off the wall has played.
 const REBOUND_LATE: f32 = 0.6;
+/// A wall run's rebound to the side goes at most this far off straight back (rad, 89 degrees); with no target it flies
+/// to `REBOUND_FAR` out and `REBOUND_FAR_DOWN` down (AC1's fallback).
+const REBOUND_SIDE_MAX: f32 = 1.553_343;
+const REBOUND_FAR: f32 = 7.0;
+const REBOUND_FAR_DOWN: f32 = 3.0;
 /// Sprinting at a wall closer than this (m) runs up it.
 pub const WALL_RUN_REACH: f32 = 2.0;
 /// A wall met up to this far off square (rad, 60°) is run up, turning to face it.
@@ -657,6 +662,11 @@ const JUMP_TOP_HEADROOM: f32 = 1.7;
 /// edge at most 1.3 m up as a top to land on (`Human__ComputeJumpAnimBlend` 0xB1EC40, Banned445): only higher ones
 /// are hung from (a waist-high wall's top is no hold to jump at).
 const JUMP_HOLD_RISE: std::ops::RangeInclusive<f32> = 1.3..=2.6;
+/// A climb start from the ground reaches a wall this far in front of the root (m), running; standing, a little further.
+const CLIMB_START_REACH: f32 = 1.0;
+const CLIMB_START_STILL: f32 = 1.5;
+/// A hold jumped at is at least this long (m).
+const JUMP_HOLD_SHORT: f32 = 0.15;
 const JUMP_HOLD_HANG: f32 = 0.9;
 /// ...or this far under it for a free hang (the free-hang catch, `xx_fall_tr_hangfree_min`, ends with the hands 2.1 m
 /// over the root).
@@ -1393,10 +1403,15 @@ fn jump_hold(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3)> {
         .ledges
         .iter()
         .filter(|l| l.out.dot(dir) <= -JUMP_TARGET_CONE)
-        .filter(|l| l.a.distance(l.b) > 2.0 * JUMP_HOLD_INSET)
+        // (Short pieces too, aimed at their middle: AC1 grabs any edge, the hands 0.2 m either side; off the bureau's street
+        // a tap jump caught a 0.22 m piece of the wall 2.4 m up.)
+        .filter(|l| l.a.distance(l.b) > JUMP_HOLD_SHORT)
         .map(|l| {
             // (Both hands on it: in from its ends.)
             let along = (l.b - l.a).normalize();
+            if l.a.distance(l.b) <= 2.0 * JUMP_HOLD_INSET {
+                return ((l.a + l.b) * 0.5, l.out);
+            }
             let inner = Line { a: l.a + along * JUMP_HOLD_INSET, b: l.b - along * JUMP_HOLD_INSET };
             (inner.closest(from + dir * 2.5), l.out)
         })
@@ -1770,9 +1785,20 @@ impl WallClimb {
 
     /// Start climbing from the ground: the wall must be in front with a hold at the entry clip's reach.
     #[allow(clippy::too_many_arguments)]
-    pub fn try_enter(lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, from: Option<Pose>) -> Option<WallClimb> {
+    pub fn try_enter(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        rig: &Rig,
+        base: &Pose,
+        cr: ClimbRig,
+        moving: bool,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
         let fwd = root.rotation * Vec3::NEG_Z;
-        let Some(hit) = level.raycast(root.translation + Vec3::Y * 1.2, fwd, 1.5) else {
+        // (Within AC1's grab probe, 0.75 m round the body (IHuman vt136): further off, a press jumps at the wall's hold;
+        // the running game's tap 1.25 m from the bureau's wall did.)
+        let Some(hit) = level.raycast(root.translation + Vec3::Y * 1.2, fwd, if moving { CLIMB_START_REACH } else { CLIMB_START_STILL }) else {
             info!("climb: no wall ahead");
             return None;
         };
@@ -2696,7 +2722,16 @@ impl WallClimb {
         let right = (-away).cross(Vec3::Y);
         let way = if input.x.abs() > 0.5 { right * input.x.signum() } else { away };
         let p = root.translation;
-        let to = jump_target_within(level, p, way, None, EJECT_REACH, false)?;
+        let top = jump_target_within(level, p, way, None, EJECT_REACH, false);
+        // A hold to hang from that way (a beam's end, a ledge), as near as the top and higher: AC1's scorer takes the hang
+        // first (a pole over a front ledge, 0xE96BF0). Off a wall run the running game ejected back onto a beam's end 3 m
+        // behind, 2.2 m up, and hung from it.
+        if let Some(h) = jump_hold_target(level, p, way)
+            && top.is_none_or(|t| (h - p).with_y(0.0).length() <= (t - p).with_y(0.0).length() && h.y >= t.y)
+        {
+            return Self::eject_to_hang(lib, root, h, away, left, from);
+        }
+        let to = top?;
         let flat = (to - p).with_y(0.0);
         let aim = flat.normalize_or_zero();
         // (Its angle off straight away, positive to the right of the body turned away.)
@@ -2730,6 +2765,34 @@ impl WallClimb {
         }
         w.ease_in(from, root);
         debug!("climb: rebound off the wall at {to:.2}, {:.0} degrees off straight away ({} then {})", angle.to_degrees(), takeoff.name, flight.name);
+        Some(w)
+    }
+
+    /// An eject at a hold to hang from (`jump_hold_target`'s root `h`): AC1's rebound takeoff for it, then the flight
+    /// there, the catch taking the hold as it comes.
+    fn eject_to_hang(lib: &mut AnimLib, root: &Transform, h: Vec3, away: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
+        let p = root.translation;
+        let flat = (h - p).with_y(0.0);
+        let aim = flat.normalize_or_zero();
+        let angle = aim.dot(away.cross(Vec3::Y)).atan2(aim.dot(away));
+        let j = crate::jump::rebound(h.y - p.y, flat.length(), angle, left, 0.0);
+        let parts: Vec<(&str, f32)> = j.takeoff.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+        let (takeoff, air) = (lib.get(&mix_name(&parts))?, lib.get(JUMP_AIR)?);
+        let planned = Transform { rotation: facing(away), ..*root };
+        // (From where the takeoff ends: it lifts and moves the root itself.)
+        let lift = p + world_rot(planned.rotation) * root_motion_at(&takeoff, takeoff.frames());
+        let (v, flight) = ballistic(lift, h);
+        let mut w = WallClimb::new(JUMP, -aim);
+        w.queue = vec![Queued { rate: air.anim.duration / flight.max(0.2), ..Queued::new(air, FALL) }];
+        w.fall_with = Some(v);
+        w.can_catch = true;
+        w.aimed = true;
+        w.start(takeoff, JUMP.into(), &planned);
+        if let Some(m) = &mut w.mv {
+            m.ease_rot = root.rotation * planned.rotation.inverse();
+        }
+        w.ease_in(from, root);
+        debug!("climb: eject at the hold over {h:.2}");
         Some(w)
     }
 
@@ -4119,7 +4182,7 @@ impl WallClimb {
     }
 
     /// Rebound during a wall run: kick off the wall back, or to the side the stick leans to, and fly.
-    fn try_rebound(&mut self, lib: &mut AnimLib, root: &Transform) -> bool {
+    fn try_rebound(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
         let Some(m) = &self.mv else { return false };
         let phase = if m.clip.name == WALL_RUN[0] || m.clip.name == WALL_RUN[1] {
             "entryrebound"
@@ -4153,16 +4216,36 @@ impl WallClimb {
                 (c, d)
             })
             .collect();
+        // AC1's own: the eject a hang makes (`rebound_jump`: its rebound takeoffs, at a top or a hold to hang from that way),
+        // seen in the running game off the bureau's wall run, back onto a beam's end 3 m behind and right onto one beside.
+        let right = (-out).cross(Vec3::Y);
+        let side = if want == Vec3::ZERO { 0.0 } else { want.dot(right) };
+        let input = Vec2::new(if side.abs() > 0.5 { side.signum() } else { 0.0 }, -1.0);
+        if let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, input.x > -0.5, self.last.clone()) {
+            debug!("climb: wall run eject ({phase})");
+            *self = w;
+            return true;
+        }
         let pick = if want == Vec3::ZERO { options.into_iter().next() } else { options.into_iter().max_by(|a, b| a.1.total_cmp(&b.1)) };
         let Some((clip, _)) = pick else { return false };
         debug!("climb: rebound {}", clip.name);
-        // Fly along the clip's sideways motion; gravity does the falling.
-        let motion = world_rot(root.rotation) * root_motion_at(&clip, clip.frames());
-        let flat = motion.with_y(0.0) / clip.anim.duration.max(0.1);
+        // At a target the way it pushes off (AC1's `HumanWalling__ReboundJump`, as Banned445's port reads it): straight
+        // back off the wall with the stick into it, else along the stick, kept within 89 degrees of straight back; the
+        // best target that way, else 7 m out and 3 m down.
+        let push = if want == Vec3::ZERO || want.dot(out) > 0.99 {
+            out
+        } else {
+            let side = if out.cross(want).y >= 0.0 { 1.0 } else { -1.0 };
+            if want.dot(out) <= 0.0 { Quat::from_rotation_y(REBOUND_SIDE_MAX * side) * out } else { want }
+        };
+        let p = root.translation;
+        let to = jump_target(level, p, push, None).unwrap_or(p + push * REBOUND_FAR - Vec3::Y * REBOUND_FAR_DOWN);
+        let (v, _) = ballistic(p, to);
+        debug!("climb: wall run rebound at {to:.2}");
         self.queue.clear();
         self.state = FALL.into();
         self.start(clip, FALL.into(), root);
-        self.fall_v = Some(flat + Vec3::Y * 2.0);
+        self.fall_v = Some(v);
         self.can_catch = true;
         true
     }
@@ -4508,7 +4591,7 @@ impl WallClimb {
             self.swing_off = Some(self.move_dir.dot(root.rotation * Vec3::NEG_Z) > -0.3);
             return true;
         }
-        if self.try_rebound(lib, root) || self.hop_out(lib, root) {
+        if self.try_rebound(lib, level, root) || self.hop_out(lib, root) {
             return true;
         }
         false
@@ -4559,7 +4642,7 @@ impl WallClimb {
             self.swing_off = Some(self.move_dir.dot(root.rotation * Vec3::NEG_Z) > -0.3);
             return true;
         }
-        if self.try_rebound(lib, root) || self.hop_out(lib, root) {
+        if self.try_rebound(lib, level, root) || self.hop_out(lib, root) {
             return true;
         }
         // Falling (or dropping off): the empty hand grabs the next hold the hands come to on the way down (AC1's catch

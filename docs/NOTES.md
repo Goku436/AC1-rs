@@ -546,7 +546,15 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
   where another ends: what a code-driven move goes on into when the move graph does not say). `AC1_VEER=secs,deg`
   turns a scripted walk's direction then (the stick swung mid-move); `AC1_STICK=1` has a scripted walk hold the stick
   over (the speed from the gait model, as the player's). `AC1_PATH="x,z;x,z;..[;stop]"` steers it through waypoints
-  (each passed within 1 m, at any height; `stop` lets go of the stick at the last).
+  (each passed within 1 m, at any height; `stop` lets go of the stick at the last). `AC1_HEADINGS="t,deg;.."` gives the
+  walk's game heading over time, blended between (the route library replays the running game's own: W follows its
+  camera, which turns slowly as it runs).
+- The route library (2026-10-10; scripts in the session scratchpad, not the repo): routes around the Damascus bureau
+  played in the running game through ac1-hook (the camera first turned, by test steps and the mouse, until W walks
+  within 2 degrees of the route's way), traced frame by frame, and played in ours (`AC1_CONTROL`, the same inputs:
+  the stick held with the speed from ours' gait model, AC1's headings, held legs on a wall as leaps), compared by the
+  distance at the inputs' end, where each comes to rest, and when each takeoff, landing, wall run, hang and climb step
+  starts. Every change to movement is scored on all of them.
 - The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
   each, with a `combo` scenario each (`AC1_SCENARIO_TAGS=combo`, about 40 s): G1 box, two beams across a gap, a swing
   bar, down onto a low beam (AC1's beam landing); G2 free running onto a ladder, up, a beam bridge, the leap of faith
