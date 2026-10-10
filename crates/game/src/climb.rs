@@ -518,6 +518,10 @@ fn reception_cut(clip: &Clip, speed: f32) -> Option<f32> {
     (peak as usize..=clip.frames() as usize).map(|f| f as f32).find(|&f| pace(f) <= speed)
 }
 
+/// A wall run's catch is a hold at least this high over the floor it started from (m): the feet 1.6 m up at the end of
+/// its vertical step (the running game, Damascus) and AC1's 1 m (`H`) over them.
+const WALL_RUN_CATCH_MIN: f32 = 2.6;
+
 /// Walked off a beam's end, the next beam within this of it (m) and along it within 35 degrees is walked on.
 const BEAM_CHAIN_GAP: f32 = 0.45;
 const BEAM_CHAIN_COS: f32 = 0.82;
@@ -2336,6 +2340,12 @@ impl WallClimb {
                     let hands = cr.hands.map(|b| end.pos + r * m[b].pos);
                     let Some(targets) = holds_within(level, &hands, normal, slack + 0.1) else { continue };
                     if carry.is_some() && !flush_under((targets[0] + targets[1]) * 0.5) {
+                        continue;
+                    }
+                    // (A wall run catches a hold at least a body height over the feet where its vertical step ends: AC1's
+                    // ledge probe D, 1-2.8 m over them, as Banned445's port reads it. In the running game the feet end that
+                    // step 1.6 m up, and the hold 2.5 m over the floor was passed for the next row, 4.1 m up.)
+                    if carry.is_some() && (targets[0].y + targets[1].y) * 0.5 - root.translation.y < WALL_RUN_CATCH_MIN {
                         continue;
                     }
                     let err = (targets[0] - hands[0] + targets[1] - hands[1]) * 0.5;

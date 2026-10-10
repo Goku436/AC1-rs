@@ -641,7 +641,7 @@ const SCENARIOS: &[Scenario] = &[
         env: &[("AC1_START", "-96,55,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-20"), ("AC1_LEGS", "0-20"), ("AC1_CLIMB", "nograb,wait=2.5,leap-up=8")],
         secs: 16.0,
         want: &[
-            "tr_hangwall_251cm_000cm_a",
+            "tr_hangwall_430cm_000cm_a",
             "climb1m_up_l_hand_2_c",
             "-> top via xx_h_hangknee_footl_tr_h_jog_footr_b",
             "running jump aimed at [-84.0",
@@ -734,7 +734,10 @@ const SCENARIOS: &[Scenario] = &[
         secs: 12.0,
         want: &[
             "wall run over the 1.40 m wall",
-            "tr_hangwall_251cm_000cm_a",
+            // (Its first hold row in reach, 2.39 m, is under AC1's catch height for a wall run, 1 m over the feet at the
+            // end of its step; the next, 2.99 m, is out of our wall run's reach, 0.27 m lower than AC1's: it slides back
+            // and catches the wall on the way down.)
+            "-> 2m via xx_fall_tr_climb_min_b",
             "-> top via xx_h_hangknee_footl_tr_h_jog_footr_b",
             "running jump aimed at [-79.00, 2.00, 114.00]",
             "freestep_down_tr_freestep_entry",
