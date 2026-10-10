@@ -108,6 +108,28 @@ pub fn freestep(dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
     j
 }
 
+/// An eject off a wall (AC1's rebound): from a hang or a climb, turned away from the wall, onto a top `dz` above and
+/// `dist` away, `angle` (rad, positive to the right of the body turned away) off straight away: the running jump's flight
+/// and reception, the takeoff from AC1's rebound groups (`xx_h_rebound_<frontleft|frontright|left|right>_<front|down|up>
+/// _<cm>_<foot>_to_air`, the running takeoff's slots), straight away and to that side blended by the angle (the side
+/// groups turn the body a quarter round, toward the jump). Measured in the running game (Damascus, the bureau's wall):
+/// the stick back (or none) jumps away, the stick to a side jumps that way along the wall, each at the best place to land.
+pub fn rebound(dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
+    let mut j = running(dz, dist, left, fast);
+    let foot = if left { "footl" } else { "footr" };
+    let names = takeoff_names(foot);
+    let slot_w: Vec<f32> = names.iter().map(|n| j.takeoff.iter().find(|(m, _)| m == n).map_or(0.0, |p| p.1)).collect();
+    let q = (angle.abs() / std::f32::consts::FRAC_PI_2).min(1.0);
+    let (front, side) = if angle >= 0.0 { ("frontright", "right") } else { ("frontleft", "left") };
+    j.takeoff = [(front, 1.0 - q), (side, q)]
+        .iter()
+        .filter(|(_, g)| *g > 0.01)
+        .flat_map(|(group, g)| names.iter().map(move |n| n.replace("xx_h_run_", &format!("xx_h_rebound_{group}_"))).zip(slot_w.iter().map(move |w| w * g)))
+        .filter(|(_, w)| *w > 0.01)
+        .collect();
+    j
+}
+
 /// A running jump at a wall's hold to catch (a lone ledge, the feet against the wall under it): the running jump's takeoff
 /// for the hang's place `dz` above and `dist` away, its flight onto a surface (`xx_h_air_<front|down|up>_<dist>_foot?_to_
 /// surface`: the flight's slots folded onto those: the down landings, deep or not, onto `down`, the front going down onto

@@ -2490,6 +2490,53 @@ impl WallClimb {
         Some(w)
     }
 
+    /// An eject off the wall (AC1's rebound, as the running game does it: Damascus, the bureau's wall; see `legs`) at the
+    /// best place to land in the stick's way: straight away from the wall (`normal`), or along it to the side the stick
+    /// is held. Turned away from the wall, AC1's rebound takeoff for that way, height and distance (`crate::jump::rebound`),
+    /// then the flight and the reception, its step ending on the target. `None` with nothing to land on that way.
+    #[allow(clippy::too_many_arguments)]
+    fn rebound_jump(lib: &mut AnimLib, level: &Level, root: &Transform, normal: Vec3, input: Vec2, left: bool, from: Option<Pose>) -> Option<WallClimb> {
+        let away = normal.with_y(0.0).normalize_or_zero();
+        // (The stick's right as he faces the wall.)
+        let right = (-away).cross(Vec3::Y);
+        let way = if input.x.abs() > 0.5 { right * input.x.signum() } else { away };
+        let p = root.translation;
+        let to = jump_target(level, p, way, None)?;
+        let flat = (to - p).with_y(0.0);
+        let aim = flat.normalize_or_zero();
+        // (Its angle off straight away, positive to the right of the body turned away.)
+        let angle = aim.dot(away.cross(Vec3::Y)).atan2(aim.dot(away));
+        let j = crate::jump::rebound(to.y - p.y, flat.length(), angle, left, 0.0);
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, flight, reception) = (mix(&j.takeoff)?, mix(&j.flight)?, mix(&j.reception)?);
+        let planned = Transform { rotation: facing(away), ..*root };
+        let rot = world_rot(planned.rotation);
+        let turned = world_rot(planned.rotation * root_delta(root_rotation_at(&takeoff, takeoff.frames())));
+        // (The reception's step ends on the target, as AC1 aims it: see `jump_ac1`.)
+        let step = root_motion_at(&reception, reception.frames()).with_z(0.0);
+        let landed = p + rot * root_motion_at(&takeoff, takeoff.frames()) + turned * (root_motion_at(&flight, flight.frames()) + step);
+        let correct = to - landed;
+        if correct.with_y(0.0).length() > JUMP_AC1_SLACK * flat.length().max(1.0) {
+            debug!("climb: AC1's rebound clips land {:.2} m off", correct.length());
+            return None;
+        }
+        let mut w = WallClimb::new(VAULT, -aim);
+        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![LEAP.into(), VAULT.into(), GROUND.into()], &planned, correct, Some(1));
+        // (Turned from facing the wall to facing away as the takeoff starts.)
+        if let Some(m) = &mut w.mv {
+            m.ease_rot = root.rotation * planned.rotation.inverse();
+        }
+        if level.perch_inside(to, PERCH_REACH).is_none() {
+            w.exit_velocity = aim * PERCH_OFF_RUN;
+        }
+        w.ease_in(from, root);
+        debug!("climb: rebound off the wall at {to:.2}, {:.0} degrees off straight away ({} then {})", angle.to_degrees(), takeoff.name, flight.name);
+        Some(w)
+    }
+
     /// Eject backwards off the wall (`xx_h_rebound_<frontleft|frontright>_front_300cm_footl_to_air`): turned to
     /// face away from it, pushing off into the air, catching what comes (a beam or ledge behind).
     fn back_eject(&mut self, lib: &mut AnimLib, root: &Transform, side: f32) -> bool {
@@ -4185,10 +4232,22 @@ impl WallClimb {
     /// The legs pressed while on the wall: jump off a perch, fling off a bar, rebound off a wall run, hop
     /// out of hay. Returns false when none of those applies (leaps are the held legs).
     pub fn legs(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, input: Vec2) -> bool {
-        // Hanging on a wall, the legs with the stick pulled back: eject off it backwards.
+        // On a wall in high profile, the legs: eject off it (AC1's rebound) at the best place to land away from the wall,
+        // or along it with the stick to a side (the stick up is a leap up the wall). Nothing to land on: with the stick
+        // back, push off backwards and fall, catching what comes. (In low profile the running game does nothing.)
         let on_wall = matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) || self.state.starts_with('1') || self.state.starts_with('2');
-        if on_wall && self.mv.is_none() && input.y < -0.5 {
-            return self.back_eject(lib, root, input.x);
+        // (Also while looking round or shimmying along the hang: the running game ejected from both, the stick held.)
+        let idle = self.mv.as_ref().is_none_or(|m| m.clip.name.contains("lookaround") || m.clip.name.contains("_strafe_"));
+        if on_wall && idle && self.high && input.y < 0.5 {
+            // (Off the left foot, but to the left off the right: as the running game did.)
+            let left = input.x > -0.5;
+            if let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()) {
+                *self = w;
+                return true;
+            }
+            if input.y < -0.5 {
+                return self.back_eject(lib, root, input.x);
+            }
         }
         if self.state == BENCH {
             self.get_up = true;

@@ -774,6 +774,45 @@ const SCENARIOS: &[Scenario] = &[
         want: &["-> free_1m via xx_l_ledge_pulldown_soft_front_to_hangfree_b", "via xx_h_climbing_hangfree_tr_climb2m_down_", "leap -> 2m via"],
         never: &["EMBED"],
     },
+    // The ejects measured in the running game at the Damascus bureau's climbable wall: from the wall hang, high profile
+    // and Space, the stick back onto the beam 3 m behind (AC1 landed at x 46.64), to the left onto the beam 3.3 m along
+    // the wall and 1.1 m up (AC1 y 23.31).
+    Scenario {
+        name: "Damascus: the back eject from the bureau wall's hang onto the beam behind (AC1's rebound)",
+        tags: &["eject", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "47.6,-20,-90,5.55"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_JUMP", "2.6"),
+            ("AC1_CLIMB", "nograb,wait=2.4,down=1.2"),
+        ],
+        secs: 5.0,
+        want: &["rebound off the wall at [46.", "via xx_h_rebound_frontleft_", "_tr_freestep_entry_footr at [46."],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "Damascus: the side eject to the left from the bureau wall's hang onto the beam along the wall (AC1's rebound)",
+        tags: &["eject", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "47.6,-20,-90,5.55"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_JUMP", "2.6"),
+            ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
+        ],
+        secs: 5.0,
+        want: &["xx_h_hangwall_strafe_left_050cm", "rebound off the wall at [49.", "via xx_h_rebound_right_", "_tr_freestep_entry_footl at [49.10, 8.03, -23."],
+        never: &["EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
@@ -836,7 +875,7 @@ fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
 }
 
 /// The systems scenarios are tagged with.
-const TAGS: &[&str] = &["ground", "jump", "climb", "hang", "beam", "ladder", "bars", "hay", "vault", "wallrun", "ragdoll", "misc", "combo"];
+const TAGS: &[&str] = &["ground", "jump", "climb", "hang", "beam", "ladder", "bars", "hay", "vault", "wallrun", "ragdoll", "misc", "combo", "eject"];
 
 /// Every scenario is tagged with known systems (no game needed). `AC1_SCENARIO_LIST=1` prints them: count, then
 /// `tags<TAB>name` lines (for the pipeline page).

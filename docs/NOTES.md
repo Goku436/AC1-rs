@@ -190,8 +190,20 @@ detail lines: context and the previous one, the move playing, the ground gait, s
 air and the height above the ground, the last landing (drop and damage), FPS.
 
 Leaps: aimed at a hold within 0.75 m of where the clip lands, or diagonally down onto one up to 1.2 m lower (Pole P
-to Pole Q from either of its upper rows). The back eject: on a wall, the legs with the stick pulled back turn away
-and push off (`xx_h_rebound_<frontleft|frontright>_front_300cm_footl_to_air`), catching what comes. Wall runs and free
+to Pole Q from either of its upper rows). Ejects (AC1's rebound, measured in the running game at the Damascus bureau's
+wall through ac1-hook): hanging or climbing, high profile and the legs (in low profile nothing happens); the stick back
+or none jumps straight away from the wall, to a side along it (holding the side first shimmies that way; the press
+during the shimmy ejects). Each is a jump at the best place to land that way (a beam or top, 0.5 to 3.3 m off, from 0.7 m
+below to 1.1 m over the start in the tests): `xx_h_hangwall_tr_rebound_<foot>` (0.2 s), a takeoff turned away from the
+wall from AC1's rebound table (`xx_h_rebound_<frontleft|frontright|left|right>_<front|down|up>_<050|300|550>cm_<foot>
+_to_air`, blended like the running takeoff's slots, the side groups turning the body a quarter round: the stick's left
+as he faced the wall is the turned body's right, the `right` group), then the running jump's flight and reception
+(logged by AC1 under its blend's first clips, `rebound_frontleft_front_050cm`, `air_front_050cm`). Ours does this from
+the wall hang and the climb (`WallClimb::rebound_jump`, `crate::jump::rebound`; back and left land within 0.12 m of
+AC1's; scenarios tagged `eject`), still without the 0.2 s rebound pose first, and with nothing to land on pushes off
+backwards and falls. Not yet: targets nearer than 1 m (AC1's right eject took a beam 0.5 m off; ours went 4 m on), the
+ladder's rebound (`xx_h_ladder_wait_<l|r>_tr_rebound`), the mid-air one (`xx_h_air_all_<foot>_tr_rebound`) and the wall
+run's one-piece ejects (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`). Wall runs and free
 running's own grabs need a wall at least 0.7 m wide (not a pole's side). Footing under a hold needs a wall within
 0.16 m behind the hold line, probed at each foot and between them (a thin pole flush with a cap is footing, one set
 back is not). Both hands must land as far apart as the move puts them (within 0.35 m): a leap can't catch with one
