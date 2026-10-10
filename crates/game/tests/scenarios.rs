@@ -23,9 +23,10 @@ struct Scenario {
     never: &'static [&'static str],
 }
 
-/// Games run at once by default (each its own process): the scenarios are independent. 6 measured fastest without
-/// timing flakes on the dev machine (56 scenarios: 1 at a time 560 s, 4 161 s, 6 123 s, 8 104 s with one flake).
-const JOBS: usize = 6;
+/// Games run at once by default (each its own process): the scenarios are independent. 4 since 2026-10-10: with 6
+/// (and the real AC1 open beside them) frames grew long enough for a swing's foot to move 0.45 m in one and fail the pop
+/// check, and a ragdoll not to settle in time (84 scenarios: 4 at a time 262 s, all passing; 6 about 195 s, 1-2 flakes).
+const JOBS: usize = 4;
 
 const QUIET: &[(&str, &str)] = &[("AC1_NO_CROWD", "1")];
 

@@ -533,7 +533,7 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
 `cmma`/`cfaa`.
 
 ## Tools for bugs and tests
-- Scenarios: `AC1_SCENARIOS=1 cargo test --release -p ac1 --test scenarios -- --nocapture`. They run 6 games at once
+- Scenarios: `AC1_SCENARIOS=1 cargo test --release -p ac1 --test scenarios -- --nocapture`. They run 4 games at once (6 flaked with long frames: a swing's foot moving 0.45 m in one)
   (`AC1_SCENARIO_JOBS=n`), each ending at its time without a screenshot (`AC1_SCENARIO_SHOTS=1` keeps them);
   `AC1_SCENARIO_FILTER=text` runs only those whose name holds it, `AC1_SCENARIO_LOGS=dir` keeps each game's log there.
   80 scenarios, about 150 s (56 took 560 s one at a time with screenshots, 108 s side by side; 4 at a time 161 s, 8
