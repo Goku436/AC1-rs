@@ -668,6 +668,8 @@ const JUMP_TOP_HEADROOM: f32 = 1.7;
 /// edge at most 1.3 m up as a top to land on (`Human__ComputeJumpAnimBlend` 0xB1EC40, Banned445): only higher ones
 /// are hung from (a waist-high wall's top is no hold to jump at).
 const JUMP_HOLD_RISE: std::ops::RangeInclusive<f32> = 1.3..=2.6;
+/// A jump onto a top: a step up past it within this (m) is more top, not something over it.
+const STEP_PAST_UP: f32 = 0.6;
 /// A shimmy along a hang needs the way clear at this height over the root (m, the chest) and this far past where it
 /// ends (m).
 const SHIMMY_CHEST: f32 = 0.45;
@@ -3783,7 +3785,13 @@ impl WallClimb {
         let h = top.point.y - p.y;
         // (A haystack's rim: hopped onto with no room to stand, under its cover, as AC1 does before diving in.)
         let hay = level.haystacks.iter().any(|y| y.contains(top.point + fwd * 0.6, -0.3) && y.top() < top.point.y + 0.3);
-        let (rose, blocked) = (rise(level, p, fwd, hit.dist, top.point.y), level.raycast(p.with_y(top.point.y + 0.3), fwd, hit.dist + 1.0).filter(|_| !hay));
+        // (Not a step up further on, with room to stand on it: off the open roof's south side, a top with a second step
+        // 0.3 m higher 0.8 m past its edge, which the running game free-stepped onto.)
+        let step_past = |d: f32| level.ground(p.with_y(top.point.y + STEP_PAST_UP) + fwd * (d + 0.15), 0.0, STEP_PAST_UP).is_some_and(|g| g.normal.y > 0.8);
+        let (rose, blocked) = (
+            rise(level, p, fwd, hit.dist, top.point.y),
+            level.raycast(p.with_y(top.point.y + 0.3), fwd, hit.dist + 1.0).filter(|b| !hay && !step_past(b.dist)),
+        );
         if !VAULT_HEIGHT.contains(&h) || top.normal.y < 0.8 || rose < *VAULT_HEIGHT.start() || blocked.is_some() {
             if why() {
                 debug!(
