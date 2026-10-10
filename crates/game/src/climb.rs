@@ -159,6 +159,8 @@ const TOP_OUT_FREE_ONEHAND: [&str; 4] = [
 ];
 /// A post's top line is this far in from the edge pulled up over (m; posts are about 0.6 m across).
 const ONEHAND_POST_IN: f32 = 0.3;
+/// The top beside the hands is looked for this far in from where the top was found (m).
+const ONEHAND_PROBE_IN: f32 = 0.2;
 /// The top drops away this far to a side of the hands (m, measured 0.15 m in from the edge): one hand.
 const ONEHAND_SIDE: f32 = 0.35;
 const TOP_OUT_FREE: [&str; 4] =
@@ -3975,7 +3977,9 @@ impl WallClimb {
         }
         // Nothing to stand on beside the hands (a post, the end of a wall): pull up with one hand.
         let along = Vec3::Y.cross(self.normal).normalize_or_zero();
-        let p = Vec3::new(wrist.x, top.point.y, wrist.z) - self.normal * 0.15;
+        // (Looked for from the top found to stand on, a little further in: from the wrists the probe stood on a roof's
+        // rounded lip, and one side missed the roof there; the running game pulled up there with both hands.)
+        let p = top.point - self.normal * ONEHAND_PROBE_IN;
         let drops = |s: f32| level.ground(p + along * ONEHAND_SIDE * s + Vec3::Y * 0.05, 0.0, 0.25).is_none();
         let one = if drops(1.0) || drops(-1.0) {
             let names: &[&str] = if is_free(&self.state) { &TOP_OUT_FREE_ONEHAND } else { &TOP_OUT_ONEHAND };
