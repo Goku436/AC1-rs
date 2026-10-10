@@ -114,7 +114,12 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   (`freestep_front_front`, low: 6 cm up, 5 m/s); at the same kind of beam over 8 m it made the ledge stop. Ours: the
   ledge stop needs the drop to go on 0.3 m past the edge (no stop at a crack), a beam crossed running in high profile
   is got onto when past it the floor steps down 0.5-5 m, and off a beam in high profile the stick across it free-steps
-  onto the floor a step down (at most 1 m) about 2.5 m on. **[ours, measured]**
+  onto the floor a step down (at most 1.2 m): AC1's two such hops, off that beam and off a 0.57 m block on the open roof
+  (1.07 m down, 3.2 m on in 0.6 s), are both a launch of 5.4 m/s on and 1 m/s up under gravity. A jump onto a post or a
+  beam that short stops on it to balance (the block counts as a post), then free-steps on. **[ours, measured]**
+- **Jump targets at roof edges** are where the way forward crosses the edge, as for beams (AC1's candidates): the edge's
+  point nearest a spot 4 m ahead was its end when the way crossed the next piece, and the jump went 0.7 m off the way; a
+  beam's own side edges are no roof edges. **[ours, measured]**
 - **Grabbing a wall** (high profile + legs pushing into it), in order: a climb start (hand holds 1.8-2.4 m up and
   foot holds 1.2 m below them) → `xx_h_wait_hipm_foot?_tr_climbing_1m` with the root interpolated onto the holds;
   else a ledge 0.53-3.0 m up → the standing straight jump at it (0xB21DA0: knee and waist heights pull up onto the

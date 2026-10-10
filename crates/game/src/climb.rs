@@ -588,10 +588,13 @@ pub const PERCH_REACH: f32 = 0.3;
 const PERCH_MAGNET: f32 = 1.2;
 /// Perch-to-perch jumps reach this far.
 const PERCH_JUMP: std::ops::Range<f32> = 0.8..4.5;
-/// With no target, the free step off a beam lands on the floor this far on (m, the nearest first), at most
-/// `PERCH_FREE_STEP_DROP` below.
-const PERCH_FREE_STEP_ON: [f32; 3] = [2.5, 2.0, 3.0];
-const PERCH_FREE_STEP_DROP: f32 = 1.0;
+/// With no target, the free step off a beam goes when there is a floor this far on (m), at most `PERCH_FREE_STEP_DROP`
+/// below.
+const PERCH_FREE_STEP_ON: [f32; 3] = [2.0, 2.5, 3.0];
+const PERCH_FREE_STEP_DROP: f32 = 1.2;
+/// AC1's free step with no target: launched this fast on and up (m/s).
+const FREE_STEP_SPEED: f32 = 5.4;
+const FREE_STEP_UP: f32 = 1.0;
 /// A back eject leaves the wall at this speed (m/s), and this fast upward.
 const EJECT_SPEED: f32 = 4.0;
 const EJECT_UP: f32 = 2.5;
@@ -602,6 +605,8 @@ const JUMP_TARGET_REACH: std::ops::RangeInclusive<f32> = 1.0..=4.6;
 /// An eject's targets, from nearer: the running game's eject to the right off the bureau's wall landed on a beam stuck out
 /// of the wall 0.95 m away (ours went on 4 m to the next).
 const EJECT_REACH: std::ops::RangeInclusive<f32> = 0.5..=4.6;
+/// An eject's clips may land `JUMP_AC1_SLACK` of at least this far (m) off its target, made up over the jump.
+const EJECT_SLACK_FROM: f32 = 1.4;
 const JUMP_TARGET_CONE: f32 = 0.707;
 /// ...and at most this far to either side of the wanted line (m): AC1's search box (0xE18970) is ±1 m across.
 const JUMP_TARGET_ACROSS: f32 = 1.0;
@@ -1505,9 +1510,19 @@ fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>,
     }
     // Roof edges from the climbing markup (AC1's candidates are guidance edges, `0xE96BF0`): an edge facing us, its top
     // at most 1.3 m up, landed on 0.45 m in from it, across a gap.
+    // (Where the way forward crosses the edge, as AC1's candidates are: the edge's point nearest a spot ahead was its end
+    // when the way crossed the next piece of it, and the jump went 0.7 m off the way; the running game's kept to it.)
     for l in &level.ledges {
-        let ahead = from + dir * 4.0;
-        let on = l.closest(Vec3::new(ahead.x, l.a.y, ahead.z));
+        let (u, w) = ((l.b - l.a).with_y(0.0), from - l.a);
+        let den = dir.x * u.z - dir.z * u.x;
+        if den.abs() < 1e-4 {
+            continue;
+        }
+        let (t, s) = ((u.x * w.z - u.z * w.x) / den, (dir.x * w.z - dir.z * w.x) / den);
+        if t <= 0.0 || !(0.0..=1.0).contains(&s) {
+            continue;
+        }
+        let on = l.a.lerp(l.b, s);
         if (on - from).with_y(0.0).length() > *JUMP_TARGET_REACH.end() + 1.0 || l.out.dot((from - on).with_y(0.0)) <= 0.0 || on.y - from.y > 1.3 {
             continue;
         }
@@ -1516,7 +1531,8 @@ fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>,
             continue;
         }
         let land = on - l.out * ROOF_EDGE_INSET;
-        let Some(g) = level.ground(land + Vec3::Y * 0.3, 0.0, 0.5).filter(|g| g.normal.y > 0.8) else { continue };
+        // (Not a beam's side: beams are targets by their own rule above.)
+        let Some(g) = level.ground(land + Vec3::Y * 0.3, 0.0, 0.5).filter(|g| g.normal.y > 0.8 && level.perch_at(g.point, 0.3).is_none()) else { continue };
         // (A gap: no ground half a metre under the lower of the two anywhere between, looking from over the higher one: a
         // roof rising a little between is no gap.)
         let (low, high) = (from.y.min(g.point.y), from.y.max(g.point.y));
@@ -1754,6 +1770,29 @@ impl WallClimb {
         w.launch = JUMP_UP_SPEED;
         w.can_catch = true;
         w.free_jump = bar_ahead(level, p, dir).is_none();
+        w.start(takeoff, JUMP.into(), &planned);
+        w.ease_in(from, root);
+        Some(w)
+    }
+
+    /// A free step off a post or beam along `dir` with no target: AC1's free-step takeoff (the group by the way it goes off
+    /// the facing) and flight, launched `FREE_STEP_SPEED` on and `FREE_STEP_UP` up, then the fall.
+    fn free_step(lib: &mut AnimLib, root: &Transform, dir: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let aim = dir.with_y(0.0).normalize_or_zero();
+        let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
+        let j = crate::jump::freestep(0.0, FREE_JUMP_DIST, angle, left, 0.0);
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, air) = (mix(&j.takeoff)?, mix(&j.flight)?);
+        debug!("climb: free step off the perch with no target via {}", takeoff.name);
+        let planned = Transform { rotation: facing(aim), ..*root };
+        let mut w = WallClimb::new(JUMP, planned.rotation * Vec3::Z);
+        w.queue = vec![Queued::new(air, FALL)];
+        w.fall_with = Some(aim * FREE_STEP_SPEED + Vec3::Y * FREE_STEP_UP);
+        w.can_catch = true;
         w.start(takeoff, JUMP.into(), &planned);
         w.ease_in(from, root);
         Some(w)
@@ -2573,7 +2612,8 @@ impl WallClimb {
         let step = root_motion_at(&reception, reception.frames()).with_z(0.0);
         let landed = p + rot * root_motion_at(&takeoff, takeoff.frames()) + turned * (root_motion_at(&flight, flight.frames()) + step);
         let correct = to - landed;
-        if correct.with_y(0.0).length() > JUMP_AC1_SLACK * flat.length().max(1.0) {
+        // (A near one too: the shortest flight lands about 0.5 m past a beam 0.95 m off, which the running game took.)
+        if correct.with_y(0.0).length() > JUMP_AC1_SLACK * flat.length().max(EJECT_SLACK_FROM) {
             debug!("climb: AC1's rebound clips land {:.2} m off", correct.length());
             return None;
         }
@@ -3328,19 +3368,23 @@ impl WallClimb {
         let to = jump_target(level, from, dir, self.perch).filter(|q| PERCH_JUMP.contains(&(*q - from).with_y(0.0).length()));
         // To a target: AC1's free-step jump, the takeoff group by the way it goes off the facing (sideways or back off a
         // post without turning first: the takeoff turns the body).
-        // (No target: the free step down onto the floor ahead, as AC1 hopped off a beam ending a Damascus roof onto the next
-        // roof 0.7 m below, 2.5 m on, low and fast (6 cm up, 5 m/s); its free jump's rise carried ours 5 m.)
-        // (A beam's only, onto a floor a step down: off a post, or over a deeper drop (G1's beam stuck out of a wall, the street
-        // 1.5 m below, a platform further on), the jump below.)
-        let beam = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() != Vec3::ZERO);
-        let floor = || {
-            if !beam {
-                return None;
-            }
-            PERCH_FREE_STEP_ON.iter().find_map(|&d| level.ground(from + dir * d, 0.3, PERCH_FREE_STEP_DROP).map(|g| g.point).filter(|g| g.y < from.y - 0.2))
-        };
-        if let Some(to) = to.or_else(floor)
+        if let Some(to) = to
             && let Some(w) = Self::jump_freestep(lib, level, root, to, self.freestep_left, self.last.clone())
+        {
+            *self = w;
+            return true;
+        }
+        // (No target, a floor a step down ahead: AC1's free step off it all the same, low and fast. Off a beam ending a
+        // Damascus roof it came down 0.74 m below 2.5 m on in 0.45 s, off a 0.57 m block 1.07 m below 3.2 m on in 0.6 s: both
+        // a launch of `FREE_STEP_SPEED` on and `FREE_STEP_UP` up under gravity. A beam's only, over at most
+        // `PERCH_FREE_STEP_DROP`: off a post, or over a deeper drop (G1's beam stuck out of a wall, the street 1.5 m below, a
+        // platform further on), the jump below.)
+        let beam = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() != Vec3::ZERO);
+        let floor =
+            beam && PERCH_FREE_STEP_ON.iter().any(|&d| level.ground(from + dir * d, 0.3, PERCH_FREE_STEP_DROP).is_some_and(|g| g.point.y < from.y - 0.2));
+        if to.is_none()
+            && floor
+            && let Some(w) = Self::free_step(lib, root, dir, self.freestep_left, self.last.clone())
         {
             *self = w;
             return true;
@@ -3590,7 +3634,13 @@ impl WallClimb {
         // The root's path: onto the top just in from the edge, at the run's speed; on a thin top (a fence, a low
         // wall) no further than its middle, so a jump on from it can follow.
         let depth = (1..=12).map(|k| k as f32 * 0.1).find(|&d| level.ground(edge + fwd * d + Vec3::Y * 0.3, 0.0, 0.4).is_none()).unwrap_or(1.3);
-        let exit = edge + fwd * STEP_ONTO_IN.min(depth * 0.5);
+        let mut exit = edge + fwd * STEP_ONTO_IN.min(depth * 0.5);
+        // (Onto a post or a short beam: down on it to balance, as a free-step jump onto one does; the running game jumped
+        // onto a 1 m post on a Damascus roof and free-stepped on from it, ours ran off its far side and fell.)
+        let onto_perch = level.perch_at(exit, PERCH_REACH).map(|(_, q)| q);
+        if let Some(q) = onto_perch {
+            exit = q.with_y(exit.y);
+        }
         let natural: f32 = clips.iter().map(|c| c.anim.duration).sum();
         let run = speed.max(3.5);
         let rate = (natural / ((exit - p).with_y(0.0).length() / run)).clamp(0.7, 1.8);
@@ -3602,10 +3652,12 @@ impl WallClimb {
         }
         w.vault_path = Some(VaultPath { from: p, to: exit, plant: (up_by / rate).max(0.1), dur: natural / rate, t: 0.0 });
         // On along the top at the run's speed (off a thin wall, a running drop).
-        w.exit_velocity = fwd * speed;
+        if onto_perch.is_none() {
+            w.exit_velocity = fwd * speed;
+        }
         w.aimed = true;
         w.ease_in(from, root);
-        debug!("climb: jump onto {h:.2} m");
+        debug!("climb: jump onto {h:.2} m{}", if onto_perch.is_some() { ", a post or beam" } else { "" });
         Some(w)
     }
 

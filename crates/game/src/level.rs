@@ -590,9 +590,11 @@ impl Level {
 
     /// `perch_at`, but not near a beam's ends (where it meets the ground it bridges).
     pub fn perch_inside(&self, p: Vec3, r: f32) -> Option<(usize, Vec3)> {
+        // (A beam too short to keep 0.3 m from both ends is a post: a 0.57 m block on a Damascus roof, which the running
+        // game jumped onto and balanced on, could never be got onto.)
         self.perch_at(p, r).filter(|(i, q)| {
             let l = &self.perches[*i];
-            l.axis() == Vec3::ZERO || ((*q - l.a).length() > 0.3 && (*q - l.b).length() > 0.3)
+            l.axis() == Vec3::ZERO || (l.b - l.a).length() < 0.6 || ((*q - l.a).length() > 0.3 && (*q - l.b).length() > 0.3)
         })
     }
 
