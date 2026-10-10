@@ -36,7 +36,10 @@
 //! as dir/frame_00000.png ..., then exit; encode with ffmpeg at 30 fps),
 //! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; `-` exits then without one), AC1_BACKGROUND=1 (open
 //! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1,
-//! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only.
+//! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only. AC1_CONTROL=<file> stays open and runs
+//! the scripts written to that file (`run <id> <secs> AC1_START=.. AC1_WALK=.. ...`, `quit`; see `control_runs`): the level
+//! loads once, each run takes seconds. AC1_GROUND_LINE, AC1_HOLDS_AT and AC1_MESHES_AT log the ground along a line, the
+//! holds and the city meshes near a point.
 
 mod animation;
 mod assets;
@@ -68,10 +71,6 @@ use character::{Character, Controller};
 use std::path::PathBuf;
 
 /// `name="a-b"`: a time range.
-fn env_range(name: &str) -> Option<(f32, f32)> {
-    std::env::var(name).ok().and_then(|s| s.split_once('-').and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?))))
-}
-
 fn env_f32s(name: &str) -> Option<Vec<f32>> {
     std::env::var(name).ok().map(|s| s.split(',').filter_map(|v| v.trim().parse().ok()).collect())
 }
@@ -106,7 +105,7 @@ struct Debug {
     edges: u8,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 struct Script {
     walk: Option<f32>,
     /// The walk holds the stick right over (the speed from `gait`, as the player's), not a fixed speed.
@@ -143,19 +142,20 @@ struct Script {
 #[derive(Component)]
 struct Hud;
 
-fn main() {
-    let game_dir = std::env::var("AC1_GAME_DIR").unwrap_or_else(|_| r"P:\SteamLibrary\steamapps\common\Assassins Creed".into());
-    let cam = env_f32s("AC1_CAM").unwrap_or_default();
-    let script = Script {
-        walk: std::env::var("AC1_WALK").ok().and_then(|s| s.parse().ok()),
-        stick: std::env::var("AC1_STICK").is_ok(),
-        curve: std::env::var("AC1_CURVE").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0),
-        steer: std::env::var("AC1_STEER").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0).to_radians(),
-        veer: std::env::var("AC1_VEER").ok().and_then(|s| {
+/// The test script from its settings (`AC1_WALK`, `AC1_HIGH`, ...): the environment at start, or a control file's run.
+fn script_from(get: &dyn Fn(&str) -> Result<String, ()>) -> Script {
+    let range = |v: Result<String, ()>| v.ok().and_then(|s| s.split_once('-').and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?))));
+    let floats = |s: &str| s.split(',').filter_map(|v| v.trim().parse().ok()).collect::<Vec<f32>>();
+    Script {
+        walk: get("AC1_WALK").ok().and_then(|s| s.parse().ok()),
+        stick: get("AC1_STICK").is_ok(),
+        curve: get("AC1_CURVE").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0),
+        steer: get("AC1_STEER").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0).to_radians(),
+        veer: get("AC1_VEER").ok().and_then(|s| {
             let (t, d) = s.split_once(',')?;
             Some((t.parse().ok()?, d.parse::<f32>().ok()?.to_radians()))
         }),
-        path: std::env::var("AC1_PATH")
+        path: get("AC1_PATH")
             .map(|s| {
                 s.split(';')
                     .filter_map(|p| {
@@ -165,25 +165,31 @@ fn main() {
                     .collect()
             })
             .unwrap_or_default(),
-        path_stop: std::env::var("AC1_PATH").is_ok_and(|s| s.trim_end().ends_with("stop")),
+        path_stop: get("AC1_PATH").is_ok_and(|s| s.trim_end().ends_with("stop")),
         path_at: Default::default(),
         // (`secs`, or `from-to`: the direction let go only then, taken up again after.)
-        stop: std::env::var("AC1_STOP").ok().and_then(|s| match s.split_once('-') {
+        stop: get("AC1_STOP").ok().and_then(|s| match s.split_once('-') {
             Some((a, b)) => Some((a.parse().ok()?, b.parse().ok()?)),
             None => Some((s.parse().ok()?, f32::MAX)),
         }),
-        eagle: std::env::var("AC1_EAGLE").ok().and_then(|s| s.parse().ok()),
-        limp: std::env::var("AC1_LIMP").ok().and_then(|s| s.parse().ok()),
-        turn: std::env::var("AC1_TURN").ok().and_then(|s| s.parse().ok()),
+        eagle: get("AC1_EAGLE").ok().and_then(|s| s.parse().ok()),
+        limp: get("AC1_LIMP").ok().and_then(|s| s.parse().ok()),
+        turn: get("AC1_TURN").ok().and_then(|s| s.parse().ok()),
         dir: Default::default(),
-        climb: std::env::var("AC1_CLIMB").ok(),
-        jump: std::env::var("AC1_JUMP").map(|s| s.split(',').filter_map(|v| v.trim().parse().ok()).collect()).unwrap_or_default(),
-        shot: std::env::var("AC1_SHOT").ok().map(|p| (PathBuf::from(p), std::env::var("AC1_SHOT_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(4.0))),
+        climb: get("AC1_CLIMB").ok(),
+        jump: get("AC1_JUMP").map(|s| s.split(',').filter_map(|v| v.trim().parse().ok()).collect()).unwrap_or_default(),
+        shot: get("AC1_SHOT").ok().map(|p| (PathBuf::from(p), get("AC1_SHOT_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(4.0))),
         taken: false,
-        high: env_range("AC1_HIGH"),
-        legs: env_range("AC1_LEGS"),
-        hand: env_f32s("AC1_HAND").unwrap_or_default(),
-    };
+        high: range(get("AC1_HIGH")),
+        legs: range(get("AC1_LEGS")),
+        hand: get("AC1_HAND").ok().map(|s| floats(&s)).unwrap_or_default(),
+    }
+}
+
+fn main() {
+    let game_dir = std::env::var("AC1_GAME_DIR").unwrap_or_else(|_| r"P:\SteamLibrary\steamapps\common\Assassins Creed".into());
+    let cam = env_f32s("AC1_CAM").unwrap_or_default();
+    let script = script_from(&|k| std::env::var(k).map_err(|_| ()));
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin { primary_window: Some(game_window()), ..default() }))
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
@@ -239,6 +245,7 @@ fn main() {
         .add_systems(Update, probe::probe_climbs.after(run_script).before(character::locomotion))
         .init_resource::<ScriptClock>()
         .add_systems(First, tick_script_clock)
+        .add_systems(Update, control_runs.before(run_script))
         .init_resource::<character::StatuePlay>()
         .add_systems(Update, pause_statues)
         // The robe needs the bones' world transforms of this frame.
@@ -297,6 +304,98 @@ fn game_window() -> Window {
 struct ScriptClock {
     t: f32,
     dt: f32,
+}
+
+/// Control mode (`AC1_CONTROL=<file>`): the game stays open and runs the test scripts written to that file, one after
+/// another, instead of one script at start (the level loads once: a test takes seconds, not a minute). A line
+/// `run <id> <secs> AC1_START=x,z,yaw[,y] AC1_WALK=6.2 ...` (the usual script settings) puts the player at the start
+/// (fresh: no move, no fall, full health), runs the script for `secs` from a clock at 0 and logs
+/// `control: run <id> started` and `control: run <id> done, at [x, y, z] (game (x, y, z))`; `quit` closes the game.
+/// A run is taken once (by its id).
+#[derive(Default)]
+struct Control {
+    last: Option<String>,
+    active: Option<(String, f32)>,
+    checked: f32,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn control_runs(
+    time: Res<Time>,
+    level: Res<level::Level>,
+    mut script: ResMut<Script>,
+    mut clock: ResMut<ScriptClock>,
+    mut q: Query<(&mut Transform, &mut Controller, &mut Character), With<Player>>,
+    mut exit: MessageWriter<AppExit>,
+    mut state: Local<Control>,
+) {
+    static FILE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    let Some(file) = FILE.get_or_init(|| std::env::var("AC1_CONTROL").ok().map(PathBuf::from)) else { return };
+    let Ok((mut tf, mut ctl, mut ch)) = q.single_mut() else { return };
+    if let Some((id, secs)) = state.active.clone() {
+        if clock.t > secs {
+            let p = tf.translation;
+            info!("control: run {id} done, at [{:.2}, {:.2}, {:.2}] (game ({:.2}, {:.2}, {:.2}))", p.x, p.y, p.z, p.x, -p.z, p.y);
+            *script = Script::default();
+            state.active = None;
+        }
+        return;
+    }
+    // (The file looked at four times a second.)
+    state.checked += time.delta_secs();
+    if state.checked < 0.25 {
+        return;
+    }
+    state.checked = 0.0;
+    let Ok(text) = std::fs::read_to_string(file) else { return };
+    let Some(line) = text.lines().map(str::trim).rfind(|l| !l.is_empty()) else { return };
+    if state.last.as_deref() == Some(line) {
+        return;
+    }
+    state.last = Some(line.to_string());
+    let mut words = line.split_whitespace();
+    match words.next() {
+        Some("quit") => {
+            exit.write(AppExit::Success);
+        }
+        Some("run") => {
+            let (Some(id), Some(secs)) = (words.next(), words.next().and_then(|s| s.parse::<f32>().ok())) else {
+                warn!("control: want `run <id> <secs> KEY=VALUE ...`, got {line}");
+                return;
+            };
+            let vars: std::collections::HashMap<String, String> =
+                words.filter_map(|w| w.split_once('=')).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            let mut s = script_from(&|k| vars.get(k).cloned().ok_or(()));
+            s.shot = None;
+            // The start: on the ground there (under `y`, else the highest), facing `yaw`.
+            let start: Vec<f32> = vars.get("AC1_START").map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+            if start.len() >= 2 {
+                let mut at = Vec3::new(start[0], 0.0, start[1]);
+                let above = start.get(3).map_or(400.0, |y| y + 1.0);
+                if let Some(g) = level.ground(at, above, 500.0) {
+                    at.y = g.point.y;
+                }
+                tf.translation = at;
+                tf.rotation = Quat::from_rotation_y(start.get(2).copied().unwrap_or(0.0).to_radians());
+            }
+            // (Fresh: as the climbing probe starts each spot.)
+            ch.wall = None;
+            ch.velocity = Vec3::ZERO;
+            ch.fall_v = 0.0;
+            ch.health = 1.0;
+            ch.dead_time = 0.0;
+            ch.ragdoll = None;
+            ch.edge_lock = None;
+            ch.exit_fade = None;
+            ctl.move_dir = Vec3::ZERO;
+            ctl.climb_dir = Vec2::ZERO;
+            *script = s;
+            clock.t = 0.0;
+            state.active = Some((id.to_string(), secs));
+            info!("control: run {id} started");
+        }
+        _ => warn!("control: unknown command {line}"),
+    }
 }
 
 fn tick_script_clock(time: Res<Time>, mut clock: ResMut<ScriptClock>) {
