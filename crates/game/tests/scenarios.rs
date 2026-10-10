@@ -208,11 +208,11 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
-        name: "climbing wall A with the stick held on tops out straight into the walk",
+        name: "climbing wall A with the stick held tops out through AC1's free-step stand into the walk",
         tags: &["climb", "ground"],
         env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "up=14"), ("AC1_WALK", "1.9")],
         secs: 14.0,
-        want: &["topping out on into l_walk", "via xx_h_hangknee_footl_tr_l_walk_footr_b"],
+        want: &["-> top via xx_h_hangknee_footl_tr_freestep_entry_footl"],
         never: &["EMBED"],
     },
     Scenario {
@@ -644,7 +644,7 @@ const SCENARIOS: &[Scenario] = &[
         want: &[
             "tr_hangwall_430cm_000cm_a",
             "climb1m_up_l_hand_2_c",
-            "-> top via xx_h_hangknee_footl_tr_h_jog_footr_b",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
             "running jump aimed at [-84.0",
             "-> land via xx_h_landing_damage_foot",
             "via xx_roll_hipm_tr_h_jog",
@@ -738,7 +738,7 @@ const SCENARIOS: &[Scenario] = &[
             // (Its first hold row, 2.39 m, is under AC1's catch height for a wall run, 1 m over the feet at the end of
             // its step: the 2.99 m row, its 251 and 430 cm catches blended.)
             "tr_hangwall_251cm_000cm_a",
-            "-> top via xx_h_hangknee_footl_tr_h_jog_footr_b",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
             "running jump aimed at [-79.00, 2.00, 114.00]",
             "freestep_down_tr_freestep_entry",
         ],
@@ -753,7 +753,7 @@ const SCENARIOS: &[Scenario] = &[
             "caught bar 7",
             "swing -> leap via xx_h_swing_cycle_front_300cm_to_air",
             "-> 2m via xx_fall_tr_climb_min_b",
-            "-> top via xx_h_hangknee_footl_tr_h_jog_footr_b",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
             "running jump aimed at [-78.0",
             "-> land via xx_h_landing_damage_foot",
         ],

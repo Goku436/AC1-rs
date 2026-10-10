@@ -141,9 +141,9 @@ use std::sync::Arc;
 
 pub const ENTRY: &str = "xx_h_wait_hipm_footl_tr_climbing_1m";
 const ENTRY_STATE: &str = "1m";
-const TOP_OUT: [&str; 3] = ["xx_l_climb_1m_tr_hangknee_footl_a", "xx_l_climb_1m_tr_hangknee_footl_b", "xx_h_hangknee_footl_tr_h_wait_footr_a"];
+const TOP_OUT: [&str; 3] = ["xx_l_climb_1m_tr_hangknee_footl_a", "xx_l_climb_1m_tr_hangknee_footl_b", STAND_UP];
 /// The same from the wide hang ("2m": mid-air catches, wall-run and jump-up grabs end there).
-const TOP_OUT_2M: [&str; 3] = ["xx_l_climb_2m_tr_hangknee_footl_a", "xx_l_climb_2m_tr_hangknee_footl_b", "xx_h_hangknee_footl_tr_h_wait_footr_a"];
+const TOP_OUT_2M: [&str; 3] = ["xx_l_climb_2m_tr_hangknee_footl_a", "xx_l_climb_2m_tr_hangknee_footl_b", STAND_UP];
 /// One-hand pull-ups, where the top drops away beside the hands (a post, the end of a wall): from the wall,
 /// and from a free hang (to the waist, then the knee); both end on one knee stepping up (`freestep`).
 const TOP_OUT_ONEHAND: [&str; 3] = [
@@ -163,8 +163,7 @@ const ONEHAND_POST_IN: f32 = 0.3;
 const ONEHAND_PROBE_IN: f32 = 0.2;
 /// The top drops away this far to a side of the hands (m, measured 0.15 m in from the edge): one hand.
 const ONEHAND_SIDE: f32 = 0.35;
-const TOP_OUT_FREE: [&str; 4] =
-    ["xx_h_hangfree_tr_hangwaist_a", "xx_h_hangfree_tr_hangwaist_b", "xx_h_hangwaist_tr_hangknee_footl", "xx_h_hangknee_footl_tr_h_wait_footr_a"];
+const TOP_OUT_FREE: [&str; 4] = ["xx_h_hangfree_tr_hangwaist_a", "xx_h_hangfree_tr_hangwaist_b", "xx_h_hangwaist_tr_hangknee_footl", STAND_UP];
 /// Pseudo-states: kneeling on the top edge, and standing on top (the climb is over).
 const KNEEL: &str = "hangknee";
 const ON_TOP: &str = "top";
@@ -185,7 +184,7 @@ const HANG_DOWN: f32 = 0.05;
 fn hang_offset(to: &str, normal: Vec3) -> Vec3 {
     if to == HANGWALL || to == HANGWALL_OPEN { normal * HANG_OUT - Vec3::Y * HANG_DOWN } else { Vec3::ZERO }
 }
-const TOP_OUT_HANGWALL: [&str; 3] = ["xx_h_hangwall_tr_hangknee_footl_a", "xx_h_hangwall_tr_hangknee_footl_b", "xx_h_hangknee_footl_tr_h_wait_footr_a"];
+const TOP_OUT_HANGWALL: [&str; 3] = ["xx_h_hangwall_tr_hangknee_footl_a", "xx_h_hangwall_tr_hangknee_footl_b", STAND_UP];
 const FREE_OPEN: &str = "free_open";
 /// Pseudo-states for leaving the wall: stepping down, pushing off, falling, landing, done.
 const STEP_DOWN: &str = "stepdown";
@@ -284,7 +283,12 @@ const STRAIGHT_JUMP: [&str; 3] =
 const STRAIGHT_JUMP_FALL: &str = "xx_h_jumpstraight_clear_footall_tr_fall";
 /// Takeoff speed of the standing jump (m/s): the 1 m rise of `xx_h_jumpstraight_clear_footl`.
 const STRAIGHT_JUMP_UP_SPEED: f32 = 4.43;
-const STAND_UP: &str = "xx_h_hangknee_footl_tr_h_wait_footr_a";
+/// Up off the knee onto the top: AC1's code always stands up through the free step's entry (`HumanLedge__Pullup_Tick`
+/// 0xDE2EE0, as Banned445's port reads it; the stand into the wait is only listed in the move graph), 0.27 s in place,
+/// as the running game did topping out at the bureau; ours' stand into the wait took 0.87 s.
+const STAND_UP: &str = "xx_h_hangknee_footl_tr_freestep_entry_footl";
+/// Topped out, the root stands this far in from where the hands held (m).
+const STAND_FROM_WRISTS: f32 = 0.3;
 /// Jump-up onto a ledge top: (clip kind, height in cm, clips after the jump's own).
 const JUMP_ONTO: [(&str, u32, &[&str]); 3] =
     [("hangknee_footl", 150, &[STAND_UP]), ("hangknee_footl", 200, &[STAND_UP]), ("hangwaist", 250, &["xx_h_hangwaist_tr_hangknee_footl", STAND_UP])];
@@ -4455,7 +4459,13 @@ impl WallClimb {
                 debug!("climb: one-hand pull-up{}", if perch.is_some() { " onto a post" } else { "" });
                 (one, correct, if perch.is_some() { PERCH } else { ON_TOP })
             }
-            None => (clips, Vec3::NEG_Y * below.max(0.0), ON_TOP),
+            // (Standing up in place, AC1's stand: the root steered to `STAND_FROM_WRISTS` in from where the hands held
+            // (they grip about 0.15 m out from the edge), where the running game stood after topping out at the bureau.)
+            None => {
+                let edge = Vec3::new(wrist.x, root.translation.y, wrist.z);
+                let to = (edge - self.normal * STAND_FROM_WRISTS - (root.translation + travel(&clips))).with_y(0.0);
+                (clips, Vec3::NEG_Y * below.max(0.0) + to, ON_TOP)
+            }
         };
         let n = clips.len();
         let tos = (0..n).map(|i| if i + 1 == n { end } else { KNEEL }.to_string()).collect();
@@ -5657,6 +5667,11 @@ impl WallClimb {
                         self.exit_velocity =
                             (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero() * if self.sprint { TOP_OUT_JOG } else { TOP_OUT_WALK };
                     }
+                }
+                // (AC1's stand-up through the free step, the stick pushed on: off it at the gait's pace, as the running
+                // game ran on from it at once after topping out at the bureau.)
+                if on && next.clip.name == STAND_UP {
+                    self.exit_velocity = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero() * if self.sprint { TOP_OUT_JOG } else { TOP_OUT_WALK };
                 }
                 // (A step AC1's move graph does not have: logged, to find chains built wrong.)
                 if !lib.graph.allows(&done.clip.name, &next.clip.name) {
