@@ -21,6 +21,10 @@ const STICK_SPAN: f32 = 0.25;
 
 /// Rise per second toward a faster value.
 const RISE: f32 = 1.0;
+/// Started from standing in high profile (not free running), the jog is held this long (s) before the value rises to the
+/// run: the running game's high profile starts reach the jog's 3.5 m/s in 0.3 s, hold it to 0.7 s and reach the run's
+/// 5.1 at 0.9 s (three runs off the Damascus bureau's roofs); ours rose at once and was 0.5-1 m ahead from then on.
+const HIGH_START_HOLD: f32 = 0.6;
 /// Fall per second toward a slower value, by the value now (piecewise linear): quick out of a walk, slow through
 /// the jog and run, quick again out of a sprint.
 const FALL: [(f32, f32); 5] = [(0.0, 1.0), (0.333, 1.0), (0.4, 0.3), (0.666, 0.2), (1.0, 1.0)];
@@ -99,11 +103,15 @@ pub struct Gait {
     pub value: f32,
     /// The high profile turn factor (1: not held back).
     turn: f32,
+    /// Time left holding the jog after a high profile start (`HIGH_START_HOLD`).
+    hold: f32,
+    /// Time since the start from standing.
+    since: f32,
 }
 
 impl Default for Gait {
     fn default() -> Self {
-        Self { value: 0.0, turn: 1.0 }
+        Self { value: 0.0, turn: 1.0, hold: 0.0, since: f32::MAX }
     }
 }
 
@@ -114,12 +122,22 @@ impl Gait {
         let turn = if !high || off <= TURN_START { 1.0 } else { (1.0 - (off - TURN_START) / TURN_RANGE).max(TURN_FLOOR) };
         self.turn = if turn > self.turn { (self.turn + TURN_UP * dt).min(turn) } else { (self.turn - TURN_DOWN * dt).max(turn) };
         let want = if stick > 0.0 { wanted(stick * self.turn, high, free_run) } else { 0.0 };
+        self.hold = if free_run { 0.0 } else { (self.hold - dt).max(0.0) };
+        self.since = (self.since + dt).min(f32::MAX);
         if want <= 0.0 {
             // Let go: AC1 leaves the move at once (the run stop's clip carries the slide).
             self.value = 0.0;
         } else if self.value <= 0.0 {
             // Starting from standing: straight into the walk or the jog.
             self.value = want.min(if high || free_run { BAND_JOG } else { BAND_WALK });
+            self.hold = if high && !free_run { HIGH_START_HOLD } else { 0.0 };
+            self.since = 0.0;
+        } else if high && !free_run && self.since < 0.1 && self.value < BAND_JOG && self.hold <= 0.0 {
+            // (High profile taken up just after starting: the same start into the jog.)
+            self.value = want.min(BAND_JOG);
+            self.hold = HIGH_START_HOLD;
+        } else if want > self.value && self.hold > 0.0 {
+            // (Holding the jog after a high profile start.)
         } else if want > self.value {
             self.value = (self.value + RISE * dt).min(want);
         } else {
@@ -132,6 +150,22 @@ impl Gait {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_high_profile_start_holds_the_jog_then_runs() {
+        let mut g = Gait::default();
+        let dt = 1.0 / 60.0;
+        // (High profile taken up a frame after the stick, as a script's first frame has it.)
+        g.update(1.0, 0.0, false, false, dt);
+        for _ in 0..24 {
+            g.update(1.0, 0.0, true, false, dt);
+        }
+        assert_eq!(band(g.value), Band::Jog, "{}", g.value);
+        for _ in 0..30 {
+            g.update(1.0, 0.0, true, false, dt);
+        }
+        assert_eq!(band(g.value), Band::Run, "{}", g.value);
+    }
 
     #[test]
     fn a_full_stick_walks_runs_or_sprints_by_profile() {
