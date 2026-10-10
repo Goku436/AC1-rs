@@ -465,19 +465,21 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "passover"],
     },
     Scenario {
-        name: "running into the 0.6 m block stops against it, the legs step up onto it",
+        // (High profile hops onto a top 0.45-1.3 m up within 1.3 m, the legs held or not: AC1's free-run target jump, as
+        // the running game hopped onto a 1.2 m box in the Damascus street.)
+        name: "running into the 0.6 m block in high profile hops onto it",
         tags: &["vault"],
-        env: &[("AC1_START", "-20,-24.5,-90"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-8"), ("AC1_LEGS", "3.0-3.1")],
+        env: &[("AC1_START", "-20,-24.5,-90"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-8")],
         secs: 5.0,
-        want: &["stopped against a 0.60 m obstacle", "xx_h_collide_full_footl_050cm_wait=0.50", "step up from against the obstacle"],
+        want: &["jump onto 0.60 m"],
         never: &["EMBED"],
     },
     Scenario {
-        name: "running at the 0.6 m block at an angle glances off it",
+        name: "running at the 0.6 m block at an angle in high profile hops onto it too",
         tags: &["vault"],
         env: &[("AC1_START", "-17.5,-23.6,-90"), ("AC1_STEER", "40"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-5")],
         secs: 3.0,
-        want: &["glance off a 0.60 m obstacle"],
+        want: &["jump onto 0.60 m"],
         never: &["EMBED"],
     },
     Scenario {
@@ -609,7 +611,7 @@ const SCENARIOS: &[Scenario] = &[
         secs: 12.0,
         want: &[
             "running jump aimed at [-86.60, 2.00, 35.00]",
-            "running jump aimed at [-84.20, 2.00, 35.00]",
+            "jump aimed at [-84.20, 2.00, 35.00]",
             "jumping at the swing bar at [-82.20, 4.40",
             "caught bar 4",
             "steering onto the perch at [-79.20, 1.50",

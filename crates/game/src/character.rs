@@ -765,6 +765,9 @@ const FREE_RUN_REACH: f32 = 1.5;
 /// ...probed this high over the feet (AC1's wall test for the wall run, 0xE18390: 1.5 m out at 1.3 m up, as Banned445's
 /// port reads it; off the box in the Damascus street the running game started up the wall 1.37 m from it, ours 1 m).
 const FREE_RUN_PROBE: f32 = 1.3;
+/// In high profile without the legs, a top this high over the feet (m) with its face within `HIGH_HOP_REACH` is hopped onto.
+const HIGH_HOP_RISE: std::ops::RangeInclusive<f32> = 0.45..=1.3;
+const HIGH_HOP_REACH: f32 = 1.3;
 /// Running at least this fast vaults low obstacles on its own.
 const RUN_VAULT_SPEED: f32 = 2.5;
 const HANG_DROP: f32 = 1.75;
@@ -1170,7 +1173,7 @@ pub fn locomotion(
         // (Free running, from a standstill too, the stick held: AC1's free-run target jump only asks for the stick
         // (0xEE7F7A, as Banned445's port reads it); off the Damascus street the running game hopped onto a box 1.2 m ahead
         // at once, ours 0.2 s later once up to speed, and was that late all the way up the wall after.)
-        let starting = ctl.free_run && target_v.with_y(0.0).length() > 0.1 && v.length() <= RUN_VAULT_SPEED;
+        let starting = (ctl.free_run || ctl.high) && target_v.with_y(0.0).length() > 0.1 && v.length() <= RUN_VAULT_SPEED;
         if (v.length() > RUN_VAULT_SPEED || starting)
             && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
         {
@@ -1194,9 +1197,23 @@ pub fn locomotion(
             // (Toward where the stick points: sliding along a wall, the body's own velocity runs along it.)
             let toward = target_v.with_y(0.0).try_normalize().map_or(v, |d| d * v.length().max(if starting { RUN_VAULT_SPEED } else { 0.0 }));
             let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
+            // (In high profile without the legs too, onto a top 0.45-1.3 m up within 1.3 m: AC1's free-run target jump asks
+            // only for high profile and the stick, its box shorter with the legs let go (0xEE7F7A, query kind 3, as
+            // Banned445's port reads it); in the Damascus street the running game hopped onto a 1.2 m box that ours ran into.)
+            let hop = |dir: Vec3| {
+                let d = dir.with_y(0.0).normalize_or_zero();
+                level.raycast(tf.translation + Vec3::Y * 0.25, d, HIGH_HOP_REACH).filter(|h| h.normal.y.abs() < 0.3).is_some_and(|h| {
+                    level
+                        .ground(h.point - h.normal.with_y(0.0).normalize_or_zero() * 0.2 + Vec3::Y * 2.0, 0.0, 2.0)
+                        .is_some_and(|g| HIGH_HOP_RISE.contains(&(g.point.y - tf.translation.y)))
+                })
+            };
             let low = if ctl.free_run {
                 WallClimb::hay_dive_ahead(lib, &level, &tf, toward, Some(ch.anim_pose.clone()))
                     .or_else(|| WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.anim_pose.clone())))
+            } else if ctl.high && hop(toward) {
+                WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.anim_pose.clone()))
+                    .or_else(|| WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.anim_pose.clone())))
             } else {
                 WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.anim_pose.clone()))
             };

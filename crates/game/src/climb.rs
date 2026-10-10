@@ -668,6 +668,8 @@ const JUMP_TOP_HEADROOM: f32 = 1.7;
 /// edge at most 1.3 m up as a top to land on (`Human__ComputeJumpAnimBlend` 0xB1EC40, Banned445): only higher ones
 /// are hung from (a waist-high wall's top is no hold to jump at).
 const JUMP_HOLD_RISE: std::ops::RangeInclusive<f32> = 1.3..=2.6;
+/// A free-step jump coming down this close to a beam (m, flat) lands on it.
+const BEAM_ARRIVE: f32 = 0.55;
 /// A jump onto a top: a step up past it within this (m) is more top, not something over it.
 const STEP_PAST_UP: f32 = 0.6;
 /// A shimmy along a hang needs the way clear at this height over the root (m, the chest) and this far past where it
@@ -1977,6 +1979,12 @@ impl WallClimb {
             return Some(w);
         }
         let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, level, root, dir, left, from) };
+        // (Arriving within reach of a beam, onto the beam: AC1's free-step arrival test (0xE0B890, as Banned445's port reads
+        // it) puts the root on the nearest beam in a box round the feet. Off the bureau's roof south-west the running game
+        // came down 0.36 m beside the beam along the next roof's edge, stood on it and walked it.)
+        if !at_hold && let Some((_, q)) = level.perch_at(to, BEAM_ARRIVE) {
+            to = q;
+        }
         let aim = (to - p).with_y(0.0).normalize_or(dir);
         // Onto a top, a post or a beam (not a hold): AC1's own jump clips, when they fit (a post's and a beam's flight is
         // the same free-step one; landed, the ground hands over to balancing on it).
@@ -2256,11 +2264,22 @@ impl WallClimb {
             return None;
         }
         let mut w = WallClimb::new(VAULT, -aim);
-        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), GROUND.into()], &planned, correct, Some(1));
-        // On at the run's speed once down (the reception's `_tr_freestep_entry` leads into the run in AC1's graph): the
-        // reception ends once its step is taken, not standing out the rest of it (played faster instead, its front-loaded
-        // step lurched the root to 16 m/s).
-        w.exit_velocity = aim * speed;
+        // (Onto a beam: down on it in AC1's narrow-object stance, balancing, not run on from: the running game walked
+        // along the beam it came down on.)
+        let onto_beam = level.perch_at(to, 0.15).filter(|(i, _)| level.perches[*i].axis() != Vec3::ZERO);
+        let last = if onto_beam.is_some() { PERCH } else { GROUND };
+        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), last.into()], &planned, correct, Some(1));
+        match onto_beam {
+            Some((i, q)) => {
+                w.perch = Some(i);
+                debug!("climb: onto perch {i} at {q:.2} (landing on it)");
+            }
+            // On at the run's speed once down (the reception's `_tr_freestep_entry` leads into the run in AC1's graph).
+            None => w.exit_velocity = aim * speed,
+        }
+        // (The reception ends once its step is taken, not standing out the rest of it (played faster instead, its
+        // front-loaded step lurched the root to 16 m/s); onto a beam too: the running game free-stepped on 0.09 s after
+        // coming down on one.)
         if let (Some(f), Some(r)) = (cut, w.queue.last()) {
             w.cut = Some((r.clip.name.clone(), f / FPS));
         }
