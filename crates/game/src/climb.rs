@@ -2533,7 +2533,7 @@ impl WallClimb {
                         if carry.is_some() {
                             debug!(
                                 "climb: wall run catch at {:.2}: {}",
-                                hold.unwrap_or_default(),
+                                (targets[0] + targets[1]) * 0.5,
                                 if (-0.6..=0.3).contains(&err.y) { "no footing" } else { "out of reach" }
                             );
                         }
