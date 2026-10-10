@@ -708,9 +708,15 @@ and lips found in the geometry; the ladders and horizontal poles replace the one
 roof: 0.21 m refused it before); it also
 needs room to stand (1.7 m of headroom 0.5 m in, no wall just past the edge, probed from in front of the wall, and the
 spot not inside a solid): window sills are holds whose top is a window, not a floor to climb onto, and a beam stuck into
-a building shows its top inside the wall. Narrow wall tops (a fence's or a parapet's, 0.15-0.6 m deep behind a hold
-with a drop past it, open above) become perches along their middle (`Level::add_narrow_tops`, Damascus 10,557):
-climbing onto one ends crouched, balancing on it, and free running carries on along or off it.
+a building shows its top inside the wall. Narrow wall tops (a fence's or a parapet's, 0.15-0.35 m deep behind a hold
+with a drop past it, open above) become perches along their middle (`Level::add_narrow_tops`), and so does AC1's own
+rule, its runtime beam contacts (as Banned445's port reads them): two holds along each other within 30 degrees, facing
+away from each other, overlapping, at most 1 m apart, give a beam along their middle, its pieces in line up to 1 m
+apart joined (Damascus 11,515 in all). A plank bridge 0.9 m wide by the Damascus bureau (`Wood_Bridge_01a`) is one:
+the running game walked it as a narrow object (`HumanNarrowObject`, `xx_l_beam_crouchwalk`). The cities' authored
+guidance has no `Beam` edges at all (Damascus: 0): AC1's narrow objects come from these pairs. Walking off a beam's
+end onto another going on from it (within 0.45 m, 35 degrees) walks on along it. Climbing onto one ends crouched,
+balancing on it, and free running carries on along or off it.
 
 ## City parkour objects
 Hay, benches and the ladders and poles of cities without authored ones have no data of their own: they are found by mesh name when a city is placed, and
@@ -718,6 +724,9 @@ set up against the built collision (`Level::add_city_objects`), logged as "N hay
 - hay: `Hay_Bale_Charette*`, `Hay_Bale_Chariot*`, `Hay_Bale_01` (not the straw strewn on the ground, `Hay_Bale_Tile*`).
   Their meshes use a vertex format not decoded yet, so a cart's stack stands where its entity is (1.8 x 1.8 m, 1.8 m
   high); a cart's parts merge into one stack.
+- rooftop hiding spots `Hiding_Spot_*` (a plank box under a tarp, not the `_Tarp` mesh): hay too, its top the box's
+  rim, 1.07 m over the roof (AC1's state in one is `HumanHayStack`). Free running at one, the running game hopped onto
+  the rim and dived in (`xx_h_freestep_footr_to_haystack_02`); ours does too, diving from within 0.6 m of its edge.
 - ladders `Ladder_<h>m`: thin and over 2 m tall. The building is the side with a roof just under its top (the ladder
   leans on that wall, its rails standing up past the roof edge, so its top is that roof's floor); else the nearer wall.
   The foot stands toward the outer side of its bounds. Climbed from the street onto a roof and back down in Damascus.

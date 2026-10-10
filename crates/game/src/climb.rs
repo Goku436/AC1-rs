@@ -516,6 +516,10 @@ fn reception_cut(clip: &Clip, speed: f32) -> Option<f32> {
     (peak as usize..=clip.frames() as usize).map(|f| f as f32).find(|&f| pace(f) <= speed)
 }
 
+/// Walked off a beam's end, the next beam within this of it (m) and along it within 35 degrees is walked on.
+const BEAM_CHAIN_GAP: f32 = 0.45;
+const BEAM_CHAIN_COS: f32 = 0.82;
+
 /// A jump's target needs this much room past it at the chest (m).
 const JUMP_LAND_ROOM: f32 = 0.6;
 
@@ -3066,6 +3070,19 @@ impl WallClimb {
         // (Any step past the end, along the beam: a fixed margin pinned a slow walk at high frame rates, each step shorter
         // than it; and the root a centimetre off the line is not past an end.)
         if (next - q).with_y(0.0).dot(cy.dir) > 1e-3 {
+            // Off the end onto the next beam going on from it, walked on (a plank bridge bent in the middle, two beams:
+            // AC1 walked it as one narrow object, ours stepped off onto "ground" between them).
+            let on = level.perches.iter().enumerate().find(|(k, l)| {
+                Some(*k) != self.perch && l.axis().dot(cy.dir).abs() > BEAM_CHAIN_COS && (l.a.distance(q) < BEAM_CHAIN_GAP || l.b.distance(q) < BEAM_CHAIN_GAP)
+            });
+            if let Some((k, l)) = on {
+                let axis = l.axis();
+                cy.dir = if axis.dot(cy.dir) > 0.0 { axis } else { -axis }.with_y(0.0).normalize_or_zero();
+                self.perch = Some(k);
+                root.translation = l.closest(next);
+                debug!("climb: on along the next beam {k} at {:.2}", root.translation);
+                return;
+            }
             // Off the end: onto ground that carries on at this height, else wait there.
             let (dir, speed) = (cy.dir, cy.speed);
             root.translation = q;

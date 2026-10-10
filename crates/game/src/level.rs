@@ -118,6 +118,12 @@ const AUTHORED_TRIM: f32 = 0.1;
 /// a beam's width. (At 0.6 m Damascus had 10,557, its parapets among them, and running along a roof switched in and
 /// out of balancing at every one; AC1 runs on those as ground, its beams found by `GuidanceBeamDetectorAccurate`.)
 const NARROW_TOP_MAX: f32 = 0.35;
+/// Two holds facing away from each other this far apart or less (m) bound a beam (AC1's beam contacts: half-width at
+/// most 0.5 m), when along each other within 30 degrees (`PAIR_BEAM_COS`) and facing away within 30.
+const PAIR_BEAM_WIDTH: f32 = 1.0;
+const PAIR_BEAM_COS: f32 = 0.866;
+/// Pieces of one paired beam in line this far apart or less (m), over the same top, are joined.
+const PAIR_BEAM_GAP: f32 = 1.0;
 /// Rays this long (m) decide whether a point is inside a solid (`inside_solid`).
 const INSIDE_PROBE: f32 = 12.0;
 
@@ -666,6 +672,107 @@ impl Level {
                 continue;
             }
             let open = self.ground(centre + Vec3::Y * 1.9, 0.0, 1.98).is_some_and(|h| (h.point.y - centre.y).abs() < 0.08);
+            if !open || self.inside_solid(centre + Vec3::Y * 0.5) {
+                continue;
+            }
+            centres.entry(key(centre)).or_default().push(found.len());
+            found.push(line);
+        }
+        // AC1's runtime beams (`HumanGuidance`'s beam contacts, 0x680260, as Banned445's AC1-Movement-Rewritten reads
+        // them, MIT, written here anew): two holds along each other (within 30 degrees), facing away from each other,
+        // overlapping, at most `PAIR_BEAM_WIDTH` apart across: a beam along their middle. (A plank bridge 0.9 m wide in
+        // Damascus: the running game walked it as a narrow object, crouched.)
+        let mut along: HashMap<(i32, i32, i32), Vec<usize>> = HashMap::new();
+        for (i, l) in self.ledges.iter().enumerate() {
+            let n = (l.a.distance(l.b) / 0.5).ceil().max(1.0) as usize;
+            for k in 0..=n {
+                along.entry(key(l.a.lerp(l.b, k as f32 / n as f32))).or_default().push(i);
+            }
+        }
+        let mut pairs: Vec<Line> = vec![];
+        for (i, l) in self.ledges.iter().enumerate() {
+            let len = l.a.distance(l.b);
+            if len < 0.3 {
+                continue;
+            }
+            let u = (l.b - l.a) / len;
+            let n = (len / 0.5).ceil() as usize;
+            let mut others: Vec<usize> = (0..=n).flat_map(|k| near(&along, l.a.lerp(l.b, k as f32 / n as f32))).filter(|&j| j > i).collect();
+            others.sort_unstable();
+            others.dedup();
+            for j in others {
+                let m = &self.ledges[j];
+                let mlen = m.a.distance(m.b);
+                if mlen < 0.3 || l.out.dot(m.out) > -PAIR_BEAM_COS {
+                    continue;
+                }
+                let v = (m.b - m.a) / mlen;
+                if u.dot(v).abs() < PAIR_BEAM_COS {
+                    continue;
+                }
+                // Across: the other hold behind this one (on its top's side), at most the width away, level with it.
+                let across = (m.closest(l.a.lerp(l.b, 0.5)) - l.a.lerp(l.b, 0.5)).dot(-l.out);
+                if !(0.1..=PAIR_BEAM_WIDTH).contains(&across) || (m.a.y + m.b.y - l.a.y - l.b.y).abs() * 0.5 > 0.3 {
+                    continue;
+                }
+                // Along: the overlap of the two, measured on this one.
+                let (s0, s1) = ((m.a - l.a).dot(u), (m.b - l.a).dot(u));
+                let (lo, hi) = (s0.min(s1).max(0.0), s0.max(s1).min(len));
+                if hi - lo < 0.3 {
+                    continue;
+                }
+                let mid = |s: f32| {
+                    let p = l.a + u * s;
+                    (p + m.closest(p)) * 0.5
+                };
+                pairs.push(Line { a: mid(lo), b: mid(hi) });
+            }
+        }
+        // (The holds either side are broken at different places: the pieces of one beam, in line and at most
+        // `PAIR_BEAM_GAP` apart over the same top, are one beam. In pieces, he stepped off at every gap onto "ground".)
+        let mut merged = true;
+        while merged {
+            merged = false;
+            let mut ends: HashMap<(i32, i32, i32), Vec<usize>> = HashMap::new();
+            for (i, l) in pairs.iter().enumerate() {
+                ends.entry(key(l.a)).or_default().push(i);
+                ends.entry(key(l.b)).or_default().push(i);
+            }
+            let mut gone = vec![false; pairs.len()];
+            for i in 0..pairs.len() {
+                if gone[i] {
+                    continue;
+                }
+                let l = pairs[i];
+                let axis = l.axis();
+                let cands: Vec<usize> = near(&ends, l.a).into_iter().chain(near(&ends, l.b)).filter(|&j| j != i && !gone[j]).collect();
+                for j in cands {
+                    let m = pairs[j];
+                    let in_line = m.axis().dot(axis).abs() > 0.97
+                        && [m.a, m.b].iter().all(|p| Line { a: l.a - axis * 50.0, b: l.b + axis * 50.0 }.closest(*p).distance(*p) < 0.15);
+                    let (sa, sb) = ((m.a - l.a).dot(axis), (m.b - l.a).dot(axis));
+                    let (mlo, mhi) = (sa.min(sb), sa.max(sb));
+                    let len = l.a.distance(l.b);
+                    let gap = (mlo - len).max(-mhi);
+                    let at = l.a + axis * if mlo > len { (len + mlo) * 0.5 } else { mhi * 0.5 };
+                    let same_top = gap <= 0.0 || self.ground(at + Vec3::Y * 0.3, 0.0, 0.45).is_some_and(|g| (g.point.y - at.y).abs() < 0.15);
+                    if in_line && gap <= PAIR_BEAM_GAP && same_top {
+                        let (lo, hi) = (mlo.min(0.0), mhi.max(len));
+                        pairs[i] = Line { a: l.a + axis * lo, b: l.a + axis * hi };
+                        gone[j] = true;
+                        merged = true;
+                        break;
+                    }
+                }
+            }
+            pairs = pairs.into_iter().zip(gone).filter(|(_, g)| !g).map(|(l, _)| l).collect();
+        }
+        for line in pairs {
+            let centre = (line.a + line.b) * 0.5;
+            if near(&centres, centre).iter().any(|&k| found[k].closest(centre).distance(centre) < 0.2) {
+                continue;
+            }
+            let open = self.ground(centre + Vec3::Y * 1.9, 0.0, 1.98).is_some_and(|h| (h.point.y - centre.y).abs() < 0.15);
             if !open || self.inside_solid(centre + Vec3::Y * 0.5) {
                 continue;
             }
