@@ -413,6 +413,8 @@ const WALL_RUN_ANGLE: f32 = 1.05;
 const WALL_RUN_OUT: f32 = 0.5;
 const WALL_RUN_UP: f32 = 1.0;
 const WALL_RUN_PROBE: f32 = 1.3;
+/// A cap or ledge sticking out over a wall stops a wall run up it when this close to its line along the wall (m).
+const WALL_RUN_CAP_SIDE: f32 = 0.2;
 /// Pseudo-state: running up a wall.
 const WALL_RUN_STATE: &str = "wallrun";
 /// Pseudo-states: taking off for a leap of faith, hidden in a haystack, hopping out of it.
@@ -1218,19 +1220,25 @@ fn blend_hang(lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, bas
             let (ya, yb) = ((ha[0].y + ha[1].y) * 0.5, (hb[0].y + hb[1].y) * 0.5);
             let (lo, hi, low, high) = if ya < yb { (ya, yb, a, b) } else { (yb, ya, b, a) };
             let mid = (ha[0] + ha[1] + hb[0] + hb[1]) * 0.25;
-            // The lowest hold on this wall in front, between the two reaches.
-            let hold = level
+            // The hold on this wall in front between the two reaches that AC1's probe D takes first: the nearest out from the
+            // wall, then the lowest (`HumanWalling`'s FindLedge order, its distance ahead + 0.01 × its height, as Banned445's
+            // port reads it). (On a Damascus street wall the running game caught an edge 0.1 m proud of the wall 3.8 m up,
+            // over the wall's own edge 3.1 m up.)
+            // (Each in that order: one the grab turns down leaves the next.)
+            let key = |q: &Vec3| (*q - root.translation).dot(-normal) + 0.01 * q.y;
+            let mut holds: Vec<Vec3> = level
                 .ledges
                 .iter()
                 .filter(|l| l.out.dot(normal) > 0.8)
                 .map(|l| l.closest(mid.with_y((l.a.y + l.b.y) * 0.5)))
                 .filter(|q| (*q - mid).with_y(0.0).length() < 0.6 && q.y - root.translation.y >= WALL_RUN_CATCH_MIN && (lo..=hi).contains(&q.y))
-                .map(|q| q.y)
-                .min_by(f32::total_cmp);
-            let Some(y) = hold else { continue };
-            let w = (y - lo) / (hi - lo);
-            let names = low.names.iter().zip(&high.names).map(|(x, z)| if x == z { x.clone() } else { mix_name(&[(x, 1.0 - w), (z, w)]) }).collect();
-            out.push(GrabOpt { names, catch: low.catch, end: if w < 0.5 { low.end } else { high.end }, after: vec![] });
+                .collect();
+            holds.sort_by(|a, b| key(a).total_cmp(&key(b)));
+            for y in holds.iter().map(|q| q.y) {
+                let w = (y - lo) / (hi - lo);
+                let names = low.names.iter().zip(&high.names).map(|(x, z)| if x == z { x.clone() } else { mix_name(&[(x, 1.0 - w), (z, w)]) }).collect();
+                out.push(GrabOpt { names, catch: low.catch, end: if w < 0.5 { low.end } else { high.end }, after: vec![] });
+            }
         }
     }
     out
@@ -2222,6 +2230,7 @@ impl WallClimb {
         // Met at an angle (up to `WALL_RUN_ANGLE` off square), AC1 turns square to the wall and runs up it: the checks
         // and the grab go straight at it from here, the root turning to face it.
         if run.dot(-n) < WALL_RUN_ANGLE.cos() {
+            debug!("climb: no wall run: the wall is {:.0} degrees off square", run.dot(-n).clamp(-1.0, 1.0).acos().to_degrees());
             return None;
         }
         let fwd = -n;
@@ -2229,17 +2238,22 @@ impl WallClimb {
         let root = &facing;
         let hit = level.raycast(root.translation + Vec3::Y, fwd, WALL_RUN_REACH).filter(|h| h.normal.y.abs() < 0.3)?;
         // Not up a pole or post under a cap or ledge sticking out over it (nothing for the feet).
+        // (Over the line run up, within `WALL_RUN_CAP_SIDE` along the wall: a pilaster's top 0.28 m beside it, on a Damascus
+        // street wall the running game ran up, is not over it.)
+        let along = Vec3::Y.cross(n).normalize_or_zero();
         let set_back = level.ledges.iter().filter(|l| l.out.dot(n) > 0.7 && l.a.y > hit.point.y && l.a.y < hit.point.y + 4.0).any(|l| {
             let q = l.closest(hit.point);
-            (q - hit.point).with_y(0.0).length() < 0.6 && level.raycast(q + n * 0.3 - Vec3::Y * 0.9, -n, 0.55).is_none()
+            (q - hit.point).with_y(0.0).length() < 0.6
+                && (q - hit.point).dot(along).abs() < WALL_RUN_CAP_SIDE
+                && level.raycast(q + n * 0.3 - Vec3::Y * 0.9, -n, 0.55).is_none()
         });
         if set_back || !wide_wall(level, root.translation + Vec3::Y, fwd, hit.dist) {
+            debug!("climb: no wall run: {}", if set_back { "a ledge sticks out over it" } else { "the wall is too narrow" });
             return None;
         }
         // A ladder up the wall in front: up it onto the ladder (AC1's `xx_h_wallingfront_step1_footr_tr_h_ladder_up_l`, on
         // into its left-hand climb), the root steered onto the ladder's climbing spot.
         let p = root.translation;
-        let along = Vec3::Y.cross(n).normalize_or_zero();
         if let Some((i, l)) = level
             .ladders
             .iter()
@@ -2489,10 +2503,19 @@ impl WallClimb {
                     let m = pose.model(rig);
                     let r = world_rot(end.rot);
                     let hands = cr.hands.map(|b| end.pos + r * m[b].pos);
-                    let Some(targets) = holds_within(level, &hands, normal, slack + 0.1) else { continue };
-                    if carry.is_some() && !flush_under((targets[0] + targets[1]) * 0.5) {
+                    let Some(targets) = holds_within(level, &hands, normal, slack + 0.1) else {
+                        if carry.is_some() {
+                            debug!(
+                                "climb: wall run catch {}: no holds for both hands near {:.2}",
+                                opt.names.last().map_or("", |n| n.as_str()),
+                                (hands[0] + hands[1]) * 0.5
+                            );
+                        }
                         continue;
-                    }
+                    };
+                    // (Not the wall just under the hold: the feet's footing is checked where they go, below. AC1's probe D
+                    // only asks for the edge; on a Damascus street wall it caught one over a window, the feet on the wall
+                    // under the sill.)
                     // (A wall run catches a hold at least a body height over the feet where its vertical step ends: AC1's
                     // ledge probe D, 1-2.8 m over them, as Banned445's port reads it. In the running game the feet end that
                     // step 1.6 m up, and the hold 2.5 m over the floor was passed for the next row, 4.1 m up.)
@@ -2507,6 +2530,13 @@ impl WallClimb {
                     // fall between the heights the clips were made for.)
                     let hold = Some((targets[0] + targets[1]) * 0.5);
                     if !(-0.6..=0.3).contains(&err.y) || !feet_fit_at(level, &end.feet.map(|f| f + err), normal, feet, hold) {
+                        if carry.is_some() {
+                            debug!(
+                                "climb: wall run catch at {:.2}: {}",
+                                hold.unwrap_or_default(),
+                                if (-0.6..=0.3).contains(&err.y) { "no footing" } else { "out of reach" }
+                            );
+                        }
                         continue;
                     }
                     let lead = if carry.is_some() { WALL_RUN_STATE } else { JUMP };

@@ -375,6 +375,11 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   0.50 m out and 1.00 m up at the entry's end, ours within 0.03 m now (it was 0.08-0.2 m off when the whole way to the
   hold went into the entry). The rebound's fall, `xx_h_rebound_footr_tr_fall`, carries 0.8 m back and 3 m down in 0.47 s:
   AC1 falls the 2 m at a steady 7 m/s; ours starts the fall at that clip's 6.4 m/s down. **[B, ours, measured]**
+  The catch after the vertical step (probe D) takes the edge nearest out from the wall first, then the lowest (FindLedge's
+  order: distance ahead + 0.01 × height); it asks nothing of the wall under the edge (ours checks the feet's footing
+  where they go). A cap stops the run only straight over its line (within 0.2 m along the wall). On a Damascus street
+  wall the running game ran up past a pilaster's top 0.28 m to the side and caught an edge 0.1 m proud of the wall over a
+  window, 3.8 m up; ours now does the same (route `street_free_east` 2.54 -> 0.38 m). **[B, ours, measured]**
 - **Ground landings, soft or hard**: one blend, its hard share drop / 2.5 m (0xE05940, as Banned445's port reads it; the
   trace's action names only the soft clip); ours blends the two by it (it was a switch at 7 m/s down). **[B, ours]**
 - **Ladders** (context 5): actions from `HumanLadderData`'s table (+392 + 4·state + 2·foot + inclination). **[B]**
