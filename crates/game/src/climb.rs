@@ -818,6 +818,9 @@ pub struct WallClimb {
     last_hand_up: usize,
     /// Let go once the current move ends.
     want_drop: bool,
+    /// An eject off a wall hang waiting for the rebound pose before it to end (AC1's `xx_h_hangwall_tr_rebound_<foot>`):
+    /// the stick and the foot it was asked with.
+    eject_after: Option<(Vec2, bool)>,
     /// Velocity while airborne (the root follows gravity, not the clip).
     fall_v: Option<Vec3>,
     /// Upward speed added when the next fall starts (running jump takeoff).
@@ -1720,6 +1723,7 @@ impl WallClimb {
             last: None,
             last_hand_up: 0,
             want_drop: false,
+            eject_after: None,
             fall_v: None,
             launch: 0.0,
             free_jump: false,
@@ -4458,6 +4462,19 @@ impl WallClimb {
         if on_wall && idle && self.high && input.y < 0.5 {
             // (Off the left foot, but to the left off the right: as the running game did.)
             let left = input.x > -0.5;
+            // From a wall hang, AC1's rebound pose first, 0.2 s against the wall (`xx_h_hangwall_tr_rebound_<foot>`, the
+            // takeoff on the same foot 0.22 s after it, in all four of the running game's ejects); the eject when it ends.
+            let pose = matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN)
+                .then(|| lib.get(&format!("xx_h_hangwall_tr_rebound_{}", if left { "footl" } else { "footr" })))
+                .flatten();
+            if let Some(pose) = pose
+                && Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()).is_some()
+            {
+                let state = self.state.clone();
+                self.start(pose, state, root);
+                self.eject_after = Some((input, left));
+                return true;
+            }
             if let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()) {
                 *self = w;
                 return true;
@@ -5442,6 +5459,13 @@ impl WallClimb {
             let turn = done.start_rot * root_delta(root_rotation_at(&done.clip, done.clip.frames())) * done.start_rot.inverse();
             self.normal = turn * self.normal;
             self.state = done.to;
+            // (The rebound pose played: the eject asked for.)
+            if let Some((input, left)) = self.eject_after.take()
+                && let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone())
+            {
+                *self = w;
+                return;
+            }
             // Topping a wall run with nothing to grab and the legs held: AC1 kicks off it backwards
             // (`xx_h_wallingfront_step1_footr_tr_rebound_footr_a/b`, then `xx_h_rebound_footr_tr_fall`, seen in the
             // running game, Damascus), not the slide down (`..._step1_footr_tr_fall`): away from the wall, it catches
