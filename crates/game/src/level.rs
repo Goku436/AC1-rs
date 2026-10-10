@@ -170,7 +170,7 @@ pub struct Level {
     /// Overhead frames to cross hand over hand (a kiosk's roof frame), along the line at its height.
     pub monkey: Vec<Line>,
     /// Triangles by `GRID` cell (x, z) they overlap, for raycasts in big levels (empty: test them all).
-    pub(crate) grid: HashMap<(i32, i32), Vec<u32>>,
+    pub(crate) grid: FastMap<(i32, i32), Vec<u32>>,
     /// Triangles too big for the grid (the ground plane around the test area), tested by every raycast.
     pub(crate) big: Vec<u32>,
     /// Where the player starts and a loop for a crowd, when the level says (a city).
@@ -190,6 +190,41 @@ const HOLD_DEPTH: f32 = 0.12;
 
 /// Where the player starts in Masyaf (Bevy x, _, z): the village below the fortress.
 const MASYAF_SPAWN: [f32; 3] = [20.0, 0.0, 50.0];
+
+/// A hasher for small keys (grid cells, ids) by multiplies, not SipHash: every raycast looks cells up (with the default
+/// hasher the Damascus load's hold and beam checks, hundreds of thousands of rays, took 10 s).
+#[derive(Default)]
+pub struct FastHasher(u64);
+
+impl std::hash::Hasher for FastHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.write_u32(b as u32);
+        }
+    }
+    fn write_u32(&mut self, n: u32) {
+        self.0 = (self.0.rotate_left(5) ^ n as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+    fn write_i32(&mut self, n: i32) {
+        self.write_u32(n as u32);
+    }
+}
+
+pub type FastMap<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<FastHasher>>;
+
+/// `f` over `items` on all cores, the results in the items' order (the level's checks each read the level only).
+fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let chunk = items.len().div_ceil(threads).max(1);
+    let f = &f;
+    std::thread::scope(|sc| {
+        let jobs: Vec<_> = items.chunks(chunk).map(|part| sc.spawn(move || part.iter().map(f).collect::<Vec<R>>())).collect();
+        jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
+    })
+}
 
 /// Raycast grid cell size (m); triangles spanning more cells than `GRID_MAX_CELLS` (ground planes, distant
 /// backdrops) are kept apart and tested by every raycast.
@@ -484,7 +519,8 @@ impl Level {
             let p = l.a.lerp(l.b, t) + Vec3::Y * 0.05;
             self.raycast(p + l.out * 0.45, -l.out, 0.42).is_none()
         };
-        let kept: Vec<Ledge> = ledges.into_iter().filter(|l| [0.2, 0.5, 0.8].iter().filter(|&&t| open(l, t)).count() >= 1).collect();
+        let keep = par_map(&ledges, |l| [0.2, 0.5, 0.8].iter().any(|&t| open(l, t)));
+        let kept: Vec<Ledge> = ledges.into_iter().zip(keep).filter(|(_, k)| *k).map(|(l, _)| l).collect();
         self.ledges = kept;
         before - self.ledges.len()
     }
@@ -492,12 +528,13 @@ impl Level {
     pub fn add_beam_perches(&mut self) {
         // (Not where the beam runs inside a wall it is stuck into, even if its top shows there.)
         let open = |p: Vec3| self.ground(p + Vec3::Y * 1.9, 0.0, 1.98).is_some_and(|h| (h.point.y - p.y).abs() < 0.08) && !self.inside_solid(p + Vec3::Y * 0.5);
-        let mut found = vec![];
-        let mut holds = vec![];
-        for l in &self.beam_tops {
+        // (Each beam on its own core, in order.)
+        let each = par_map(&self.beam_tops, |l| {
+            let mut found = vec![];
+            let mut holds = vec![];
             let len = (l.b - l.a).length();
             if len < 0.2 || (l.b.y - l.a.y).abs() > 0.15 * len {
-                continue;
+                return (found, holds);
             }
             let n = (len / 0.1).ceil() as usize;
             let mut run: Option<(Vec3, Vec3)> = None;
@@ -524,6 +561,12 @@ impl Level {
                     }
                 }
             }
+            (found, holds)
+        });
+        let (mut found, mut holds) = (vec![], vec![]);
+        for (f, h) in each {
+            found.extend(f);
+            holds.extend(h);
         }
         info!("{} beam perches and {} beam-end holds from {} beams", found.len(), holds.len(), self.beam_tops.len());
         self.perches.extend(found);
@@ -638,7 +681,7 @@ impl Level {
     /// not standing on a top too narrow to stand on. Holds next to each other along a top make one perch.
     pub fn add_narrow_tops(&mut self) -> usize {
         let key = |p: Vec3| ((p.x / 0.5).floor() as i32, (p.y / 0.5).floor() as i32, (p.z / 0.5).floor() as i32);
-        let near = |cells: &HashMap<(i32, i32, i32), Vec<usize>>, p: Vec3| -> Vec<usize> {
+        let near = |cells: &FastMap<(i32, i32, i32), Vec<usize>>, p: Vec3| -> Vec<usize> {
             let (x, y, z) = key(p);
             let mut out = vec![];
             for dx in -1..=1 {
@@ -651,7 +694,7 @@ impl Level {
             out
         };
         let mut found: Vec<Line> = vec![];
-        let mut centres: HashMap<(i32, i32, i32), Vec<usize>> = HashMap::new();
+        let mut centres: FastMap<(i32, i32, i32), Vec<usize>> = FastMap::default();
         // Each hold's top, probed on all cores (each reads the level only; 151,000 holds in Damascus took 4.8 s on one),
         // in the holds' order: (the line along the top's middle, room above it).
         let narrow = |l: &Ledge| -> Option<(Line, bool)> {
@@ -672,12 +715,7 @@ impl Level {
             let open = self.ground(centre + Vec3::Y * 1.9, 0.0, 1.98).is_some_and(|h| (h.point.y - centre.y).abs() < 0.08);
             Some((line, open && !self.inside_solid(centre + Vec3::Y * 0.5)))
         };
-        let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-        let chunk = self.ledges.len().div_ceil(threads).max(1);
-        let tops: Vec<(Line, bool)> = std::thread::scope(|sc| {
-            let jobs: Vec<_> = self.ledges.chunks(chunk).map(|part| sc.spawn(move || part.iter().filter_map(narrow).collect::<Vec<_>>())).collect();
-            jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
-        });
+        let tops: Vec<(Line, bool)> = par_map(&self.ledges, narrow).into_iter().flatten().collect();
         for (line, open) in tops {
             let centre = (line.a + line.b) * 0.5;
             // (The hold on the far side of the same top finds it again.)
@@ -691,7 +729,7 @@ impl Level {
         // them, MIT, written here anew): two holds along each other (within 30 degrees), facing away from each other,
         // overlapping, at most `PAIR_BEAM_WIDTH` apart across: a beam along their middle. (A plank bridge 0.9 m wide in
         // Damascus: the running game walked it as a narrow object, crouched.)
-        let mut along: HashMap<(i32, i32, i32), Vec<usize>> = HashMap::new();
+        let mut along: FastMap<(i32, i32, i32), Vec<usize>> = FastMap::default();
         for (i, l) in self.ledges.iter().enumerate() {
             let n = (l.a.distance(l.b) / 0.5).ceil().max(1.0) as usize;
             for k in 0..=n {
@@ -742,7 +780,7 @@ impl Level {
         let mut merged = true;
         while merged {
             merged = false;
-            let mut ends: HashMap<(i32, i32, i32), Vec<usize>> = HashMap::new();
+            let mut ends: FastMap<(i32, i32, i32), Vec<usize>> = FastMap::default();
             for (i, l) in pairs.iter().enumerate() {
                 ends.entry(key(l.a)).or_default().push(i);
                 ends.entry(key(l.b)).or_default().push(i);
@@ -789,7 +827,7 @@ impl Level {
             found.push(line);
         }
         // Join the pieces end to end along a top (each piece onto the line ending where it starts).
-        let mut ends: HashMap<(i32, i32, i32), Vec<usize>> = HashMap::new();
+        let mut ends: FastMap<(i32, i32, i32), Vec<usize>> = FastMap::default();
         let mut joined: Vec<Line> = vec![];
         for l in found {
             let axis = l.axis();

@@ -87,8 +87,11 @@ fn shared_datas(game_dir: &Path, forge_file: &str, city: &[Vec<u8>]) -> Result<V
         let path = game_dir.join(name);
         let forge = forge::Forge::open(&path).with_context(|| format!("open {name}"))?;
         let idx = forge::index::ForgeIndex::load(&path)?;
+        // (Ids looked up by one multiply, not SipHash: every byte offset of every entity is one; and each data file parsed
+        // once, its objects' places in it kept, not once per object followed. 5 s of the Damascus load.)
+        let class_of: HashMap<u32, u32, std::hash::BuildHasherDefault<IdHasher>> = idx.objects.iter().map(|(id, p)| (*id, p.class)).collect();
         let ids_in = |b: &[u8], classes: &[u32]| -> Vec<u32> {
-            (0..b.len().saturating_sub(3)).map(|k| u32_at(b, k)).filter(|id| idx.objects.get(id).is_some_and(|p| classes.contains(&p.class))).collect()
+            (0..b.len().saturating_sub(3)).map(|k| u32_at(b, k)).filter(|id| class_of.get(id).is_some_and(|c| classes.contains(c))).collect()
         };
         let mut queue: Vec<u32> = objects
             .iter()
@@ -96,6 +99,8 @@ fn shared_datas(game_dir: &Path, forge_file: &str, city: &[Vec<u8>]) -> Result<V
             .flat_map(|o| ids_in(o.body, &[&[CLASS_MESH, CLASS_MATERIAL][..], &shapes].concat()))
             .collect();
         let mut kept: HashMap<String, Vec<u8>> = HashMap::new();
+        // Per data file: each object's body as a range of it.
+        let mut places: HashMap<String, HashMap<u32, std::ops::Range<usize>>> = HashMap::new();
         while let Some(id) = queue.pop() {
             if !seen.insert(id) {
                 continue;
@@ -103,10 +108,21 @@ fn shared_datas(game_dir: &Path, forge_file: &str, city: &[Vec<u8>]) -> Result<V
             let file = idx.objects[&id].datafile.clone();
             if !kept.contains_key(&file) {
                 let Some(e) = forge.entries.iter().find(|e| e.name == file) else { continue };
-                kept.insert(file.clone(), forge.read(e)?);
+                let data = forge.read(e)?;
+                let base = data.as_ptr() as usize;
+                let ranges = forge::parse_objects(&data)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|o| {
+                        let start = o.body.as_ptr() as usize - base;
+                        (o.id, start..start + o.body.len())
+                    })
+                    .collect();
+                places.insert(file.clone(), ranges);
+                kept.insert(file.clone(), data);
             }
-            if let Some(o) = forge::parse_objects(&kept[&file]).ok().and_then(|v| v.into_iter().find(|o| o.id == id)) {
-                queue.extend(ids_in(o.body, &[CLASS_MATERIAL, CLASS_TEXTURE_SET, CLASS_MAP_SPEC, CLASS_TEXTURE]));
+            if let Some(r) = places.get(&file).and_then(|m| m.get(&id)) {
+                queue.extend(ids_in(&kept[&file][r.clone()], &[CLASS_MATERIAL, CLASS_TEXTURE_SET, CLASS_MAP_SPEC, CLASS_TEXTURE]));
             }
         }
         info!("city: {} data files from {name}", kept.len());
@@ -115,14 +131,52 @@ fn shared_datas(game_dir: &Path, forge_file: &str, city: &[Vec<u8>]) -> Result<V
     Ok(out)
 }
 
+/// Data files read and decompressed on all cores, in their order (Damascus' 1,387 took 7.5 s on one).
+fn read_all(forge: &forge::Forge, entries: &[&forge::Entry]) -> Vec<Vec<u8>> {
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let chunk = entries.len().div_ceil(threads).max(1);
+    std::thread::scope(|sc| {
+        let jobs: Vec<_> =
+            entries.chunks(chunk).map(|part| sc.spawn(move || part.iter().map(|e| forge.read(e).unwrap_or_default()).collect::<Vec<_>>())).collect();
+        jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
+    })
+}
+
+/// Object ids (CRC32s) hashed by one multiply, not SipHash: the reference scans look up every byte offset of every
+/// placed entity (with the default hasher, and a scan per class, 27 s of a 60 s Damascus load).
+#[derive(Default)]
+struct IdHasher(u64);
+
+impl std::hash::Hasher for IdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    fn write_u32(&mut self, n: u32) {
+        self.0 = (n as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+}
+
+/// The loaded objects by id.
+type Index<'a> = HashMap<u32, &'a Object<'a>, std::hash::BuildHasherDefault<IdHasher>>;
+
 /// Objects of `class` an object refers to (ids anywhere in its body), with their offsets.
-fn refs<'a>(index: &HashMap<u32, &'a Object<'a>>, o: &Object, class: u32) -> Vec<(usize, &'a Object<'a>)> {
+fn refs<'a>(index: &Index<'a>, o: &Object, class: u32) -> Vec<(usize, &'a Object<'a>)> {
     refs_in(index, o.body, o.id, class)
 }
 
 /// `refs` in the bytes of an object (`id`) that may be embedded in another.
-fn refs_in<'a>(index: &HashMap<u32, &'a Object<'a>>, b: &[u8], id: u32, class: u32) -> Vec<(usize, &'a Object<'a>)> {
-    (0..b.len().saturating_sub(3)).filter_map(|k| index.get(&u32_at(b, k)).filter(|r| r.class == class && r.id != id).map(|r| (k, *r))).collect()
+fn refs_in<'a>(index: &Index<'a>, b: &[u8], id: u32, class: u32) -> Vec<(usize, &'a Object<'a>)> {
+    refs_all(index, b, id).into_iter().filter(|(_, r)| r.class == class).collect()
+}
+
+/// Every object referred to in the bytes of an object (`id`), with their offsets: one scan, filtered by class after.
+fn refs_all<'a>(index: &Index<'a>, b: &[u8], id: u32) -> Vec<(usize, &'a Object<'a>)> {
+    (0..b.len().saturating_sub(3)).filter_map(|k| index.get(&u32_at(b, k)).filter(|r| r.id != id).map(|r| (k, *r))).collect()
 }
 
 /// A primitive collision shape's triangles, in its entity's frame: a box's twelve, a convex hull's faces (the
@@ -505,7 +559,7 @@ fn spawn_world(
             let idx = forge::index::ForgeIndex::load(&game_dir.join(forge_file))?;
             files_for(&forge, &idx, &p.iter().map(|p| p.name).collect::<Vec<_>>())
         }
-        None => forge.entries.iter().map(|e| forge.read(e).unwrap_or_default()).collect(),
+        None => read_all(&forge, &forge.entries.iter().collect::<Vec<_>>()),
     };
     let shared = shared_datas(game_dir, forge_file, &datas).unwrap_or_else(|e| {
         warn!("city: shared props not loaded: {e:#}");
@@ -514,7 +568,7 @@ fn spawn_world(
     let shared_files = shared.len();
     datas.extend(shared);
     let objects: Vec<Vec<Object>> = datas.iter().map(|d| forge::parse_objects(d).unwrap_or_default()).collect();
-    let mut index: HashMap<u32, &Object> = HashMap::new();
+    let mut index = Index::default();
     for o in objects.iter().flatten() {
         index.entry(o.id).or_insert(o);
     }
@@ -652,6 +706,9 @@ fn spawn_world(
         }
         let tris_before = level.tris.len();
         let world = to_bevy * m;
+        // (What it refers to, scanned once, by class after.)
+        let all_refs = refs_all(&index, body, ent_id);
+        let refs_of = |class: u32| all_refs.iter().filter(|(_, r)| r.class == class).copied().collect::<Vec<_>>();
         // AC1's authored climbing markup on this entity (`forge::guidance`): its enabled edges, in the world.
         for g in forge::guidance::find_in_entity(body).into_iter().flatten().filter(|g| g.active) {
             for e in g.edges.iter().filter(|e| e.enabled) {
@@ -673,7 +730,7 @@ fn spawn_world(
         let mut has_shape = false;
         if !render_collision {
             let mut seen = vec![];
-            for (_, so) in refs_in(&index, body, ent_id, CLASS_MESH_SHAPE) {
+            for (_, so) in refs_of(CLASS_MESH_SHAPE) {
                 if seen.contains(&so.id) {
                     continue;
                 }
@@ -709,7 +766,7 @@ fn spawn_world(
                 }
             }
             // Boxes, convex hulls, capsules and lists of them.
-            for (_, so) in [CLASS_BOX_SHAPE, CLASS_BARREL_SHAPE, CLASS_CAPSULE_SHAPE, CLASS_LIST_SHAPE].iter().flat_map(|&c| refs_in(&index, body, ent_id, c)) {
+            for (_, so) in [CLASS_BOX_SHAPE, CLASS_BARREL_SHAPE, CLASS_CAPSULE_SHAPE, CLASS_LIST_SHAPE].iter().flat_map(|&c| refs_of(c)) {
                 if seen.contains(&so.id) {
                     continue;
                 }
@@ -752,7 +809,7 @@ fn spawn_world(
             }
         }
         let mut shown: Vec<u32> = vec![];
-        let ent_meshes: Vec<&Object> = refs_in(&index, body, ent_id, CLASS_MESH)
+        let ent_meshes: Vec<&Object> = refs_of(CLASS_MESH)
             .into_iter()
             .map(|r| r.1)
             .filter(|r| shown_mesh(&r.name))
@@ -766,13 +823,13 @@ fn spawn_world(
             continue;
         }
         // (placeholder, real) material pairs: adjacent material ids.
-        let mrefs = refs_in(&index, body, ent_id, CLASS_MATERIAL);
+        let mrefs = refs_of(CLASS_MATERIAL);
         let overrides: HashMap<u32, u32> = mrefs.windows(2).filter(|w| w[1].0 == w[0].0 + 4).map(|w| (w[0].1.id, w[1].1.id)).collect();
         let tf = Transform::from_matrix(world);
         // A skinned prop (a market stall's frame the game's physics can knock down, a haystack that gives when jumped
         // into) stands in its skeleton's pose.
         // (Props only: a character's skeleton, NPCs placed in the city, is not stood up here.)
-        let skel = refs_in(&index, body, ent_id, forge::skeleton::CLASS_SKELETON)
+        let skel = refs_of(forge::skeleton::CLASS_SKELETON)
             .first()
             .and_then(|(_, o)| forge::skeleton::parse_skeleton(o.body).ok())
             .filter(|s| s.bones.len() <= PROP_SKELETON_BONES);
