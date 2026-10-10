@@ -1319,6 +1319,25 @@ pub fn spawn_level(
                     info!("perch {i}: {:.2} to {:.2}, {d:.2} m away", l.a, l.b);
                 }
             }
+            // (And the ladders, swing bars and haystacks, flat distance: to find one to send the running game to.)
+            for (i, l) in level.ladders.iter().enumerate() {
+                let d = (l.base - p).with_y(0.0).length();
+                if d < v[3] {
+                    info!("ladder {i}: base {:.2}, top {:.2}, out {:.2}, {d:.2} m away", l.base, l.top, l.out);
+                }
+            }
+            for (i, b) in level.bars.iter().enumerate() {
+                let d = (b.closest(p) - p).with_y(0.0).length();
+                if d < v[3] {
+                    info!("bar {i}: {:.2} to {:.2}, {d:.2} m away", b.a, b.b);
+                }
+            }
+            for (i, h) in level.haystacks.iter().enumerate() {
+                let d = (h.centre - p).with_y(0.0).length();
+                if d < v[3] {
+                    info!("haystack {i}: centre {:.2}, top {:.2}, {d:.2} m away", h.centre, h.top());
+                }
+            }
         }
         // `AC1_GROUND_LINE="x0,z0,x1,z1,y"`: the ground every 10 cm along a line, looking down from y (game Y-up
         // space), logged (where a top ends, to set beside the real game's trace walked along it).
