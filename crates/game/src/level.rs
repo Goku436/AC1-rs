@@ -126,6 +126,8 @@ const PAIR_BEAM_COS: f32 = 0.866;
 /// (m) out from each.
 const PAIR_BEAM_DROP: f32 = 0.5;
 const PAIR_BEAM_OUT: f32 = 0.3;
+/// ...tested this often along it (m).
+const PAIR_BEAM_STEP: f32 = 0.25;
 /// Pieces of one paired beam in line this far apart or less (m), over the same top, are joined.
 const PAIR_BEAM_GAP: f32 = 1.0;
 /// Rays this long (m) decide whether a point is inside a solid (`inside_solid`).
@@ -703,23 +705,43 @@ impl Level {
         let mut centres: FastMap<(i32, i32, i32), Vec<usize>> = FastMap::default();
         // Each hold's top, probed on all cores (each reads the level only; 151,000 holds in Damascus took 4.8 s on one),
         // in the holds' order: (the line along the top's middle, room above it).
-        let narrow = |l: &Ledge| -> Option<(Line, bool)> {
+        let narrow = |l: &Ledge| -> Vec<(Line, bool)> {
             let mid = (l.a + l.b) * 0.5;
-            if l.a.distance(l.b) < 0.3 {
-                return None;
+            let len = l.a.distance(l.b);
+            if len < 0.3 {
+                return vec![];
             }
             let level_with = |d: f32| self.ground(mid - l.out * d + Vec3::Y * 0.3, 0.0, 0.45).is_some_and(|g| (g.point.y - mid.y).abs() < 0.08);
-            let depth = (1..=(NARROW_TOP_MAX / 0.05) as usize + 1).map(|k| k as f32 * 0.05).find(|&d| !level_with(d))?;
-            // (Past it a drop: not the step up to a roof.)
-            let drops = self.ground(mid - l.out * (depth + 0.1) + Vec3::Y * 0.3, 0.0, 0.8).is_none();
-            if !(0.15..=NARROW_TOP_MAX).contains(&depth) || !drops {
-                return None;
+            let Some(depth) = (1..=(NARROW_TOP_MAX / 0.05) as usize + 1).map(|k| k as f32 * 0.05).find(|&d| !level_with(d)) else { return vec![] };
+            if !(0.15..=NARROW_TOP_MAX).contains(&depth) {
+                return vec![];
             }
+            // (Past it a drop: not the step up to a roof. Along all of it, every `PAIR_BEAM_STEP`, the top kept only where
+            // it drops past: tested at the middle alone, a roof edge's strip over a drop for half its length was a top to
+            // balance on its whole length, the roof flush past the rest; the running game stepped off it there.)
+            let drops = |s: f32| self.ground(l.a.lerp(l.b, s) - l.out * (depth + 0.1) + Vec3::Y * 0.3, 0.0, 0.8).is_none();
+            let n = (len / PAIR_BEAM_STEP).ceil().max(1.0) as usize;
             let shift = -l.out * (depth * 0.5);
-            let line = Line { a: l.a + shift, b: l.b + shift };
-            let centre = (line.a + line.b) * 0.5;
-            let open = self.ground(centre + Vec3::Y * 1.9, 0.0, 1.98).is_some_and(|h| (h.point.y - centre.y).abs() < 0.08);
-            Some((line, open && !self.inside_solid(centre + Vec3::Y * 0.5)))
+            let mut out = vec![];
+            let mut run: Option<usize> = None;
+            for k in 0..=n + 1 {
+                let ok = k <= n && drops(k as f32 / n as f32);
+                match (ok, run) {
+                    (true, None) => run = Some(k),
+                    (false, Some(a)) => {
+                        let (sa, sb) = (a as f32 / n as f32, (k - 1) as f32 / n as f32);
+                        if (sb - sa) * len >= 0.3 {
+                            let line = Line { a: l.a.lerp(l.b, sa) + shift, b: l.a.lerp(l.b, sb) + shift };
+                            let centre = (line.a + line.b) * 0.5;
+                            let open = self.ground(centre + Vec3::Y * 1.9, 0.0, 1.98).is_some_and(|h| (h.point.y - centre.y).abs() < 0.08);
+                            out.push((line, open && !self.inside_solid(centre + Vec3::Y * 0.5)));
+                        }
+                        run = None;
+                    }
+                    _ => {}
+                }
+            }
+            out
         };
         let tops: Vec<(Line, bool)> = par_map(&self.ledges, narrow).into_iter().flatten().collect();
         for (line, open) in tops {
@@ -781,11 +803,34 @@ impl Level {
                 // (A drop past both edges, as off the Damascus plank bridge (8 m): not a strip or a seam in a roof, the
                 // floor going on level either side, where running across one he was caught balancing on it.)
                 let drop = |h: &Ledge, at: Vec3| self.ground(at + h.out * PAIR_BEAM_OUT + Vec3::Y * 0.1, 0.0, PAIR_BEAM_DROP).is_none();
-                let at = l.a + u * ((lo + hi) * 0.5);
-                if !drop(l, at) || !drop(m, m.closest(at)) {
-                    continue;
+                // (Along all of it, every `PAIR_BEAM_STEP`: only the stretches with the drop both sides. Tested at the
+                // middle alone, a roof edge's strip over a drop for half its length was a beam its whole length, the roof
+                // flush either side of the rest; the running game stepped off it there.)
+                let ok = |s: f32| {
+                    let at = l.a + u * s;
+                    drop(l, at) && drop(m, m.closest(at))
+                };
+                let n = ((hi - lo) / PAIR_BEAM_STEP).ceil().max(1.0) as usize;
+                let mut run: Option<f32> = None;
+                for k in 0..=n {
+                    let s = lo + (hi - lo) * k as f32 / n as f32;
+                    match (ok(s), run) {
+                        (true, None) => run = Some(s),
+                        (false, Some(a)) => {
+                            let b = lo + (hi - lo) * (k - 1) as f32 / n as f32;
+                            if b - a >= 0.3 {
+                                pairs.push(Line { a: mid(a), b: mid(b) });
+                            }
+                            run = None;
+                        }
+                        _ => {}
+                    }
                 }
-                pairs.push(Line { a: mid(lo), b: mid(hi) });
+                if let Some(a) = run
+                    && hi - a >= 0.3
+                {
+                    pairs.push(Line { a: mid(a), b: mid(hi) });
+                }
             }
         }
         // (The holds either side are broken at different places: the pieces of one beam, in line and at most
