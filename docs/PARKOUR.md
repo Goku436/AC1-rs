@@ -365,6 +365,13 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - **Walling** (event 49, wall test 0xE18390): entry A → B → vertical → end (0xE37590); probes A-D hand over to the
   ledge with the `wallingfront_*_tr_*` exits; the rebound (0xE365C0) pushes off straight back when the stick is
   within 50° of the facing, else along the stick. Only the front wall run exists in the data. **[B, ours]**
+  The entry is warped to end 0.5·h out from where a probe 1.3·h over the feet meets the wall, h (1 m) up; a catch's
+  further way to its hold is taken in the catch clip. Measured on the running game's three wall runs by the bureau:
+  0.50 m out and 1.00 m up at the entry's end, ours within 0.03 m now (it was 0.08-0.2 m off when the whole way to the
+  hold went into the entry). The rebound's fall, `xx_h_rebound_footr_tr_fall`, carries 0.8 m back and 3 m down in 0.47 s:
+  AC1 falls the 2 m at a steady 7 m/s; ours starts the fall at that clip's 6.4 m/s down. **[B, ours, measured]**
+- **Ground landings, soft or hard**: one blend, its hard share drop / 2.5 m (0xE05940, as Banned445's port reads it; the
+  trace's action names only the soft clip); ours blends the two by it (it was a switch at 7 m/s down). **[B, ours]**
 - **Ladders** (context 5): actions from `HumanLadderData`'s table (+392 + 4·state + 2·foot + inclination). **[B]**
 - **Hay** (context 21): the faith landing (0x23A9666C, blend 0.3 s) or `xx_h_air_to_haystack` (0.1 s), the root
   moved to the hay over clamp(d/speed, 0.1, 0.4) s; hop out on the legs if the exit point (+0.5 m out, 1.25 m up)

@@ -242,20 +242,28 @@ const TOP_OUT_LIP: f32 = 0.45;
 /// AC1's ground landing (`HumanInAir`): `xx_h_landing_<forward|straight>_<soft|hard>_footr_tr_<into>`, `_a` the impact and
 /// `_b` going on: forward when coming down moving, straight when dropping; into the wait on the same foot, or the walk,
 /// jog or sprint's takeoff on the other.
-fn landing_names(forward: bool, hard: bool, into: LandInto) -> [String; 2] {
+/// `hard` (0-1) blends the soft and hard ones, as AC1 does by the drop (`hard_share`).
+fn landing_names(forward: bool, hard: f32, into: LandInto) -> [String; 2] {
     let way = if forward { "forward" } else { "straight" };
-    let force = if hard { "hard" } else { "soft" };
     let after = match into {
         LandInto::Wait => "h_wait_footr",
         LandInto::Walk => "l_walk_footl",
         LandInto::Jog => "h_jog_footl",
         LandInto::Sprint => "h_sprint_impultion_footl",
     };
-    let stem = format!("xx_h_landing_{way}_{force}_footr_tr_{after}");
-    [format!("{stem}_a"), format!("{stem}_b")]
+    let name = |force: &str, part: &str| format!("xx_h_landing_{way}_{force}_footr_tr_{after}_{part}");
+    let hard = hard.clamp(0.0, 1.0);
+    ["a", "b"].map(|part| match hard {
+        h if h < 0.01 => name("soft", part),
+        h if h > 0.99 => name("hard", part),
+        h => mix_name(&[(name("soft", part).as_str(), 1.0 - h), (name("hard", part).as_str(), h)]),
+    })
 }
-/// Falling faster than this (m/s, about a 2.5 m drop) lands hard.
-const HARD_LANDING_SPEED: f32 = 7.0;
+/// The hard landing's share for a drop from the apex (AC1's 0xE05940, as Banned445's port reads it): drop / 2.5 m.
+fn hard_share(drop: f32) -> f32 {
+    (drop / HARD_LANDING_DROP).clamp(0.0, 1.0)
+}
+const HARD_LANDING_DROP: f32 = 2.5;
 /// Landing with more horizontal speed than this (m/s) rolls on into a jog.
 const RUN_LANDING_SPEED: f32 = 2.0;
 const MAX_EXIT_SPEED: f32 = 6.5;
@@ -294,6 +302,14 @@ const JUMP_HANG: [(&str, u32, &str, &str); 4] = [
     ("hangfree", 250, FREE, "xx_h_hangfree_waitclose"),
     ("hangfree", 300, FREE, "xx_h_hangfree_waitclose"),
 ];
+/// Where a wall run's entry ends, facing `fwd` into the wall: `WALL_RUN_OUT` out from where a probe `WALL_RUN_PROBE` over
+/// the feet meets it, `WALL_RUN_UP` over the feet (AC1's 0xE18390, its wall hit at 1.3·h).
+fn wall_run_contact(level: &Level, root: &Transform, fwd: Vec3) -> Option<Vec3> {
+    let hit = level.raycast(root.translation + Vec3::Y * WALL_RUN_PROBE, fwd, WALL_RUN_REACH + 0.5).filter(|h| h.normal.y.abs() < 0.3)?;
+    let n = hit.normal.with_y(0.0).normalize_or_zero();
+    Some((hit.point + n * WALL_RUN_OUT).with_y(root.translation.y + WALL_RUN_UP))
+}
+
 /// How far the hands of a jump up to a hold may miss it (the root is moved over the jump).
 const JUMP_HANG_REACH: f32 = 0.45;
 /// A wall run up with nothing to grab needs this much clear space above the root plus 1 m (m), this
@@ -380,6 +396,8 @@ const WALL_RUN: [&str; 3] = ["xx_h_wallingfront_entry_footl_a", "xx_h_wallingfro
 const WALL_RUN_FALL: &str = "xx_h_wallingfront_step1_footr_tr_fall";
 /// How fast the wall run's kick off the top carries him away from the wall (m/s; `xx_h_rebound_footr_tr_fall`'s root).
 const REBOUND_OFF_SPEED: f32 = 1.7;
+/// And down (m/s; the same clip's 3 m in 0.47 s).
+const REBOUND_DROP_SPEED: f32 = 6.4;
 /// The wall run's top with nothing to grab and the legs held: the kick off backwards (AC1, seen in the running game).
 const WALL_RUN_REBOUND: [&str; 3] =
     ["xx_h_wallingfront_step1_footr_tr_rebound_footr_a", "xx_h_wallingfront_step1_footr_tr_rebound_footr_b", "xx_h_rebound_footr_tr_fall"];
@@ -389,8 +407,12 @@ const REBOUND_LATE: f32 = 0.6;
 pub const WALL_RUN_REACH: f32 = 2.0;
 /// A wall met up to this far off square (rad, 60°) is run up, turning to face it.
 const WALL_RUN_ANGLE: f32 = 1.05;
-/// Where the wall face sits in front of the root for the first step of a wall run.
-const WALL_RUN_FOOT: f32 = 0.75;
+/// Where a wall run's entry ends (m): this far out from the wall and this high over the feet, as AC1 warps it (0xE18390:
+/// 0.5·h out, h up, h = 1 m for Altaïr; Banned445's reading, and the running game's runs up the bureau's walls end
+/// 0.50 m out, 1.00 m up).
+const WALL_RUN_OUT: f32 = 0.5;
+const WALL_RUN_UP: f32 = 1.0;
+const WALL_RUN_PROBE: f32 = 1.3;
 /// Pseudo-state: running up a wall.
 const WALL_RUN_STATE: &str = "wallrun";
 /// Pseudo-states: taking off for a leap of faith, hidden in a haystack, hopping out of it.
@@ -2227,9 +2249,12 @@ impl WallClimb {
                     last.to = FALL.into();
                 }
                 w.can_catch = true;
+                // (The entry ends where AC1 warps it: `WALL_RUN_OUT` out from the wall, `WALL_RUN_UP` over the feet.)
+                let travel = world_rot(planned.rotation) * root_motion_at(&first, first.frames());
+                let contact = wall_run_contact(level, root, -normal).unwrap_or((hit.point + normal * WALL_RUN_OUT).with_y(root.translation.y + WALL_RUN_UP));
                 w.start(first, WALL_RUN_STATE.into(), &planned);
                 if let Some(m) = &mut w.mv {
-                    m.correct = -normal * (hit.dist - WALL_RUN_FOOT);
+                    m.correct = contact - (root.translation + travel);
                 }
                 w
             }
@@ -2464,7 +2489,24 @@ impl WallClimb {
                 w.perch = Some(i);
                 debug!("climb: one-hand pull-up onto a post");
             }
+            // A wall run's catch: the entry ends where AC1 warps it (`WALL_RUN_OUT`, `WALL_RUN_UP`), the rest of the way
+            // to the hold taken in the catch (else the whole of it was in the entry, which ended 0.17 m off where the
+            // running game's does).
+            let catch_at = clips.len().checked_sub(opt.catch).filter(|&k| k > 0);
+            let split = match (carry, hit, catch_at, &opt.end) {
+                (Some(0), Some(_), Some(k), GrabEnd::Hang(..)) => {
+                    let travel = world_rot(facing.rotation) * root_motion_at(&clips[0], clips[0].frames());
+                    Some((k, wall_run_contact(level, root, fwd)? - (root.translation + travel)))
+                }
+                _ => None,
+            };
             w.start_chain_carry(clips, tos, &facing, err, carry);
+            if let Some((k, warp)) = split
+                && let (Some(m), Some(q)) = (w.mv.as_mut(), w.queue.get_mut(k - 1))
+            {
+                q.correct += m.correct - warp;
+                m.correct = warp;
+            }
             if end_fix != Vec3::ZERO {
                 let over = w.queue.iter().position(|q| late_correction(&q.clip.name)).unwrap_or(w.queue.len().saturating_sub(1));
                 match w.queue.get_mut(over) {
@@ -4976,7 +5018,7 @@ impl WallClimb {
         };
         root.translation.y = ground.point.y;
         self.fall_v = None;
-        let (flat_speed, down_speed) = (v.with_y(0.0).length(), -v.y);
+        let flat_speed = v.with_y(0.0).length();
         // (Running means going the way he faces: flying backward off a rebound lands standing, not rolling on.)
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
         let running = flat_speed > RUN_LANDING_SPEED && v.with_y(0.0).dot(fwd) > 0.0;
@@ -5045,7 +5087,7 @@ impl WallClimb {
                 };
                 [LAND_DAMAGE.to_string(), format!("{LAND_DAMAGE}_tr_{after}")]
             }
-            _ => landing_names(forward, down_speed > HARD_LANDING_SPEED, into),
+            _ => landing_names(forward, hard_share(drop), into),
         };
         debug!("climb: landing into {into:?} ({})", names[0]);
         // On the way it faces: at the run's speed when running in, else at the speed of what it goes into.
@@ -5252,8 +5294,9 @@ impl WallClimb {
                 let n = clips.len();
                 self.queue = clips.into_iter().enumerate().map(|(k, c)| Queued::new(c, if k + 1 == n { FALL } else { WALL_RUN_STATE })).collect();
                 self.can_catch = false;
-                // (Flying off backwards as `rebound_footr_tr_fall` moves, 0.8 m in 0.47 s: AC1 lands 0.65 m out.)
-                self.fall_with = Some(self.normal.with_y(0.0).normalize_or_zero() * REBOUND_OFF_SPEED);
+                // (Flying off backwards and down as `rebound_footr_tr_fall` moves, 0.8 m back and 3 m down in 0.47 s: AC1
+                // lands 0.65 m out, 1.96 m down in 0.27 s, falling at a steady 7 m/s; from rest ours took 0.65 s.)
+                self.fall_with = Some(self.normal.with_y(0.0).normalize_or_zero() * REBOUND_OFF_SPEED + Vec3::NEG_Y * REBOUND_DROP_SPEED);
                 debug!("climb: the wall run tops out with nothing to grab: rebound off it");
             }
             if !self.queue.is_empty() {
@@ -5517,9 +5560,9 @@ mod tests {
         assert_eq!(LandInto::from(true, false, false), LandInto::Walk);
         assert_eq!(LandInto::from(true, true, false), LandInto::Jog);
         assert_eq!(LandInto::from(true, true, true), LandInto::Sprint);
-        assert_eq!(landing_names(true, false, LandInto::Wait)[0], "xx_h_landing_forward_soft_footr_tr_h_wait_footr_a");
-        assert_eq!(landing_names(false, true, LandInto::Sprint)[1], "xx_h_landing_straight_hard_footr_tr_h_sprint_impultion_footl_b");
-        assert_eq!(landing_names(false, false, LandInto::Walk)[0], "xx_h_landing_straight_soft_footr_tr_l_walk_footl_a");
+        assert_eq!(landing_names(true, 0.0, LandInto::Wait)[0], "xx_h_landing_forward_soft_footr_tr_h_wait_footr_a");
+        assert_eq!(landing_names(false, 1.0, LandInto::Sprint)[1], "xx_h_landing_straight_hard_footr_tr_h_sprint_impultion_footl_b");
+        assert_eq!(landing_names(false, 0.0, LandInto::Walk)[0], "xx_h_landing_straight_soft_footr_tr_l_walk_footl_a");
     }
 
     #[test]
