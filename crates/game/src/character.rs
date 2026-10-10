@@ -545,6 +545,8 @@ const LEDGE_STOP_CRACK: f32 = 0.3;
 /// `LEDGE_STOP_DROP`: one ending the floor (a Damascus roof's end over a crack, the next roof 0.7 m down), not a seam in a
 /// roof.
 const BEAM_EDGE_DROP: f32 = 0.5;
+/// (And at most this deep: past a roof's parapet beam with a ledge 4 m down, the running game made the ledge stop.)
+const BEAM_EDGE_DROP_MAX: f32 = 2.0;
 /// Standing at an edge dropping more than this looks down over it (m).
 const LOOK_DOWN_DROP: f32 = 2.0;
 /// Standing still this long (s) before looking down over an edge (the timer AC1's ground input interpreter checks).
@@ -623,7 +625,15 @@ fn ground_move(
         let dir = v / speed;
         // (A drop wider than a crack: off a Damascus roof ending in a beam over a 0.1 m crack, the next roof 0.7 m below
         // past it, AC1 ran on onto the beam and free-stepped off it; ours stopped at the crack.)
-        let drop = |d: f32| level.ground(tf.translation + dir * d, 0.3, LEDGE_STOP_DROP).is_none();
+        // (A narrow step more than 2 m down counts as the drop: AC1 measures past stepped drops; a ledge 4 m under a
+        // Damascus roof's edge, 0.3 m wide over the street 8 m down, read as ground till ours was over the edge.)
+        // (A beam's top more than 2 m down counts as the drop too: a beam 4.5 m under that edge did not stop ours; the
+        // running game stopped.)
+        let deep = |p: Vec3| level.ground(p, 0.3, LEDGE_STOP_DROP).is_none_or(|g| p.y - g.point.y > 2.0 && level.perch_at(g.point, 0.2).is_some());
+        let drop = |d: f32| {
+            let p = tf.translation + dir * d;
+            deep(p) || (level.ground(p, 0.3, LEDGE_STOP_DROP).is_some_and(|g| p.y - g.point.y > 2.0) && deep(p + dir * 0.4))
+        };
         if let Some(d) = (1..=12).map(|k| k as f32 * 0.05).find(|&d| drop(d) && drop(d + LEDGE_STOP_CRACK)) {
             let names = vec!["xx_h_ledge_stop_start_footl".to_string(), "xx_h_ledge_stop_end_footl".into(), "xx_h_ledge_stop_end_tr_h_wait_footr".into()];
             let at = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir), ..*tf };
@@ -1258,7 +1268,7 @@ pub fn locomotion(
                     || (ctl.high && !still && {
                         let q = l.closest(tf.translation);
                         [0.5, 0.8].iter().all(|&d| {
-                            level.ground(q + way * d, 0.3, BEAM_EDGE_DROP).is_none() && level.ground(q + way * d, 0.3, LEDGE_STOP_DROP).is_some()
+                            level.ground(q + way * d, 0.3, BEAM_EDGE_DROP).is_none() && level.ground(q + way * d, 0.3, BEAM_EDGE_DROP_MAX).is_some()
                         })
                     })
             };

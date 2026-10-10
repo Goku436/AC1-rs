@@ -5542,6 +5542,18 @@ impl WallClimb {
             let turn = done.start_rot * root_delta(root_rotation_at(&done.clip, done.clip.frames())) * done.start_rot.inverse();
             self.normal = turn * self.normal;
             self.state = done.to;
+            // The ledge stop's start played with the stick still at the edge (within 70 degrees): back on the ground at
+            // once, where the pull-down takes it (AC1 went from `xx_h_ledge_stop_start` straight into
+            // `xx_l_ledge_stop_start_footl_pulldown_front_orientation`, 0.27 s after stopping; ours played the stop's end
+            // first, a second).
+            if done.clip.name.starts_with("xx_h_ledge_stop_start_")
+                && self.move_dir.with_y(0.0).normalize_or_zero().dot(-self.normal.with_y(0.0).normalize_or_zero()) >= 0.342
+            {
+                self.queue.clear();
+                self.state = GROUND.into();
+                self.finished = true;
+                return;
+            }
             // (The rebound pose played: the eject asked for.)
             if let Some((input, left)) = self.eject_after.take()
                 && let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone())
