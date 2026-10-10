@@ -889,17 +889,31 @@ impl Level {
         let mut joined: Vec<Line> = vec![];
         for l in found {
             let axis = l.axis();
+            // (Either end of the one met either end of this: pieces of one top found in either direction.)
             let hit = near(&ends, l.a).into_iter().chain(near(&ends, l.b)).find(|&j| {
                 let k = joined[j];
-                k.axis().dot(axis).abs() > 0.97 && (k.b.distance(l.a) < 0.15 || k.b.distance(l.b) < 0.15)
+                k.axis().dot(axis).abs() > 0.97 && [k.a, k.b].iter().any(|e| e.distance(l.a) < 0.15 || e.distance(l.b) < 0.15)
             });
             match hit {
                 Some(j) => {
                     let k = &mut joined[j];
-                    k.b = if k.b.distance(l.a) < 0.15 { l.b } else { l.a };
+                    // (The line from its far end to this one's far end.)
+                    let pts = [k.a, k.b, l.a, l.b];
+                    let (mut best, mut far) = ((k.a, k.b), 0.0f32);
+                    for x in 0..4 {
+                        for y in x + 1..4 {
+                            if pts[x].distance(pts[y]) > far {
+                                far = pts[x].distance(pts[y]);
+                                best = (pts[x], pts[y]);
+                            }
+                        }
+                    }
+                    (k.a, k.b) = best;
+                    ends.entry(key(k.a)).or_default().push(j);
                     ends.entry(key(k.b)).or_default().push(j);
                 }
                 None => {
+                    ends.entry(key(l.a)).or_default().push(joined.len());
                     ends.entry(key(l.b)).or_default().push(joined.len());
                     joined.push(l);
                 }

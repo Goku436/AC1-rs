@@ -668,6 +668,8 @@ const JUMP_TOP_HEADROOM: f32 = 1.7;
 /// edge at most 1.3 m up as a top to land on (`Human__ComputeJumpAnimBlend` 0xB1EC40, Banned445): only higher ones
 /// are hung from (a waist-high wall's top is no hold to jump at).
 const JUMP_HOLD_RISE: std::ops::RangeInclusive<f32> = 1.3..=2.6;
+/// A jump along a beam lands this far short of its far end (m).
+const BEAM_FAR_END_SHORT: f32 = 0.27;
 /// A free-step jump coming down this close to a beam (m, flat) lands on it.
 const BEAM_ARRIVE: f32 = 0.55;
 /// A jump onto a top: a step up past it within this (m) is more top, not something over it.
@@ -1558,8 +1560,15 @@ fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>,
                         cands.push(l.a.lerp(l.b, s));
                     }
                 }
-            } else {
+            } else if !zone {
                 cands.extend([1.5, 2.5, 3.5, 4.5].map(|d| l.closest(from + dir * d)));
+            } else {
+                // (A beam along the way: where the way leaves it, `BEAM_FAR_END_SHORT` short of its far end, as AC1's
+                // candidates are where the forward line meets an edge; off the open roof north the running game jumped
+                // 3 m to 0.27 m short of a beam's end, ours to its nearest point 1 m on.)
+                let (near_end, far_end) = if (l.b - l.a).dot(dir) >= 0.0 { (l.a, l.b) } else { (l.b, l.a) };
+                let back = (near_end - far_end).with_y(0.0).normalize_or_zero();
+                cands.push(far_end + back * BEAM_FAR_END_SHORT);
             }
         }
     }
