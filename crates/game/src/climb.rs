@@ -536,6 +536,8 @@ const PERCH_TAKEOFF: &str = "xx_h_beam_pilotis_tr_impultionstraight_a";
 const PERCH_PUSH: &str = "xx_h_beam_impultionstraight_to_jumpstraight";
 const BEAM_WALK: [&str; 2] = ["xx_l_beam_crouchwalk_footl", "xx_l_beam_crouchwalk_footr"];
 const BEAM_JOG: [&str; 2] = ["xx_h_beam_crouchjog_footl", "xx_h_beam_crouchjog_footr"];
+/// Free running along a beam, the jog's share of the crouch walk and jog blended.
+const BEAM_SPRINT_JOG: f32 = 0.85;
 /// Crouched on a beam (`HumanNarrowObject`): facing along it on the left or right foot ahead, or across it.
 const BEAM_WAIT: [&str; 2] = ["xx_l_beam_crouchwait_footl", "xx_l_beam_crouchwait_footr"];
 const BEAM_WAIT_ACROSS: &str = "xx_l_beam_crouchwait_90";
@@ -3580,8 +3582,14 @@ impl WallClimb {
     }
 
     fn start_beam_walk(&mut self, lib: &mut AnimLib, dir: Vec3) {
-        let names = if self.sprint { BEAM_JOG } else { BEAM_WALK };
-        let (Some(a), Some(b)) = (lib.get(names[0]), lib.get(names[1])) else { return };
+        // (Free running, AC1's beam move is the crouch walk and jog blended, mostly the jog: the running game went along
+        // Damascus beams at 3.0-3.7 m/s free running, under the crouch walk's action, never the jog's own 3.7-3.9.)
+        let names: [String; 2] = if self.sprint {
+            [0, 1].map(|f| mix_name(&[(BEAM_WALK[f], 1.0 - BEAM_SPRINT_JOG), (BEAM_JOG[f], BEAM_SPRINT_JOG)]))
+        } else {
+            BEAM_WALK.map(String::from)
+        };
+        let (Some(a), Some(b)) = (lib.get(&names[0]), lib.get(&names[1])) else { return };
         let speed = root_motion_at(&a, a.frames()).length() / a.anim.duration.max(1e-3);
         // From the crouch on a foot facing along the beam: AC1's start (0x34662CB4 / B5) on into the other foot's step.
         let feet = ["footl", "footr"];
