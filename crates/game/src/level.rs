@@ -122,6 +122,10 @@ const NARROW_TOP_MAX: f32 = 0.35;
 /// most 0.5 m), when along each other within 30 degrees (`PAIR_BEAM_COS`) and facing away within 30.
 const PAIR_BEAM_WIDTH: f32 = 1.0;
 const PAIR_BEAM_COS: f32 = 0.866;
+/// A paired beam needs a drop past both its edges: no floor within `PAIR_BEAM_DROP` (m) under its top, `PAIR_BEAM_OUT`
+/// (m) out from each.
+const PAIR_BEAM_DROP: f32 = 0.5;
+const PAIR_BEAM_OUT: f32 = 0.3;
 /// Pieces of one paired beam in line this far apart or less (m), over the same top, are joined.
 const PAIR_BEAM_GAP: f32 = 1.0;
 /// Rays this long (m) decide whether a point is inside a solid (`inside_solid`).
@@ -772,6 +776,13 @@ impl Level {
                     let p = l.a + u * s;
                     (p + m.closest(p)) * 0.5
                 };
+                // (A drop past both edges, as off the Damascus plank bridge (8 m): not a strip or a seam in a roof, the
+                // floor going on level either side, where running across one he was caught balancing on it.)
+                let drop = |h: &Ledge, at: Vec3| self.ground(at + h.out * PAIR_BEAM_OUT + Vec3::Y * 0.1, 0.0, PAIR_BEAM_DROP).is_none();
+                let at = l.a + u * ((lo + hi) * 0.5);
+                if !drop(l, at) || !drop(m, m.closest(at)) {
+                    continue;
+                }
                 pairs.push(Line { a: mid(lo), b: mid(hi) });
             }
         }
@@ -1220,6 +1231,12 @@ pub fn spawn_level(
                 let d = Line { a: l.a, b: l.b }.closest(p).distance(p);
                 if d < v[3] {
                     info!("hold {i}: {:.2} to {:.2}, out {:.2}, {d:.2} m away", l.a, l.b, l.out);
+                }
+            }
+            for (i, l) in level.perches.iter().enumerate() {
+                let d = l.closest(p).distance(p);
+                if d < v[3] {
+                    info!("perch {i}: {:.2} to {:.2}, {d:.2} m away", l.a, l.b);
                 }
             }
         }

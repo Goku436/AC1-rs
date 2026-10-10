@@ -1214,11 +1214,13 @@ pub fn locomotion(
             // (A beam only walking along it, within 30 degrees, as AC1 gets on one from the ground (0xD9F4C0, as Banned445's
             // port reads it): standing still beside a strip in a roof's floor, two holds 0.17 m apart, ours stepped
             // onto it and balanced there; the running game stood on the roof. A post from any side.)
-            // (Or standing on its line already: started on a beam.)
+            // (Or standing still on its line already: started on a beam. Not running across one: passing over its line he
+            // was caught on it, at every seam of a Damascus roof.)
+            let still = ch.velocity.with_y(0.0).length() < 0.3;
             let along = |i: usize| {
                 let l = &level.perches[i];
                 let axis = l.axis().with_y(0.0).normalize_or_zero();
-                axis == Vec3::ZERO || axis.dot(way).abs() > 0.866 || (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15
+                axis == Vec3::ZERO || axis.dot(way).abs() > 0.866 || (still && (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15)
             };
             if ch.fall_v == 0.0
                 && !floor_on
