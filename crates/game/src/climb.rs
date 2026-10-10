@@ -845,6 +845,9 @@ pub struct WallClimb {
     /// An eject off a wall hang waiting for the rebound pose before it to end (AC1's `xx_h_hangwall_tr_rebound_<foot>`):
     /// the stick and the foot it was asked with.
     eject_after: Option<(Vec2, bool)>,
+    /// Going over a wall (a passover): the height of its top, which the fall after does not land on (with long frames
+    /// the fall started over the top and came down on it, then jumped off it).
+    clear_of: Option<f32>,
     /// Velocity while airborne (the root follows gravity, not the clip).
     fall_v: Option<Vec3>,
     /// Upward speed added when the next fall starts (running jump takeoff).
@@ -1768,6 +1771,7 @@ impl WallClimb {
             last_hand_up: 0,
             want_drop: false,
             eject_after: None,
+            clear_of: None,
             fall_v: None,
             launch: 0.0,
             free_jump: false,
@@ -2541,6 +2545,7 @@ impl WallClimb {
         if let Some(q) = w.queue.get_mut(touch - 1) {
             q.correct = fwd * short;
         }
+        w.clear_of = Some(top.point.y);
         debug!("climb: wall run over the {h:.2} m wall ({cm} cm deep, {hand})");
         Some(w)
     }
@@ -5368,6 +5373,8 @@ impl WallClimb {
         }
         // Ground crossed this frame on the way down (searching from a little above where we were).
         let ground = if v.y <= 0.0 { level.ground(root.translation, 0.3 - step.y, 0.0) } else { None };
+        // (Not the top of the wall just gone over.)
+        let ground = ground.filter(|g| self.clear_of.is_none_or(|t| g.point.y < t - 0.2));
         let Some(ground) = ground else {
             if root.translation.y < -100.0 {
                 self.fall_v = None;
