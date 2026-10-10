@@ -117,6 +117,15 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   onto the floor a step down (at most 1.2 m): AC1's two such hops, off that beam and off a 0.57 m block on the open roof
   (1.07 m down, 3.2 m on in 0.6 s), are both a launch of 5.4 m/s on and 1 m/s up under gravity. A jump onto a post or a
   beam that short stops on it to balance (the block counts as a post), then free-steps on. **[ours, measured]**
+- **Jump reach and the pick** (`jump_target`): a running jump's targets lie in AC1's reach zone 1 (`JumpZones`
+  0x1A2BF40, read live by Banned445: up to 1.3 m up to 3.5 m on, 0.8 at 4.7, -0.5 at 6, -3 at 8, down to 5 m below),
+  only on the forward line (tops are looked for straight on, not 20° to the sides), the far end of a top too (landed
+  0.2 m short of it). The scorer (0xE96BF0): a target over a plane through the hips tilted down ahead (normal 0.5 on,
+  0.7 up) is in front; the nearest in front, else the furthest behind; a swing bar as near as and no lower than the top
+  first. Off roof 2 a beam 4.4 m down 1.5 m on is behind, and the running game jumped over it to the roof 2.8 m on; off
+  the seams roof one 2.3 m down 6.5 m on is in front and it jumped there; off roof 1 onto a roof 3.7 m below all is
+  behind, and it landed 0.2 m short of that roof's far end 4.6 m on (ours now 0.05 m from each). A hurt landing rolls
+  only with the stick held (AC1 by the stick's speed): let go, it lands and stands. **[B, ours, measured]**
 - **Jump targets at roof edges** are where the way forward crosses the edge, as for beams (AC1's candidates): the edge's
   point nearest a spot 4 m ahead was its end when the way crossed the next piece, and the jump went 0.7 m off the way; a
   beam's own side edges are no roof edges. **[ours, measured]**

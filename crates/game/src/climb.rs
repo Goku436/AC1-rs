@@ -603,7 +603,17 @@ const EJECT_UP: f32 = 2.5;
 /// Wall runs need a wall at least this wide (m).
 const WALL_RUN_WIDTH: f32 = 0.7;
 /// Jump targets: this far across (m), and within this cosine of the wanted direction (45 degrees).
-const JUMP_TARGET_REACH: std::ops::RangeInclusive<f32> = 1.0..=4.6;
+/// A running jump's targets, from 1 m on, as far as AC1's reach zone goes (`in_jump_zone`).
+const JUMP_TARGET_REACH: std::ops::RangeInclusive<f32> = 1.0..=8.0;
+/// AC1's scorer's front plane: a target is in front when it is less than 0.5 m under the hips (0.5 m up) per metre
+/// on × this (0.5 / 0.7).
+const JUMP_FRONT_SLOPE: f32 = 0.5 / 0.7;
+/// A top's far end within reach is landed on this far short of it (m).
+const JUMP_FAR_END_SHORT: f32 = 0.2;
+/// A running jump at a hold to catch, or over a thin wall: this far (m, flat).
+const JUMP_HOLD_REACH: std::ops::RangeInclusive<f32> = 1.0..=4.6;
+/// The deepest a jump's target is looked for below (m; the reach zone's floor).
+const JUMP_TARGET_DEEP: f32 = 5.0;
 /// An eject's targets, from nearer: the running game's eject to the right off the bureau's wall landed on a beam stuck out
 /// of the wall 0.95 m away (ours went on 4 m to the next).
 const EJECT_REACH: std::ops::RangeInclusive<f32> = 0.5..=4.6;
@@ -1389,7 +1399,7 @@ fn jump_hold(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3)> {
         })
         .filter(|(q, _)| {
             let flat = (*q - from).with_y(0.0);
-            JUMP_TARGET_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_HOLD_RISE.contains(&(q.y - from.y))
+            JUMP_HOLD_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_HOLD_RISE.contains(&(q.y - from.y))
         })
         .filter(|(q, out)| Ac1Edge::probe(level, *q, *out).hang() && ac1_clear_way(level, from, *q + *out * 0.2 - Vec3::Y * 1.1))
         .min_by(|a, b| (a.0 - from).length().total_cmp(&(b.0 - from).length()))
@@ -1400,9 +1410,9 @@ fn jump_hold(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3)> {
 /// point on the top's near edge, the face's normal and the top's depth.
 fn passover_target(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3, f32)> {
     let dir = dir.with_y(0.0).normalize_or_zero();
-    let hit = [0.4, 0.9].iter().find_map(|h| level.raycast(from + Vec3::Y * *h, dir, *JUMP_TARGET_REACH.end()).filter(|h| h.normal.y.abs() < 0.3))?;
+    let hit = [0.4, 0.9].iter().find_map(|h| level.raycast(from + Vec3::Y * *h, dir, *JUMP_HOLD_REACH.end()).filter(|h| h.normal.y.abs() < 0.3))?;
     let normal = hit.normal.with_y(0.0).normalize_or_zero();
-    if normal.dot(dir) > -JUMP_TARGET_CONE || hit.dist < *JUMP_TARGET_REACH.start() {
+    if normal.dot(dir) > -JUMP_TARGET_CONE || hit.dist < *JUMP_HOLD_REACH.start() {
         return None;
     }
     let fwd = -normal;
@@ -1447,11 +1457,29 @@ fn bar_ahead(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
 /// 45 degrees of the wanted direction, at most 3 m down, the nearest of the free-step ones): a post or
 /// beam (`skip`: the one stood on), or a walkable top across a gap.
 fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Option<Vec3> {
-    jump_target_within(level, from, dir, skip, JUMP_TARGET_REACH)
+    jump_target_within(level, from, dir, skip, JUMP_TARGET_REACH, true)
 }
 
-/// `jump_target` with targets `reach` (m, flat) away.
-fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>, reach: std::ops::RangeInclusive<f32>) -> Option<Vec3> {
+/// Inside AC1's reach zone 1 (`JumpZones` 0x1A2BF40, the jump's own zone, read live by Banned445): a side view, `dist` on
+/// and `rise` up from the feet. Up to 1.3 m up to 3.5 m on, then lower the further: 0.8 m at 4.7, -0.5 at 6, -3 at 8;
+/// down to 5 m below.
+fn in_jump_zone(dist: f32, rise: f32) -> bool {
+    const ZONE: [[f32; 2]; 7] = [[0.5, -5.0], [0.5, 1.3], [3.5, 1.3], [4.7, 0.8], [6.0, -0.5], [8.0, -3.0], [8.0, -5.0]];
+    let mut inside = false;
+    for i in 0..ZONE.len() {
+        let (a, b) = (ZONE[i], ZONE[(i + 1) % ZONE.len()]);
+        if (a[1] > rise) != (b[1] > rise) {
+            let t = (rise - a[1]) / (b[1] - a[1]);
+            if dist < a[0] + t * (b[0] - a[0]) {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
+/// `jump_target` with targets `reach` (m, flat) away: in AC1's reach zone 1 when `zone`, else `JUMP_TARGET_RISE` up.
+fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>, reach: std::ops::RangeInclusive<f32>, zone: bool) -> Option<Vec3> {
     let dir = dir.with_y(0.0).normalize_or_zero();
     let mut cands: Vec<Vec3> = vec![];
     for (i, l) in level.perches.iter().enumerate() {
@@ -1486,12 +1514,14 @@ fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>,
         }
     }
     // Tops beyond a drop: the first ground after a gap, a little in from its edge.
-    for turn in [-0.35f32, 0.0, 0.35] {
+    // (Straight on only, as AC1's candidates lie on the forward line: tops found 20 degrees to either side were taken
+    // nearest, and a jump went off the way, 1.2 m to a top beside it, where the running game jumped on 6.5 m.)
+    for turn in [0.0f32] {
         let d = Quat::from_rotation_y(turn) * dir;
         let mut gap = false;
-        for k in 2..=18 {
+        for k in 2..=(reach.end() / 0.25) as usize {
             let t = k as f32 * 0.25;
-            match level.ground(from + d * t, 1.2, -JUMP_TARGET_RISE.start() + 0.2) {
+            match level.ground(from + d * t, 1.2, JUMP_TARGET_DEEP + 0.2) {
                 None => gap = true,
                 // (Room to stand over it, and not inside a block: a probe starting inside one finds the floor under it,
                 // and looking up from there meets the block's roof from below.)
@@ -1506,10 +1536,28 @@ fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>,
                     // (At the edge: back in 5 cm steps to where the top begins.)
                     let edge = (1..5)
                         .map(|k| t - k as f32 * 0.05)
-                        .take_while(|&s| level.ground(from + d * s, 1.2, -JUMP_TARGET_RISE.start() + 0.2).is_some_and(|h| (h.point.y - g.point.y).abs() < 0.15))
+                        .take_while(|&s| level.ground(from + d * s, 1.2, JUMP_TARGET_DEEP + 0.2).is_some_and(|h| (h.point.y - g.point.y).abs() < 0.15))
                         .last()
                         .unwrap_or(t);
                     cands.push(from + d * (edge + ROOF_EDGE_INSET) + Vec3::Y * (g.point.y - from.y));
+                    // (And for a running jump its far end, where it drops away again within reach, landed on
+                    // `JUMP_FAR_END_SHORT` short of it: AC1's candidates are on edges facing either way. Off a roof over a
+                    // street onto one 3.7 m below, everything behind, the furthest taken, the running game landed 0.2 m
+                    // short of that roof's far end, 4.6 m on.)
+                    if zone {
+                        let at = |s: f32| (from + d * s).with_y(g.point.y);
+                        let on_top = |s: f32| level.ground(at(s), 0.3, 0.3).is_some_and(|h| (h.point.y - g.point.y).abs() < 0.15);
+                        let mut end = t;
+                        while end + 0.1 <= *reach.end() && on_top(end + 0.1) {
+                            end += 0.1;
+                        }
+                        if end + 0.1 <= *reach.end() && end - JUMP_FAR_END_SHORT > edge + ROOF_EDGE_INSET + 0.5 {
+                            let s = end - JUMP_FAR_END_SHORT;
+                            if let Some(h) = level.ground(at(s), 0.3, 0.3) {
+                                cands.push(h.point);
+                            }
+                        }
+                    }
                     break;
                 }
                 _ => {}
@@ -1531,11 +1579,16 @@ fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>,
             continue;
         }
         let on = l.a.lerp(l.b, s);
-        if (on - from).with_y(0.0).length() > *JUMP_TARGET_REACH.end() + 1.0 || l.out.dot((from - on).with_y(0.0)) <= 0.0 || on.y - from.y > 1.3 {
+        // (Facing us, or for a running jump facing away too, the far edge of a top, landed on just short of it: AC1's
+        // candidates are on edges facing any way. Off a roof over a street onto a roof 3.7 m below, where everything counts as
+        // behind and the furthest is taken, the running game landed 0.2 m short of its far edge, 4.6 m on.)
+        let facing_us = l.out.dot((from - on).with_y(0.0)) > 0.0;
+        if (on - from).with_y(0.0).length() > *reach.end() + 1.0 || !(facing_us || zone) || on.y - from.y > 1.3 {
             continue;
         }
         // (AC1: a top at least 0.3 m deep behind the edge, the way to it clear from the chest.)
-        if !Ac1Edge::probe(level, on, l.out).step_onto() || !ac1_clear_way(level, from, on + l.out * 0.2) {
+        let near = on + (from - on).with_y(0.0).normalize_or_zero() * 0.2;
+        if !Ac1Edge::probe(level, on, l.out).step_onto() || !ac1_clear_way(level, from, near) {
             continue;
         }
         let land = on - l.out * ROOF_EDGE_INSET;
@@ -1556,7 +1609,7 @@ fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>,
             reach.contains(&flat.length())
                 && flat.normalize().dot(dir) >= JUMP_TARGET_CONE
                 && flat.cross(dir).y.abs() <= JUMP_TARGET_ACROSS
-                && JUMP_TARGET_RISE.contains(&(q.y - from.y))
+                && if zone { in_jump_zone(flat.length(), q.y - from.y) } else { JUMP_TARGET_RISE.contains(&(q.y - from.y)) }
         })
         // (The way across clear over the higher of the two: a top under an awning or past a wall the flight meets is
         // no target, else the jump stops in the air and drops back, over and over.)
@@ -1572,9 +1625,16 @@ fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>,
                 && (level.perch_at(*q, 0.15).is_some()
                     || (level.raycast(*q + Vec3::Y * 1.0, way, JUMP_LAND_ROOM).is_none() && level.ground(*q + way * 0.4, 0.3, 0.3).is_some()))
         })
-        // AC1's scorer (0xE96BF0, docs/PARKOUR.md section 6): of the free-step targets in the cone (tops, posts, beams),
-        // the nearest.
-        .min_by(|a, b| (*a - from).with_y(0.0).length().total_cmp(&(*b - from).with_y(0.0).length()))
+        // AC1's scorer (0xE96BF0, docs/PARKOUR.md section 6): of the free-step targets (tops, posts, beams) in front, the
+        // nearest; with none, of those behind, the furthest. In front is over a plane through the hips tilted down ahead
+        // (normal 0.5 on, 0.7 up): a beam 4.4 m down 1.5 m on is behind, and the running game jumped over it onto the
+        // roof 2.8 m on; one 2.3 m down 6.5 m on is in front, and it jumped to it.
+        .map(|q| {
+            let d = (q - from).with_y(0.0).length();
+            (q, d, q.y - from.y > 0.5 - JUMP_FRONT_SLOPE * d)
+        })
+        .min_by(|a, b| b.2.cmp(&a.2).then(if a.2 { a.1.total_cmp(&b.1) } else { b.1.total_cmp(&a.1) }))
+        .map(|(q, _, _)| q)
 }
 
 fn ballistic(from: Vec3, to: Vec3) -> (Vec3, f32) {
@@ -1841,6 +1901,14 @@ impl WallClimb {
         let speed = dir.with_y(0.0).length();
         let p = root.translation;
         let top = jump_target(level, p, dir, None);
+        // (A swing bar ahead as near and no lower than the top: AC1's scorer takes the hang target first (0xE96BF0, a pole
+        // over a front ledge when nearer and not below it); the plain jump flies onto the bar.)
+        if let (Some(t), Some(b)) = (top, bar_ahead(level, p, dir))
+            && (b - p).with_y(0.0).length() <= (t - p).with_y(0.0).length()
+            && b.y >= t.y
+        {
+            return Self::jump(lib, level, root, dir, left, from);
+        }
         let at_hold = top.is_none();
         // A thin wall ahead, too high to land on: over it, a hand on its top (AC1's passover).
         if top.is_none()
@@ -2624,7 +2692,7 @@ impl WallClimb {
         let right = (-away).cross(Vec3::Y);
         let way = if input.x.abs() > 0.5 { right * input.x.signum() } else { away };
         let p = root.translation;
-        let to = jump_target_within(level, p, way, None, EJECT_REACH)?;
+        let to = jump_target_within(level, p, way, None, EJECT_REACH, false)?;
         let flat = (to - p).with_y(0.0);
         let aim = flat.normalize_or_zero();
         // (Its angle off straight away, positive to the right of the body turned away.)
@@ -5167,7 +5235,9 @@ impl WallClimb {
         };
         let names: [String; 2] = match running {
             _ if damage >= HEAVY_DAMAGE => LAND_HEAVY.map(String::from),
-            true if damage > 0.0 || drop > ROLL_LANDING_DROP => LAND_DAMAGE_RUN.map(String::from),
+            // (The roll with the stick held only: AC1 picks it by the stick's speed, not the body's (over 0.2, 0xE05940).
+            // Let go, it landed hurt and stood, coming down off a beam into a Damascus street at 7 m/s across.)
+            true if (damage > 0.0 || drop > ROLL_LANDING_DROP) && self.move_dir.length() > 0.2 => LAND_DAMAGE_RUN.map(String::from),
             _ if damage > 0.0 => {
                 // (AC1's damaging landing goes on into the wait, the walk or the jog.)
                 let after = match into {
