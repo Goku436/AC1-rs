@@ -613,7 +613,7 @@ const SCENARIOS: &[Scenario] = &[
         want: &[
             "running jump aimed at [-86.60, 2.00, 35.00]",
             "jump aimed at [-84.20, 2.00, 35.00]",
-            "jumping at the swing bar at [-82.20, 4.40",
+            "free-step jump at the swing bar at [-82.20, 4.40",
             "caught bar 4",
             "steering onto the perch at [-79.20, 1.50",
             "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a at [-79.",

@@ -96,6 +96,11 @@ impl HayStack {
 /// above its rim, is on its heap (m).
 const HAY_HEAP_MARGIN: f32 = 0.5;
 const HAY_HEAP_ABOVE: f32 = 0.3;
+/// A thin beam swung from as a bar (see `add_beam_bars`; m).
+const BEAM_BAR_THICK: f32 = 0.35;
+const BEAM_BAR_OVERLAP: f32 = 0.5;
+const BEAM_BAR_DROP: f32 = 2.5;
+const BEAM_BAR_DEPTH: f32 = 0.4;
 /// (Up to this over the rim: the Damascus bureau's roof heap stands 2.5 m over it; above, a balcony over the hay.)
 const HAY_HEAP_TOP: f32 = 3.0;
 /// A city haystack is at most this wide each side of its middle (m).
@@ -486,6 +491,50 @@ impl Level {
         ledges - self.ledges.len() + perches - self.perches.len()
     }
 
+    /// Thin beams over open space as swing bars: two holds facing apart at most `BEAM_BAR_THICK` across, side by side for
+    /// at least `BEAM_BAR_OVERLAP`, nothing within `BEAM_BAR_DROP` under them and no wall under either side. AC1 swings
+    /// from any free hang a jump reaches (target type 0x80, the swing reception; Banned445's port): the running game jumped
+    /// from the beam frame east of the Damascus bureau's ladder at its far 0.2 m beam and swung. Returns how many.
+    pub fn add_beam_bars(&mut self) -> usize {
+        let mut found: Vec<Line> = vec![];
+        for (i, l) in self.ledges.iter().enumerate() {
+            let axis = (l.b - l.a).with_y(0.0);
+            let len = axis.length();
+            if len < BEAM_BAR_OVERLAP {
+                continue;
+            }
+            let axis = axis / len;
+            for m in &self.ledges[i + 1..] {
+                if m.out.dot(l.out) > -0.95 || (m.a.y - l.a.y).abs() > 0.1 {
+                    continue;
+                }
+                // (Across: from l's face back to m's, the beam's thickness.)
+                let thick = (l.a - m.a).with_y(0.0).dot(l.out);
+                if !(0.05..=BEAM_BAR_THICK).contains(&thick) {
+                    continue;
+                }
+                let (s0, s1) = ((m.a - l.a).dot(axis), (m.b - l.a).dot(axis));
+                let (lo, hi) = (s0.min(s1).max(0.0), s0.max(s1).min(len));
+                if hi - lo < BEAM_BAR_OVERLAP {
+                    continue;
+                }
+                let mid_off = -l.out * thick * 0.5;
+                let (a, b) = (l.a + axis * lo + mid_off, l.a + axis * hi + mid_off);
+                let c = (a + b) * 0.5;
+                // (From under the beam, as deep as it may be.)
+                let under = c - Vec3::Y * BEAM_BAR_DEPTH;
+                let open = self.ground(under, 0.0, BEAM_BAR_DROP - BEAM_BAR_DEPTH).is_none()
+                    && [l.out, -l.out].iter().all(|o| self.raycast(c + *o * 0.6 - Vec3::Y * 1.0, -*o, 1.2).is_none());
+                if open && !found.iter().chain(&self.bars).any(|k| k.closest(c).distance(c) < 0.3) {
+                    found.push(Line { a, b });
+                }
+            }
+        }
+        let n = found.len();
+        self.bars.extend(found);
+        n
+    }
+
     /// Use AC1's own climbing markup where the city has it: its ledge grabs become the holds (instead of the edges and
     /// lips found in the geometry), its ladders the ladders, its horizontal poles the swing bars (each pole's two side
     /// edges as one bar). `AC1_GEOMETRY_HOLDS` keeps the geometry's holds. Returns (holds, ladders, bars), or None.
@@ -503,7 +552,7 @@ impl Level {
             *ends.entry(key(e.a)).or_default() += 1;
             *ends.entry(key(e.b)).or_default() += 1;
         }
-        for e in std::mem::take(&mut self.authored) {
+        for e in self.authored.clone() {
             let len = e.a.distance(e.b);
             match e.kind {
                 SubType::LedgeGrab => {
@@ -1323,6 +1372,8 @@ pub fn spawn_level(
         info!("{hay} haystacks, {ladders} ladders, {benches} benches, {bars} swing bars");
         let heaped = level.drop_hay_holds();
         info!("{heaped} holds and beams left out: on a haystack's heap");
+        let beam_bars = level.add_beam_bars();
+        info!("{beam_bars} thin beams over open space swung from as bars");
         for v in &level.viewpoints {
             let near = level.haystacks.iter().map(|h| ((h.centre - *v).with_y(0.0).length(), v.y - h.top())).min_by(|a, b| a.0.total_cmp(&b.0));
             debug!("viewpoint {v:.1}: nearest hay {near:.1?} (out, down)");
@@ -1357,6 +1408,12 @@ pub fn spawn_level(
                 let d = (b.closest(p) - p).with_y(0.0).length();
                 if d < v[3] {
                     info!("bar {i}: {:.2} to {:.2}, {d:.2} m away", b.a, b.b);
+                }
+            }
+            for (i, e) in level.authored.iter().enumerate() {
+                let d = Line { a: e.a, b: e.b }.closest(p).distance(p);
+                if d < v[3] {
+                    info!("authored {i} {:?}: {:.2} to {:.2}, out {:.2}, {d:.2} m away", e.kind, e.a, e.b, e.out);
                 }
             }
             for (i, h) in level.haystacks.iter().enumerate() {

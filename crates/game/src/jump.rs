@@ -205,6 +205,15 @@ pub fn swing(dz: f32, dist: f32, left: bool) -> Jump {
     Jump { takeoff: j.takeoff, flight, reception: vec![] }
 }
 
+/// A free step's jump at a swing bar (or a free hang: AC1's target type 0x80) `dz` up and `dist` away: the free-step
+/// takeoff, `swing`'s flight (`_to_swing`).
+pub fn freestep_swing(dz: f32, dist: f32, angle: f32, left: bool) -> Jump {
+    let mut j = freestep(dz, dist, angle, left, 0.0);
+    j.flight = swing(dz, dist, left).flight;
+    j.reception = vec![];
+    j
+}
+
 /// AC1's catch of a swing bar from the air, into the swing (`xx_h_air_<way>_to_swing_tr_swing_front_a`, then
 /// `xx_h_swing_cycle_front_up`), by how the flight comes at it: `dz` the hang's height over where the flight started.
 pub fn swing_entry(dz: f32) -> &'static str {

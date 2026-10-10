@@ -587,6 +587,10 @@ const ROOF_EDGE_INSET: f32 = 0.05;
 /// A swing bar this far ahead (m) and this high over the feet is what a jump flies at.
 const BAR_JUMP_REACH: std::ops::RangeInclusive<f32> = 1.0..=6.5;
 const BAR_JUMP_RISE: std::ops::RangeInclusive<f32> = 0.5..=4.0;
+/// From a post or beam, a bar this far over the feet is jumped at (AC1's narrow-object reach zone 7 reaches level with
+/// the feet 5.6 m on; m), flown to come at it this far over the hang (m).
+const PERCH_BAR_RISE: std::ops::RangeInclusive<f32> = -0.5..=3.0;
+const BAR_FLY_HIGH: f32 = 0.2;
 
 /// A running jump at a wall's ledge this fast or faster (m/s) is received hard (`_max`, swinging in), else softly.
 const JUMP_RECEPTION_HARD_SPEED: f32 = 5.0;
@@ -1506,6 +1510,11 @@ fn passover_target(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3, 
 /// A swing bar a jump along `dir` from `from` would reach: lying across the way, `BAR_JUMP_REACH` ahead and up to
 /// `BAR_JUMP_RISE` over the feet; the point on it.
 fn bar_ahead(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
+    bar_ahead_within(level, from, dir, BAR_JUMP_RISE)
+}
+
+/// `bar_ahead` with the bar `rise` over the feet.
+fn bar_ahead_within(level: &Level, from: Vec3, dir: Vec3, rise: std::ops::RangeInclusive<f32>) -> Option<Vec3> {
     let dir = dir.with_y(0.0).normalize_or_zero();
     level
         .bars
@@ -1514,7 +1523,7 @@ fn bar_ahead(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
         .map(|b| b.closest(from + dir * 3.0 + Vec3::Y * 2.0))
         .filter(|q| {
             let flat = (*q - from).with_y(0.0);
-            BAR_JUMP_REACH.contains(&flat.length()) && flat.normalize().dot(dir) > JUMP_TARGET_CONE && BAR_JUMP_RISE.contains(&(q.y - from.y))
+            BAR_JUMP_REACH.contains(&flat.length()) && flat.normalize().dot(dir) > JUMP_TARGET_CONE && rise.contains(&(q.y - from.y))
         })
         .min_by(|a, b| (*a - from).length().total_cmp(&(*b - from).length()))
 }
@@ -2338,8 +2347,13 @@ impl WallClimb {
         let rot = world_rot(planned.rotation);
         // (The flight goes on from the takeoff's end, turned with it.)
         let turned = world_rot(planned.rotation * root_delta(root_rotation_at(&takeoff, takeoff.frames())));
+        // (Onto a beam: on it in AC1's narrow-object stance, as `jump_ac1`: the running game free-stepped across the beam
+        // frame east of the Damascus bureau's ladder and jumped on from the beam 0.08 s after coming down on it,
+        // NarrowObject; ours ran off it. The reception ends once its step is taken.)
+        let onto_beam = level.perch_at(to, 0.15).filter(|(i, _)| level.perches[*i].axis() != Vec3::ZERO);
+        let cut = onto_beam.and_then(|_| reception_cut(&reception, RECEPTION_CUT_SPEED));
         // (The reception's step ends on the target, as AC1 aims it: see `jump_ac1`.)
-        let step = root_motion_at(&reception, reception.frames()).with_z(0.0);
+        let step = root_motion_at(&reception, cut.unwrap_or(reception.frames())).with_z(0.0);
         let landed = p + rot * root_motion_at(&takeoff, takeoff.frames()) + turned * (root_motion_at(&flight, flight.frames()) + step);
         let correct = to - landed;
         if correct.with_y(0.0).length() > JUMP_AC1_SLACK * way.length().max(1.0) {
@@ -2350,7 +2364,15 @@ impl WallClimb {
             return None;
         }
         let mut w = WallClimb::new(VAULT, -aim);
-        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), GROUND.into()], &planned, correct, Some(1));
+        let last = if onto_beam.is_some() { PERCH } else { GROUND };
+        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), last.into()], &planned, correct, Some(1));
+        if let Some((i, q)) = onto_beam {
+            w.perch = Some(i);
+            debug!("climb: onto perch {i} at {q:.2} (landing on it)");
+        }
+        if let (Some(f), Some(r)) = (cut, w.queue.last()) {
+            w.cut = Some((r.clip.name.clone(), f / FPS));
+        }
         // (Down on a top, on at a run the way it jumped: the reception leads into the run in AC1's graph. Onto another post
         // or beam it balances there first.)
         if level.perch_inside(to, PERCH_REACH).is_none() {
@@ -3686,6 +3708,14 @@ impl WallClimb {
         let beam = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() != Vec3::ZERO);
         let floor =
             beam && PERCH_FREE_STEP_ON.iter().any(|&d| level.ground(from + dir * d, 0.3, PERCH_FREE_STEP_DROP).is_some_and(|g| g.point.y < from.y - 0.2));
+        // (No top: a swing bar ahead, as AC1 jumps from a narrow object at a free hang in its reach zone 7, down to level
+        // with the feet; the running game swung from a thin beam 5.6 m across from the one it stood on.)
+        if to.is_none()
+            && let Some(q) = bar_ahead_within(level, from, dir, PERCH_BAR_RISE)
+            && self.jump_at_bar(lib, root, q)
+        {
+            return true;
+        }
         if to.is_none()
             && floor
             && let Some(w) = Self::free_step(lib, root, dir, self.freestep_left, self.last.clone())
@@ -3713,6 +3743,38 @@ impl WallClimb {
         if let Some(m) = &mut self.mv {
             m.ease_rot = root.rotation * planned.rotation.inverse();
         }
+        true
+    }
+
+    /// From a post or beam, a free step's jump at the swing bar at `q`: AC1's free-step takeoff and `_to_swing` flight,
+    /// flown to hang from it; the fall catches the bar.
+    fn jump_at_bar(&mut self, lib: &mut AnimLib, root: &Transform, q: Vec3) -> bool {
+        let from = root.translation;
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let aim = (q - from).with_y(0.0).normalize_or(fwd);
+        let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
+        let hang = q - Vec3::Y * SWING_HANG;
+        let j = crate::jump::freestep_swing(hang.y - from.y, (q - from).with_y(0.0).length(), angle, self.freestep_left);
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (Some(takeoff), Some(flight)) = (mix(&j.takeoff), mix(&j.flight)) else { return false };
+        let planned = Transform { rotation: facing(aim), ..*root };
+        // (Flown from where the takeoff leaves off, to come at the bar with the root `BAR_FLY_HIGH` over its hang.)
+        let off = from + world_rot(planned.rotation) * root_motion_at(&takeoff, takeoff.frames());
+        let (v, t) = ballistic(off, hang + Vec3::Y * BAR_FLY_HIGH);
+        self.queue = vec![Queued { rate: flight.anim.duration / t.max(0.1), ..Queued::new(flight, FALL) }];
+        self.fall_with = Some(v);
+        self.can_catch = true;
+        self.aimed = true;
+        self.perch = None;
+        self.cycle = None;
+        self.start(takeoff, JUMP.into(), &planned);
+        if let Some(m) = &mut self.mv {
+            m.ease_rot = root.rotation * planned.rotation.inverse();
+        }
+        debug!("climb: free-step jump at the swing bar at {q:.2}");
         true
     }
 

@@ -381,6 +381,14 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   (`_pulldown_soft_orientation`, `_pulldown_soft`, the ledge pull-down's hang); the pull-up from there lands on the
   rim and dives back in (`xx_h_freestep_footr_to_haystack_01`). The hay heap is solid in the collision built from its
   mesh: ours leaves out the holds found on it (up to 3 m over the rim).
+- **Free hangs swung from** **[V, ours]**: AC1 swings from any free hang a jump reaches (target type 0x80, the swing
+  reception), not only from poles: off the beam frame east of the Damascus bureau's ladder, it free-stepped onto the
+  frame's near beam (NarrowObject), jumped on 0.08 s later (`xx_h_freestep_front_front_050cm_footr_to_air`,
+  `xx_h_air_front_050cm_footr_to_swing`) at the 0.2 m beam 5.6 m across, level with its feet (inside the narrow-object
+  reach zone 7), and swung. Ours: a thin beam over open space (two holds facing apart at most 0.35 m across, nothing
+  within 2.5 m under, no wall under) is also a swing bar (Damascus 1341); a free-step jump onto a beam ends on it,
+  its reception cut once its step is taken; from a post or beam with no top in reach, a bar ahead down to 0.5 m under
+  the feet is jumped at with the free-step takeoff and the `_to_swing` flight.
 - **Swing bars** **[V, ours]**: the stick not held forward at the top of a swing → AC1's stop
   (`xx_h_swing_stop_<front|back>_a..d`, the last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`: he
   hangs still from the bar; the stick forward swings him up again (`xx_h_swing_momentum_front_up`). The hay's hop out
