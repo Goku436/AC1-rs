@@ -538,6 +538,15 @@ const BEAM_WALK: [&str; 2] = ["xx_l_beam_crouchwalk_footl", "xx_l_beam_crouchwal
 const BEAM_JOG: [&str; 2] = ["xx_h_beam_crouchjog_footl", "xx_h_beam_crouchjog_footr"];
 /// Free running along a beam, the jog's share of the crouch walk and jog blended.
 const BEAM_SPRINT_JOG: f32 = 0.85;
+/// Walking a beam off its line, the root comes onto it at most this fast across (m/s).
+const BEAM_GLIDE: f32 = 1.5;
+/// A beam's end got onto from a top's end: within this (m), this far to the side of the way, this far up or down.
+const BEAM_STEP_ON: f32 = 1.2;
+const BEAM_STEP_ON_SIDE: f32 = 0.6;
+/// ...and at least this far to the side: one carrying on in line from the edge is jumped along, as the running game did
+/// off the open roof north (route roof2_free_north); one 0.55 m beside the way was stepped onto (seams_free_north).
+const BEAM_STEP_ON_OFF: f32 = 0.3;
+const BEAM_STEP_ON_RISE: f32 = 0.35;
 /// Crouched on a beam (`HumanNarrowObject`): facing along it on the left or right foot ahead, or across it.
 const BEAM_WAIT: [&str; 2] = ["xx_l_beam_crouchwait_footl", "xx_l_beam_crouchwait_footr"];
 const BEAM_WAIT_ACROSS: &str = "xx_l_beam_crouchwait_90";
@@ -3732,7 +3741,9 @@ impl WallClimb {
             }
             return;
         }
-        root.translation = q;
+        // (Onto the line gradually, not snapped: stepped onto a beam's end from beside its line, as AC1 does off a top
+        // ending short of one, the root comes onto it over the first steps.)
+        root.translation = next + (q - next).clamp_length_max(BEAM_GLIDE * dt);
         if let Some((c, t, _)) = &mut cy.intro {
             *t += dt;
             if *t >= c.anim.duration {
@@ -3745,6 +3756,36 @@ impl WallClimb {
             cy.phase -= 1.0;
             cy.foot ^= 1;
         }
+    }
+
+    /// At the end of a top, a beam's near end just ahead but beside the way, about level with the feet and running on the way `dir` goes
+    /// (within 30 degrees): its index and where to get on. The running game, free running north off a Damascus roof's
+    /// raised top, stepped across the 0.6 m to such a beam's end, 0.5 m to the side of its line, and walked it; ours
+    /// jumped to its far end.
+    pub fn beam_step_on(level: &Level, from: Vec3, dir: Vec3) -> Option<(usize, Vec3)> {
+        let dir = dir.with_y(0.0).normalize_or_zero();
+        level
+            .perches
+            .iter()
+            .enumerate()
+            .filter_map(|(i, l)| {
+                let axis = l.axis();
+                if axis == Vec3::ZERO || axis.dot(dir).abs() < JUMP_ALONG_BEAM_COS {
+                    return None;
+                }
+                let (near, far) = if (l.a - from).length() < (l.b - from).length() { (l.a, l.b) } else { (l.b, l.a) };
+                let d = (near - from).with_y(0.0);
+                let ahead = d.dot(dir);
+                let side = (d - dir * ahead).length();
+                (ahead > 0.0
+                    && d.length() < BEAM_STEP_ON
+                    && (BEAM_STEP_ON_OFF..BEAM_STEP_ON_SIDE).contains(&side)
+                    && (near.y - from.y).abs() < BEAM_STEP_ON_RISE
+                    && (far - near).dot(dir) > 0.0)
+                    .then(|| (i, near + (far - near).normalize_or_zero() * 0.1, d.length()))
+            })
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|(i, q, _)| (i, q))
     }
 
     /// Jump from a perch along `dir`: onto the nearest perch that way in reach, else onto the first

@@ -395,6 +395,11 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   beam left along the stick's way and the stick 45 degrees off it, free-stepped on to the next beam 0.08 s later; on
   that one, 4 m of it left, it walked along. Ours jumps on first free running with under 2 m left. Walking the beam with
   the stick over 30 degrees off it, AC1 stepped off onto a roof that came up beside it, level with it; ours does too.
+- **Onto a beam beside a top's end** **[V, ours]**: free running north off a raised Damascus top that ends 0.6 m short
+  of a beam whose line runs 0.55 m beside the way, AC1 stepped across onto the beam's end and walked it, steering onto
+  its line over 1.5 m (route seams_free_north); off the open roof north, a beam carrying on in line from the edge, it
+  jumped along it (roof2_free_north). Ours steps on when a beam's near end is within 1.2 m ahead, 0.3-0.6 m to the side
+  and within 0.35 m in height; walking a beam, the root comes onto its line at most 1.5 m/s across (it snapped before).
 - **Swing bars** **[V, ours]**: the stick not held forward at the top of a swing → AC1's stop
   (`xx_h_swing_stop_<front|back>_a..d`, the last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`: he
   hangs still from the bar; the stick forward swings him up again (`xx_h_swing_momentum_front_up`). The hay's hop out

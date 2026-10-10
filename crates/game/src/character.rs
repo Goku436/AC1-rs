@@ -1267,6 +1267,14 @@ pub fn locomotion(
             } else {
                 WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.anim_pose.clone()))
             };
+            // (At the edge, a beam's end just ahead about level: onto it, walked, not jumped.)
+            let step_on = if low.is_none() && edge { WallClimb::beam_step_on(&level, tf.translation, dir) } else { None };
+            let low = low.or_else(|| {
+                let (_, at) = step_on?;
+                let r = Transform { translation: at, ..*tf };
+                let sprint = ctl.speed > SPRINT_SPEED || ctl.free_run;
+                WallClimb::perch(lib, &level, &r, ctl.move_dir, sprint, lead_left, Some(ch.anim_pose.clone()))
+            });
             ch.wall = low.or_else(|| edge.then(|| WallClimb::leap_of_faith(lib, &level, &tf, v, Some(ch.anim_pose.clone()))).flatten()).or_else(|| {
                 // (Aimed by the stick too: landed on a post, the body still went the way of the last jump, and the jump on
                 // to a post off to the side went that way, found nothing and fell.)
