@@ -1579,7 +1579,9 @@ fn ac1_jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) ->
     }
     let (c, ty) = pick?;
     let onto = |p: Vec3| level.ground(p + Vec3::Y * 0.3, 0.0, 0.6).filter(|g| g.normal.y > 0.7).map(|g| g.point);
-    match (c.kind, ty) {
+    // (Never a spot inside a solid: see `jump_target_within`.)
+    let open = |p: Vec3| !level.inside_solid(p + Vec3::Y * 0.5) && !level.inside_solid(p + Vec3::Y * 1.2);
+    let spot = match (c.kind, ty) {
         (_, 1 | 0x10000) if c.perch.is_some() => {
             let line = level.perches[c.perch?];
             Some(line.closest(c.pos))
@@ -1591,7 +1593,8 @@ fn ac1_jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) ->
         }
         (Kind::Edge, 1) => [ROOF_EDGE_INSET, 0.15, 0.3].iter().find_map(|d| onto(c.pos - c.wall * *d)),
         _ => None,
-    }
+    };
+    spot.filter(|p| open(*p))
 }
 
 /// Inside AC1's reach zone 1 (`JumpZones` 0x1A2BF40, the jump's own zone, read live by Banned445): a side view, `dist` on
@@ -1745,6 +1748,9 @@ fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>,
     }
     cands
         .into_iter()
+        // (Not a face hidden inside a solid: a lower block's top under a higher one, the space between them filled, was
+        // landed on through the wall by an eject off the test level's block A.)
+        .filter(|q| !level.inside_solid(*q + Vec3::Y * 0.5) && !level.inside_solid(*q + Vec3::Y * 1.2))
         .filter(|q| {
             let flat = (*q - from).with_y(0.0);
             reach.contains(&flat.length())
@@ -6045,12 +6051,14 @@ impl WallClimb {
             // once, where the pull-down takes it (AC1 went from `xx_h_ledge_stop_start` straight into
             // `xx_l_ledge_stop_start_footl_pulldown_front_orientation`, 0.27 s after stopping; ours played the stop's end
             // first, a second).
+            // (Only when there is a hold to hang from: else the stop plays on, its end and back to the wait, as AC1's does
+            // (the pull-down is taken only when it can be, `LedgeStop_HandleEvent`); cut with nothing to hang from, he stood
+            // there and the stop looked cancelled.)
             if done.clip.name.starts_with("xx_h_ledge_stop_start_")
                 && self.move_dir.with_y(0.0).normalize_or_zero().dot(-self.normal.with_y(0.0).normalize_or_zero()) >= 0.342
+                && let Some(w) = Self::pull_down(lib, level, root, rig, base, cr, false, self.last.clone())
             {
-                self.queue.clear();
-                self.state = GROUND.into();
-                self.finished = true;
+                *self = w;
                 return;
             }
             // (The rebound pose played: the eject asked for.)
