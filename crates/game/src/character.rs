@@ -768,6 +768,8 @@ const FREE_RUN_PROBE: f32 = 1.3;
 /// In high profile without the legs, a top this high over the feet (m) with its face within `HIGH_HOP_REACH` is hopped onto.
 const HIGH_HOP_RISE: std::ops::RangeInclusive<f32> = 0.45..=1.3;
 const HIGH_HOP_REACH: f32 = 1.3;
+/// Moving toward a ladder's foot, from this close out in front of it (m), gets on.
+const LADDER_AUTO_REACH: f32 = 1.0;
 /// Getting up to a speed over `RUN_START_MIN` (m/s), the body speeds up at `RUN_ACCEL` (m/s²).
 const RUN_START_MIN: f32 = 2.5;
 const RUN_ACCEL: f32 = 13.0;
@@ -797,6 +799,23 @@ pub fn locomotion(
             if ch.limp {
                 continue;
             }
+        }
+        // Moving into a ladder from in front of it: onto it, no button (AC1's ladder event 38: a ladder within reach, the
+        // character in front of it within 90 degrees; the running game walked up to one by the Damascus bureau and climbed
+        // it, and free running ran up the wall onto it; ours stood against its rungs).
+        if ch.wall.is_none()
+            && ctl.move_dir.with_y(0.0).length() > 0.1
+            && level.ladders.iter().any(|l| {
+                let d = tf.translation - l.base;
+                let side = l.out.cross(Vec3::Y);
+                d.dot(side).abs() < 0.5
+                    && (0.0..LADDER_AUTO_REACH).contains(&d.dot(l.out))
+                    && (tf.translation.y - l.base.y).abs() < 0.4
+                    && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(-l.out) > 0.7
+            })
+        {
+            ctl.toggle_climb = true;
+            ctl.grab_only = true;
         }
         // Free running into a wall: run up it or grab on, as if the legs button were pressed.
         if ctl.free_run && ch.wall.is_none() {

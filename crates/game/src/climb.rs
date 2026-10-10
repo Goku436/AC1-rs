@@ -2404,7 +2404,15 @@ impl WallClimb {
                 && (q - hit.point).dot(along).abs() < WALL_RUN_CAP_SIDE
                 && level.raycast(q + n * 0.3 - Vec3::Y * 0.9, -n, 0.55).is_none()
         });
-        if set_back || !wide_wall(level, root.translation + Vec3::Y, fwd, hit.dist) {
+        // (A ladder up the wall in front counts as wall: the probe meets its rungs, narrower than a wall; the running game
+        // ran up the wall onto one by the Damascus bureau.)
+        let n_flat = hit.normal.with_y(0.0).normalize_or_zero();
+        let along_wall = Vec3::Y.cross(n_flat).normalize_or_zero();
+        let ladder_here = level
+            .ladders
+            .iter()
+            .any(|l| l.out.dot(n_flat) > 0.9 && (l.base - hit.point).dot(along_wall).abs() < 0.5 && (l.base - hit.point).dot(n_flat).abs() < 0.5);
+        if !ladder_here && (set_back || !wide_wall(level, root.translation + Vec3::Y, fwd, hit.dist)) {
             debug!("climb: no wall run: {}", if set_back { "a ledge sticks out over it" } else { "the wall is too narrow" });
             return None;
         }
