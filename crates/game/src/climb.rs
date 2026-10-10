@@ -599,6 +599,9 @@ const EJECT_UP: f32 = 2.5;
 const WALL_RUN_WIDTH: f32 = 0.7;
 /// Jump targets: this far across (m), and within this cosine of the wanted direction (45 degrees).
 const JUMP_TARGET_REACH: std::ops::RangeInclusive<f32> = 1.0..=4.6;
+/// An eject's targets, from nearer: the running game's eject to the right off the bureau's wall landed on a beam stuck out
+/// of the wall 0.95 m away (ours went on 4 m to the next).
+const EJECT_REACH: std::ops::RangeInclusive<f32> = 0.5..=4.6;
 const JUMP_TARGET_CONE: f32 = 0.707;
 /// ...and at most this far to either side of the wanted line (m): AC1's search box (0xE18970) is ±1 m across.
 const JUMP_TARGET_ACROSS: f32 = 1.0;
@@ -1431,6 +1434,11 @@ fn bar_ahead(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
 /// 45 degrees of the wanted direction, at most 3 m down, the nearest of the free-step ones): a post or
 /// beam (`skip`: the one stood on), or a walkable top across a gap.
 fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Option<Vec3> {
+    jump_target_within(level, from, dir, skip, JUMP_TARGET_REACH)
+}
+
+/// `jump_target` with targets `reach` (m, flat) away.
+fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>, reach: std::ops::RangeInclusive<f32>) -> Option<Vec3> {
     let dir = dir.with_y(0.0).normalize_or_zero();
     let mut cands: Vec<Vec3> = vec![];
     for (i, l) in level.perches.iter().enumerate() {
@@ -1521,7 +1529,7 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
         .into_iter()
         .filter(|q| {
             let flat = (*q - from).with_y(0.0);
-            JUMP_TARGET_REACH.contains(&flat.length())
+            reach.contains(&flat.length())
                 && flat.normalize().dot(dir) >= JUMP_TARGET_CONE
                 && flat.cross(dir).y.abs() <= JUMP_TARGET_ACROSS
                 && JUMP_TARGET_RISE.contains(&(q.y - from.y))
@@ -2547,7 +2555,7 @@ impl WallClimb {
         let right = (-away).cross(Vec3::Y);
         let way = if input.x.abs() > 0.5 { right * input.x.signum() } else { away };
         let p = root.translation;
-        let to = jump_target(level, p, way, None)?;
+        let to = jump_target_within(level, p, way, None, EJECT_REACH)?;
         let flat = (to - p).with_y(0.0);
         let aim = flat.normalize_or_zero();
         // (Its angle off straight away, positive to the right of the body turned away.)

@@ -201,8 +201,8 @@ as he faced the wall is the turned body's right, the `right` group), then the ru
 (logged by AC1 under its blend's first clips, `rebound_frontleft_front_050cm`, `air_front_050cm`). Ours does this from
 the wall hang and the climb (`WallClimb::rebound_jump`, `crate::jump::rebound`; back and left land within 0.12 m of
 AC1's; scenarios tagged `eject`), still without the 0.2 s rebound pose first, and with nothing to land on pushes off
-backwards and falls. Not yet: targets nearer than 1 m (AC1's right eject took a beam 0.5 m off; ours went 4 m on), the
-ladder's rebound (`xx_h_ladder_wait_<l|r>_tr_rebound`), the mid-air one (`xx_h_air_all_<foot>_tr_rebound`) and the wall
+backwards and falls. An eject's targets start 0.5 m off (running jumps' at 1 m): AC1's right eject took a beam stuck out
+of the wall 0.95 m off, and so does ours now (route `wall1_eject_right` 3.34 -> 0.45 m). Not yet: the ladder's rebound (`xx_h_ladder_wait_<l|r>_tr_rebound`), the mid-air one (`xx_h_air_all_<foot>_tr_rebound`) and the wall
 run's one-piece ejects (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`). Wall runs and free
 running's own grabs need a wall at least 0.7 m wide (not a pole's side). Footing under a hold needs a wall within
 0.16 m behind the hold line, probed at each foot and between them (a thin pole flush with a cap is footing, one set
