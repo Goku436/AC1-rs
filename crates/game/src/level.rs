@@ -905,6 +905,25 @@ impl Level {
                 }
             }
         }
+        // (Not along one of AC1's authored beams, in line with it and overlapping it: AC1's own says where the beam is.
+        // North of the open roof a top found along an authored beam ran on 2.5 m over the roof past its end, where the
+        // running game stepped off.)
+        let authored = self.perches.clone();
+        let along_authored = |l: &Line| {
+            let axis = l.axis();
+            axis != Vec3::ZERO
+                && authored.iter().any(|k| {
+                    let ka = k.axis();
+                    let len = k.a.distance(k.b);
+                    let (sa, sb) = ((l.a - k.a).dot(ka), (l.b - k.a).dot(ka));
+                    let overlap = sa.max(sb).min(len) - sa.min(sb).max(0.0);
+                    // (In line: within 15 degrees, a line through the other's middle within 0.15 m of it.)
+                    let m = (l.a + l.b) * 0.5;
+                    let off = (m - k.a) - ka * (m - k.a).dot(ka);
+                    ka != Vec3::ZERO && ka.dot(axis).abs() > 0.97 && off.length() < 0.15 && overlap > 0.3
+                })
+        };
+        joined.retain(|l| !along_authored(l));
         let n = joined.len();
         self.perches.extend(joined);
         n

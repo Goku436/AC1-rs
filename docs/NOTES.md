@@ -735,7 +735,7 @@ with a drop past it, open above) become perches along their middle (`Level::add_
 rule, its runtime beam contacts (as Banned445's port reads them): two holds along each other within 30 degrees, facing
 away from each other, overlapping, at most 1 m apart, with a drop past both (no floor within 0.5 m under the top 0.3 m
 out from each: not a strip or a seam in a roof, where running across one he was caught balancing), give a beam along
-their middle, its pieces in line up to 1 m apart joined; both kinds kept only where the drop is there, tested every 0.25 m along (a roof edge's strip over a drop for half its length was a beam its whole length; the running game stepped off it where the roof ran flush) (Damascus 10,211 in all). Got onto from the ground only walking
+their middle, its pieces in line up to 1 m apart joined; both kinds kept only where the drop is there, tested every 0.25 m along (a roof edge's strip over a drop for half its length was a beam its whole length; the running game stepped off it where the roof ran flush) (Damascus 9,064 in all; none along one of AC1's authored beams, in line with it and overlapping it: north of the open roof one ran on 2.5 m over the roof past the authored beam's end, where the running game stepped off). Got onto from the ground only walking
 along it (within 30 degrees) or standing still on its line. A plank bridge 0.9 m wide by the Damascus bureau (`Wood_Bridge_01a`) is one:
 the running game walked it as a narrow object (`HumanNarrowObject`, `xx_l_beam_crouchwalk`). The cities' authored
 guidance has no `Beam` edges at all (Damascus: 0): AC1's narrow objects come from these pairs. Walking off a beam's
