@@ -734,10 +734,9 @@ const SCENARIOS: &[Scenario] = &[
         secs: 12.0,
         want: &[
             "wall run over the 1.40 m wall",
-            // (Its first hold row in reach, 2.39 m, is under AC1's catch height for a wall run, 1 m over the feet at the
-            // end of its step; the next, 2.99 m, is out of our wall run's reach, 0.27 m lower than AC1's: it slides back
-            // and catches the wall on the way down.)
-            "-> 2m via xx_fall_tr_climb_min_b",
+            // (Its first hold row, 2.39 m, is under AC1's catch height for a wall run, 1 m over the feet at the end of
+            // its step: the 2.99 m row, its 251 and 430 cm catches blended.)
+            "tr_hangwall_251cm_000cm_a",
             "-> top via xx_h_hangknee_footl_tr_h_jog_footr_b",
             "running jump aimed at [-79.00, 2.00, 114.00]",
             "freestep_down_tr_freestep_entry",

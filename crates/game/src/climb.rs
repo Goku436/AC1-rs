@@ -1147,6 +1147,55 @@ fn lean_name(pattern: &str, mix: f32) -> String {
 /// AC1 blends a move's variants made for different heights (`hangknee_201cm` and `_250cm`, the entries'
 /// `131cm` and `200cm`): for a top `height` above the feet between two options' heights, the mix of the two
 /// made for exactly that height (clips that differ are mixed by weight, shared ones kept).
+/// Where the hands are at the end of a hang option's chain (its rest pose), from `root` facing the wall (`normal`).
+fn hang_hands(lib: &mut AnimLib, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, normal: Vec3, opt: &GrabOpt) -> Option<[Vec3; 2]> {
+    let GrabEnd::Hang(_, rest) = opt.end else { return None };
+    let clips = opt.names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>()?;
+    let facing = Transform { translation: root.translation, rotation: Quat::from_rotation_arc(Vec3::NEG_Z, -normal), ..default() };
+    let end = chain_end(&clips, rig, base, cr)?.world(&facing);
+    let rest = lib.get(rest)?;
+    let mut pose = base.clone();
+    sample(&rest, 0.0, &mut pose, cr.reference);
+    let m = pose.model(rig);
+    let r = world_rot(end.rot);
+    Some(cr.hands.map(|b| end.pos + r * m[b].pos))
+}
+
+/// The wall hang options of the same move at two heights (the wall run's 251 and 430 cm catches) blended for the
+/// lowest hold on the wall ahead between their reaches that a wall run catches (`WALL_RUN_CATCH_MIN` over the floor).
+#[allow(clippy::too_many_arguments)]
+fn blend_hang(lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, normal: Vec3, opts: &[GrabOpt]) -> Vec<GrabOpt> {
+    let shape = |n: &String| n.chars().filter(|c| !c.is_ascii_digit()).collect::<String>();
+    let hangs: Vec<&GrabOpt> = opts.iter().filter(|o| matches!(o.end, GrabEnd::Hang(..))).collect();
+    let mut out = vec![];
+    for (i, a) in hangs.iter().enumerate() {
+        for b in &hangs[i + 1..] {
+            let same = a.names.len() == b.names.len() && a.catch == b.catch && a.names.iter().zip(&b.names).all(|(x, y)| shape(x) == shape(y));
+            if !same || a.names == b.names {
+                continue;
+            }
+            let (Some(ha), Some(hb)) = (hang_hands(lib, root, rig, base, cr, normal, a), hang_hands(lib, root, rig, base, cr, normal, b)) else { continue };
+            let (ya, yb) = ((ha[0].y + ha[1].y) * 0.5, (hb[0].y + hb[1].y) * 0.5);
+            let (lo, hi, low, high) = if ya < yb { (ya, yb, a, b) } else { (yb, ya, b, a) };
+            let mid = (ha[0] + ha[1] + hb[0] + hb[1]) * 0.25;
+            // The lowest hold on this wall in front, between the two reaches.
+            let hold = level
+                .ledges
+                .iter()
+                .filter(|l| l.out.dot(normal) > 0.8)
+                .map(|l| l.closest(mid.with_y((l.a.y + l.b.y) * 0.5)))
+                .filter(|q| (*q - mid).with_y(0.0).length() < 0.6 && q.y - root.translation.y >= WALL_RUN_CATCH_MIN && (lo..=hi).contains(&q.y))
+                .map(|q| q.y)
+                .min_by(f32::total_cmp);
+            let Some(y) = hold else { continue };
+            let w = (y - lo) / (hi - lo);
+            let names = low.names.iter().zip(&high.names).map(|(x, z)| if x == z { x.clone() } else { mix_name(&[(x, 1.0 - w), (z, w)]) }).collect();
+            out.push(GrabOpt { names, catch: low.catch, end: if w < 0.5 { low.end } else { high.end }, after: vec![] });
+        }
+    }
+    out
+}
+
 fn blend_onto(opts: &[GrabOpt], height: f32) -> Vec<GrabOpt> {
     let mut out = vec![];
     for a in opts {
@@ -2283,7 +2332,12 @@ impl WallClimb {
         // A wall run steps up the wall, so it needs one flush under the edge or the holds.
         let flush_under = |p: Vec3| level.raycast(p + normal * 0.3 - Vec3::Y * 0.9, -normal, 0.55).is_some();
         let slack = if carry.is_some() { WALL_RUN_SLACK } else { JUMP_HANG_REACH };
-        let blended = top.map_or(vec![], |(_, h)| blend_onto(opts, h));
+        let mut blended = top.map_or(vec![], |(_, h)| blend_onto(opts, h));
+        // A wall run's catch into the wall hang blends its 251 and 430 cm clips by the hold's height (AC1's probe D, as
+        // Banned445's port reads it): any hold between the two is caught, not only those near one clip's reach.
+        if carry.is_some() {
+            blended.extend(blend_hang(lib, level, root, rig, base, cr, normal, opts));
+        }
         for opt in blended.iter().chain(opts) {
             let Some(clips) = opt.names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { continue };
             let Some(end) = chain_end(&clips, rig, base, cr) else { continue };

@@ -1211,9 +1211,18 @@ pub fn locomotion(
             let way = if ch.velocity.with_y(0.0).length() > 0.3 { ch.velocity.with_y(0.0).normalize() } else { ctl.move_dir.with_y(0.0).normalize_or_zero() };
             let ahead = tf.translation + way * 0.5;
             let floor_on = way != Vec3::ZERO && level.perch_at(ahead, 0.35).is_none() && level.ground(ahead, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8);
+            // (A beam only walking along it, within 30 degrees, as AC1 gets on one from the ground (0xD9F4C0, as Banned445's
+            // port reads it): standing still beside a strip in a roof's floor, two holds 0.17 m apart, ours stepped
+            // onto it and balanced there; the running game stood on the roof. A post from any side.)
+            // (Or standing on its line already: started on a beam.)
+            let along = |i: usize| {
+                let l = &level.perches[i];
+                let axis = l.axis().with_y(0.0).normalize_or_zero();
+                axis == Vec3::ZERO || axis.dot(way).abs() > 0.866 || (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15
+            };
             if ch.fall_v == 0.0
                 && !floor_on
-                && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some()
+                && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some_and(|(i, _)| along(i))
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
             {
                 let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
