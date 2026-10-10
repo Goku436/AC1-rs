@@ -723,8 +723,10 @@ spot not inside a solid): window sills are holds whose top is a window, not a fl
 a building shows its top inside the wall. Narrow wall tops (a fence's or a parapet's, 0.15-0.35 m deep behind a hold
 with a drop past it, open above) become perches along their middle (`Level::add_narrow_tops`), and so does AC1's own
 rule, its runtime beam contacts (as Banned445's port reads them): two holds along each other within 30 degrees, facing
-away from each other, overlapping, at most 1 m apart, give a beam along their middle, its pieces in line up to 1 m
-apart joined (Damascus 11,515 in all). A plank bridge 0.9 m wide by the Damascus bureau (`Wood_Bridge_01a`) is one:
+away from each other, overlapping, at most 1 m apart, with a drop past both (no floor within 0.5 m under the top 0.3 m
+out from each: not a strip or a seam in a roof, where running across one he was caught balancing), give a beam along
+their middle, its pieces in line up to 1 m apart joined (Damascus 9,426 in all). Got onto from the ground only walking
+along it (within 30 degrees) or standing still on its line. A plank bridge 0.9 m wide by the Damascus bureau (`Wood_Bridge_01a`) is one:
 the running game walked it as a narrow object (`HumanNarrowObject`, `xx_l_beam_crouchwalk`). The cities' authored
 guidance has no `Beam` edges at all (Damascus: 0): AC1's narrow objects come from these pairs. Walking off a beam's
 end onto another going on from it (within 0.45 m, 35 degrees) walks on along it. Climbing onto one ends crouched,
