@@ -317,6 +317,9 @@ struct Control {
     last: Option<String>,
     active: Option<(String, f32)>,
     checked: f32,
+    /// `AC1_TRACE=<file>` on a run: the run frame by frame, as ac1-hook traces the real game (`seconds x y z yaw state
+    /// clip`, game space; the clip when it changes), to set beside the real game's run.
+    trace: Option<(std::io::BufWriter<std::fs::File>, String)>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -333,11 +336,26 @@ fn control_runs(
     let Some(file) = FILE.get_or_init(|| std::env::var("AC1_CONTROL").ok().map(PathBuf::from)) else { return };
     let Ok((mut tf, mut ctl, mut ch)) = q.single_mut() else { return };
     if let Some((id, secs)) = state.active.clone() {
+        if let Some((out, last_clip)) = &mut state.trace {
+            use std::io::Write;
+            let p = tf.translation;
+            let f = tf.rotation * Vec3::NEG_Z;
+            // (Game yaw: from +X toward +Y; the game's Y is Bevy's -Z.)
+            let yaw = (-f.z).atan2(f.x).to_degrees();
+            let (st, clip) = match &ch.wall {
+                Some(w) => (w.state.clone(), w.clip_name().unwrap_or("").to_string()),
+                None => ("ground".to_string(), String::new()),
+            };
+            let started = if clip != *last_clip { clip.clone() } else { String::new() };
+            *last_clip = clip;
+            let _ = writeln!(out, "{:.4}	{:.3}	{:.3}	{:.3}	{yaw:.1}	{st}	{started}", clock.t, p.x, -p.z, p.y);
+        }
         if clock.t > secs {
             let p = tf.translation;
             info!("control: run {id} done, at [{:.2}, {:.2}, {:.2}] (game ({:.2}, {:.2}, {:.2}))", p.x, p.y, p.z, p.x, -p.z, p.y);
             *script = Script::default();
             state.active = None;
+            state.trace = None;
         }
         return;
     }
@@ -387,11 +405,18 @@ fn control_runs(
             ch.ragdoll = None;
             ch.edge_lock = None;
             ch.exit_fade = None;
-            ctl.move_dir = Vec3::ZERO;
-            ctl.climb_dir = Vec2::ZERO;
+            // (Every input fresh too: a script sets the profile and free running only when it holds them, and a walk
+            // after a free run went on free running, off a roof.)
+            *ctl = Controller::default();
             *script = s;
             clock.t = 0.0;
             state.active = Some((id.to_string(), secs));
+            state.trace = vars.get("AC1_TRACE").and_then(|p| std::fs::File::create(p).ok()).map(|f| {
+                let mut w = std::io::BufWriter::new(f);
+                use std::io::Write;
+                let _ = writeln!(w, "seconds	x	y	z	yaw	state	clip");
+                (w, String::new())
+            });
             info!("control: run {id} started");
         }
         _ => warn!("control: unknown command {line}"),

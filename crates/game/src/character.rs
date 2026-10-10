@@ -650,6 +650,8 @@ const PULL_DOWN_STICK_COS: f32 = 0.342;
 /// Walking in low profile at an edge, a drop deeper than this (m) halts the walk this close to it (AC1's interpreter).
 const EDGE_HALT_DROP: f32 = 2.0;
 const EDGE_HALT_REACH: f32 = 0.16;
+/// ...with the edge facing within 70 degrees of the walk (cos).
+const EDGE_HALT_COS: f32 = 0.342;
 /// Up to this speed (m/s, the walk band's top) letting go of the stick stops at once, and steering round pivots.
 const WALK_STOP_SPEED: f32 = 2.1;
 
@@ -1069,7 +1071,22 @@ pub fn locomotion(
         if !ctl.high && !ctl.free_run && !ch.blend {
             let dir = target_v.with_y(0.0).normalize_or_zero();
             let at = tf.translation + dir * EDGE_HALT_REACH;
-            if dir != Vec3::ZERO && level.ground(at, 0.3, EDGE_HALT_DROP).is_none() && level.ground(tf.translation, 0.3, 0.3).is_some() {
+            // AC1's own test is on its edges (the edge report, as Banned445's port reads it): a hold within 0.16 m of the
+            // feet, about their height, facing within 70 degrees of the walk, the drop past it over 2 m, counted past a
+            // step (a 0.9 m step with 8 m under it beyond, off the Damascus bureau's roof: ours probed 0.16 m ahead, found
+            // the step and walked off; the running game stopped at the edge).
+            let p = tf.translation;
+            let drop_past = |q: Vec3, out: Vec3| {
+                [0.1, 0.3, 0.6].iter().map(|d| level.ground(q + out * *d + Vec3::Y * 0.1, 0.0, 10.0).map_or(10.0, |g| q.y - g.point.y)).fold(0.0, f32::max)
+            };
+            let at_edge = level.ledges.iter().any(|l| {
+                let q = l.closest(p);
+                (q - p).with_y(0.0).length() < EDGE_HALT_REACH + 0.1
+                    && (q.y - p.y).abs() < 0.3
+                    && l.out.dot(dir) > EDGE_HALT_COS
+                    && drop_past(q, l.out) > EDGE_HALT_DROP
+            });
+            if dir != Vec3::ZERO && (at_edge || level.ground(at, 0.3, EDGE_HALT_DROP).is_none()) && level.ground(tf.translation, 0.3, 0.3).is_some() {
                 target_v = Vec3::ZERO;
                 ch.velocity = ch.velocity.with_x(0.0).with_z(0.0);
             }
