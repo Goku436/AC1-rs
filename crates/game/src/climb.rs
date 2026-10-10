@@ -595,6 +595,10 @@ const CATCH_BEHIND_COS: f32 = -0.5;
 const CATCH_SIDE_REACH: f32 = 1.2;
 /// A jump with no target is weighted for a level one this far ahead (m).
 const FREE_JUMP_DIST: f32 = 2.5;
+/// A jump with no target comes down at this (m/s²) until falling at `FREE_JUMP_FAST` (m/s), then under gravity: the
+/// running game's, measured off a Damascus roof (one jump: 20 m/s², about 8.5 m/s).
+const FREE_JUMP_GRAVITY: f32 = 20.0;
+const FREE_JUMP_FAST: f32 = 8.5;
 /// The way over a jump must be clear this high (m) above the higher of its two ends.
 const JUMP_AC1_CLEAR: f32 = 0.6;
 /// At this speed (m/s, the sprint) the reception is all its quick version.
@@ -772,6 +776,8 @@ pub struct WallClimb {
     fall_v: Option<Vec3>,
     /// Upward speed added when the next fall starts (running jump takeoff).
     launch: f32,
+    /// A jump with no target (AC1's free jump): it comes down harder (`FREE_JUMP_GRAVITY`).
+    free_jump: bool,
     /// Airborne from a jump: grab holds within reach on the way down.
     can_catch: bool,
     /// A fall off an edge walked off: it catches what is in reach while the legs are held (AC1's grab request).
@@ -1414,6 +1420,19 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
                 && (2..=(JUMP_TARGET_REACH.end() / 0.25) as usize).all(|k| apart(from + dir * (k as f32 * 0.25)) > JUMP_ALONG_BEAM_MEET)
             {
                 continue;
+            } else if axis != Vec3::ZERO && axis.dot(dir).abs() <= JUMP_ALONG_BEAM_COS {
+                // (A beam across the way: where the way forward crosses it, as AC1's candidates are. Off a roof's edge
+                // across a diagonal beam crossing 0.2 m past the edge, too near, the running game made its free jump, 7.8 m
+                // on onto a lower roof; ours aimed at the beam 0.6 m off the way and walked along it.)
+                let (u, w) = ((l.b - l.a).with_y(0.0), from - l.a);
+                let den = dir.x * u.z - dir.z * u.x;
+                if den.abs() > 1e-4 {
+                    let t = (u.x * w.z - u.z * w.x) / den;
+                    let s = (dir.x * w.z - dir.z * w.x) / den;
+                    if t > 0.0 && (0.0..=1.0).contains(&s) {
+                        cands.push(l.a.lerp(l.b, s));
+                    }
+                }
             } else {
                 cands.extend([1.5, 2.5, 3.5, 4.5].map(|d| l.closest(from + dir * d)));
             }
@@ -1585,6 +1604,7 @@ impl WallClimb {
             want_drop: false,
             fall_v: None,
             launch: 0.0,
+            free_jump: false,
             can_catch: false,
             grab_on_legs: false,
             legs_held: false,
@@ -1699,6 +1719,7 @@ impl WallClimb {
         w.queue = vec![Queued { rate, ..Queued::new(air, FALL) }];
         w.launch = JUMP_UP_SPEED;
         w.can_catch = true;
+        w.free_jump = bar_ahead(level, p, dir).is_none();
         w.start(takeoff, JUMP.into(), &planned);
         w.ease_in(from, root);
         Some(w)
@@ -4810,7 +4831,10 @@ impl WallClimb {
         }
         self.fall_top = self.fall_top.max(root.translation.y);
         let Some(v) = &mut self.fall_v else { return };
-        v.y -= GRAVITY * dt;
+        // (A free jump comes down harder until it falls at `FREE_JUMP_FAST`: off the Damascus bureau's roof the running
+        // game's went from 1.9 to 8.6 m/s down in 0.33 s past its top, and ours, under gravity, landed 1.3 m further.)
+        let g = if self.free_jump && v.y < 0.0 && v.y > -FREE_JUMP_FAST { FREE_JUMP_GRAVITY } else { GRAVITY };
+        v.y -= g * dt;
         let flat = v.with_y(0.0);
         // Walls stop the flight, at the chest or the knees (a low jump must not slide into a block).
         let wall = |h: f32| level.raycast(root.translation + Vec3::Y * h, flat.normalize(), flat.length() * dt + 0.35).is_some_and(|h| h.normal.y.abs() < 0.5);
