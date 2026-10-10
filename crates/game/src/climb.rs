@@ -4570,21 +4570,24 @@ impl WallClimb {
         // On a wall in high profile, the legs: eject off it (AC1's rebound) at the best place to land away from the wall,
         // or along it with the stick to a side (the stick up is a leap up the wall). Nothing to land on: with the stick
         // back, push off backwards and fall, catching what comes. (In low profile the running game does nothing.)
-        let on_wall = matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) || self.state.starts_with('1') || self.state.starts_with('2');
+        // (Also as a wall run catches its hang: the running game broke off the catch for the eject, 0.02 s into it.)
+        let catching = self.mv.as_ref().is_some_and(|m| m.clip.name.starts_with("xx_h_wallingfront_") && m.clip.name.contains("_tr_hangwall_"));
+        let on_wall = catching || matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) || self.state.starts_with('1') || self.state.starts_with('2');
         // (Also while looking round or shimmying along the hang: the running game ejected from both, the stick held.)
-        let idle = self.mv.as_ref().is_none_or(|m| m.clip.name.contains("lookaround") || m.clip.name.contains("_strafe_"));
+        let idle = catching || self.mv.as_ref().is_none_or(|m| m.clip.name.contains("lookaround") || m.clip.name.contains("_strafe_"));
         if on_wall && idle && self.high && input.y < 0.5 {
             // (Off the left foot, but to the left off the right: as the running game did.)
             let left = input.x > -0.5;
             // From a wall hang, AC1's rebound pose first, 0.2 s against the wall (`xx_h_hangwall_tr_rebound_<foot>`, the
             // takeoff on the same foot 0.22 s after it, in all four of the running game's ejects); the eject when it ends.
-            let pose = matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN)
+            let pose = (catching || matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN))
                 .then(|| lib.get(&format!("xx_h_hangwall_tr_rebound_{}", if left { "footl" } else { "footr" })))
                 .flatten();
             if let Some(pose) = pose
                 && Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()).is_some()
             {
-                let state = self.state.clone();
+                let state = if catching { HANGWALL_OPEN.to_string() } else { self.state.clone() };
+                self.queue.clear();
                 self.start(pose, state, root);
                 self.eject_after = Some((input, left));
                 return true;

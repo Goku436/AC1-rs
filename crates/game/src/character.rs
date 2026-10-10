@@ -761,7 +761,10 @@ const STICK_TO_GROUND: f32 = 0.58;
 /// jumped (a fence's top, 1 m, is jumped from).
 const FREE_RUN_JUMP_DROP: f32 = 0.8;
 /// Free running grabs or runs up a wall this close ahead (m).
-const FREE_RUN_REACH: f32 = 1.3;
+const FREE_RUN_REACH: f32 = 1.5;
+/// ...probed this high over the feet (AC1's wall test for the wall run, 0xE18390: 1.5 m out at 1.3 m up, as Banned445's
+/// port reads it; off the box in the Damascus street the running game started up the wall 1.37 m from it, ours 1 m).
+const FREE_RUN_PROBE: f32 = 1.3;
 /// Running at least this fast vaults low obstacles on its own.
 const RUN_VAULT_SPEED: f32 = 2.5;
 const HANG_DROP: f32 = 1.75;
@@ -796,8 +799,8 @@ pub fn locomotion(
             if v.length() > 0.5
                 && dir != Vec3::ZERO
                 && level
-                    .raycast(tf.translation + Vec3::Y, dir, FREE_RUN_REACH)
-                    .is_some_and(|h| h.normal.y.abs() < 0.3 && crate::climb::wide_wall(&level, tf.translation + Vec3::Y, dir, h.dist))
+                    .raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, dir, FREE_RUN_REACH)
+                    .is_some_and(|h| h.normal.y.abs() < 0.3 && crate::climb::wide_wall(&level, tf.translation + Vec3::Y * FREE_RUN_PROBE, dir, h.dist))
             {
                 ctl.toggle_climb = true;
                 ctl.grab_only = true;
