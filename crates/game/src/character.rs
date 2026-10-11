@@ -887,6 +887,9 @@ const HAY_WALK_IN_PILE: f32 = 1.2;
 const LADDER_AUTO_REACH: f32 = 0.6;
 /// ...or from its top, from this far in from its edge (m: AC1's feet within 1.5 m of the top).
 const LADDER_TOP_REACH: f32 = 1.5;
+/// AC1's wall slide: a wall touched this high over the feet or more (m), within this of the capsule (m).
+const WALL_SLIDE_LOW: f32 = 0.55;
+const WALL_SLIDE_REACH: f32 = 0.1;
 /// Getting up to a speed over `RUN_START_MIN` (m/s), the body speeds up at `RUN_ACCEL` (m/s²).
 const RUN_START_MIN: f32 = 2.5;
 const RUN_ACCEL: f32 = 13.0;
@@ -1474,6 +1477,23 @@ pub fn locomotion(
         // Ground: accelerate toward desired velocity, turn to face it, follow the ground height.
         ch.want_dir = ctl.move_dir.with_y(0.0).normalize_or_zero();
         let mut target_v = ctl.move_dir.normalize_or_zero() * ctl.speed;
+        // AC1's wall slide (the interpreter's 0xEDD7C0, Banned445's port, audit GROUND-13): against a wall (a contact at
+        // least 0.55 m over the feet) with the stick up to 135 degrees off its normal, the stick turns along the wall at the
+        // same strength, the body running on along it at full speed; ours lost the part into the wall, slowing by its
+        // cosine. (Nearer head-on, within 45 degrees, is the lean on it, `ground_move`.)
+        if ch.wall.is_none() && target_v.length() > 0.1 {
+            let d = target_v.normalize();
+            let contact = [WALL_SLIDE_LOW, 1.0].iter().find_map(|h| {
+                level.raycast(tf.translation + Vec3::Y * *h, d, crate::level::BODY_RADIUS + WALL_SLIDE_REACH).filter(|hit| hit.normal.y.abs() < 0.3)
+            });
+            if let Some(hit) = contact {
+                let n = hit.normal.with_y(0.0).normalize_or_zero();
+                let c = d.dot(n);
+                if c < 0.0 && c > -std::f32::consts::FRAC_1_SQRT_2 {
+                    target_v = (d - n * c).normalize_or_zero() * target_v.length();
+                }
+            }
+        }
         // AC1's low-profile edge halt (the interpreter's, 0xEE7BDA, docs/PARKOUR.md): walking at an edge with a drop
         // of more than 2 m, the walk stops right at it, no clip (deeper drops got the ledge stop above).
         if !ctl.high && !ctl.free_run && !ch.blend {
