@@ -979,6 +979,8 @@ pub struct WallClimb {
     hay_t: f32,
     /// This air stay has stepped off an edge it came down on (AC1 does it once).
     edge_landed: bool,
+    /// Flung off a swing bar: the flight is steered onto a post or beam ahead.
+    flung: bool,
     /// A ground move that follows the stick (a turn round): broken off when the stick lets go of this
     /// direction (world), turns away from it, or the legs are pressed.
     pub steer: Option<Vec3>,
@@ -1452,8 +1454,12 @@ fn wall_run_options() -> Vec<GrabOpt> {
         GrabOpt { names: entry("xx_h_wallingfront_entry_footl_tr_hangknee_131cm_footl"), catch: 1, end: GrabEnd::Onto(1.31), after: stand_l.clone() },
         GrabOpt { names: entry("xx_h_wallingfront_entry_footl_tr_hangknee_200cm_footl"), catch: 1, end: GrabEnd::Onto(2.0), after: stand_l.clone() },
         GrabOpt { names: run(&[&format!("{step}_hangknee_201cm_footr")]), catch: 1, end: GrabEnd::Onto(2.0), after: stand_r.clone() },
+        // (AC1's probe B: an edge overhanging the run caught off the entry into a free hang, swinging back under it;
+        // Banned445's `walling.rs`, audit WALL-15.)
+        GrabOpt { names: entry("xx_h_wallingfront_entry_footl_tr_hangfree_250cm_swingback_min"), catch: 1, end: free, after: vec![] },
         GrabOpt { names: run(&[&format!("{step}_hangknee_250cm_footr")]), catch: 1, end: GrabEnd::Onto(2.5), after: stand_r.clone() },
         GrabOpt { names: run(&[&format!("{step}_hangwall_251cm_000cm_a"), &format!("{step}_hangwall_251cm_000cm_b")]), catch: 2, end: wall, after: vec![] },
+        GrabOpt { names: entry("xx_h_wallingfront_entry_footl_tr_hangfree_350cm_swingback_min"), catch: 1, end: free, after: vec![] },
         GrabOpt { names: run(&[&format!("{step}_hangfree_350cm_swingback_min")]), catch: 1, end: free, after: vec![] },
         GrabOpt { names: run(&[&format!("{step}_hangfree_400cm_swingback_min")]), catch: 1, end: free, after: vec![] },
         GrabOpt { names: run(&[&format!("{step}_hangwall_430cm_000cm_a"), &format!("{step}_hangwall_430cm_000cm_b")]), catch: 2, end: wall, after: vec![] },
@@ -1993,6 +1999,7 @@ impl WallClimb {
             impulsion: false,
             hay_t: 0.0,
             edge_landed: false,
+            flung: false,
             steer: None,
             catch_below: None,
             blended_for: None,
@@ -2648,10 +2655,9 @@ impl WallClimb {
             .any(|l| l.out.dot(n_flat) > 0.9 && (l.base - hit.point).dot(along_wall).abs() < 0.5 && (l.base - hit.point).dot(n_flat).abs() < 0.5);
         // (No width test: AC1 never wants the wall to go on to both sides, reanalysis WALL-1; at ladder 68 the running game
         // ran up 1.32 m out where ours' two side probes missed the rungs, audit WALL-1.)
-        if !ladder_here && set_back {
-            debug!("climb: no wall run: a ledge sticks out over it");
-            return None;
-        }
+        // (Not refused under a ledge sticking out over it: the run catches it in a free hang (AC1's probe B / C), or tops
+        // out and rebounds, audit WALL-15.)
+        let _ = (ladder_here, set_back);
         // A ladder up the wall in front: up it onto the ladder (AC1's `xx_h_wallingfront_step1_footr_tr_h_ladder_up_l`, on
         // into its left-hand climb), the root steered onto the ladder's climbing spot.
         let p = root.translation;
@@ -4431,6 +4437,8 @@ impl WallClimb {
                 self.fall_top = root.translation.y;
                 self.can_catch = true;
                 self.aimed = false;
+                // (A fling off a bar aims at the post or beam ahead, as AC1's swing jump takes its target.)
+                self.flung = true;
                 self.start(off, LEAP.into(), root);
                 return true;
             }
@@ -6199,7 +6207,9 @@ impl WallClimb {
         if self.can_catch && self.try_bar(lib, level, root) {
             return;
         }
-        if self.can_catch && !self.aimed && !self.faith {
+        // (Steering onto a post or beam in the air only off a swing bar's fling, which AC1 aims at its target: an ordinary
+        // fall or jump is not steered, AC1 steering only toward the jump's own target, audit AIR-16.)
+        if self.can_catch && !self.aimed && !self.faith && self.flung {
             self.aim_at_perch(level, root);
         }
         // A ladder ahead in a fall: caught (AC1's `FindLadderCatch` 0xE04100, Banned445's port, audit LADDER-6: a box 0.25 m

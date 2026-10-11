@@ -741,7 +741,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_WALK", "5.2"),
             ("AC1_STOP", "2.0-12"),
             ("AC1_HIGH", "0-16"),
-            ("AC1_JUMP", "2.6"),
+            // (No legs press at the edge: the pull-down is pushing through the ledge stop; a press in the hang is an eject.)
             ("AC1_CLIMB", "nograb,wait=4,down=8"),
             ("AC1_LEGS", "12-16"),
         ],
