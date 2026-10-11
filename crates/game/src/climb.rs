@@ -834,6 +834,8 @@ const STEP_UP_MAX: f32 = 0.85;
 /// component toward the landing over `CORNER_HOP_TOWARD` (m: AC1's 0.766 against the un-normalised offset).
 const CORNER_HOP_COS: f32 = 0.766;
 const CORNER_HOP_TOWARD: f32 = 0.766;
+/// A free-step arrival may dive into a haystack once this far (fraction) through (AC1: 0.6).
+const HAY_ARRIVAL_DIVE: f32 = 0.6;
 /// AC1's anti-stuck nudge in the air: under this speed (m/s) for this long (s), nudged; the push with no spot (m/s).
 const STUCK_SPEED: f32 = 0.25;
 const STUCK_TIME: f32 = 0.5;
@@ -6789,6 +6791,19 @@ impl WallClimb {
     #[allow(clippy::too_many_arguments)]
     pub fn update(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig, input: Vec2, leap: bool, dt: f32) {
         self.legs_held = leap;
+        // A free-step arrival past 0.6 of its way, the stick toward a haystack beside: into it (AC1's support search,
+        // `HumanNarrowObject__CheckSupportAndFall` 0xE51190, runs once the arrival is past 0.6; the running game dived
+        // 0.167 s into the 0.27 s `hangknee_footl_tr_freestep_entry_footl`, ours after it ended; audit HAY-4).
+        if let Some(m) = &self.mv
+            && m.clip.name.contains("_tr_freestep_entry")
+            && m.t >= HAY_ARRIVAL_DIVE * m.clip.anim.duration
+            && self.move_dir.with_y(0.0).length() > 0.1
+            && let Some(w) = Self::hay_dive_ahead(lib, level, root, self.move_dir, self.last.clone())
+        {
+            debug!("climb: into the hay from the free-step arrival");
+            *self = w;
+            return;
+        }
         // An eject asked for during a leap: when the move lands on a hold, within the Legs buffer.
         if let Some((stick, left)) = self.eject_wait.take() {
             let left = left - dt;
