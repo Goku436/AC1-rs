@@ -3156,7 +3156,7 @@ impl WallClimb {
     /// (`xx_h_hangwall_strafe_<side>_050cm_open`, then `_close`), the body turned onto the new face and its hang there,
     /// the hang kept (a wall under the new hold for the feet, or no corner). Inside corners first, then outside (Banned445's
     /// `TryTurnCorner` 0xDD3BB0, audit LEDGE-4: ours played the climbing stance's corner clips).
-    fn hang_corner(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, right: bool) -> bool {
+    fn hang_corner(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, right: bool, outer: bool) -> bool {
         let n = self.normal.with_y(0.0).normalize_or_zero();
         if n == Vec3::ZERO || self.mv.is_some() {
             return false;
@@ -3165,6 +3165,9 @@ impl WallClimb {
         let side = fwd.cross(Vec3::Y) * if right { 1.0 } else { -1.0 };
         let hands = root.translation + fwd * HANG_CORNER_IN + Vec3::Y * HANG_CORNER_UP;
         for (inner, probe, out) in [(true, hands + side * 0.6 - fwd * 0.6, -side), (false, hands + fwd * 0.3 + side * 0.2, side)] {
+            if inner == outer {
+                continue;
+            }
             let Some(l) = level
                 .ledges
                 .iter()
@@ -3247,6 +3250,44 @@ impl WallClimb {
             self.wait = Some(w);
             self.wait_t = 0.0;
         }
+    }
+
+    /// Catch a ladder the fall passes in front of (see the call): onto it at the rung below, facing it.
+    fn try_ladder_catch(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        let p = root.translation;
+        let reach = if self.hand_held { 0.5 } else { 0.25 };
+        let Some((i, l)) = level.ladders.iter().enumerate().find(|(_, l)| {
+            let d = p - l.base;
+            let rung = d.y;
+            d.dot(l.out.cross(Vec3::Y)).abs() < 0.4
+                && (LADDER_OFF - 0.1..LADDER_OFF + reach).contains(&d.dot(l.out))
+                && rung >= 0.45
+                && rung < (l.top - l.base.y) - 1.95
+        }) else {
+            return false;
+        };
+        let Some(clips) = ["xx_fall_tr_ladder_min_a", "xx_fall_tr_ladder_min_b"].iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else {
+            return false;
+        };
+        let rung = ((p.y - l.base.y) / 0.5).floor() * 0.5;
+        let at = Transform { translation: Vec3::new(l.base.x, l.base.y + rung, l.base.z) + l.out * LADDER_OFF, rotation: facing(-l.out), ..*root };
+        debug!("climb: caught ladder {i} falling, at {:.2}", at.translation);
+        self.fall_v = None;
+        self.ladder = Some(i);
+        self.normal = l.out;
+        self.state = LADDER_R.into();
+        // (Onto the rung over the catch, not snapped there.)
+        let turned = Transform { rotation: at.rotation, ..*root };
+        self.start_chain_carry(clips, vec![LADDER_R.into(), LADDER_R.into()], &turned, at.translation - root.translation, Some(1));
+        if let Some(m) = &mut self.mv {
+            m.ease_rot = root.rotation * at.rotation.inverse();
+        }
+        true
+    }
+
+    /// A height on a ladder snapped to its rungs: 0.5 m apart from its base, to the nearest.
+    fn rung_snap(l: &crate::level::Ladder, y: f32) -> f32 {
+        l.base.y + ((y - l.base.y) / LADDER_STEP).round() * LADDER_STEP
     }
 
     /// Whether a running jump along `dir` has a target (a top, post, beam, bar or hold): AC1 searches the leap of faith
@@ -4572,7 +4613,9 @@ impl WallClimb {
             let end = chain_end(&clips, rig, base, cr)?;
             let out_rot = facing(l.out);
             let start = spot - world_rot(out_rot) * end.motion;
-            let at = Transform { translation: start.with_y(p.y), rotation: out_rot, ..*root };
+            // (Ending on the rung grid: see `rung_snap`.)
+            let end_y = p.y + (world_rot(out_rot) * end.motion).y;
+            let at = Transform { translation: start.with_y(p.y + Self::rung_snap(l, end_y) - end_y), rotation: out_rot, ..*root };
             w.start_chain(clips, vec![LADDER_R.into(), LADDER_R.into(), LADDER_R.into()], &at, Vec3::ZERO);
         }
         w.ease_in(from, root);
@@ -4622,7 +4665,10 @@ impl WallClimb {
                 let off = right * (l.base - hands).dot(right) + l.out * (spot - end).dot(l.out);
                 if off.length() < reach && best.as_ref().is_none_or(|b| off.length() < b.0) {
                     let to = if name.contains("ladder_wait_l") { LADDER_L } else { LADDER_R };
-                    best = Some((off.length(), clip.clone(), to.to_string(), i, off));
+                    // (Onto the rung grid, 0.5 m from the ladder's base, as AC1 snaps a ladder entry (reanalysis GUIDE-1,
+                    // audit GUIDE-4): off it, the hands sat between rungs all the way up.)
+                    let off = off + Vec3::Y * (Self::rung_snap(l, end.y) - end.y);
+                    best = Some((off.with_y(0.0).length(), clip.clone(), to.to_string(), i, off));
                 }
             }
         }
@@ -5168,7 +5214,24 @@ impl WallClimb {
             FREE | FREE_OPEN => &TOP_OUT_FREE,
             _ => return false,
         };
-        let Some(clips) = names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { return false };
+        let Some(mut clips) = names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { return false };
+        // From a wall hang, the pull-up mixed toward the wall's lean under the edge: `30_out` full at a 30 degree overhang,
+        // `45_in` full at a 45 degree slope (AC1's action 0x106D2C5, by the rule its receptions use, 0xE02790; audit
+        // LEDGE-10).
+        if matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) {
+            let out = self.normal.with_y(0.0).normalize_or_zero();
+            let hands = root.translation + Vec3::Y * HANG_CORNER_UP;
+            let tilt = level.raycast(hands - Vec3::Y * 0.8 + out * 0.6, -out, 1.2).map_or(0.0, |h| (-h.normal.y).clamp(-1.0, 1.0).asin());
+            let (side, w) = if tilt >= 0.0 { ("30_out", (tilt / 30f32.to_radians()).min(1.0)) } else { ("45_in", (-tilt / 45f32.to_radians()).min(1.0)) };
+            if w > 0.05 {
+                for (k, part) in ["a", "b"].iter().enumerate() {
+                    let tilted = format!("xx_h_hangwall_{side}_tr_hangknee_footl_{part}");
+                    if let Some(c) = lib.get(&mix_name(&[(TOP_OUT_HANGWALL[k], 1.0 - w), (&tilted, w)])) {
+                        clips[k] = c;
+                    }
+                }
+            }
+        }
         let mut pose = base.clone();
         sample(&clips[0], 0.0, &mut pose, cr.reference);
         let m = pose.model(rig);
@@ -5957,7 +6020,9 @@ impl WallClimb {
         if self.take_first(lib, level, root, rig, base, cr, cands) {
             return true;
         }
-        if !vertical && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.hang_corner(lib, level, root, dir == "r") {
+        // (The wall hang's inside corner here, its outside one after the reaches: AC1 jumps on to a ledge further along
+        // before it turns an outside corner, audit LEDGE-5.)
+        if !vertical && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.hang_corner(lib, level, root, dir == "r", false) {
             return true;
         }
         if is_rest(&self.state) || leap {
@@ -5968,6 +6033,9 @@ impl WallClimb {
             }
         }
         if self.take_first(lib, level, root, rig, base, cr, corners_out) {
+            return true;
+        }
+        if !vertical && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.hang_corner(lib, level, root, dir == "r", true) {
             return true;
         }
         if !is_rest(&self.state) && leap && dir != "u" {
@@ -6133,6 +6201,17 @@ impl WallClimb {
         }
         if self.can_catch && !self.aimed && !self.faith {
             self.aim_at_perch(level, root);
+        }
+        // A ladder ahead in a fall: caught (AC1's `FindLadderCatch` 0xE04100, Banned445's port, audit LADDER-6: a box 0.25 m
+        // ahead, 0.5 m with the empty hand held; a rung 0.45 m up to 1.95 m short of the top, rounded down to 0.5 m; then
+        // `xx_fall_tr_ladder_min_a/b` onto it).
+        if let Some(v) = self.fall_v
+            && v.y < 0.0
+            && (self.can_catch || self.hand_held)
+            && self.try_ladder_catch(lib, level, root)
+        {
+            self.can_catch = false;
+            return;
         }
         if let Some(v) = self.fall_v
             // (AC1's manual catch is the empty hand held, after 0.3 m of fall from its top (0xE0BB70, Banned445's port); it
@@ -6794,7 +6873,8 @@ impl WallClimb {
             return;
         }
         if self.ladder.is_some() {
-            if input.x.abs() > input.y.abs() && input.x.abs() > 0.3 {
+            // (The stick within 20 degrees of the side: AC1's |stick . facing| < 0.342, audit LADDER-8; ours took 45.)
+            if input.x.abs() > 0.3 && input.y.abs() < 0.342 * input.length() {
                 self.off_ladder_side(lib, level, root, rig, base, cr, input.x);
             } else {
                 self.ladder_step(lib, level, root, input);

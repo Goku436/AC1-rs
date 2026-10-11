@@ -97,6 +97,8 @@ struct OrbitCam {
 const FRAMES_FPS: f32 = 30.0;
 /// How long a Legs press stays good (s): AC1's input buffer.
 const LEGS_BUFFER: f32 = 0.3;
+/// The camera's yaw jumping more than this in a frame (rad, 30 degrees) is a cut: the stick keeps the old frame.
+const CAMERA_CUT: f32 = std::f32::consts::FRAC_PI_6;
 
 #[derive(Resource, Default)]
 struct Debug {
@@ -753,6 +755,7 @@ fn player_input(
     scholars: Query<&Transform, (With<crowd::Scholar>, Without<Player>)>,
     mut legs_buffer: Local<f32>,
     mut climb_latch: Local<(Vec2, f32)>,
+    mut stick_yaw: Local<Option<(f32, Vec2)>>,
 ) {
     // Scripted captures must not pick up stray keystrokes.
     if script.shot.is_some() {
@@ -850,8 +853,18 @@ fn player_input(
     if keys.pressed(KeyCode::KeyA) {
         input.x -= 1.0;
     }
-    let fwd = Vec3::new(-cam.yaw.sin(), 0.0, -cam.yaw.cos());
-    let right = Vec3::new(cam.yaw.cos(), 0.0, -cam.yaw.sin());
+    // (After a camera cut, a jump of the camera's yaw over 30 degrees in a frame, the stick keeps the old camera's frame
+    // till it moves more than 0.3: AC1's, reanalysis INPUT-8, audit INPUT-14; ours re-aimed a running Altaïr at once.)
+    let latched = matches!(*stick_yaw, Some((y, held)) if y != cam.yaw && (input - held).length() <= 0.3 && input != Vec2::ZERO);
+    let prev = stick_yaw.map_or(cam.yaw, |(y, _)| y);
+    let turned = (cam.yaw - prev + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+    let cut = !latched && turned.abs() > CAMERA_CUT && input != Vec2::ZERO;
+    let yaw = if latched || cut { prev } else { cam.yaw };
+    if !latched {
+        *stick_yaw = Some((if cut { prev } else { cam.yaw }, input));
+    }
+    let fwd = Vec3::new(-yaw.sin(), 0.0, -yaw.cos());
+    let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
     ctl.move_dir = fwd * input.y + right * input.x;
     // AC1's puppet controls: the right button is the high profile, Space the legs, Shift the empty hand
     // (see the module docs).

@@ -2005,6 +2005,9 @@ pub const BODY_RADIUS: f32 = 0.4;
 pub const BODY_HEIGHT: f32 = 1.8;
 pub const BODY_LIFT: f32 = 0.37;
 /// Faces whose normal is further than this from level (its up component) are floors or ceilings, not walls.
+/// (AC1's controller walks up slopes to 53 degrees (cos 0.602, reanalysis GUIDE-6), but at 0.602 ours' wall run up the
+/// Damascus street wall west of the bureau found nothing to catch and rebounded, where the running game hung from it:
+/// kept at 0.7 till the wall tests are separated from the floor test, audit GUIDE-6.)
 const WALL_MAX_UP: f32 = 0.7;
 
 /// Closest point on triangle `t` to `p`.
