@@ -141,6 +141,7 @@ use ik::{Pose, Rig};
 use std::sync::Arc;
 
 pub const ENTRY: &str = "xx_h_wait_hipm_footl_tr_climbing_1m";
+const ENTRY_FOOTR: &str = "xx_h_wait_hipm_footr_tr_climbing_1m";
 const ENTRY_STATE: &str = "1m";
 const TOP_OUT: [&str; 3] = ["xx_l_climb_1m_tr_hangknee_footl_a", "xx_l_climb_1m_tr_hangknee_footl_b", STAND_UP];
 /// The same from the wide hang ("2m": mid-air catches, wall-run and jump-up grabs end there).
@@ -290,9 +291,9 @@ const STRAIGHT_JUMP_UP_SPEED: f32 = 4.43;
 /// 0xDE2EE0, as Banned445's port reads it; the stand into the wait is only listed in the move graph), 0.27 s in place,
 /// as the running game did topping out at the bureau; ours' stand into the wait took 0.87 s.
 const STAND_UP: &str = "xx_h_hangknee_footl_tr_freestep_entry_footl";
-/// Topped out, the root stands this far in from where the hands held (m): AC1's stand 0.756 m in from the hang root
-/// (`hay70`, both routes), where 0.3 put ours 0.6 m in (audit LEDGE-9).
-const STAND_FROM_WRISTS: f32 = 0.45;
+/// Topped out, the root stands this far in from where the hands held (m). (Not further: on `hay70`'s narrow box rim the
+/// running game stood on the rim itself, 0.756 m in from its hang root, and 0.45 put ours against the box's inner wall.)
+const STAND_FROM_WRISTS: f32 = 0.3;
 /// Jump-up onto a ledge top: (clip kind, height in cm, clips after the jump's own).
 const JUMP_ONTO: [(&str, u32, &[&str]); 3] =
     [("hangknee_footl", 150, &[STAND_UP]), ("hangknee_footl", 200, &[STAND_UP]), ("hangwaist", 250, &["xx_h_hangwaist_tr_hangknee_footl", STAND_UP])];
@@ -370,6 +371,9 @@ const HANG_CORNER_UP: f32 = 1.06;
 /// far onto it (m).
 const VAULT_STANDING_SPEED: f32 = 1.9;
 const VAULT_STEP_IN: f32 = 0.4;
+/// The wall hang's shimmy steps (m): the first from a catch, then each one after.
+const SHIMMY_FIRST: f32 = 0.23;
+const SHIMMY_STEP: f32 = 0.43;
 /// The top-out is tried with the stick this close to up (cos 67.5 degrees).
 const TOP_OUT_STICK_COS: f32 = 0.383;
 /// Walking off a drop of at least this (m) is AC1's step off (event 68), launched this fast up (m/s).
@@ -441,7 +445,7 @@ const REBOUND_FAR_DOWN: f32 = 3.0;
 /// Sprinting at a wall closer than this (m) runs up it.
 pub const WALL_RUN_REACH: f32 = 2.0;
 /// A wall met up to this far off square (rad, 60°) is run up, turning to face it.
-const WALL_RUN_ANGLE: f32 = 1.05;
+const WALL_RUN_ANGLE: f32 = std::f32::consts::FRAC_PI_4;
 /// Where a wall run's entry ends (m): this far out from the wall and this high over the feet, as AC1 warps it (0xE18390:
 /// 0.5·h out, h up, h = 1 m for Altaïr; Banned445's reading, and the running game's runs up the bureau's walls end
 /// 0.50 m out, 1.00 m up).
@@ -470,6 +474,9 @@ const FAITH_HIGH_DROP: f32 = 10.0;
 const FAITH_LAND: &str = "xx_h_faith_jump_landing";
 const AIR_TO_HAY: &str = "xx_h_air_to_haystack";
 const HAY_WAIT: &str = "xx_h_haystack_wait";
+const HAY_WAIT_LOW: &str = "xx_l_haystack_wait";
+/// In the hay, settled this long (s) before hopping out (the dive's 0.2 s blend into the wait, audit HAY-5).
+const HAY_SETTLE: f32 = 0.2;
 /// The legs jump into a haystack from this far outside its edge (m).
 const HAY_REACH: f32 = 1.3;
 const HAY_HOP_OUT: [&str; 2] = ["xx_l_haystack_hop_out", "xx_l_haystack_hop_out_tr_l_wait"];
@@ -685,7 +692,7 @@ const JUMP_HOLD_REACH: std::ops::RangeInclusive<f32> = 1.0..=4.6;
 const JUMP_TARGET_DEEP: f32 = 5.0;
 /// An eject's targets, from nearer: the running game's eject to the right off the bureau's wall landed on a beam stuck out
 /// of the wall 0.95 m away (ours went on 4 m to the next).
-const EJECT_REACH: std::ops::RangeInclusive<f32> = 0.5..=4.6;
+const EJECT_REACH: std::ops::RangeInclusive<f32> = 0.5..=8.0;
 /// An eject's clips may land `JUMP_AC1_SLACK` of at least this far (m) off its target, made up over the jump.
 const EJECT_SLACK_FROM: f32 = 1.4;
 const JUMP_TARGET_CONE: f32 = 0.707;
@@ -784,7 +791,11 @@ const STEER_RATE: f32 = 4.0;
 /// Rebounding off a ladder: speed out from the wall and up (m/s), as the wall run's rebound.
 const LADDER_REBOUND: (f32, f32) = (3.5, 2.5);
 const LADDER_LEAP_REACH: f32 = 0.8;
-const LADDER_ON: &str = "xx_l_wait_hipm_footl_tr_l_ladder_climb_up_r";
+/// (The high stand's entry, rising 0.5 m onto the first rungs, in either profile: the running game walked up to ladder 68
+/// in low profile and got on with it; ours' low one rose nothing and climbed a step behind, audit LADDER-2.)
+const LADDER_ON: &str = "xx_h_wait_hipm_footl_tr_h_ladder_climb_up_r";
+/// Low profile climbs a ladder at half rate with the stick pushed less than this.
+const LADDER_SLOW_STICK: f32 = 0.7;
 const MONKEY: &str = "monkey";
 const MONKEY_ON: &str = "xx_h_kiosk_freestep_footr_tr_monkeybar_footr";
 const MONKEY_STEP: &str = "xx_h_kiosk_monkeybar_footr";
@@ -954,6 +965,10 @@ pub struct WallClimb {
     pub reverse_turn: bool,
     /// Crouched on a perch to jump straight up (AC1's impulsion), waiting for the legs to let go.
     impulsion: bool,
+    /// How long (s) he has rested in the hay.
+    hay_t: f32,
+    /// This air stay has stepped off an edge it came down on (AC1 does it once).
+    edge_landed: bool,
     /// A ground move that follows the stick (a turn round): broken off when the stick lets go of this
     /// direction (world), turns away from it, or the legs are pressed.
     pub steer: Option<Vec3>,
@@ -1238,6 +1253,14 @@ fn feet_fit_at(level: &Level, feet: &[Vec3; 2], normal: Vec3, want: Feet, hold: 
 
 /// A flight whose knees meet an edge with its top at most this far over the feet (m) lands on it.
 const KNEE_TOP: f32 = 0.7;
+/// Coming down within `EDGE_LAND_REACH` of an edge (m), at most `EDGE_LAND_IN` inside it, with a drop past it of more
+/// than `EDGE_LAND_DROP` (m): AC1's edge landing.
+const EDGE_LAND_REACH: f32 = 0.4;
+const EDGE_LAND_IN: f32 = 0.15;
+const EDGE_LAND_DROP: f32 = 1.0;
+/// The knee catch takes a top under this much fall (m), the root ending this far onto it (m).
+const KNEE_CATCH_FALL: f32 = 9.0;
+const KNEE_CATCH_IN: f32 = 0.3;
 
 /// Does a flight from `p` at velocity `v` (gravity bending it) pass `t` seconds without walking into a wall, at the
 /// knees or the chest (where `WallClimb::fall` stops a flight)?
@@ -1946,6 +1969,8 @@ impl WallClimb {
             cancel: false,
             reverse_turn: false,
             impulsion: false,
+            hay_t: 0.0,
+            edge_landed: false,
             steer: None,
             catch_below: None,
             blended_for: None,
@@ -1984,6 +2009,7 @@ impl WallClimb {
         base: &Pose,
         cr: ClimbRig,
         moving: bool,
+        left: bool,
         from: Option<Pose>,
     ) -> Option<WallClimb> {
         let fwd = root.rotation * Vec3::NEG_Z;
@@ -1998,7 +2024,8 @@ impl WallClimb {
             return None;
         }
         let normal = Vec3::new(hit.normal.x, 0.0, hit.normal.z).normalize();
-        let clip = lib.get(ENTRY)?;
+        // (Off the leading foot: AC1 has the entry for each, `xx_h_wait_hipm_foot<l|r>_tr_climbing_1m`, audit CLIMB-E15.)
+        let clip = lib.get(if left { ENTRY } else { ENTRY_FOOTR }).or_else(|| lib.get(ENTRY))?;
         let end = end_pose(&clip, rig, base, cr);
         let face = Quat::from_rotation_arc(Vec3::NEG_Z, -normal);
         let r = world_rot(face);
@@ -3222,7 +3249,7 @@ impl WallClimb {
             let dive = lib.get(&format!("xx_h_freestep_footr_to_haystack_0{n}"))?;
             let travel = world_rot(at.rotation) * root_motion_at(&dive, dive.frames());
             let mut w = WallClimb::new(HAY, -dir);
-            w.start_chain(vec![dive], vec![HAY.into()], &at, hay.centre - (p + travel));
+            w.start_chain(vec![dive], vec![HAY.into()], &at, hay.seat() - (p + travel));
             w.ease_in(from, root);
             debug!("climb: dive into the haystack at {:.2} from a top {:.2} m above it", hay.centre, p.y - hay.top());
             return Some(w);
@@ -3237,9 +3264,9 @@ impl WallClimb {
         let dive = lib.get(&format!("xx_h_freestep_footr_to_haystack_0{n}"))?;
         let travel = world_rot(at.rotation) * root_motion_at(&dive, dive.frames());
         let mut w = WallClimb::new(HAY, -dir);
-        w.start_chain(vec![dive], vec![HAY.into()], &at, hay.centre - (p + travel));
+        w.start_chain(vec![dive], vec![HAY.into()], &at, hay.seat() - (p + travel));
         w.ease_in(from, root);
-        debug!("climb: into the haystack at {:.2}", hay.centre);
+        debug!("climb: into the haystack at {:.2}", hay.seat());
         Some(w)
     }
 
@@ -3488,7 +3515,9 @@ impl WallClimb {
         }
         let mix = self.lean_mix;
         let names: Vec<String> = if d.length() < 0.3 {
-            vec![lean_name("xx_h_lean_040cm_twohand_{h}cm_wait_tr_h_wait_hipm_footr", mix)]
+            // (Into the stand of the profile held: AC1's lean wait goes to the high or the low stand, audit EXTRA-13.)
+            let low = lean_name("xx_h_lean_040cm_twohand_{h}cm_wait_tr_l_wait_hipm_footr", mix);
+            if !self.high && lib.get(&low).is_some() { vec![low] } else { vec![lean_name("xx_h_lean_040cm_twohand_{h}cm_wait_tr_h_wait_hipm_footr", mix)] }
         } else {
             let right = (-n).cross(Vec3::Y);
             let side = if d.dot(right) >= 0.0 { "right" } else { "left" };
@@ -3531,7 +3560,7 @@ impl WallClimb {
         let at = Transform { rotation: facing(-n), ..*root };
         // (A haystack's rim: on into the hay, as the running game went on from it, still pushing.)
         let hay = level.haystacks.iter().find(|hs| (hs.centre - top.point).with_y(0.0).length() < hs.half + 0.3 && (top.point.y - hs.top()).abs() < 0.3);
-        let hay = hay.and_then(|hs| Some((hs.centre, lib.get("xx_h_freestep_footr_to_haystack_02")?)));
+        let hay = hay.and_then(|hs| Some((hs.seat(), lib.get("xx_h_freestep_footr_to_haystack_02")?)));
         let mut tos: Vec<String> = (0..clips.len()).map(|i| if i + 1 == clips.len() { ON_TOP } else { KNEEL }.to_string()).collect();
         let mut end = top.point;
         let into_hay = hay.is_some();
@@ -4387,7 +4416,7 @@ impl WallClimb {
                     top.normal.y,
                     blocked.map(|b| b.dist),
                     level.haystacks.iter().min_by(|a, b| (a.centre - top.point).length().total_cmp(&(b.centre - top.point).length())).map(|h| (
-                        h.centre,
+                        h.seat(),
                         h.half,
                         h.top()
                     ))
@@ -4582,7 +4611,8 @@ impl WallClimb {
         // In high profile, AC1's high-profile ladder set (`HumanLadderData` asks for `xx_h_ladder_*` then): quicker
         // steps, running off the top into a free step and stepping off the bottom into the high wait.
         let p = if self.high { "h" } else { "l" };
-        let rate = 1.0;
+        // (Low profile with the stick in the walk band climbs at half rate, AC1's; audit LADDER-10.)
+        let rate = if !self.high && self.move_dir.length() < LADDER_SLOW_STICK { 0.5 } else { 1.0 };
         let play = |w: &mut Self, clip: Arc<Clip>, to: &str, correct: Vec3| {
             w.start(clip, to.into(), root);
             if let Some(m) = &mut w.mv {
@@ -4775,7 +4805,7 @@ impl WallClimb {
         let v0 = (r * (root_motion_at(&takeoff, end) - root_motion_at(&takeoff, end - k)) * (FPS / k)).y.min(0.0);
         let h = (leave.y - hay.top()).max(0.1);
         let t = (v0 + (v0 * v0 + 2.0 * GRAVITY * h).sqrt()) / GRAVITY;
-        let flat = (hay.centre - leave).with_y(0.0) / t;
+        let flat = (hay.seat() - leave).with_y(0.0) / t;
         let mut w = WallClimb::new(FAITH, -toward);
         w.queue = vec![Queued { rate: dive.anim.duration / t, ..Queued::new(dive, FALL) }];
         w.fall_with = Some(flat.with_y(v0));
@@ -4797,7 +4827,7 @@ impl WallClimb {
         };
         let Some(clip) = lib.get(name) else { return false };
         let motion = world_rot(root.rotation) * root_motion_at(&clip, clip.frames());
-        let correct = hay.centre - (root.translation + motion);
+        let correct = hay.seat() - (root.translation + motion);
         self.fall_v = None;
         self.queue.clear();
         self.start(clip, HAY.into(), root);
@@ -4810,7 +4840,7 @@ impl WallClimb {
     /// In the hay: hop out forward and stand up; toward a side of the box with a drop past it, out over its rim and
     /// down into a hang from it (`hay_over_rim`).
     fn hop_out(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
-        if self.state != HAY || self.mv.is_some() {
+        if self.state != HAY || self.mv.is_some() || self.hay_t < HAY_SETTLE {
             return false;
         }
         if self.hay_over_rim(lib, level, root) {
@@ -5039,7 +5069,9 @@ impl WallClimb {
         let name = match self.state.as_str() {
             FREE => Some("xx_h_hangfree_waitclose".to_string()),
             FREE_OPEN => Some("xx_h_hangfree_waitopen".to_string()),
-            HAY => Some(HAY_WAIT.to_string()),
+            // (The low wait after a dive from the ground or a free step, the high one after the leap of faith: every one of
+            // the running game's dives ended in `xx_l_haystack_wait`, audit HAY-2.)
+            HAY => Some(if self.faith { HAY_WAIT } else { HAY_WAIT_LOW }.to_string()),
             PERCH if self.impulsion => Some(IMPULSION_WAIT.to_string()),
             PERCH => Some(match self.beam_stance {
                 Some(BeamStance::Along(f)) => BEAM_WAIT[f].to_string(),
@@ -5147,7 +5179,7 @@ impl WallClimb {
                 let edge = Vec3::new(wrist.x, root.translation.y, wrist.z);
                 let to = (edge - self.normal * STAND_FROM_WRISTS - (root.translation + travel(&clips))).with_y(0.0);
                 // (Onto a haystack's rim: on into the hay, as the running game went, `xx_h_freestep_footr_to_haystack_01`.)
-                match hay.and_then(|h| Some((h.centre, lib.get("xx_h_freestep_footr_to_haystack_01")?))) {
+                match hay.and_then(|h| Some((h.seat(), lib.get("xx_h_freestep_footr_to_haystack_01")?))) {
                     Some((centre, dive)) => {
                         let mut clips = clips;
                         clips.push(dive);
@@ -5409,7 +5441,8 @@ impl WallClimb {
             // jumping off is the legs in high profile (`legs`).
             if let Some(off) = lib.get(&format!("xx_l_ladder_wait_{hand}_tr_falling")) {
                 self.ladder = None;
-                self.let_fall(off, root, self.normal * 1.0);
+                // (A fall, no push off: audit LADDER-5.)
+                self.let_fall(off, root, Vec3::ZERO);
             }
             return true;
         }
@@ -5431,9 +5464,17 @@ impl WallClimb {
             debug!("climb: reaching to catch a hold on the way down");
             return true;
         }
+        let hang = |s: &str| matches!(s, HANGWALL | HANGWALL_OPEN | FREE | FREE_OPEN);
         match &self.mv {
             // Already leaving the wall, in the air or topping out.
             Some(m) if off_wall(&m.to) => true,
+            // A step along a hang (a shimmy, a hand step): let go at once, cutting it (AC1 takes the empty hand during
+            // steps, reanalysis LEDGE-26, audit LEDGE-12; ours waited out a 0.6 s shimmy).
+            Some(m) if hang(&m.to) && hang(&self.state) => {
+                self.mv = None;
+                self.queue.clear();
+                self.drop_now(lib, level, root)
+            }
             Some(_) => {
                 self.want_drop = true;
                 true
@@ -5502,7 +5543,7 @@ impl WallClimb {
             return out;
         }
         // In the climbing stance AC1's move tables pick the move (`climb_table`, `ChooseMove` 0xDFDE90): the pose and the
-        // stick's direction give the long move (stick past half) and the short one, each an action whose clip plays;
+        // stick's direction give the long move (first, whatever the stick's length) and the short one, each an action whose clip plays;
         // the pose it ends in is the table's (the clip's name says otherwise for `xx_l_climb_2ru_u_2ru`).
         let wall: Vec<(String, String)> = match crate::climb_table::pose_of(&self.state) {
             Some(pose) => {
@@ -5782,7 +5823,18 @@ impl WallClimb {
             // Between free hangs he stays as far out from the wall: a clip that drifts in (AC1's free-hang leaps, made for
             // a flat wall) would put the body into a cornice over the hold.
             let keep = if !corner && !on_wall && is_free(&self.state) { -normal * (end.pos - root.translation).dot(normal) } else { Vec3::ZERO };
-            let err = flat + keep + normal * out - Vec3::Y * down + to_hang;
+            // The wall hang's shimmy steps AC1's length, not the clip's 0.5 m: 0.23 m for the first from a catch (the hands
+            // still apart), about 0.43 m after (`wall1_hang_left`: six steps 2.34 m, ours 2.99; audit LEDGE-1).
+            let step = if c.names[0].starts_with("xx_h_hangwall_strafe_") && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) {
+                let way = (end.pos - root.translation).with_y(0.0);
+                let along = way - normal * way.dot(normal);
+                let first = self.last_clip.as_deref().is_none_or(|n| !n.contains("_strafe_"));
+                let want = if first { SHIMMY_FIRST } else { SHIMMY_STEP };
+                along.normalize_or_zero() * (want - along.length())
+            } else {
+                Vec3::ZERO
+            };
+            let err = flat + keep + normal * out - Vec3::Y * down + to_hang + step;
             let tos = chain_states(clips.len(), &self.state, &c.to);
             self.start_chain(clips, tos, root, err);
             return true;
@@ -6053,7 +6105,28 @@ impl WallClimb {
             .then(|| level.ground(root.translation + ahead + Vec3::Y * 1.0, 0.0, 1.0))
             .flatten()
             .filter(|g| g.normal.y > 0.7 && (0.0..KNEE_TOP).contains(&(g.point.y - root.translation.y)));
-        if let Some(g) = top_at_knees {
+        // AC1's knee catch (`xx_fall_tr_hangknee_<min|max>_a/b`, `max` after 3 m of fall, under 9 m; Banned445's
+        // `air_catches.rs`, audit AIR-7): onto the top kneeling, then up, steered onto it. (Ours lifted the root onto
+        // the top in one frame: off the bureau's roof north-west the running game caught the edge below with its knee.)
+        let knee = top_at_knees.filter(|_| self.fall_top - root.translation.y < KNEE_CATCH_FALL).and_then(|g| {
+            let m = if self.fall_top - root.translation.y >= CATCH_LONG_FALL { "max" } else { "min" };
+            let clips = [format!("xx_fall_tr_hangknee_{m}_a"), format!("xx_fall_tr_hangknee_{m}_b"), STAND_UP.to_string()]
+                .iter()
+                .map(|n| lib.get(n))
+                .collect::<Option<Vec<_>>>()?;
+            Some((g, clips))
+        });
+        if let Some((g, clips)) = knee {
+            let way = flat.normalize_or_zero();
+            let at = Transform { rotation: facing(way), ..*root };
+            let travel: Vec3 = clips.iter().map(|c| world_rot(at.rotation) * root_motion_at(c, c.frames())).sum();
+            let to = Vec3::new(root.translation.x, g.point.y, root.translation.z) + way * KNEE_CATCH_IN;
+            debug!("climb: caught the top at the knees ({m}) at {:.2}", g.point, m = if clips[0].name.contains("max") { "max" } else { "min" });
+            self.fall_v = None;
+            self.state = KNEEL.into();
+            self.start_chain(clips, vec![KNEEL.into(), KNEEL.into(), ON_TOP.into()], &at, to - (root.translation + travel));
+            return;
+        } else if let Some(g) = top_at_knees {
             root.translation.y = g.point.y;
             v.y = v.y.max(0.0);
         } else if flat.length() > 0.01 && (wall(1.0) || wall(0.3)) {
@@ -6126,6 +6199,48 @@ impl WallClimb {
             }
             return;
         };
+        // Come down on a lip with a drop past it: AC1's edge landing, no landing, a step off it and on falling
+        // (`xx_fall_step_off_<back|left|right|front>_max` and its `_tr_fall_max`, by the edges' mean normal against the
+        // facing; once per air stay, under 9 m; Banned445's `air_catches.rs`, audit AIR-8: the running game came down on a
+        // lip off roof 1 east, stepped off it to the right and fell on to the street).
+        // (Not an aimed jump's landing, nor onto a post or beam: their sides are edges too.)
+        if !self.edge_landed && !self.aimed && self.fall_top - ground.point.y < KNEE_CATCH_FALL && level.perch_inside(ground.point, PERCH_REACH).is_none() {
+            let p = ground.point;
+            let mut n = Vec3::ZERO;
+            for l in level.ledges.iter() {
+                let q = l.closest(p);
+                if (q.y - p.y).abs() < 0.3
+                    && (q - p).with_y(0.0).length() < EDGE_LAND_REACH
+                    && (p - q).with_y(0.0).dot(l.out) > -EDGE_LAND_IN
+                    && level.ground(q + l.out * 0.4 + Vec3::Y * 0.1, 0.0, EDGE_LAND_DROP).is_none()
+                {
+                    n += l.out * l.a.distance(l.b);
+                }
+            }
+            let n = n.with_y(0.0).normalize_or_zero();
+            let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+            if n != Vec3::ZERO && fwd != Vec3::ZERO {
+                let angle = n.dot(fwd).clamp(-1.0, 1.0).acos();
+                let right = fwd.cross(Vec3::Y);
+                let side = if angle < std::f32::consts::FRAC_PI_4 {
+                    "back"
+                } else if angle < 3.0 * std::f32::consts::FRAC_PI_4 {
+                    if n.dot(right) > 0.0 { "right" } else { "left" }
+                } else {
+                    "front"
+                };
+                if let (Some(a), Some(b)) = (lib.get(&format!("xx_fall_step_off_{side}_max")), lib.get(&format!("xx_fall_step_off_{side}_tr_fall_max"))) {
+                    debug!("climb: came down on an edge at {p:.2}: step off it ({side})");
+                    root.translation.y = p.y;
+                    self.edge_landed = true;
+                    self.fall_v = None;
+                    self.state = JUMP.into();
+                    self.queue.clear();
+                    self.start_chain(vec![a, b], vec![JUMP.into(), FALL.into()], root, Vec3::ZERO);
+                    return;
+                }
+            }
+        }
         root.translation.y = ground.point.y;
         self.fall_v = None;
         let flat_speed = v.with_y(0.0).length();
@@ -6563,6 +6678,23 @@ impl WallClimb {
         }
         if self.dead {
             return;
+        }
+        // In the hay at rest: turned to the haystack's own facing as the wait starts (AC1's wait turns him, HAY-2), the
+        // fade from the pose shown turned back by it; the settle counted (HAY-5).
+        if self.state == HAY && self.mv.is_none() {
+            if self.hay_t == 0.0
+                && let Some(hs) = level.haystacks.iter().find(|h| h.contains(root.translation, -0.3))
+                && hs.facing != Vec3::ZERO
+            {
+                let to = facing(hs.facing);
+                if let (Some(last), Some(r)) = (self.last.clone(), cr.reference) {
+                    let mut from = last;
+                    from.rotate_model(rig, r, model_to_bevy().inverse() * to.inverse() * root.rotation * model_to_bevy());
+                    self.fade = Some((from, WAIT_FADE, WAIT_FADE));
+                }
+                root.rotation = to;
+            }
+            self.hay_t += dt;
         }
         if self.state == PERCH {
             if self.impulsion && self.mv.is_none() {

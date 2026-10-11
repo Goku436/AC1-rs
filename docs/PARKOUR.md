@@ -247,7 +247,7 @@ The climbing is a grid, not free placement:
 
 Ours: in the six climbing poses the move comes from AC1's tables (`climb_table.rs`, the entries and action ids
 from Banned445's port; each id names its clip in the action blocks, `forge` example `action_clips`): the stick's ten
-directions, the long move first past half a stick, redirects followed, the pose it ends in taken from the table (the
+directions, the long move first whatever the stick's length (AC1's interpreter writes 1.0 there every frame), redirects followed, the pose it ends in taken from the table (the
 clip `xx_l_climb_2ru_u_2ru` ends in the 2lu pose, 3° from `xx_climb_wait_2lu` and 40° from `_2ru`: its name is
 wrong). A move is accepted when each of the clip's end hands has a hold within AC1's grid tolerance of it (0.3 m along, 0.15
 m up or down, 1.0 m deep: the strict cell fit, the same results in Damascus and every climbing scenario as the looser
@@ -494,6 +494,25 @@ in this batch, by audit id:
   always rebounds off.
 - **Holds and ladders** (GUIDE-1, 3; LADDER-1, 4): holds kept up to 40° of slope (0.35 threw away 21,312 in Damascus);
   holds carved out round ladders; a ladder got on from 0.6 m, the stick within 90°; the legs in high profile jump off.
+- **Second batch** (WALL-1, 2, 4, 14, 19; NARROW-5, 9, 17; LADDER-2, 3, 5, 9, 10; EXTRA-5, 11, 13, 14; GROUND-9, 12;
+  ANIM-2, 3, 12; INPUT-7 to 9; CLIMB-E6 in part): no wall-width test and the 45-degree wall-run limit; no pass-over off
+  the wall run (the thin wall's top is knelt onto); rebounds by AC1's sub-states; ejects search the tap jump's reach;
+  the beam walk steers onto its line (toward 0.6 m on) and leaves an end onto the ground ahead; the legs with no stick
+  on a beam or post crouch into the impulsion and jump straight up on release; ladders got on from the top by walking
+  out over them, the ground entry the high stand's (rising 0.5 m), the top exit at the walkable top, low profile half
+  rate with a part stick, the empty-hand drop with no push; from a stand or walk, onto a low top by the impulsion and
+  free step; the ledge stop 0.25 m out; the lean's and halts' exits and stops eased over 0.2 s, by profile; standing
+  stance changes play `xx_hl_` / `xx_lh_`; falls keep a takeoff's turn easing in; squaring up to a wall turns the fade
+  pose back; the ground's foot IK only standing still; the pad's 0.35 dead zone, the trigger at 30/255, R3 centring;
+  the top-out with the stick within 67.5 degrees of up.
+- **Third batch** (AIR-7, 8; HAY-2, 3, 5; LEDGE-1, 12; GUIDE-5 behind a flag): the knee catch
+  (`xx_fall_tr_hangknee_*`); the edge landing (a fall coming down on a lip steps off it, `xx_fall_step_off_*`); the hay
+  wait `xx_l_haystack_wait`, turned to the haystack's facing, its seat 0.21 m along that from the entity, 0.2 s settled
+  before hopping out; the wall hang's shimmy steps 0.23 m then 0.43 m; letting go cuts a shimmy at once.
+  `AC1_PAIRED_BEAMS=1` builds beams and posts as AC1's runtime does, pairing facing hold edges (`beam_pairs.rs`, after
+  Banned445's decode) in place of ours' mesh-name beams and single-hold tops; not the default yet (31 of 41 routes
+  against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
+  beam the running game lands on).
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

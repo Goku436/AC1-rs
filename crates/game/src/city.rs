@@ -851,6 +851,7 @@ fn spawn_world(
                     crate::level::CityObject::Hay,
                     c - Vec3::new(HAY_CART_HALF, 0.0, HAY_CART_HALF),
                     c + Vec3::new(HAY_CART_HALF, 0.0, HAY_CART_HALF),
+                    Transform::from_matrix(world),
                 ));
                 continue;
             }
@@ -867,7 +868,7 @@ fn spawn_world(
                     .map(|v| world.transform_point3(Vec3::from(*v)))
                     .fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(a, b), v| (a.min(v), b.max(v)));
                 if lo.x <= hi.x {
-                    level.city_objects.push((kind, lo, hi));
+                    level.city_objects.push((kind, lo, hi, Transform::from_matrix(world)));
                 }
                 continue;
             }
@@ -984,7 +985,7 @@ fn spawn_world(
                     .map(|v| world.transform_point3(*v))
                     .fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(a, b), v| (a.min(v), b.max(v)));
                 if lo.x <= hi.x {
-                    level.city_objects.push((kind, lo, hi));
+                    level.city_objects.push((kind, lo, hi, Transform::from_matrix(world)));
                 }
             }
             if solid(&mesh.name) && !has_shape {

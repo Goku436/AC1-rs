@@ -563,9 +563,10 @@ const REVERSE_TURN_COS: f32 = -0.5;
 const STOP_SPEED: f32 = 1.9;
 /// AC1 takes an empty hand pressed within this long (s) for the pull-down (`sub_ED4A20(3, 0.2)`, Banned445's port).
 pub const HAND_DROP_BUFFER: f32 = 0.2;
-/// The ledge stop starts with the edge this close ahead (m; AC1's interpreter, 0.15 m), or as far as a run goes in
-/// `LEDGE_STOP_FRAME` (s).
-const LEDGE_STOP_REACH: f32 = 0.15;
+/// The ledge stop starts with the edge this close ahead (m), or as far as a run goes in `LEDGE_STOP_FRAME` (s). (AC1's
+/// interpreter reads 0.15 m, but the running game started its stop 0.07-0.13 m further from the edge than ours did at
+/// 0.15, ours' probe finding the drop late: audit EXTRA-11.)
+const LEDGE_STOP_REACH: f32 = 0.25;
 const LEDGE_STOP_FRAME: f32 = 0.05;
 /// Walking at an edge dropping more than this stops at it (m; AC1's ledge stop, not when free running).
 const LEDGE_STOP_DROP: f32 = 5.0;
@@ -743,6 +744,12 @@ const EDGE_HALT_REACH: f32 = 0.16;
 const EDGE_HALT_COS: f32 = 0.342;
 /// Up to this speed (m/s, the walk band's top) letting go of the stick stops at once, and steering round pivots.
 const WALK_STOP_SPEED: f32 = 2.1;
+/// Stopping from a walk, and the low-profile edge halt, take this long (s: the wait's blend-in); the halt coasts at
+/// most `HALT_COAST` (m). (At least `WALK_STOP_SPEED_MIN` m/s is shed per `WALK_STOP_TIME`, so a slow creep ends.)
+const WALK_STOP_TIME: f32 = 0.2;
+const WALK_STOP_SPEED_MIN: f32 = 0.5;
+const HALT_COAST: f32 = 0.12;
+const HALT_MARGIN: f32 = 0.05;
 
 /// Standing, steering this far off the facing (radians) turns on the spot; past `TURN_HALF`, a half turn.
 const TURN_MIN: f32 = std::f32::consts::FRAC_PI_2;
@@ -844,6 +851,8 @@ const HIGH_HOP_RISE: std::ops::RangeInclusive<f32> = 0.45..=1.3;
 const HIGH_HOP_REACH: f32 = 1.3;
 /// Walking into a haystack's side, this close to it (m: the capsule's radius), dives in.
 const HAY_WALK_IN: f32 = 0.4;
+/// ...from the ground, a haystack this tall or taller (m: a pile; a hiding spot's box rim is 1.07 m).
+const HAY_WALK_IN_PILE: f32 = 1.2;
 /// Moving toward a ladder's foot, from this close out in front of it (m), gets on.
 /// (AC1: 0.6 m, the stick within 90 degrees of it; the running game got on 0.61 m from ladder 68: audit LADDER-1.)
 const LADDER_AUTO_REACH: f32 = 0.6;
@@ -891,7 +900,11 @@ pub fn locomotion(
                 let reach = h.half + HAY_WALK_IN;
                 // (Or from a top beside it, the hay's top up to a metre under the feet: AC1's free-step entry.)
                 let up = tf.translation.y - h.top();
-                d.x.abs() < reach && d.z.abs() < reach && ((tf.translation.y - h.centre.y).abs() < 0.5 || (-0.3..1.0).contains(&up))
+                // (From the ground only into a pile, not a hiding spot's box: walked into, the running game leant on the
+                // bureau roof's box and climbed its rim.)
+                d.x.abs() < reach
+                    && d.z.abs() < reach
+                    && (((tf.translation.y - h.centre.y).abs() < 0.5 && h.height > HAY_WALK_IN_PILE) || (-0.3..1.0).contains(&up))
             })
             && {
                 let to = (hay.centre - tf.translation).with_y(0.0).normalize_or_zero();
@@ -942,6 +955,10 @@ pub fn locomotion(
         // The empty hand at an edge with a drop of over 2 m ahead, either profile, walking or standing: down onto it into
         // the hang at once, no ledge stop (AC1's pull-down, event 70: the interpreter sends it for the empty hand pressed
         // within 0.2 s with an edge within 0.5 m ahead, as Banned445's port reads it). Elsewhere the hand pushes.
+        // (A press breaks off a ground action the stick may break off too: a stance change, a run stop.)
+        if (ctl.legs_press || ctl.legs_release || ctl.hand_climb) && ch.wall.as_ref().is_some_and(|w| w.cancel && w.legs_on_ground()) {
+            ch.wall = None;
+        }
         // The empty hand at a wall: onto it, climbing (AC1's climb start from the ground is the empty hand, event 50,
         // `Pad__JustPressed(3)`, as Banned445's port reads the interpreter; low profile Legs at a wall starts nothing).
         if std::mem::take(&mut ctl.hand_climb)
@@ -951,7 +968,8 @@ pub fn locomotion(
         {
             let moving = ch.velocity.with_y(0.0).length() > 1.0;
             let pose = Some(ch.anim_pose.clone());
-            if let Some(w) = crate::climb::WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, moving, pose) {
+            let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
+            if let Some(w) = crate::climb::WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, moving, lead_left, pose) {
                 debug!("climb: the empty hand at the wall: climbing on");
                 ch.wall = Some(w);
                 ch.velocity = Vec3::ZERO;
@@ -1142,7 +1160,7 @@ pub fn locomotion(
                             wall_run_now(v, ctl.free_run, &wall_ahead)
                                 .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose()))
                                 .flatten()
-                                .or_else(|| WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v.length() > 1.0, pose()))
+                                .or_else(|| WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v.length() > 1.0, lead_left, pose()))
                         });
                         let _ = (grab_only, needs_target);
                     }
@@ -1320,6 +1338,28 @@ pub fn locomotion(
             ch.looking_down = false;
         }
         let look_down = ch.looking_down;
+        // Changing profile standing still: AC1's stance change, `xx_hl_wait_hipm_<foot>_tr_l_wait_hipm_<foot>` down,
+        // `xx_lh_wait_hipm_<foot>_tr_h_wait_hipm_<foot>` up (audit GROUND-12; ours crossfaded the two stands), broken off
+        // by the stick.
+        if let (Some(lib), Some(a)) = (lib.as_deref_mut(), ch.animator.as_ref())
+            && a.high != ctl.high
+            && ch.wall.is_none()
+            && ch.fall_v == 0.0
+            && ch.velocity.with_y(0.0).length() < 0.1
+            && ctl.move_dir.with_y(0.0).length() < 0.1
+            && !look_down
+            && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_none()
+        {
+            let f = if a.lead_left() { "footl" } else { "footr" };
+            let name = if ctl.high { format!("xx_lh_wait_hipm_{f}_tr_h_wait_hipm_{f}") } else { format!("xx_hl_wait_hipm_{f}_tr_l_wait_hipm_{f}") };
+            if let Some(w) = crate::climb::WallClimb::ground_action(lib, &tf, &[name], Vec3::ZERO, true, Some(ch.anim_pose.clone())) {
+                if let Some(a) = ch.animator.as_mut() {
+                    a.high = ctl.high;
+                }
+                ch.wall = Some(w);
+                continue;
+            }
+        }
         if let (Some(lib), Some(a)) = (lib.as_deref_mut(), ch.animator.as_mut()) {
             // Standing, the low and high profile stands put the feet and hands elsewhere: fade between them (switched at
             // once, the whole body jumped up to 13 cm as the right button went down or up).
@@ -1362,7 +1402,15 @@ pub fn locomotion(
             });
             if dir != Vec3::ZERO && (at_edge || level.ground(at, 0.3, EDGE_HALT_DROP).is_none()) && level.ground(tf.translation, 0.3, 0.3).is_some() {
                 target_v = Vec3::ZERO;
-                ch.velocity = ch.velocity.with_x(0.0).with_z(0.0);
+                // (Eased to a stop, as AC1's wait blends in over 0.2 s (the running game coasted 0.12 m), within
+                // `HALT_COAST` of where it halted: audit EXTRA-14.)
+                let s = ch.velocity.with_y(0.0).length();
+                let decel = (s / WALK_STOP_TIME).max(s * s / (2.0 * HALT_COAST));
+                ch.velocity = (ch.velocity.with_y(0.0).normalize_or_zero() * (s - decel * dt).max(0.0)).with_y(ch.velocity.y);
+                // (Never onto the edge line: stopped dead within `HALT_MARGIN` of it.)
+                if level.ground(tf.translation + dir * HALT_MARGIN, 0.3, EDGE_HALT_DROP).is_none() {
+                    ch.velocity = ch.velocity.with_x(0.0).with_z(0.0);
+                }
                 ch.halt_t += dt;
             } else {
                 ch.halt_t = 0.0;
@@ -1373,7 +1421,10 @@ pub fn locomotion(
         // Letting go of the stick at a walk: AC1 stops at once (Idle 0xD8B220, the wait blended in over 0.2 s); faster
         // ones play the run stop (`ground_move`).
         if ctl.move_dir.length() < 0.01 && ch.velocity.with_y(0.0).length() <= WALK_STOP_SPEED && ch.wall.is_none() {
-            ch.velocity = ch.velocity.with_x(0.0).with_z(0.0);
+            // (Over the wait's 0.2 s blend: the running game slid 0.18 m to a stop from a walk, audit GROUND-9.)
+            let s = ch.velocity.with_y(0.0).length();
+            let s = (s - s.max(WALK_STOP_SPEED_MIN) / WALK_STOP_TIME * dt).max(0.0);
+            ch.velocity = (ch.velocity.with_y(0.0).normalize_or_zero() * s).with_y(ch.velocity.y);
         }
         // (The ledge stop's exit can leave into the run at its speed: none of it over the edge while held back.)
         if let Some(n) = ch.edge_lock

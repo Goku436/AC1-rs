@@ -43,6 +43,7 @@
 
 mod animation;
 mod assets;
+mod beam_pairs;
 mod character;
 mod city;
 mod climb;

@@ -202,8 +202,9 @@ as he faced the wall is the turned body's right, the `right` group), then the ru
 the wall hang and the climb (`WallClimb::rebound_jump`, `crate::jump::rebound`; back and left land within 0.12 m of
 AC1's; scenarios tagged `eject`), from a wall hang or a climb after AC1's 0.2 s rebound pose against the wall
 (`xx_h_hangwall_tr_rebound_<foot>`, the takeoff on the same foot 0.22 s after it in all four recorded ejects; the eject
-routes now stay within 0.45 m of the running game's all the way), and with nothing to land on pushes off
-backwards and falls. An eject's targets start 0.5 m off (running jumps' at 1 m): AC1's right eject took a beam stuck out
+routes now stay within 0.45 m of the running game's all the way), and with nothing to land on, any way, flies at AC1's free-jump target, 8 m on and 3 m down (since
+2026-10-10; before, it pushed off backwards only with the stick back). Targets are searched to 8 m, the tap jump's
+reach (was 4.6 m). An eject's targets start 0.5 m off (running jumps' at 1 m): AC1's right eject took a beam stuck out
 of the wall 0.95 m off, and so does ours now (route `wall1_eject_right` 3.34 -> 0.45 m). As AC1's interpreter checks
 the jump off before any move (Banned445's port, verified live), high profile + legs ejects in the middle of a move from
 hold to hold too (a hand step, a reach, a shimmy), cutting it; pressed during a leap between holds it is kept 0.3 s

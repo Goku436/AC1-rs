@@ -79,9 +79,6 @@ pub const LONG_ACTIONS: [[u32; 10]; 6] = [
     [0x01A26834, 0x01A26834, 0x01A26836, 0x01A26836, 0x01A26838, 0x01A2683A, 0, 0, 0, 0],
 ];
 
-/// The stick past this (0..1) tries the long table first.
-pub const LONG_STICK: f32 = 0.5;
-
 /// The stick (x right, y up the wall) as one of the ten directions.
 pub fn quantize(input: bevy::math::Vec2) -> usize {
     let a = input.x.atan2(input.y).to_degrees();
@@ -124,16 +121,11 @@ pub fn lookup(table: &[[Entry; 10]; 6], actions: &[[u32; 10]; 6], pose: usize, d
     None
 }
 
-/// The moves to try from `pose` for the stick, in AC1's order: the long one first with the stick past half, then the
-/// short one.
+/// The moves to try from `pose` for the stick, in AC1's order: the long one first, whatever the stick's length (its
+/// interpreter writes 1.0 there every frame, reanalysis CLIMB-2, audit CLIMB-E7), then the short one.
 pub fn moves(pose: usize, input: bevy::math::Vec2) -> Vec<Move> {
     let dir = quantize(input);
-    let mut out = vec![];
-    if input.length() > LONG_STICK {
-        out.extend(lookup(&LONG, &LONG_ACTIONS, pose, dir));
-    }
-    out.extend(lookup(&SHORT, &SHORT_ACTIONS, pose, dir));
-    out
+    lookup(&LONG, &LONG_ACTIONS, pose, dir).into_iter().chain(lookup(&SHORT, &SHORT_ACTIONS, pose, dir)).collect()
 }
 
 /// The pose index of a climbing state name.
@@ -157,10 +149,11 @@ mod tests {
 
     #[test]
     fn hand_over_hand_from_a_raised_hand() {
-        // Left hand up, pushed up hard: the right hand passes it (long), else comes level (short).
+        // Left hand up, pushed up: the right hand passes it (long), else comes level (short); the long one first however
+        // far the stick is pushed (AC1's interpreter writes 1.0 there).
         let m = moves(1, Vec2::new(0.0, 1.0));
         assert_eq!(m.iter().map(|m| POSES[m.to]).collect::<Vec<_>>(), ["1ru", "1m"]);
-        assert_eq!(moves(1, Vec2::new(0.0, 0.4)).len(), 1);
+        assert_eq!(moves(1, Vec2::new(0.0, 0.4)).len(), 2);
     }
 
     #[test]
