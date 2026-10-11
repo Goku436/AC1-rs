@@ -297,6 +297,13 @@ const STRAIGHT_JUMP_UP_SPEED: f32 = 4.43;
 /// 0xDE2EE0, as Banned445's port reads it; the stand into the wait is only listed in the move graph), 0.27 s in place,
 /// as the running game did topping out at the bureau; ours' stand into the wait took 0.87 s.
 const STAND_UP: &str = "xx_h_hangknee_footl_tr_freestep_entry_footl";
+/// Onto a narrow top's edge (a parapet): AC1's stand on the right foot, and where: this far in from the wrists as the
+/// pull-up starts (m: they hold 0.15 m out from the edge, AC1's knee point 0.1 m in from it; the running game's stand
+/// at wall1 started 0.265 m in from them), the floor behind lower than the grip by over `TOP_OUT_NARROW_STEP` (m).
+const STAND_UP_NARROW: &str = "xx_h_hangknee_footr_tr_freestep_entry_footr";
+const TOP_OUT_NARROW_IN: f32 = 0.265;
+const TOP_OUT_NARROW_STEP: f32 = 0.1;
+const TOP_OUT_NARROW_DEPTH: f32 = 0.8;
 /// Topped out, the root stands this far in from where the hands held (m). (Not further: on `hay70`'s narrow box rim the
 /// running game stood on the rim itself, 0.756 m in from its hang root, and 0.45 put ours against the box's inner wall.)
 const STAND_FROM_WRISTS: f32 = 0.3;
@@ -5575,9 +5582,32 @@ impl WallClimb {
                     // (Onto the top's height in full, up as well as down: AC1's pull-up corrects onto the top point
                     // (0xDDBE80); a hang lower than the clip expects ended 0.13 m inside the top, audit LEDGE-9.)
                     None => {
-                        let _ = below;
-                        let up = top.point.y - (root.translation + travel(&clips)).y;
-                        (clips, Vec3::Y * up + to, ON_TOP)
+                        // (A narrow top at the grip with the floor lower behind it (a parapet): AC1 kneels and stands on
+                        // the edge itself, 0.1 m in from the hands, through the right foot's stand (0x248E9731, as a
+                        // narrow object), and steps down off it after; ours came down onto the floor behind, 0.11 m
+                        // further in. Audit CLIMB-E5, the wall1 recordings.)
+                        // (Narrow: a top at the grip, the floor behind it lower within `TOP_OUT_NARROW_DEPTH`.)
+                        let grip = wrist.y + GRIP_DOWN;
+                        let lower_behind = level
+                            .ground(wrist - self.normal * TOP_OUT_NARROW_DEPTH + Vec3::Y * 0.5, 0.0, 3.0)
+                            .is_none_or(|g| grip - g.point.y > TOP_OUT_NARROW_STEP);
+                        let narrow = Some(top).filter(|g| (g.point.y - grip).abs() < TOP_OUT_NARROW_STEP).filter(|_| {
+                            lower_behind
+                                && level.raycast(Vec3::new(wrist.x, grip + 0.3, wrist.z) - self.normal * 0.12, -self.normal, TOP_OUT_NARROW_DEPTH).is_none()
+                        });
+                        match (narrow, lib.get(STAND_UP_NARROW)) {
+                            (Some(g), Some(stand)) => {
+                                let mut clips = clips;
+                                *clips.last_mut().expect("top-out clips") = stand;
+                                let at = Vec3::new(wrist.x, g.point.y, wrist.z) - self.normal * TOP_OUT_NARROW_IN;
+                                debug!("climb: top-out onto a narrow top's edge at {at:.2}");
+                                (clips.clone(), at - (root.translation + travel(&clips)), ON_TOP)
+                            }
+                            _ => {
+                                let up = top.point.y - (root.translation + travel(&clips)).y;
+                                (clips, Vec3::Y * up + to, ON_TOP)
+                            }
+                        }
                     }
                 }
             }
@@ -7090,7 +7120,7 @@ impl WallClimb {
                 }
                 // (AC1's stand-up through the free step, the stick pushed on: off it at the gait's pace, as the running
                 // game ran on from it at once after topping out at the bureau.)
-                if on && next.clip.name == STAND_UP {
+                if on && (next.clip.name == STAND_UP || next.clip.name == STAND_UP_NARROW) {
                     self.exit_velocity = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero() * if self.sprint { TOP_OUT_JOG } else { TOP_OUT_WALK };
                 }
                 // (A step AC1's move graph does not have: logged, to find chains built wrong.)
