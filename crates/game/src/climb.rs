@@ -201,7 +201,7 @@ const STEP_OFF: [&str; 2] = ["xx_l_climb_1m_tr_h_wait_hipm_footl_a", "xx_l_climb
 /// How far the step-off clip lowers the root, and the furthest ground it is used for.
 const STEP_OFF_DROP: f32 = 0.6;
 const STEP_OFF_MAX: f32 = 0.95;
-/// A landing is a forward one when the stick is within this of the motion (cos 75 degrees, AC1's 0xE05940).
+/// A landing is a forward one when the impact velocity comes in within 75 degrees of level (cos 75 degrees, AC1's 0xE05940).
 const LAND_FORWARD_COS: f32 = 0.258_819;
 /// The speed a landing's speed bucket is measured against (m/s, the sprint's).
 const LAND_SPRINT_SPEED: f32 = 6.2;
@@ -371,6 +371,8 @@ const HANG_CORNER_UP: f32 = 1.06;
 /// far onto it (m).
 const VAULT_STANDING_SPEED: f32 = 1.9;
 const VAULT_STEP_IN: f32 = 0.4;
+/// The climbing stance's root rests this far out from its holds (m).
+const CLIMB_ROOT_OUT: f32 = 0.5;
 /// A wall hang's root rests this far out from the wall's face at its own height (m), eased there this fast (m/s).
 const HANG_WALL_OUT: f32 = 0.50;
 const HANG_SETTLE_SPEED: f32 = 0.6;
@@ -5983,7 +5985,16 @@ impl WallClimb {
             } else {
                 Vec3::ZERO
             };
-            let err = flat + keep + normal * out - Vec3::Y * down + to_hang + step;
+            // (Into the climbing stance: the root `CLIMB_ROOT_OUT` out from the holds the hands take, AC1's
+            // `ComputeRootFromMove`, audit CLIMB-E2.)
+            let stance = if crate::climb_table::pose_of(&c.to).is_some() {
+                let held = (targets[0] + targets[1]) * 0.5;
+                let depth = (held - (end.pos + flat)).dot(-normal);
+                -normal * (depth - CLIMB_ROOT_OUT).clamp(-0.3, 0.3)
+            } else {
+                Vec3::ZERO
+            };
+            let err = flat + keep + normal * out - Vec3::Y * down + to_hang + step + stance;
             let tos = chain_states(clips.len(), &self.state, &c.to);
             self.start_chain(clips, tos, root, err);
             return true;
@@ -6479,7 +6490,11 @@ impl WallClimb {
         // wait with it let go.
         let stick = self.move_dir.with_y(0.0);
         let along = v.with_y(0.0).try_normalize().unwrap_or((root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero());
-        let forward = stick.length() > 0.3 && stick.normalize().dot(along) >= LAND_FORWARD_COS;
+        // (By the impact velocity's pitch, not the stick: forward when it comes in within 75 degrees of level (Banned445's
+        // `falls.rs`, audit AIR-15).)
+        let _ = along;
+        let pitch = (-v.y).atan2(v.with_y(0.0).length());
+        let forward = v.with_y(0.0).length() > 0.3 && pitch < LAND_FORWARD_COS.acos();
         // (The straight one with the stick held goes on by the speed too: off a wall run's rebound, slow, AC1 landed straight
         // into the walk, `..._straight_soft_footr_tr_l_walk_footl`, free running, seen in the running game.)
         let into = if stick.length() > 0.3 {
@@ -6883,6 +6898,28 @@ impl WallClimb {
             if let Some(h) = level.raycast(root.translation, -n, HANG_WALL_OUT + 0.5).filter(|h| h.normal.y.abs() < 0.5) {
                 let err = h.dist - HANG_WALL_OUT;
                 root.translation -= n * err.clamp(-HANG_SETTLE_SPEED * dt, HANG_SETTLE_SPEED * dt);
+            }
+        }
+        // In the climbing stance at rest, the root 0.5 m out from its holds' plane (AC1's `ComputeRootFromMove` 0xDEC6E0:
+        // 0.5 m out from the foot holds, Banned445's port, audit CLIMB-E2; ours sat 0.08-0.25 m nearer the wall on
+        // `wall1` and `street_free_east`), eased there. The holds' plane: the nearest holds round the body, facing out.
+        if crate::climb_table::pose_of(&self.state).is_some() && self.mv.is_none() {
+            let n = self.normal.with_y(0.0).normalize_or_zero();
+            let along = Vec3::Y.cross(n).normalize_or_zero();
+            let p = root.translation;
+            let depths: Vec<f32> = level
+                .ledges
+                .iter()
+                .filter(|l| l.out.dot(n) > 0.7)
+                .map(|l| l.closest(p + Vec3::Y * 0.5))
+                .filter(|q| (q.y - p.y) > -1.6 && (q.y - p.y) < 2.2 && (*q - p).dot(along).abs() < 0.6 && (*q - p).dot(-n) > 0.0)
+                .map(|q| (q - p).dot(-n))
+                .collect();
+            if let Some(d) = depths.iter().copied().reduce(f32::min) {
+                let err = d - CLIMB_ROOT_OUT;
+                if err.abs() < 0.5 {
+                    root.translation -= n * err.clamp(-HANG_SETTLE_SPEED * dt, HANG_SETTLE_SPEED * dt);
+                }
             }
         }
         // In the hay at rest: turned to the haystack's own facing as the wait starts (AC1's wait turns him, HAY-2), the

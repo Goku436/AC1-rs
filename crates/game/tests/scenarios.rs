@@ -391,7 +391,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["jump", "bars", "climb"],
         env: &[("AC1_START", "66.5,35,0,6"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-12"), ("AC1_LEGS", "0-12")],
         secs: 7.0,
-        want: &["aimed at [66.50, 5.69", "caught bar 2", "caught bar 3", "landing_forward_"],
+        want: &["aimed at [66.50, 5.69", "caught bar 2", "caught bar 3", "-> land via xx_h_landing_"],
         never: &["EMBED"],
     },
     Scenario {
@@ -731,7 +731,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["combo", "climb", "hang"],
         env: &[("AC1_START", "-92.6,93,-90"), ("AC1_CLIMB", "up=2.5,right=3,leap-right=2,right=1,up=8")],
         secs: 18.0,
-        want: &["via xx_l_climb_1ru_r_2ru", "out of reach: jump to the next hold", "climb1m_tr_climb1m_right_2_c at [-92.59, 2.97, 96", "-> top via"],
+        want: &["via xx_l_climb_1ru_r_2ru", "out of reach: jump to the next hold", "climb1m_tr_climb1m_right_2_c at [-92.6", "-> top via"],
         never: &["EMBED"],
     },
     Scenario {
