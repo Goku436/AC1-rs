@@ -1285,6 +1285,16 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     walls.cuboid(Vec3::new(-92.6, top(6.0) - 0.2, z - 2.0), Vec3::new(-92.0, top(6.0), z + 2.0));
     hold_rows(strips, level, Vec3::new(-92.6, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &[top(6.0)]);
 
+    // G11: a beam off a platform, a second beam starting 0.5 m to its right and running off to the right, a platform at
+    // its end: jogging the first, the stick to the right hops onto the second (AC1's corner hop) and on along it.
+    let z = 154.0;
+    ramp(walls, -96.0, -92.0, z, 2.0);
+    platform(walls, -92.0, -89.0, z, 2.0);
+    beam(walls, level, -89.0, -83.0, z, 2.0);
+    walls.cuboid(Vec3::new(-85.65, 1.8, z + 0.5), Vec3::new(-85.35, 2.0, z + 4.5));
+    level.perches.push(Line { a: Vec3::new(-85.5, 2.0, z + 0.5), b: Vec3::new(-85.5, 2.0, z + 4.5) });
+    walls.cuboid(Vec3::new(-87.5, 0.0, z + 4.5), Vec3::new(-83.5, 2.0, z + 7.5));
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -1296,6 +1306,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G8: ledge stop, pull down, climb down, jump onto", Vec3::new(-93.0, 6.5, 104.0)),
         ("G9: passover, wall run up, roof, post", Vec3::new(-84.0, 5.5, 114.0)),
         ("G10: bar to a wall, climb, roof, down a roof", Vec3::new(-82.0, 5.5, 124.0)),
+        ("G11: beam corner hop", Vec3::new(-86.0, 3.5, 154.0)),
     ]
 }
 

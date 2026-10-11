@@ -727,6 +727,14 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        name: "gauntlet G11: free running a beam, the stick to the right: the corner hop onto the beam beside, on along it",
+        tags: &["combo", "beam"],
+        env: &[("AC1_START", "-100,154,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-10"), ("AC1_LEGS", "0-10"), ("AC1_VEER", "2.6,-90")],
+        secs: 6.0,
+        want: &["corner hop onto beam", "along [0.00, 0.00, 1.00]"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "gauntlet G7: up a wall's holds, along to its edge, the leap across the gap onto the next wall, up to its top",
         tags: &["combo", "climb", "hang"],
         env: &[("AC1_START", "-92.6,93,-90"), ("AC1_CLIMB", "up=2.5,right=3,leap-right=2,right=1,up=8")],

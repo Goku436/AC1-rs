@@ -833,6 +833,10 @@ const VAULT_REACH: f32 = 2.3;
 /// The low obstacle is looked for this far either side of the run's middle too (m, the body's half-width).
 const VAULT_SIDE: f32 = 0.3;
 const STEP_UP_MAX: f32 = 0.85;
+/// The corner hop starts with the stick within this cosine of square to the way (40-140 degrees off it), the stick's
+/// component toward the landing over `CORNER_HOP_TOWARD` (m: AC1's 0.766 against the un-normalised offset).
+const CORNER_HOP_COS: f32 = 0.766;
+const CORNER_HOP_TOWARD: f32 = 0.766;
 /// AC1's stick classes on a beam (`ClassifyStickDir` 0xF76150), by the angle from the facing: forward under 75 degrees
 /// (the walk starts and keeps going, `beam_step`), back over 135 (the turn round), the side between (the quarter turn).
 /// Audit NARROW-6.
@@ -4116,6 +4120,14 @@ impl WallClimb {
             self.finished = true;
             return;
         }
+        // Jogging, the stick 40-140 degrees off the way: hop across onto a beam beside (AC1's corner hop, its event taken
+        // before the walk's stick test).
+        if let Some(cy) = &self.cycle {
+            let (dir, jog) = (cy.dir, self.sprint && cy.intro.is_none());
+            if jog && stick != Vec3::ZERO && (-CORNER_HOP_COS..CORNER_HOP_COS).contains(&stick.dot(dir)) && self.corner_hop(lib, level, root, dir, stick) {
+                return;
+            }
+        }
         let Some(cy) = &mut self.cycle else { return };
         // (Stopped: crouched on the foot it was on.)
         let stop = |w: &mut Self, lib: &mut AnimLib| {
@@ -4226,6 +4238,76 @@ impl WallClimb {
             cy.phase -= 1.0;
             cy.foot ^= 1;
         }
+    }
+
+    /// AC1's corner hop from a beam walked at a jog onto another beside it (the narrow object's event 7, actions
+    /// 0x340F1CDE / DF / E0: start, hop, landing into the jog, each six clips `xx_h_beam_cornerhop_<left|right|frontleft|
+    /// frontright|backleft|backright>[_start|_tr_jog_foot?]`). The search and the blend are Banned445's decode
+    /// (AC1-Movement-Rewritten `narrow.rs` `find_corner_hop`, `corner_hop_weights`, MIT): a box 1.8 m either way along
+    /// the facing, 0-1 m to the stick's side, 0.5 m up or down; beams in it running within 58 degrees of the facing
+    /// turned 45 degrees (stick ahead) or 135 (behind) to that side; landing at the far end of the piece in the box,
+    /// the stick toward it; the nearest. The blend's front / back share is the landing's distance along over 1.5 m.
+    /// Audit NARROW-10.
+    fn corner_hop(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, f: Vec3, stick: Vec3) -> bool {
+        let p = root.translation;
+        let r_axis = f.cross(Vec3::Y).normalize_or_zero();
+        let right = stick.dot(r_axis) >= 0.0;
+        let side = if right { r_axis } else { -r_axis };
+        let behind = stick.dot(f) < 0.0;
+        let turn = if behind { 135f32 } else { 45f32 }.to_radians();
+        let want = (f * turn.cos() + side * turn.sin()).normalize_or_zero();
+        let centre = p + side * 0.5;
+        let inside = |q: Vec3| {
+            let d = q - centre;
+            d.dot(f).abs() <= 1.8 && d.dot(side).abs() <= 0.5 && d.y.abs() <= 0.5
+        };
+        let mut best: Option<(f32, usize, Vec3, Vec3)> = None;
+        for (k, l) in level.perches.iter().enumerate() {
+            let len = l.a.distance(l.b);
+            if Some(k) == self.perch || len < 0.3 {
+                continue;
+            }
+            // (The piece of the beam in the box, sampled every 5 cm.)
+            let n = (len / 0.05).ceil() as usize;
+            let pts: Vec<Vec3> = (0..=n).map(|i| l.a.lerp(l.b, i as f32 / n as f32)).filter(|q| inside(*q)).collect();
+            let (Some(&a), Some(&b)) = (pts.first(), pts.last()) else { continue };
+            let mut d = (b - a).with_y(0.0).normalize_or_zero();
+            let end = if d.dot(want) <= 0.0 {
+                d = -d;
+                a
+            } else {
+                b
+            };
+            if d == Vec3::ZERO || d.dot(want) < 58f32.to_radians().cos() {
+                continue;
+            }
+            let rel = (end - p).with_y(0.0);
+            // (Not normalised, as AC1's code has it in Banned445's reading: the landing's distance toward the stick, m.)
+            if stick.dot(rel) <= CORNER_HOP_TOWARD {
+                continue;
+            }
+            if best.as_ref().is_none_or(|bst| rel.length_squared() < bst.0) {
+                best = Some((rel.length_squared(), k, end, d));
+            }
+        }
+        let Some((_, k, end, d)) = best else { return false };
+        let rel = (end - p).with_y(0.0);
+        let kf = (rel.dot(f).abs() / 1.5).clamp(0.0, 1.0);
+        let (lr, fb) = (if right { "right" } else { "left" }, if rel.dot(f) >= 0.0 { "front" } else { "back" });
+        let foot = if right { "footl" } else { "footr" };
+        let mix = |suffix: &str| {
+            let s = |dir: &str| if suffix == "tr" { format!("xx_h_beam_cornerhop_{dir}_tr_jog_{foot}") } else { format!("xx_h_beam_cornerhop_{dir}{suffix}") };
+            mix_name(&[(&s(lr), 1.0 - kf), (&s(&format!("{fb}{lr}")), kf)])
+        };
+        let names = [mix("_start"), mix(""), mix("tr")];
+        let Some(clips) = names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { return false };
+        let Some(travel) = Self::travel(lib, root, &names[..2]) else { return false };
+        debug!("climb: corner hop onto beam {k} at {end:.2}, along {d:.2}");
+        self.cycle = None;
+        self.perch = Some(k);
+        self.beam_stance = None;
+        self.start_chain_carry(clips, vec![PERCH.into(); 3], root, end - (p + travel), Some(1));
+        true
     }
 
     /// At the end of a top, a beam's near end just ahead but beside the way, about level with the feet and running on the way `dir` goes
