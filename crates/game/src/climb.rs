@@ -6209,7 +6209,16 @@ impl WallClimb {
         // (The outside corner after the reaches, as AC1's ChooseMove: the inside one before them.)
         let (corners_out, cands): (Vec<Cand>, Vec<Cand>) =
             self.candidates(lib, dir, input).into_iter().partition(|c| c.names.first().is_some_and(|n| n.contains("_corner_") && n.ends_with("_out")));
+        let (corners_in, cands): (Vec<Cand>, Vec<Cand>) = cands.into_iter().partition(|c| c.names.first().is_some_and(|n| n.contains("_corner_")));
         if self.take_first(lib, level, root, rig, base, cr, cands) {
+            return true;
+        }
+        // At the bottom, sideways with no holds that way: step off sideways onto the ground (AC1's corner-to-ground,
+        // before the corner climbs; audit CLIMB-E10).
+        if (dir == "l" || dir == "r") && self.try_step_off_side(lib, level, root, dir == "l") {
+            return true;
+        }
+        if self.take_first(lib, level, root, rig, base, cr, corners_in) {
             return true;
         }
         // (The wall hang's inside corner here, its outside one after the reaches: AC1 jumps on to a ledge further along
@@ -6262,10 +6271,6 @@ impl WallClimb {
         // Down at the bottom of the wall: climb off onto the ground.
         // (Down or diagonally down: AC1's directions 2, 3, 8 and 9.)
         if (dir == "d" || (input.y < 0.0 && input.y.abs() >= input.x.abs() * 0.4)) && self.try_step_off(lib, level, root) {
-            return true;
-        }
-        // At the bottom, sideways with no holds that way: step off sideways onto the ground.
-        if (dir == "l" || dir == "r") && self.try_step_off_side(lib, level, root, dir == "l") {
             return true;
         }
         // Sideways but stuck (end of the holds): settle back to hands level, from where corners start.

@@ -245,7 +245,9 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "climbing along A turns the inside corner onto B, then round B's outside corner",
         tags: &["climb"],
-        env: &[("AC1_START", "-1.4,4.0,180"), ("AC1_CLIMB", "right=6")],
+        // (A row up first: at the bottom AC1's ChooseMove steps off sideways onto the ground before any corner, audit
+        // CLIMB-E10.)
+        env: &[("AC1_START", "-1.4,4.0,180"), ("AC1_CLIMB", "up=1.2,right=6")],
         secs: 8.0,
         want: &["via xx_l_climb_1m_corner_right_090_in", "via xx_l_climb_1m_corner_right_090_out"],
         never: &["EMBED"],
