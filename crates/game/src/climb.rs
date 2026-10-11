@@ -6263,6 +6263,15 @@ impl WallClimb {
         let (corners_out, cands): (Vec<Cand>, Vec<Cand>) =
             self.candidates(lib, dir, input).into_iter().partition(|c| c.names.first().is_some_and(|n| n.contains("_corner_") && n.ends_with("_out")));
         let (corners_in, cands): (Vec<Cand>, Vec<Cand>) = cands.into_iter().partition(|c| c.names.first().is_some_and(|n| n.contains("_corner_")));
+        // From a free hang, down: the drop onto the wall below first, before the hand step down (AC1's
+        // TryFreeHangDropToClimb 0xDDF390, Banned445's port, audit LEDGE-13).
+        if dir == "d" && is_free(&self.state) {
+            let drops = self.leap_candidates(lib, dir, input);
+            if self.take_first(lib, level, root, rig, base, cr, drops) {
+                debug!("climb: dropped from the free hang onto the wall below");
+                return true;
+            }
+        }
         if self.take_first(lib, level, root, rig, base, cr, cands) {
             return true;
         }
