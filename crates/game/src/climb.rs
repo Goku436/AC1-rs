@@ -3140,7 +3140,10 @@ impl WallClimb {
         let angle = aim.dot(away.cross(Vec3::Y)).atan2(aim.dot(away));
         let j = crate::jump::rebound(h.y - p.y, flat.length(), angle, left, 0.0);
         let parts: Vec<(&str, f32)> = j.takeoff.iter().map(|(n, w)| (n.as_str(), *w)).collect();
-        let (takeoff, air) = (lib.get(&mix_name(&parts))?, lib.get(JUMP_AIR)?);
+        // (Flown as AC1's hang-target flight, `xx_h_air_front_050cm_<foot>_to_swing` (the right foot's off to the left), not
+        // the free step's: the running game's three ejects at holds, audit WALL-10.)
+        let flight = format!("xx_h_air_front_050cm_{}_to_swing", if left { "footl" } else { "footr" });
+        let (takeoff, air) = (lib.get(&mix_name(&parts))?, lib.get(&flight).or_else(|| lib.get(JUMP_AIR))?);
         let planned = Transform { rotation: facing(away), ..*root };
         // (From where the takeoff ends: it lifts and moves the root itself.)
         let lift = p + world_rot(planned.rotation) * root_motion_at(&takeoff, takeoff.frames());
