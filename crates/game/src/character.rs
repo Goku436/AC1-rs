@@ -203,6 +203,9 @@ pub struct Character {
     pub look_edge: Option<(Vec3, Vec3)>,
     /// A reversal's run stop has just played out: with the stick still turned round, AC1's skid turn follows.
     pub reverse_pending: bool,
+    /// How long (s) the stick has been held past 120 degrees off the facing, running in high profile: AC1's quick-reversal
+    /// latch (HG+1780) forces the run stop and skid turn at `REVERSE_LATCH` (audit INPUT-5).
+    pub reverse_hold: f32,
     /// The hold each climbing hand is pulled onto now: kept until the pull has faded, then the nearest one taken.
     pub wall_hand_t: [Option<crate::level::Ledge>; 2],
     /// How much the climbing IK (hands on holds, feet on the wall) applies now (0..1, faded).
@@ -462,6 +465,7 @@ pub fn spawn_character(
         looking_down: false,
         look_edge: None,
         reverse_pending: false,
+        reverse_hold: 0.0,
         wall_hand_t: [None; 2],
         foot_ik_w: 0.0,
         wall_ik_w: 0.0,
@@ -561,6 +565,8 @@ const HEALTH_REGEN: f32 = 0.04;
 const SPRINT_SPEED: f32 = 5.5;
 /// After a reversal's run stop, the stick this far round from the facing (cos 120 degrees) skids round into the jog.
 const REVERSE_TURN_COS: f32 = -0.5;
+/// The stick held past `REVERSE_TURN_COS` this long (s) reverses too (AC1's latch, 0.3 s).
+const REVERSE_LATCH: f32 = 0.3;
 /// Letting go of the direction above this speed stops with a stop clip (m/s): past the walk band's top (AC1's run stop
 /// wants the speed value over 0.25, 1.9 m/s).
 const STOP_SPEED: f32 = 1.9;
@@ -653,7 +659,7 @@ fn ground_move(
         // never plays), is locked (it plays out, steering does not break it off), and goes on into the stand through
         // `xx_h_runstop_<foot>_tr_h_wait_hipm_<other>` (Banned445's port, audit GROUND-6 to 8).
         // (Not free running: that swings round at its turn rate.)
-        let reversing = wants && ctl.high && !ctl.free_run && input.dot(dir) < -std::f32::consts::FRAC_1_SQRT_2;
+        let reversing = wants && ctl.high && !ctl.free_run && (input.dot(dir) < -std::f32::consts::FRAC_1_SQRT_2 || ch.reverse_hold >= REVERSE_LATCH);
         if (!wants || reversing) && (ctl.high || ctl.free_run) {
             let s = crate::gait::value_at(speed);
             let sprint = ((s - crate::gait::BAND_RUN) * 4.0).clamp(0.0, 1.0);
@@ -1341,6 +1347,10 @@ pub fn locomotion(
         if ch.blend && ctl.speed <= 2.0 {
             ctl.speed = ctl.speed.min(crate::crowd::BLEND_SPEED);
         }
+        // (AC1's quick-reversal latch: the stick past 120 degrees off the facing, held.)
+        let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let back = ctl.move_dir.with_y(0.0).normalize_or_zero().dot(facing) < REVERSE_TURN_COS;
+        ch.reverse_hold = if ctl.high && !ctl.free_run && back && ch.velocity.with_y(0.0).length() > STOP_SPEED { ch.reverse_hold + dt } else { 0.0 };
         // AC1's ground moves: run stops, turning round, turns on the spot, ledge stops, leaning on walls.
         if ch.fall_v == 0.0
             && !ctl.blend_walk
