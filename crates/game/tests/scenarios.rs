@@ -198,12 +198,13 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "free running through both swing bars, the legs only held",
         tags: &["bars", "jump"],
-        env: &[("AC1_START", "50.3,0,-90"), ("AC1_WALK", "6"), ("AC1_HIGH", "0-7"), ("AC1_LEGS", "0-7")],
-        secs: 6.0,
+        // (Each bar swung a whole cycle: AC1's swing jump comes at the end of the back swing's way down.)
+        env: &[("AC1_START", "50.3,0,-90"), ("AC1_WALK", "6"), ("AC1_HIGH", "0-10"), ("AC1_LEGS", "0-10")],
+        secs: 9.0,
         want: &[
             "caught bar 0",
             "caught bar 1",
-            "swing -> leap via xx_h_swing_cycle_front_300cm_to_air",
+            "swing -> leap via xx_h_swing_cycle_",
             "land -> ground",
             "jumping at the swing bar",
             "_to_swing_tr_swing_front_a",
@@ -391,8 +392,8 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "rooftops: B4 up to B5, both swing bars, B6, then the jump to tower T2's holds",
         tags: &["jump", "bars", "climb"],
-        env: &[("AC1_START", "66.5,35,0,6"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-12"), ("AC1_LEGS", "0-12")],
-        secs: 7.0,
+        env: &[("AC1_START", "66.5,35,0,6"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-14"), ("AC1_LEGS", "0-14")],
+        secs: 10.0,
         want: &["aimed at [66.50, 5.69", "caught bar 2", "caught bar 3", "-> land via xx_h_landing_"],
         never: &["EMBED"],
     },
@@ -789,7 +790,7 @@ const SCENARIOS: &[Scenario] = &[
         secs: 14.0,
         want: &[
             "caught bar 7",
-            "swing -> leap via xx_h_swing_cycle_front_300cm_to_air",
+            "swing -> leap via xx_h_swing_cycle_",
             "-> 2m via xx_fall_tr_climb_min_b",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
             "running jump aimed at [-7",

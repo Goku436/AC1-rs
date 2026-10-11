@@ -779,7 +779,6 @@ const JUMP_DIP_RISE: f32 = 0.3;
 /// Banned445's AC1-Movement-Rewritten).
 const JUMP_TARGET_RISE: std::ops::RangeInclusive<f32> = -3.0..=1.3;
 const SWING_CYCLE: [&str; 4] = ["xx_h_swing_cycle_front_up", "xx_h_swing_cycle_front_down", "xx_h_swing_cycle_back_up", "xx_h_swing_cycle_back_down"];
-const SWING_LAUNCH: &str = "xx_h_swing_cycle_front_300cm_to_air";
 /// From the still hang on a bar, the stick forward swings up again.
 const SWING_MOMENTUM: &str = "xx_h_swing_momentum_front_up";
 const SWING_DROP: &str = "xx_h_swing_cycle_down_050cm_to_air";
@@ -790,8 +789,6 @@ const BAR_REACH: f32 = 0.7;
 /// A bar is caught flying across it: its axis at most this cosine off square to the way (about 60°).
 const BAR_ACROSS: f32 = 0.5;
 const BAR_HEIGHT: std::ops::Range<f32> = 1.2..2.7;
-/// Speed flung off a bar: forward and up.
-const SWING_OFF: (f32, f32) = (4.5, 3.0);
 /// Jumping onto a top takes off with AC1's takeoff from at least this far from it (m).
 const VAULT_TAKEOFF_MIN: f32 = 1.3;
 const LADDER_L: &str = "ladder_l";
@@ -837,6 +834,8 @@ const STEP_UP_MAX: f32 = 0.85;
 /// component toward the landing over `CORNER_HOP_TOWARD` (m: AC1's 0.766 against the un-normalised offset).
 const CORNER_HOP_COS: f32 = 0.766;
 const CORNER_HOP_TOWARD: f32 = 0.766;
+/// The swing jump at a top lands this far in from where the way meets it (m).
+const SWING_TOP_IN: f32 = 0.5;
 /// AC1's stick classes on a beam (`ClassifyStickDir` 0xF76150), by the angle from the facing: forward under 75 degrees
 /// (the walk starts and keeps going, `beam_step`), back over 135 (the turn round), the side between (the quarter turn).
 /// Audit NARROW-6.
@@ -4575,34 +4574,77 @@ impl WallClimb {
                 return true;
             }
         }
+        // Flung at a target: AC1's swing jump, taken at the end of the back swing's way down (event 7, guard 0xDCD000),
+        // with a target (a bar ahead, else a top, post or beam), its takeoff blended for it, flown at it; no target, it
+        // swings on (audit NARROW-14).
+        if i == 3 && self.swing_off == Some(true) && self.swing_jump(lib, level, root) {
+            return true;
+        }
+        // Let go (the empty hand): dropped off at the front of the swing.
         if i == 0
-            && let Some(fling) = self.swing_off
+            && self.swing_off == Some(false)
+            && let (Some(off), Some(air)) = (lib.get(SWING_DROP), lib.get(JUMP_AIR))
         {
             let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(Vec3::NEG_Z);
-            let (name, v) = if fling { (SWING_LAUNCH, fwd * SWING_OFF.0 + Vec3::Y * SWING_OFF.1) } else { (SWING_DROP, fwd) };
-            // (Flung at another bar: AC1's flight onto it.)
-            let p = root.translation;
-            let at_bar = fling.then(|| bar_ahead(level, p, fwd)).flatten().and_then(|q| {
-                let j = crate::jump::swing(q.y - SWING_HANG - p.y, (q - p).with_y(0.0).length(), true);
-                let parts: Vec<(&str, f32)> = j.flight.iter().map(|(n, w)| (n.as_str(), *w)).collect();
-                lib.get(&mix_name(&parts))
-            });
-            if let (Some(off), Some(air)) = (lib.get(name), at_bar.or_else(|| lib.get(JUMP_AIR))) {
-                self.skip_bar = self.bar.take().map(|b| (b, 0.6));
-                self.swing_off = None;
-                self.queue = vec![Queued { rate: air.anim.duration / jump_airtime(), ..Queued::new(air, FALL) }];
-                self.fall_with = Some(v);
-                self.fall_top = root.translation.y;
-                self.can_catch = true;
-                self.aimed = false;
-                // (A fling off a bar aims at the post or beam ahead, as AC1's swing jump takes its target.)
-                self.flung = true;
-                self.start(off, LEAP.into(), root);
-                return true;
-            }
+            self.skip_bar = self.bar.take().map(|b| (b, 0.6));
+            self.swing_off = None;
+            self.queue = vec![Queued { rate: air.anim.duration / jump_airtime(), ..Queued::new(air, FALL) }];
+            self.fall_with = Some(fwd);
+            self.fall_top = root.translation.y;
+            self.can_catch = true;
+            self.aimed = false;
+            self.flung = false;
+            self.start(off, LEAP.into(), root);
+            return true;
         }
         let Some(next) = lib.get(SWING_CYCLE[(i + 1) % SWING_CYCLE.len()]) else { return false };
         self.start(next, SWING.into(), root);
+        true
+    }
+
+    /// The jump off a swing bar at its target (see `swing_next`). False with no target or clips.
+    fn swing_jump(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(Vec3::NEG_Z);
+        let p = root.translation;
+        // (At a bar: the root to come in `BAR_CATCH_UNDER` under it, as `jump_at_bar`.)
+        let bar = bar_ahead(level, p, fwd).map(|q| (q - Vec3::Y * BAR_CATCH_UNDER, true));
+        // (Else a top, post or beam; else a hold to hang from, AC1's hang targets.)
+        // (A top aimed `SWING_TOP_IN` in from where the way meets it: at its very edge the flight came down onto the lip,
+        // into the knee catch.)
+        let top = jump_target(level, p, fwd, None).map(|t| {
+            let t2 = t + fwd * SWING_TOP_IN;
+            (level.ground(t2 + Vec3::Y * 0.3, 0.0, 0.6).map_or(t, |g| g.point), false)
+        });
+        let target = bar.or(top).or_else(|| jump_hold_target(level, p, fwd).map(|t| (t, false)));
+        let Some((to, at_bar)) = target else {
+            debug!("climb: no target off the swing: swinging on");
+            return false;
+        };
+        let (dz, dist) = (to.y - p.y, (to - p).with_y(0.0).length());
+        let parts = crate::jump::off_swing(dz, dist);
+        let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+        let Some(off) = lib.get(&mix_name(&parts)) else { return false };
+        let flight = if at_bar {
+            let j = crate::jump::swing(dz, dist, true);
+            let parts: Vec<(&str, f32)> = j.flight.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        } else {
+            None
+        };
+        let Some(air) = flight.or_else(|| lib.get(JUMP_AIR)) else { return false };
+        let from = p + world_rot(root.rotation) * root_motion_at(&off, off.frames());
+        let (v, t) = ballistic(from, to);
+        self.skip_bar = self.bar.take().map(|b| (b, 0.6));
+        self.swing_off = None;
+        self.queue = vec![Queued { rate: air.anim.duration / t.max(0.1), ..Queued::new(air, FALL) }];
+        self.fall_with = Some(v);
+        self.fall_top = p.y;
+        self.can_catch = true;
+        self.aimed = at_bar;
+        // (At a post or beam: steered onto it on the way, `aim_at_perch`.)
+        self.flung = !at_bar;
+        debug!("climb: the swing jump at {to:.2}{}", if at_bar { " (a bar)" } else { "" });
+        self.start(off, LEAP.into(), root);
         true
     }
 

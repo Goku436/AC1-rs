@@ -205,6 +205,16 @@ pub fn swing(dz: f32, dist: f32, left: bool) -> Jump {
     Jump { takeoff: j.takeoff, flight, reception: vec![] }
 }
 
+/// The jump off a swing bar at a target `dz` up and `dist` away: AC1's jump kind 3, its takeoff the one eight-clip
+/// group `xx_h_swing_cycle_<front 050|300|550, down 050|300|550, up 100|300>cm_to_air` (action 0x0292655B) on the run's
+/// takeoff slots and weights (Banned445's reading of 0xB1EC40, audit NARROW-14).
+pub fn off_swing(dz: f32, dist: f32) -> Vec<(String, f32)> {
+    const NAMES: [&str; 8] = ["front_050cm", "front_300cm", "front_550cm", "down_050cm", "down_300cm", "down_550cm", "up_100cm", "up_300cm"];
+    let run = running(dz, dist, true, 0.0);
+    let slots = takeoff_names("footl");
+    run.takeoff.iter().filter_map(|(n, w)| slots.iter().position(|s| s == n).map(|i| (format!("xx_h_swing_cycle_{}_to_air", NAMES[i]), *w))).collect()
+}
+
 /// A free step's jump at a swing bar (or a free hang: AC1's target type 0x80) `dz` up and `dist` away: the free-step
 /// takeoff, `swing`'s flight (`_to_swing`).
 pub fn freestep_swing(dz: f32, dist: f32, angle: f32, left: bool) -> Jump {
