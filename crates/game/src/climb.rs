@@ -5356,11 +5356,14 @@ impl WallClimb {
 
     /// Climb down off the wall onto ground just below the feet (from "1m" only).
     fn try_step_off(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
-        if self.state != "1m" {
-            return false;
-        }
+        // (From the 2m pose too, with its own pair: AC1's `CLIMB_TO_GROUND[1m, 2m]`, audit CLIMB-E9.)
+        let names = match self.state.as_str() {
+            "1m" => STEP_OFF,
+            "2m" => ["xx_l_climb_2m_tr_h_wait_hipm_footl_a", "xx_l_climb_2m_tr_h_wait_hipm_footl_b"],
+            _ => return false,
+        };
         let Some(ground) = level.ground(root.translation, 0.3, STEP_OFF_MAX) else { return false };
-        let (Some(down), Some(stand)) = (lib.get(STEP_OFF[0]), lib.get(STEP_OFF[1])) else { return false };
+        let (Some(down), Some(stand)) = (lib.get(names[0]), lib.get(names[1])) else { return false };
         self.queue = vec![Queued::new(stand, GROUND)];
         self.start(down, STEP_DOWN.into(), root);
         // The clip lowers the root a fixed amount; make up the rest so the feet meet the ground.
@@ -5724,10 +5727,14 @@ impl WallClimb {
                     out.push(Cand::new(format!("xx_l_climb_1m_corner_{}_090_{kind}", side_name(dir)), "1m", Feet::Wall));
                 }
             }
-            // No holds for the feet there (a lone ledge along the top of a bare wall): into the hang, the feet braced.
-            out.push(Cand::new(format!("xx_l_climb_1m_{dir}_hangwall"), HANGWALL_OPEN, Feet::Wall));
-            // No wall for the feet: swing off into a free hang.
-            out.push(Cand::new(format!("xx_l_climb_1m_{dir}_hangfree"), FREE, Feet::Free));
+            // No holds for the feet there (a lone ledge along the top of a bare wall): into the hang, the feet braced; no wall
+            // for the feet, swing off into a free hang. Sideways, the next column's rows up, level and down in that order
+            // (AC1's `TryLedgeGrab` 0xDF0980, rows 5, 4, 3: `xx_l_climb_1m_<ul|l|dl>_hang<wall|free>`, audit CLIMB-E11).
+            let ways: Vec<String> = if vertical { vec![dir.to_string()] } else { ["u", "", "d"].iter().map(|v| format!("{v}{dir}")).collect() };
+            for w in &ways {
+                out.push(Cand::new(format!("xx_l_climb_1m_{w}_hangwall"), HANGWALL_OPEN, Feet::Wall));
+                out.push(Cand::new(format!("xx_l_climb_1m_{w}_hangfree"), FREE, Feet::Free));
+            }
         }
         out
     }
@@ -5772,8 +5779,11 @@ impl WallClimb {
                 }
                 _ if !free && from == "climb1m" => {
                     let way = if dir == "u" { "up" } else { "down" };
+                    // (The left hand first with the stick straight: every climb-to-climb reach the running game made was
+                    // `up_l_hand_2`; AC1 takes the hand from the foot hold's side, audit CLIMB-E4. Leaning, that side.)
                     let mut hands = ["l", "r"];
-                    hands.sort_by_key(|h| !self.prefer_hand(input).starts_with(h));
+                    let lead = if input.x > 0.2 { "r" } else { "l" };
+                    hands.sort_by_key(|h| *h != lead);
                     for h in hands {
                         bases.push((format!("xx_h_climbing_climb1m_tr_climb1m_{way}_{h}_hand_{n}"), "1m", Feet::Wall));
                     }
@@ -6106,7 +6116,8 @@ impl WallClimb {
             }
         }
         // Down at the bottom of the wall: climb off onto the ground.
-        if dir == "d" && self.try_step_off(lib, level, root) {
+        // (Down or diagonally down: AC1's directions 2, 3, 8 and 9.)
+        if (dir == "d" || (input.y < 0.0 && input.y.abs() >= input.x.abs() * 0.4)) && self.try_step_off(lib, level, root) {
             return true;
         }
         // At the bottom, sideways with no holds that way: step off sideways onto the ground.
