@@ -27,6 +27,14 @@ struct Scenario {
 /// (and the real AC1 open beside them) frames grew long enough for a swing's foot to move 0.45 m in one and fail the pop
 /// check, and a ragdoll not to settle in time (84 scenarios: 4 at a time 262 s, all passing; 6 about 195 s, 1-2 flakes).
 const JOBS: usize = 4;
+/// Games run at once headless (the default since 2026-10-11, `AC1_HEADLESS`): no window or GPU, every frame 1/60 s of
+/// game time however long it takes, so a loaded machine only slows the runs down and does not change them.
+const HEADLESS_JOBS: usize = 6;
+
+/// Windowed runs (`AC1_SCENARIO_WINDOWED=1`, or `AC1_SCENARIO_SHOTS=1` for the screenshots): to watch them.
+fn windowed() -> bool {
+    std::env::var("AC1_SCENARIO_WINDOWED").is_ok() || std::env::var("AC1_SCENARIO_SHOTS").is_ok()
+}
 
 const QUIET: &[(&str, &str)] = &[("AC1_NO_CROWD", "1")];
 
@@ -901,6 +909,11 @@ fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
         .env("AC1_SHOT_SECS", s.secs.to_string())
         .env("AC1_EMBED_CHECK", "1")
         .env("AC1_POP_CHECK", "1");
+    // (Windowed too at the fixed step: a scenario's screenshots show the very run the headless suite checks.)
+    c.env("AC1_STEP", "60");
+    if !windowed() {
+        c.env("AC1_HEADLESS", "1");
+    }
     c.envs(QUIET.iter().copied());
     c.envs(s.env.iter().copied());
     let out = c.output().map_err(|e| format!("could not run the game: {e}"))?;
@@ -970,7 +983,7 @@ fn scenarios() {
     unsafe { std::env::set_var("AC1_GAME_DIR", &dir) };
     let exe = env!("CARGO_BIN_EXE_ac1");
     // `AC1_SCENARIO_FILTER`: only the scenarios whose name contains it. `AC1_SCENARIO_JOBS`: how many games run at once
-    // (each its own process and window; default `JOBS`).
+    // (each its own process; default `HEADLESS_JOBS`, or `JOBS` windowed).
     let filter = std::env::var("AC1_SCENARIO_FILTER").unwrap_or_default();
     // `AC1_SCENARIO_TAGS=climb,hang`: only the scenarios through any of those systems (run what a change can affect).
     let tags: Vec<String> =
@@ -980,7 +993,7 @@ fn scenarios() {
         .filter(|s| s.name.contains(filter.as_str()))
         .filter(|s| tags.is_empty() || s.tags.iter().any(|t| tags.iter().any(|w| w == t)))
         .collect();
-    let jobs = std::env::var("AC1_SCENARIO_JOBS").ok().and_then(|j| j.parse().ok()).unwrap_or(JOBS).max(1);
+    let jobs = std::env::var("AC1_SCENARIO_JOBS").ok().and_then(|j| j.parse().ok()).unwrap_or(if windowed() { JOBS } else { HEADLESS_JOBS }).max(1);
     let next = std::sync::atomic::AtomicUsize::new(0);
     let results: Vec<std::sync::Mutex<Option<Result<(), String>>>> = picked.iter().map(|_| std::sync::Mutex::new(None)).collect();
     let started = std::time::Instant::now();
@@ -998,6 +1011,7 @@ fn scenarios() {
         }
     });
     let failed: Vec<&str> = picked.iter().zip(&results).filter(|(_, r)| !matches!(*r.lock().unwrap(), Some(Ok(())))).map(|(s, _)| s.name).collect();
-    eprintln!("{} scenarios, {jobs} at a time, in {:.0} s", picked.len(), started.elapsed().as_secs_f32());
+    let mode = if windowed() { "windowed" } else { "headless" };
+    eprintln!("{} scenarios, {jobs} at a time {mode}, in {:.0} s", picked.len(), started.elapsed().as_secs_f32());
     assert!(failed.is_empty(), "{} of {} scenarios failed: {failed:?}", failed.len(), picked.len());
 }

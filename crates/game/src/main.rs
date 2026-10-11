@@ -27,7 +27,7 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_HEADLESS=1 (no window, no GPU: the frames run back to back, for the scenarios), AC1_STEP=hz (every frame 1/hz s of game time however long it takes; 60 when headless), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
@@ -211,14 +211,31 @@ fn main() {
     let game_dir = std::env::var("AC1_GAME_DIR").unwrap_or_else(|_| r"P:\SteamLibrary\steamapps\common\Assassins Creed".into());
     let cam = env_f32s("AC1_CAM").unwrap_or_default();
     let script = script_from(&|k| std::env::var(k).map_err(|_| ()));
-    App::new()
-        // (The controller only with `AC1_PAD=1`: Bevy's gamepad backend takes the pad over even with the window in the
-        // background, from every copy the tests start, and another game could not use it.)
-        .add_plugins({
-            let plugins = DefaultPlugins.set(WindowPlugin { primary_window: Some(game_window()), ..default() });
-            if std::env::var("AC1_PAD").is_ok() { plugins } else { plugins.disable::<bevy::gilrs::GilrsPlugin>() }
-        })
-        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
+    let headless = std::env::var("AC1_HEADLESS").is_ok();
+    let mut app = App::new();
+    // (The controller only with `AC1_PAD=1`: Bevy's gamepad backend takes the pad over even with the window in the
+    // background, from every copy the tests start, and another game could not use it.)
+    let plugins = DefaultPlugins.build();
+    let plugins = if std::env::var("AC1_PAD").is_ok() { plugins } else { plugins.disable::<bevy::gilrs::GilrsPlugin>() };
+    if headless {
+        // `AC1_HEADLESS=1`: no window and no GPU (the scenarios read only the log): the frames run back to back.
+        app.add_plugins(
+            plugins
+                .set(WindowPlugin { primary_window: None, exit_condition: bevy::window::ExitCondition::DontExit, ..default() })
+                .set(bevy::render::RenderPlugin { render_creation: bevy::render::settings::WgpuSettings { backends: None, ..default() }.into(), ..default() })
+                .disable::<bevy::winit::WinitPlugin>(),
+        )
+        .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO));
+    } else {
+        app.add_plugins(plugins.set(WindowPlugin { primary_window: Some(game_window()), ..default() }));
+    }
+    // `AC1_STEP=hz` (60 when headless): every frame is that long in game time, however long it takes to run, so a run is
+    // the same every time and as fast as the machine goes (a loaded machine slows it down, it no longer changes it).
+    let step = std::env::var("AC1_STEP").ok().and_then(|v| v.parse::<f64>().ok()).or(headless.then_some(60.0));
+    if let Some(hz) = step.filter(|hz| *hz > 0.0) {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / hz)));
+    }
+    app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.82)))
         // (Bright sky fill: faces under hoods and walls in shade read as in AC1, not black.)
         .insert_resource(GlobalAmbientLight { color: Color::srgb(0.93, 0.96, 1.0), brightness: 1500.0, ..default() })

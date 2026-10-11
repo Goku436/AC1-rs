@@ -30,6 +30,8 @@ const POP_MIN: f32 = 0.04;
 const POP_FACTOR: f32 = 3.0;
 const POP_SPEED: f32 = 1.5;
 const POP_HITCH: f32 = 2.5;
+/// Game time (s) before which the pop check stays quiet.
+const POP_START: f32 = 0.25;
 
 /// The live pop check (`AC1_POP_CHECK`): `POP <bone> <metres> | <playing> <- <playing before>` in the log for each pop.
 fn pop_check(rec: &mut Recorder, t: f32, root: Vec3, bones: Vec<Vec3>, state: String) {
@@ -37,7 +39,9 @@ fn pop_check(rec: &mut Recorder, t: f32, root: Vec3, bones: Vec<Vec3>, state: St
     while rec.recent.len() > 4 {
         rec.recent.pop_front();
     }
-    if rec.recent.len() < 4 {
+    // (Nor in the first frames: the spawn pose jumps into the first clip's. Windowed, the first frames' uneven lengths
+    // hid it as a hitch; at a fixed step (`AC1_STEP`, headless) nothing does.)
+    if rec.recent.len() < 4 || t < POP_START {
         return;
     }
     let f = |k: usize| &rec.recent[k];
