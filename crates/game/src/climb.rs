@@ -3307,6 +3307,44 @@ impl WallClimb {
         l.base.y + ((y - l.base.y) / LADDER_STEP).round() * LADDER_STEP
     }
 
+    /// From a wall hang, the swing back up to a ledge above and out from the wall, into a free hang under it (AC1's
+    /// `TryWallJumpUp` 0xDD62A0, which searches out from the wall, reanalysis CENSUS-12; `xx_h_climbing_hangwall_to_
+    /// swingback_up_<min|max>_<200|300>_a/b` mixed by v = the hold 2-3 m over the root and h = how far out, up to 1 m;
+    /// audit LEDGE-6).
+    fn swing_back(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        let n = self.normal.with_y(0.0).normalize_or_zero();
+        let p = root.translation;
+        let hands = p + Vec3::Y * HANG_CORNER_UP - n * HANG_WALL_OUT;
+        let along = Vec3::Y.cross(n).normalize_or_zero();
+        let Some(q) = level
+            .ledges
+            .iter()
+            .filter(|l| l.out.dot(n) > 0.5)
+            .map(|l| l.closest(hands + Vec3::Y * 1.2 + n * 0.5))
+            .filter(|q| (2.0..3.2).contains(&(q.y - p.y)) && (0.25..1.2).contains(&(*q - hands).dot(n)) && (*q - hands).dot(along).abs() < 0.5)
+            .min_by(|a, b| a.distance(hands).total_cmp(&b.distance(hands)))
+        else {
+            return false;
+        };
+        let v = (q.y - p.y - 2.0).clamp(0.0, 1.0);
+        let h = (q - hands).dot(n).clamp(0.0, 1.0);
+        let mix = |part: &str| {
+            let name = |m: &str, k: &str| format!("xx_h_climbing_hangwall_to_swingback_up_{m}_{k}_{part}");
+            mix_name(&[
+                (&name("min", "200"), (1.0 - h) * (1.0 - v)),
+                (&name("min", "300"), (1.0 - h) * v),
+                (&name("max", "200"), h * (1.0 - v)),
+                (&name("max", "300"), h * v),
+            ])
+        };
+        let Some(clips) = [mix("a"), mix("b")].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>() else { return false };
+        let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
+        let to = q + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
+        debug!("climb: swing back up to the ledge at {q:.2}");
+        self.start_chain_carry(clips, vec![LEAP.into(), FREE.into()], root, to - (p + travel), Some(1));
+        true
+    }
+
     /// Whether a running jump along `dir` has a target (a top, post, beam, bar or hold): AC1 searches the leap of faith
     /// only when its guidance query found none (the interpreter's jump branch 0xEE817E, audit HAY-10).
     pub fn has_jump_target(level: &Level, p: Vec3, dir: Vec3) -> bool {
@@ -6101,6 +6139,10 @@ impl WallClimb {
         }
         // (The top-out with the stick within 67.5 degrees of up: AC1's climb-out takes its diagonal directions 6 and 7 too,
         // audit CLIMB-E6; ours only within 45.)
+        // From a wall hang, up with nothing in reach on the wall: the swing back up to a ledge above and out from it.
+        if dir == "u" && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.swing_back(lib, level, root) {
+            return true;
+        }
         let up_ish = input.y > 0.0 && input.normalize_or_zero().y >= TOP_OUT_STICK_COS;
         if (dir == "u" || up_ish) && self.try_top_out(lib, level, root, rig, base, cr) {
             return true;
