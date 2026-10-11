@@ -833,9 +833,11 @@ const VAULT_REACH: f32 = 2.3;
 /// The low obstacle is looked for this far either side of the run's middle too (m, the body's half-width).
 const VAULT_SIDE: f32 = 0.3;
 const STEP_UP_MAX: f32 = 0.85;
-/// On a beam the stick walks along it while it leans along it at least this much (cos: 60 degrees), as the walk
-/// keeps going (`beam_step`).
-const BEAM_WALK_COS: f32 = 0.5;
+/// AC1's stick classes on a beam (`ClassifyStickDir` 0xF76150), by the angle from the facing: forward under 75 degrees
+/// (the walk starts and keeps going, `beam_step`), back over 135 (the turn round), the side between (the quarter turn).
+/// Audit NARROW-6.
+const BEAM_WALK_COS: f32 = 0.259;
+const BEAM_BACK_COS: f32 = -0.707;
 /// Free running onto a beam with less than this of it left the stick's way along it (m), a target off its side is jumped
 /// at rather than walking on.
 const BEAM_JUMP_ON_LEFT: f32 = 2.0;
@@ -3972,8 +3974,9 @@ impl WallClimb {
             self.finished = true;
             return;
         }
-        // (Along the beam while the stick leans along it, as the walk keeps going: at an angle to it too.)
-        if axis != Vec3::ZERO && dir.dot(axis).abs() > BEAM_WALK_COS {
+        // (Along the beam while the stick leans along it, as the walk keeps going: at an angle to it too; not from facing
+        // across it.)
+        if axis != Vec3::ZERO && dir.dot(axis).abs() > BEAM_WALK_COS && self.beam_stance != Some(BeamStance::Across) {
             let along = axis * dir.dot(axis).signum();
             // Walk unless already at that end.
             let end = if along.dot(axis) > 0.0 { line.b } else { line.a };
@@ -4014,18 +4017,19 @@ impl WallClimb {
     fn beam_turn(&mut self, lib: &mut AnimLib, root: &Transform, dir: Vec3, axis: Vec3) -> bool {
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
         let right = fwd.cross(Vec3::Y);
-        // (Come down on it within 60 degrees of along it: along, walked on at once, as the running game did after a
-        // free-step jump 45 degrees across a Damascus beam; ours turned a quarter first.)
-        let stance = self.beam_stance.unwrap_or(if fwd.dot(axis).abs() > BEAM_WALK_COS { BeamStance::Along(0) } else { BeamStance::Across });
+        // (Come down on it within 30 degrees of along it: along, as AC1's free-step arrival counts straight.)
+        let stance = self.beam_stance.unwrap_or(if fwd.dot(axis).abs() >= BEAM_ARRIVE_ALONG_COS { BeamStance::Along(0) } else { BeamStance::Across });
         let side = if dir.dot(right) > 0.0 { "right" } else { "left" };
         let feet = ["footl", "footr"];
-        let along = dir.dot(axis).abs() > BEAM_WALK_COS;
-        let (names, to): (Vec<String>, BeamStance) = match (stance, along) {
-            (BeamStance::Along(f), true) if fwd.dot(dir) < 0.0 => {
+        // (The stick's class by its angle from the facing: back, the side, or forward (no turn).)
+        let c = fwd.dot(dir);
+        let (back, side_class) = (c < BEAM_BACK_COS, (BEAM_BACK_COS..=BEAM_WALK_COS).contains(&c));
+        let (names, to): (Vec<String>, BeamStance) = match (stance, side_class) {
+            (BeamStance::Along(f), false) if back => {
                 let n = format!("xx_l_beam_crouchwait_{}_turn180", feet[f]);
                 (vec![n.clone(), format!("{n}_tr_{}", feet[1 - f])], BeamStance::Along(1 - f))
             }
-            (BeamStance::Along(f), false) if !self.sprint && !self.high => {
+            (BeamStance::Along(f), true) if !self.sprint => {
                 // (AC1 names the right turns with a space.)
                 let sep = if side == "right" { " " } else { "_" };
                 (vec![format!("xx_l_beam_crouchwait_{}_turn_{side}{sep}to_crouchwait_90", feet[f])], BeamStance::Across)
@@ -4035,7 +4039,7 @@ impl WallClimb {
                 let n = format!("xx_l_beam_crouchwait_90_turn_{side}");
                 (vec![n.clone(), format!("{n}_tr_crouchwait_{}", feet[f])], BeamStance::Along(f))
             }
-            (BeamStance::Across, false) if fwd.dot(dir) < -0.5 => {
+            (BeamStance::Across, false) if back => {
                 let n = "xx_l_beam_crouchwait_90_turn180".to_string();
                 (vec![n.clone(), format!("{n}_tr_crouchwait_90")], BeamStance::Across)
             }
