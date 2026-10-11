@@ -385,6 +385,9 @@ const AIR_REBOUND_SPEED: f32 = 2.0;
 /// reception carries the rest (AC1's blend 0xB1EC40, reanalysis AIR-2, audit JUMP-4; blended for the landing, ours'
 /// takeoffs ran 12-30% long).
 const JUMP_RECEPTION_STEP: f32 = 0.5;
+/// A jump at a swing bar comes at it with the root this far under the bar (m: the running game's 0.42), the flight blended
+/// for that point's height over the takeoff.
+const BAR_CATCH_UNDER: f32 = 0.4;
 /// The top-out is tried with the stick this close to up (cos 67.5 degrees).
 const TOP_OUT_STICK_COS: f32 = 0.383;
 /// Walking off a drop of at least this (m) is AC1's step off (event 68), launched this fast up (m/s).
@@ -651,7 +654,6 @@ const BAR_JUMP_RISE: std::ops::RangeInclusive<f32> = 0.5..=4.0;
 const PERCH_BAR_RISE: std::ops::RangeInclusive<f32> = -0.5..=3.0;
 /// An eject pressed while it cannot start yet is kept this long (s; AC1's Legs buffer).
 const EJECT_WAIT: f32 = 0.3;
-const BAR_FLY_HIGH: f32 = 0.2;
 
 /// A running jump at a wall's ledge this fast or faster (m/s) is received hard (`_max`, swinging in), else softly.
 const JUMP_RECEPTION_HARD_SPEED: f32 = 5.0;
@@ -4323,17 +4325,21 @@ impl WallClimb {
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
         let aim = (q - from).with_y(0.0).normalize_or(fwd);
         let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
-        let hang = q - Vec3::Y * SWING_HANG;
-        let j = crate::jump::freestep_swing(hang.y - from.y, (q - from).with_y(0.0).length(), angle, self.freestep_left);
+        // (At the bar: the root comes in `BAR_CATCH_UNDER` under it, the reception `_to_swing_tr_swing_front_a` carrying the
+        // drop to the hang, and the flight blended by the bar's height over the feet: the running game off a beam at
+        // ladder 68, level with it, flew `air_front_050cm_to_swing`; ours aimed at the hang 2 m lower, `air_down_900cm`.
+        // Audit NARROW-15.)
+        let catch_at = q - Vec3::Y * BAR_CATCH_UNDER;
+        let j = crate::jump::freestep_swing(catch_at.y - from.y, (q - from).with_y(0.0).length(), angle, self.freestep_left);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
         };
         let (Some(takeoff), Some(flight)) = (mix(&j.takeoff), mix(&j.flight)) else { return false };
         let planned = Transform { rotation: facing(aim), ..*root };
-        // (Flown from where the takeoff leaves off, to come at the bar with the root `BAR_FLY_HIGH` over its hang.)
+        // (Flown from where the takeoff leaves off, to come at the bar with the root `BAR_CATCH_UNDER` under it.)
         let off = from + world_rot(planned.rotation) * root_motion_at(&takeoff, takeoff.frames());
-        let (v, t) = ballistic(off, hang + Vec3::Y * BAR_FLY_HIGH);
+        let (v, t) = ballistic(off, catch_at);
         self.queue = vec![Queued { rate: flight.anim.duration / t.max(0.1), ..Queued::new(flight, FALL) }];
         self.fall_with = Some(v);
         self.can_catch = true;
@@ -4404,7 +4410,10 @@ impl WallClimb {
             // (Moving along a bar is not swinging on it: only one lying across the way, as AC1 catches them.)
             .filter(|(_, b)| v.with_y(0.0).length() < 0.5 || b.axis().dot(v.with_y(0.0).normalize()).abs() < BAR_ACROSS)
             .map(|(i, b)| (i, b.closest(p + Vec3::Y * SWING_HANG)))
-            .filter(|(_, q)| (*q - p).with_y(0.0).length() < BAR_REACH && BAR_HEIGHT.contains(&(q.y - p.y)))
+            // (A jump aimed at the bar comes in with the root just under it, `BAR_CATCH_UNDER`: caught there too.)
+            .filter(|(_, q)| {
+                (*q - p).with_y(0.0).length() < BAR_REACH && (BAR_HEIGHT.contains(&(q.y - p.y)) || (self.aimed && (0.2..1.2).contains(&(q.y - p.y))))
+            })
             .min_by(|a, b| (a.1 - p).length().total_cmp(&(b.1 - p).length()))
         else {
             return false;
@@ -4813,13 +4822,15 @@ impl WallClimb {
                 play(self, c, if hand == "l" { LADDER_R } else { LADDER_L }, Vec3::ZERO);
             }
         } else if input.y < -0.3 {
-            let ground = level.ground(root.translation, 0.3, 6.0).map_or(l.base.y, |g| g.point.y);
-            let above = root.translation.y - ground;
+            // (The bottom by the ladder's own base, AC1's ReachedBottom, not the ground under the root; audit LADDER-11.)
+            let above = root.translation.y - l.base.y;
             if above < LADDER_STEP - 0.05 {
-                // Step off at the bottom (onto the ground under the root).
+                // Step off at the bottom, into the stand of the profile held now (AC1 has the cross ends both ways).
                 let foot = if hand == "l" { "footr" } else { "footl" };
+                let end = if self.high { "h" } else { "l" };
                 if let Some(c) = lib
-                    .get(&format!("xx_{p}_ladder_climb_down_{hand}_tr_{p}_wait_hipm_{foot}"))
+                    .get(&format!("xx_{p}_ladder_climb_down_{hand}_tr_{end}_wait_hipm_{foot}"))
+                    .or_else(|| lib.get(&format!("xx_{p}_ladder_climb_down_{hand}_tr_{p}_wait_hipm_{foot}")))
                     .or_else(|| lib.get(&format!("xx_l_ladder_climb_down_{hand}_tr_l_wait_hipm_{foot}")))
                 {
                     self.ladder = None;
