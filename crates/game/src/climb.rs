@@ -379,6 +379,8 @@ const VAULT_STANDING_SPEED: f32 = 1.9;
 const VAULT_STEP_IN: f32 = 0.4;
 /// The climbing stance's root rests this far out from its holds (m).
 const CLIMB_ROOT_OUT: f32 = 0.5;
+/// The pull-down's wall hang: its root this far out from where the clips put it on the holds, and down (m).
+const PULL_DOWN_HANG: (f32, f32) = (HANG_OUT - 0.122, HANG_DOWN - 0.027);
 /// A wall hang's root rests this far out from the wall's face at its own height (m), eased there this fast (m/s).
 const HANG_WALL_OUT: f32 = 0.50;
 const HANG_SETTLE_SPEED: f32 = 0.6;
@@ -3912,7 +3914,10 @@ impl WallClimb {
             let mut w = WallClimb::new(to, normal);
             let k = clips.len();
             let tos = (0..k).map(|i| if i + 1 == k { to } else { DROP }.to_string()).collect();
-            w.start_chain(clips, tos, &start, err + hang_offset(to, normal));
+            // (Into a wall hang, AC1 places the root nearer the wall than the climbs' `hang_offset`: with it, ours hung
+            // 0.122 m further out and 0.027 m lower than the running game off both bureau roofs; audit EXTRA-10.)
+            let offset = if feet == Feet::Wall { normal * PULL_DOWN_HANG.0 - Vec3::Y * PULL_DOWN_HANG.1 } else { hang_offset(to, normal) };
+            w.start_chain(clips, tos, &start, err + offset);
             w.ease_in(from, root);
             debug!("climb: pulling down ({to}), steering {:.2} m", err.length());
             return Some(w);
