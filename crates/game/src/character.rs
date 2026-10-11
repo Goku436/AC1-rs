@@ -199,6 +199,8 @@ pub struct Character {
     /// starts again).
     pub halt_t: f32,
     pub looking_down: bool,
+    /// The edge the low-profile halt stopped at (a point on it, its normal): the look-down turns toward its side.
+    pub look_edge: Option<(Vec3, Vec3)>,
     /// A reversal's run stop has just played out: with the stick still turned round, AC1's skid turn follows.
     pub reverse_pending: bool,
     /// The hold each climbing hand is pulled onto now: kept until the pull has faded, then the nearest one taken.
@@ -458,6 +460,7 @@ pub fn spawn_character(
         still_t: 0.0,
         halt_t: 0.0,
         looking_down: false,
+        look_edge: None,
         reverse_pending: false,
         wall_hand_t: [None; 2],
         foot_ik_w: 0.0,
@@ -613,6 +616,7 @@ fn ground_move(
     tf: &Transform,
     ch: &Character,
     ctl: &Controller,
+    dt: f32,
 ) -> Option<(crate::climb::WallClimb, Option<Vec3>)> {
     use crate::climb::WallClimb;
     let v = ch.velocity.with_y(0.0);
@@ -704,7 +708,8 @@ fn ground_move(
         // reads it), its guard wanting the feet on the edge line; ours stopped 0.6 m short and pulled back, and the
         // pull-down after it slid the body 0.4 m to the edge.)
         // (Within a long frame's run too, `LEDGE_STOP_FRAME`: at a run the 0.15 m alone was stepped over and he ran off.)
-        let reach = LEDGE_STOP_REACH.max(speed * LEDGE_STOP_FRAME);
+        // (And the frame actually taking longer: under load a 0.1 s frame stepped over it.)
+        let reach = LEDGE_STOP_REACH.max(speed * LEDGE_STOP_FRAME.max(dt * 1.5));
         if let Some(d) = (1..=(reach / 0.05).ceil() as usize).map(|k| k as f32 * 0.05).find(|&d| drop(d) && drop(d + LEDGE_STOP_CRACK)) {
             let names = vec!["xx_h_ledge_stop_start_footl".to_string(), "xx_h_ledge_stop_end_footl".into(), "xx_h_ledge_stop_end_tr_h_wait_footr".into()];
             let at = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir), ..*tf };
@@ -723,13 +728,24 @@ fn ground_move(
     if (speed < 0.3 || walking_round) && wants && !ch.blend {
         let p = if ctl.high { "h" } else { "l" };
         let side = if angle > 0.0 { "left" } else { "right" };
-        let turn = match angle.abs() {
-            a if a < TURN_MIN => return None,
-            a if a < TURN_HALF => format!("{side}_090"),
-            _ => format!("{side}_180"),
-        };
+        if angle.abs() < TURN_MIN {
+            return None;
+        }
+        // (The quarter and the half turn mixed by how far round, w = (|a| - 90) / 90: AC1's pivot item holds both,
+        // their root's yaw turning the body (Banned445's port, audit GROUND-4); ours picked one and bent it toward the
+        // stick.)
+        let w = ((angle.abs() - std::f32::consts::FRAC_PI_2) / std::f32::consts::FRAC_PI_2).clamp(0.0, 1.0);
         let foot = if ch.animator.as_ref().is_none_or(|a| a.lead_left()) { "footl" } else { "footr" };
-        let (names, stop) = turn_names(lib, p, &turn, foot)?;
+        let (q, half) = (turn_names(lib, p, &format!("{side}_090"), foot), turn_names(lib, p, &format!("{side}_180"), foot));
+        let (names, stop) = match (q, half) {
+            (Some((qn, qs)), Some((hn, hs))) => {
+                let mixed = crate::animation::mix_name(&[(&qn[0], 1.0 - w), (&hn[0], w)]);
+                (vec![mixed], if w < 0.5 { qs } else { hs })
+            }
+            (Some(q), None) => q,
+            (None, Some(h)) => h,
+            (None, None) => return None,
+        };
         return act(lib, names, Vec3::ZERO, false).map(|w| (w.steered(input, stop), None));
     }
     None
@@ -751,9 +767,8 @@ const WALK_STOP_SPEED_MIN: f32 = 0.5;
 const HALT_COAST: f32 = 0.12;
 const HALT_MARGIN: f32 = 0.05;
 
-/// Standing, steering this far off the facing (radians) turns on the spot; past `TURN_HALF`, a half turn.
+/// Standing, steering this far off the facing (radians) turns on the spot (the quarter and half turns mixed past it).
 const TURN_MIN: f32 = std::f32::consts::FRAC_PI_2;
-const TURN_HALF: f32 = 2.4;
 
 /// A turn on the spot from standing on `foot` (`footl`/`footr`): `xx_<p>_wait_hipm_<foot>_to_<p>_waitturn_<turn>_<foot>`
 /// and its exit into the walk (low profile) or jog (high), plus the exit into its stand
@@ -1313,7 +1328,7 @@ pub fn locomotion(
         if ch.fall_v == 0.0
             && !ctl.blend_walk
             && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
-            && let Some((w, lock)) = ground_move(lib, &level, &tf, ch, &ctl)
+            && let Some((w, lock)) = ground_move(lib, &level, &tf, ch, &ctl, dt)
         {
             ch.reverse_pending = false;
             // Facing as the move starts, this frame: it is posed this frame (a turn round flips the root under the body,
@@ -1368,9 +1383,24 @@ pub fn locomotion(
             }
             a.high = ctl.high;
             // (Keep the foot it started on: the walk's half-cycles go on alternating while standing.)
+            // (Front, left and right mixed by the angle from the facing to the edge's point out past it: AC1's
+            // `LookDown_Enter` 0xD9FC80, Banned445's port, audit EXTRA-9.)
+            let foot = if a.lead_left() { "footl" } else { "footr" };
+            let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+            let look = ch.look_edge.map(|(q, n)| (q + n - tf.translation).with_y(0.0).normalize_or_zero()).filter(|d| *d != Vec3::ZERO);
+            let name = match look {
+                Some(d) => {
+                    let angle = facing.cross(d).y.atan2(facing.dot(d));
+                    let k = (angle.abs().min(std::f32::consts::FRAC_PI_2)) / std::f32::consts::FRAC_PI_2;
+                    let side = if angle > 0.0 { "left" } else { "right" };
+                    let front = format!("xx_l_ledge_lookdown_front_{foot}");
+                    if k > 0.05 { crate::animation::mix_name(&[(&front, 1.0 - k), (&format!("xx_l_ledge_lookdown_{side}_{foot}"), k)]) } else { front }
+                }
+                None => format!("xx_l_ledge_lookdown_front_{foot}"),
+            };
             let want = match &a.idle_alt {
                 Some(c) if look_down => Some(c.clone()),
-                _ => look_down.then(|| lib.get(if a.lead_left() { "xx_l_ledge_lookdown_front_footl" } else { "xx_l_ledge_lookdown_front_footr" })).flatten(),
+                _ => look_down.then(|| lib.get(&name)).flatten(),
             };
             if want.as_ref().map(|c| &c.name) != a.idle_alt.as_ref().map(|c| &c.name) {
                 ch.exit_fade = Some((ch.anim_pose.clone(), 0.4, 0.4));
@@ -1393,13 +1423,17 @@ pub fn locomotion(
             let drop_past = |q: Vec3, out: Vec3| {
                 [0.1, 0.3, 0.6].iter().map(|d| level.ground(q + out * *d + Vec3::Y * 0.1, 0.0, 10.0).map_or(10.0, |g| q.y - g.point.y)).fold(0.0, f32::max)
             };
-            let at_edge = level.ledges.iter().any(|l| {
+            let edge_held = level.ledges.iter().find(|l| {
                 let q = l.closest(p);
                 (q - p).with_y(0.0).length() < EDGE_HALT_REACH + 0.1
                     && (q.y - p.y).abs() < 0.3
                     && l.out.dot(dir) > EDGE_HALT_COS
                     && drop_past(q, l.out) > EDGE_HALT_DROP
             });
+            let at_edge = edge_held.is_some();
+            if let Some(l) = edge_held {
+                ch.look_edge = Some((l.closest(p), l.out));
+            }
             if dir != Vec3::ZERO && (at_edge || level.ground(at, 0.3, EDGE_HALT_DROP).is_none()) && level.ground(tf.translation, 0.3, 0.3).is_some() {
                 target_v = Vec3::ZERO;
                 // (Eased to a stop, as AC1's wait blends in over 0.2 s (the running game coasted 0.12 m), within

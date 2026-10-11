@@ -377,6 +377,8 @@ const HANG_SETTLE_SPEED: f32 = 0.6;
 /// The wall hang's shimmy steps (m): the first from a catch, then each one after.
 const SHIMMY_FIRST: f32 = 0.23;
 const SHIMMY_STEP: f32 = 0.43;
+/// A fall meeting a wall head-on faster than this into it (m/s) rebounds off it.
+const AIR_REBOUND_SPEED: f32 = 2.0;
 /// The top-out is tried with the stick this close to up (cos 67.5 degrees).
 const TOP_OUT_STICK_COS: f32 = 0.383;
 /// Walking off a drop of at least this (m) is AC1's step off (event 68), launched this fast up (m/s).
@@ -981,6 +983,8 @@ pub struct WallClimb {
     edge_landed: bool,
     /// Flung off a swing bar: the flight is steered onto a post or beam ahead.
     flung: bool,
+    /// This air stay has rebounded off a wall it met.
+    air_rebounded: bool,
     /// A ground move that follows the stick (a turn round): broken off when the stick lets go of this
     /// direction (world), turns away from it, or the legs are pressed.
     pub steer: Option<Vec3>,
@@ -2000,6 +2004,7 @@ impl WallClimb {
             hay_t: 0.0,
             edge_landed: false,
             flung: false,
+            air_rebounded: false,
             steer: None,
             catch_below: None,
             blended_for: None,
@@ -3767,12 +3772,21 @@ impl WallClimb {
         // On a short ledge (a pole's cap) the hands hang together.
         let (wall, wall_rest) =
             if on_narrow_ledge(level, ledge.closest(edge)) { (HANGWALL, "xx_h_hangwall_waitclose") } else { (HANGWALL_OPEN, HANGWALL_REST) };
-        let options = [
-            (["xx_l_ledge_pulldown_soft_to_hangwall_straight_a", "xx_l_ledge_pulldown_soft_to_hangwall_straight_b"], wall, wall_rest, Feet::Wall),
-            (["xx_l_ledge_pulldown_soft_front_to_hangfree_a", "xx_l_ledge_pulldown_soft_front_to_hangfree_b"], FREE, "xx_h_hangfree_waitclose", Feet::Free),
-        ];
+        // (The wall hang's reception mixed toward the wall's lean under the edge: `30_out` full at a 30 degree overhang, `45_in`
+        // full at a 45 degree slope, AC1's action 0x06E8BD81 by `PullDown_Update`'s weights; audit EXTRA-8.)
+        let tilt = level.raycast(edge - Vec3::Y * 1.0 + normal * 0.6, -normal, 1.2).map_or(0.0, |h| (-h.normal.y).clamp(-1.0, 1.0).asin());
+        let (side, w) = if tilt >= 0.0 { ("30_out", (tilt / 30f32.to_radians()).min(1.0)) } else { ("45_in", (-tilt / 45f32.to_radians()).min(1.0)) };
+        let tilted = |part: &str| {
+            let straight = format!("xx_l_ledge_pulldown_soft_to_hangwall_straight_{part}");
+            if w > 0.05 { mix_name(&[(&straight, 1.0 - w), (&format!("xx_l_ledge_pulldown_soft_to_hangwall_{side}_{part}"), w)]) } else { straight }
+        };
+        let wall_names = [tilted("a"), tilted("b")];
+        let free_names = ["xx_l_ledge_pulldown_soft_front_to_hangfree_a".to_string(), "xx_l_ledge_pulldown_soft_front_to_hangfree_b".to_string()];
+        let options = [(wall_names, wall, wall_rest, Feet::Wall), (free_names, FREE, "xx_h_hangfree_waitclose", Feet::Free)];
         for (names, to, rest, feet) in options {
-            let Some(clips) = first.iter().chain(&names).map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { continue };
+            let Some(clips) = first.iter().map(|n| n.to_string()).chain(names.iter().cloned()).map(|n| lib.get(&n)).collect::<Option<Vec<_>>>() else {
+                continue;
+            };
             let (Some(end), Some(rest)) = (chain_end(&clips, rig, base, cr), lib.get(rest)) else { continue };
             let mut pose = base.clone();
             sample(&rest, 0.0, &mut pose, cr.reference);
@@ -6282,6 +6296,31 @@ impl WallClimb {
             // a Damascus wall, went on along it at 5.5 to 2.8 m/s where ours stopped dead and dropped.)
             let hit = [1.0, 0.3].iter().find_map(|h| level.raycast(root.translation + Vec3::Y * *h, flat.normalize(), flat.length() * dt + 0.35));
             let n = hit.map_or(-flat.normalize(), |h| h.normal.with_y(0.0).normalize_or(-flat.normalize()));
+            // Met head-on falling fast: AC1's air rebound, stopped dead against the wall, turned to it over
+            // `xx_h_air_all_footl_tr_rebound_footr`, then off it with `xx_h_rebound_footr_tr_fall` (the running game off roof 2
+            // north-east, audit AIR-9; once an air stay. The exact gate is not decoded: head-on within 45 degrees, over 2 m/s
+            // into the wall).
+            if !self.air_rebounded
+                && !self.aimed
+                && v.y < 0.0
+                && -flat.dot(n) > AIR_REBOUND_SPEED
+                && flat.normalize().dot(-n) > std::f32::consts::FRAC_1_SQRT_2
+                && let (Some(a), Some(b)) = (lib.get("xx_h_air_all_footl_tr_rebound_footr"), lib.get("xx_h_rebound_footr_tr_fall"))
+            {
+                debug!("climb: rebound off the wall in the air at {:.2}", root.translation);
+                self.air_rebounded = true;
+                self.fall_v = None;
+                self.normal = n;
+                let at = Transform { rotation: facing(-n), ..*root };
+                self.queue = vec![Queued::new(b, FALL)];
+                self.fall_with = Some(n * REBOUND_OFF_SPEED + Vec3::NEG_Y * REBOUND_DROP_SPEED);
+                self.can_catch = false;
+                self.start(a, LEAP.into(), &at);
+                if let Some(m) = &mut self.mv {
+                    m.ease_rot = root.rotation * at.rotation.inverse();
+                }
+                return;
+            }
             if why() {
                 debug!("climb: a wall stops the flight's push into it at {:.2}", root.translation);
             }
