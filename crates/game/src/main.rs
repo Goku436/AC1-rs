@@ -915,7 +915,9 @@ fn player_input(
     } else {
         // (On the ground: AC1's press runs up a wall ahead; its release within the buffer is the tap jump.)
         ctl.legs_press |= press;
-        if keys.just_released(KeyCode::Space) && *legs_buffer > 0.0 {
+        // (Or crouched for the static jump, whose own window is 0.5 s.)
+        let crouched = ch.wall.as_ref().is_some_and(|w| w.crouch_held().is_some());
+        if keys.just_released(KeyCode::Space) && (*legs_buffer > 0.0 || crouched) {
             ctl.legs_release = true;
             *legs_buffer = 0.0;
         }
@@ -1210,10 +1212,11 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
             ctl.wall_legs = true;
         }
         // Pressing the legs on the ground (as the player's Space); let go within 0.3 s, the tap.
+        // (The release whatever is playing: it ends the static jump's crouch.)
         if let Some((a, b)) = script.legs
-            && ch.wall.is_none()
+            && (ch.wall.is_none() || ch.wall.as_ref().is_some_and(|w| w.crouch_held().is_some()))
         {
-            if t > a && t - clock.dt <= a {
+            if t > a && t - clock.dt <= a && ch.wall.is_none() {
                 ctl.legs_press = true;
             }
             if b - a <= LEGS_BUFFER && t > b && t - clock.dt <= b {

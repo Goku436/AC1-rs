@@ -447,6 +447,14 @@ const SCENARIOS: &[Scenario] = &[
         never: &[],
     },
     Scenario {
+        name: "standing in high profile, the legs held 0.2 s with nothing overhead: AC1's static jump's crouch, then straight up",
+        tags: &["jump", "ground"],
+        env: &[("AC1_START", "-100,84,-90"), ("AC1_HIGH", "0-3.5"), ("AC1_LEGS", "1.2-1.4")],
+        secs: 3.5,
+        want: &["crouched for the static jump", "via xx_h_jumpstraight_clear_foot"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "jump onto 1.75 m with a blend",
         tags: &["jump", "vault"],
         env: &[("AC1_START", "-2,-11.4,0"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "0.5")],

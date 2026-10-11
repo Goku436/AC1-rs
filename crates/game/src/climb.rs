@@ -282,8 +282,14 @@ const FALL_LOOP: &str = "xx_h_jumpfalling01";
 const JUMP_UP_SPEED: f32 = 3.0;
 /// Horizontal speed a jump leaves the ground with, at most (m/s).
 const MAX_JUMP_SPEED: f32 = 6.5;
+/// AC1's static jump (`HumanGround` 0x0DF03385 / 0x0EED41D3, 0x00F0A538 / 0x01099C96, 0x00D81408 / 0x0109B1AC): the crouch
+/// into the impulsion, the takeoff, the rise, by the leading foot (`{f}`).
 const STRAIGHT_JUMP: [&str; 3] =
-    ["xx_h_wait_hipm_footl_tr_impultionstraight_footl", "xx_h_impultionstraight_footl_to_jumpstraight_clear_footl", "xx_h_jumpstraight_clear_footl"];
+    ["xx_h_wait_hipm_{f}_tr_impultionstraight_{f}", "xx_h_impultionstraight_{f}_to_jumpstraight_clear_{f}", "xx_h_jumpstraight_clear_{f}"];
+/// Crouched for the static jump (the legs held, standing in high profile), waiting in `xx_h_impultionstraight_<foot>`.
+const CROUCH: &str = "crouch";
+/// Letting the legs go this soon (s) after the crouch started jumps; later, he stands up (AC1: 0.5 s, 0xEE84CC).
+pub const CROUCH_JUMP_WITHIN: f32 = 0.5;
 const STRAIGHT_JUMP_FALL: &str = "xx_h_jumpstraight_clear_footall_tr_fall";
 /// Takeoff speed of the standing jump (m/s): the 1 m rise of `xx_h_jumpstraight_clear_footl`.
 const STRAIGHT_JUMP_UP_SPEED: f32 = 4.43;
@@ -1004,6 +1010,8 @@ pub struct WallClimb {
     flung: bool,
     /// This air stay has rebounded off a wall it met.
     air_rebounded: bool,
+    /// The static jump's crouch: off the left foot, and how long it has been held (s).
+    crouch: Option<(bool, f32)>,
     /// In the air and held still (s), and how many anti-stuck nudges so far (AC1's `HumanInAir__AntiStuckNudge`).
     stuck: (f32, u32),
     stuck_from: Vec3,
@@ -1457,7 +1465,7 @@ fn blend_onto(opts: &[GrabOpt], height: f32) -> Vec<GrabOpt> {
 fn jump_options() -> Vec<GrabOpt> {
     let jump = |kind: &str, cm: u32| {
         let main = format!("xx_h_jumpstraight_footl_to_{kind}_{cm}cm");
-        vec![STRAIGHT_JUMP[0].to_string(), main.clone(), format!("{main}_tr_{kind}_a"), format!("{main}_tr_{kind}_b")]
+        vec![STRAIGHT_JUMP[0].replace("{f}", "footl"), main.clone(), format!("{main}_tr_{kind}_a"), format!("{main}_tr_{kind}_b")]
     };
     let onto =
         JUMP_ONTO.iter().map(|&(kind, cm, after)| GrabOpt { names: jump(kind, cm), catch: 2, end: GrabEnd::Onto(cm as f32 / 100.0), after: strings(after) });
@@ -2027,6 +2035,7 @@ impl WallClimb {
             edge_landed: false,
             flung: false,
             air_rebounded: false,
+            crouch: None,
             stuck: (0.0, 0),
             stuck_from: Vec3::ZERO,
             steer: None,
@@ -2615,17 +2624,43 @@ impl WallClimb {
     }
 
     /// Standing jump straight up. `from` is the pose shown now, to fade from.
-    pub fn jump_straight(lib: &mut AnimLib, root: &Transform, from: Option<Pose>) -> Option<WallClimb> {
-        let [crouch, takeoff, rise] = STRAIGHT_JUMP.map(|n| lib.get(n));
+    /// `left`: off the left foot. `crouched`: from the static jump's crouch, its crouch already played.
+    pub fn jump_straight(lib: &mut AnimLib, root: &Transform, left: bool, crouched: bool, from: Option<Pose>) -> Option<WallClimb> {
+        let f = if left { "footl" } else { "footr" };
+        let [crouch, takeoff, rise] = STRAIGHT_JUMP.map(|n| lib.get(&n.replace("{f}", f)));
         let (crouch, takeoff, rise) = (crouch?, takeoff?, rise?);
         let mut w = WallClimb::new(JUMP, root.rotation * Vec3::Z);
-        w.queue = vec![Queued::new(takeoff, JUMP), Queued::new(rise, FALL)];
         w.launch = STRAIGHT_JUMP_UP_SPEED;
         w.can_catch = true;
         w.descend = lib.get(STRAIGHT_JUMP_FALL);
-        w.start(crouch, JUMP.into(), root);
+        if crouched {
+            w.queue = vec![Queued::new(rise, FALL)];
+            w.start(takeoff, JUMP.into(), root);
+        } else {
+            w.queue = vec![Queued::new(takeoff, JUMP), Queued::new(rise, FALL)];
+            w.start(crouch, JUMP.into(), root);
+        }
         w.ease_in(from, root);
         Some(w)
+    }
+
+    /// Standing in high profile, the legs held with the stick let go: AC1's static jump's crouch (event 43, the wait
+    /// `xx_h_wait_hipm_<foot>_tr_impultionstraight_<foot>`, then held in `xx_h_impultionstraight_<foot>`); let go within
+    /// `CROUCH_JUMP_WITHIN` it jumps (`crouch_held`), the stick pushed it stands (Banned445's port, audit EXTRA-6).
+    pub fn crouch(lib: &mut AnimLib, root: &Transform, left: bool, from: Option<Pose>) -> Option<WallClimb> {
+        let f = if left { "footl" } else { "footr" };
+        let intro = lib.get(&format!("xx_h_wait_hipm_{f}_tr_impultionstraight_{f}"))?;
+        let mut w = WallClimb::new(CROUCH, root.rotation * Vec3::Z);
+        w.crouch = Some((left, 0.0));
+        w.start(intro, CROUCH.into(), root);
+        w.ease_in(from, root);
+        debug!("climb: crouched for the static jump");
+        Some(w)
+    }
+
+    /// Crouched for the static jump: off the left foot, and how long (s).
+    pub fn crouch_held(&self) -> Option<(bool, f32)> {
+        self.crouch.filter(|_| self.state == CROUCH)
     }
 
     /// Standing jump up to a ledge in front: onto a walkable top at 1.5-2.5 m, or to hang from a hold
@@ -3473,7 +3508,7 @@ impl WallClimb {
     /// Does a press of the legs act as on the ground (a stop at an edge, leaning on a wall), not as a wall move? (Stopped
     /// against a low block, the legs step up onto it: that is the climber's.)
     pub fn legs_on_ground(&self) -> bool {
-        self.state == GROUND_ACT || self.state == LEAN
+        self.state == GROUND_ACT || self.state == LEAN || self.state == CROUCH
     }
 
     /// Root motion of clips played back to back from `root` (world).
@@ -5408,6 +5443,7 @@ impl WallClimb {
             LEAN => Some(lean_name(LEAN_WAIT, self.lean_mix)),
             COLLIDE => Some(collide_name("xx_h_collide_full_footl_{h}cm_wait", self.lean_mix)),
             BENCH => Some(BENCH_WAIT.to_string()),
+            CROUCH => Some(format!("xx_h_impultionstraight_{}", if self.crouch.is_none_or(|c| c.0) { "footl" } else { "footr" })),
             HANGWALL => Some("xx_h_hangwall_waitclose".to_string()),
             HANGWALL_OPEN => Some(HANGWALL_REST.to_string()),
             LADDER_L => Some("xx_l_ladder_wait_l".to_string()),
@@ -7228,6 +7264,16 @@ impl WallClimb {
         }
         if self.state == BENCH {
             self.bench_step(lib, root);
+            return;
+        }
+        if self.state == CROUCH {
+            if let Some(c) = &mut self.crouch {
+                c.1 += dt;
+            }
+            // (The stick pushed: up out of the crouch, on into the move.)
+            if self.move_dir.length() > 0.35 {
+                self.finished = true;
+            }
             return;
         }
         if self.ladder.is_some() {

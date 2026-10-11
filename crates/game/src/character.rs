@@ -1016,6 +1016,41 @@ pub fn locomotion(
         //   profile, a bench's seat (low profile's legs otherwise only blend).
         let legs_press = std::mem::take(&mut ctl.legs_press);
         let legs_release = std::mem::take(&mut ctl.legs_release);
+        // AC1's static jump: standing in high profile with the stick let go (under 0.35), the legs pressed crouch; let go
+        // within 0.5 s, the jump (to a hold overhead, else straight up), later he stands up (audit EXTRA-6).
+        if legs_release
+            && let Some((left, held)) = ch.wall.as_ref().and_then(|w| w.crouch_held())
+            && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
+        {
+            use crate::climb::WallClimb;
+            let pose = || Some(ch.anim_pose.clone());
+            let w = if held <= crate::climb::CROUCH_JUMP_WITHIN {
+                WallClimb::jump_grab(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose())
+                    .or_else(|| WallClimb::jump_straight(lib, &tf, left, true, pose()))
+            } else {
+                let f = if left { "footl" } else { "footr" };
+                WallClimb::ground_action(lib, &tf, &[format!("xx_h_impultionstraight_{f}_tr_h_wait_hipm_{f}")], Vec3::ZERO, true, pose())
+            };
+            ch.wall = w;
+            continue;
+        }
+        // (Not a press let go the same frame, a tap: that jumps at once, below.)
+        if legs_press
+            && !legs_release
+            && ctl.high
+            && ch.wall.is_none()
+            && ch.fall_v == 0.0
+            && ch.velocity.with_y(0.0).length() < 0.5
+            && ctl.move_dir.length() <= 0.35
+            && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
+        {
+            let left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
+            if let Some(w) = crate::climb::WallClimb::crouch(lib, &tf, left, Some(ch.anim_pose.clone())) {
+                ch.wall = Some(w);
+                ch.velocity = Vec3::ZERO;
+                continue;
+            }
+        }
         if (legs_press || legs_release)
             && ch.wall.is_none()
             && ch.fall_v == 0.0
@@ -1052,7 +1087,9 @@ pub fn locomotion(
                         .flatten()
                         .or_else(|| WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run, lead_left, pose()));
                 } else if ctl.high {
-                    w = WallClimb::jump_grab(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose()).or_else(|| WallClimb::jump_straight(lib, &tf, pose()));
+                    let left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
+                    w = WallClimb::jump_grab(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose())
+                        .or_else(|| WallClimb::jump_straight(lib, &tf, left, false, pose()));
                 } else {
                     w = WallClimb::sit(lib, &level, &tf, pose());
                 }
