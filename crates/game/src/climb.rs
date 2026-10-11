@@ -855,6 +855,10 @@ const HAY_ARRIVAL_DIVE: f32 = 0.6;
 const STUCK_SPEED: f32 = 0.25;
 const STUCK_TIME: f32 = 0.5;
 const STUCK_PUSH: f32 = 3.0;
+/// A ladder jumped at has at least this much of it (m).
+const LADDER_TARGET_MIN: f32 = 2.0;
+/// ...the root flown to this far over the feet (m: the hands then about 1.5 m over them, AC1's aim point).
+const LADDER_TARGET_UP: f32 = 0.8;
 /// The swing jump at a top lands this far in from where the way meets it (m).
 const SWING_TOP_IN: f32 = 0.5;
 /// AC1's stick classes on a beam (`ClassifyStickDir` 0xF76150), by the angle from the facing: forward under 75 degrees
@@ -1547,6 +1551,29 @@ fn beam_flight(lib: &mut AnimLib, flight: &[(String, f32)]) -> Vec<(String, f32)
         }
     }
     out
+}
+
+/// A ladder ahead to jump at, where the root flies to (AC1's tap and edge queries list ladders, type 1 sub-type 1, flags
+/// 0x1000: the part at least 2 m long, aimed at the point nearest 1.5 m over the feet; the flight's ladder catch takes it,
+/// `try_ladder_catch`; Banned445's `jump_candidates.rs`, audit JUMP-9): facing the jumper, within reach and the cone,
+/// from 3 m below to 1.3 m above.
+fn ladder_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
+    let dir = dir.with_y(0.0).normalize_or_zero();
+    level
+        .ladders
+        .iter()
+        .filter(|l| l.out.dot(dir) <= -JUMP_TARGET_CONE && l.top - l.base.y >= LADDER_TARGET_MIN)
+        .filter_map(|l| {
+            // (The root in front of the rungs, the hands about 1.5 m over the feet's height, kept on the ladder's part
+            // a catch can take: up to 1.95 m short of its top.)
+            // (The root `LADDER_TARGET_UP` over the feet, so it comes down onto a rung the catch takes: at least 0.6 m up.)
+            let y = (from.y + LADDER_TARGET_UP).clamp(l.base.y + 0.6, l.top - LADDER_TARGET_MIN);
+            let q = Vec3::new(l.base.x, y, l.base.z) + l.out * LADDER_OFF;
+            let flat = (q - from).with_y(0.0);
+            (JUMP_HOLD_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_TARGET_RISE.contains(&(q.y - from.y)))
+                .then_some(q)
+        })
+        .min_by(|a, b| (*a - from).length().total_cmp(&(*b - from).length()))
 }
 
 fn jump_hold_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
@@ -2264,7 +2291,9 @@ impl WallClimb {
         {
             return Some(w);
         }
-        let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)) else { return Self::jump(lib, level, root, dir, left, from) };
+        let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)).or_else(|| ladder_target(level, p, dir)) else {
+            return Self::jump(lib, level, root, dir, left, from);
+        };
         // (Arriving within reach of a beam, onto the beam: AC1's free-step arrival test (0xE0B890, as Banned445's port reads
         // it) puts the root on the nearest beam in a box round the feet. Off the bureau's roof south-west the running game
         // came down 0.36 m beside the beam along the next roof's edge, stood on it and walked it.)
@@ -3410,7 +3439,10 @@ impl WallClimb {
     /// Whether a running jump along `dir` has a target (a top, post, beam, bar or hold): AC1 searches the leap of faith
     /// only when its guidance query found none (the interpreter's jump branch 0xEE817E, audit HAY-10).
     pub fn has_jump_target(level: &Level, p: Vec3, dir: Vec3) -> bool {
-        jump_target(level, p, dir, None).is_some() || bar_ahead(level, p, dir).is_some() || jump_hold_target(level, p, dir).is_some()
+        jump_target(level, p, dir, None).is_some()
+            || bar_ahead(level, p, dir).is_some()
+            || jump_hold_target(level, p, dir).is_some()
+            || ladder_target(level, p, dir).is_some()
     }
 
     pub fn hay_dive_ahead(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, from: Option<Pose>) -> Option<WallClimb> {

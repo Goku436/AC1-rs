@@ -180,6 +180,14 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        name: "a tap jump at block L's ladder from 4 m: flown at it and caught (AC1's ladder jump target)",
+        tags: &["ladder", "jump"],
+        env: &[("AC1_START", "23.5,-1.4,0"), ("AC1_WALK", "3.5"), ("AC1_STOP", "0.5"), ("AC1_HIGH", "0-3"), ("AC1_JUMP", "0.4")],
+        secs: 3.0,
+        want: &["caught ladder"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "up block L's ladder in high profile, off the top into a free step",
         tags: &["ladder"],
         env: &[("AC1_START", "23.5,-5.4,0"), ("AC1_CLIMB", "up=8"), ("AC1_HIGH", "0-9")],
