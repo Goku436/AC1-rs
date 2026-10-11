@@ -3451,6 +3451,11 @@ impl WallClimb {
         self.state == GROUND_ACT || self.state == LEAN || self.state == COLLIDE
     }
 
+    /// Walking a beam: the way and speed walked (AC1's narrow object's Walk, where the legs can run up a wall ahead).
+    pub fn beam_walk(&self) -> Option<(Vec3, f32)> {
+        self.perch.and(self.cycle.as_ref()).map(|cy| (cy.dir, cy.v))
+    }
+
     /// Does a press of the legs act as on the ground (a stop at an edge, leaning on a wall), not as a wall move? (Stopped
     /// against a low block, the legs step up onto it: that is the climber's.)
     pub fn legs_on_ground(&self) -> bool {

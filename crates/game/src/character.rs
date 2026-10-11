@@ -1129,10 +1129,19 @@ pub fn locomotion(
                 ch.exit_fade = Some((ch.anim_pose.clone(), 0.2, 0.2));
                 ch.wall = None;
             }
-            if std::mem::take(&mut ctl.wall_legs)
-                && let Some(w) = &mut ch.wall
-            {
-                w.legs(lib, &level, &tf, ctl.climb_dir);
+            if std::mem::take(&mut ctl.wall_legs) {
+                // Walking a beam in high profile, the stick within 60 degrees of the way: run up a wall ahead (AC1's narrow
+                // object's event 15, before the jump; audit NARROW-11).
+                let run = ch.wall.as_ref().and_then(|w| w.beam_walk()).filter(|(d, _)| ctl.high && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(*d) >= 0.5);
+                let pose = Some(ch.anim_pose.clone());
+                if let Some((d, v)) = run
+                    && level.raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, d, FREE_RUN_REACH).is_some_and(|h| h.normal.y.abs() < 0.3)
+                    && let Some(w) = crate::climb::WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d * v.max(1.0), pose)
+                {
+                    ch.wall = Some(w);
+                } else if let Some(w) = &mut ch.wall {
+                    w.legs(lib, &level, &tf, ctl.climb_dir);
+                }
             }
             let grab_only = std::mem::take(&mut ctl.grab_only);
             let needs_target = std::mem::take(&mut ctl.jump_needs_target);
