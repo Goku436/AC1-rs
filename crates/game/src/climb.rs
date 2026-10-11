@@ -379,6 +379,10 @@ const SHIMMY_FIRST: f32 = 0.23;
 const SHIMMY_STEP: f32 = 0.43;
 /// A fall meeting a wall head-on faster than this into it (m/s) rebounds off it.
 const AIR_REBOUND_SPEED: f32 = 2.0;
+/// A jump's takeoff and flight are blended for the flight's end, this far short of where it lands (m): the free-step
+/// reception carries the rest (AC1's blend 0xB1EC40, reanalysis AIR-2, audit JUMP-4; blended for the landing, ours'
+/// takeoffs ran 12-30% long).
+const JUMP_RECEPTION_STEP: f32 = 0.5;
 /// The top-out is tried with the stick this close to up (cos 67.5 degrees).
 const TOP_OUT_STICK_COS: f32 = 0.383;
 /// Walking off a drop of at least this (m) is AC1's step off (event 68), launched this fast up (m/s).
@@ -2241,7 +2245,7 @@ impl WallClimb {
             return Some(w);
         }
         // (At a hold: the planned arc, to catch it, with AC1's takeoff and flight for that height and distance.)
-        let j = crate::jump::running(to.y - p.y, (to - p).with_y(0.0).length(), left, speed / JUMP_AC1_FAST_SPEED);
+        let j = crate::jump::running(to.y - p.y, ((to - p).with_y(0.0).length() - JUMP_RECEPTION_STEP).max(0.0), left, speed / JUMP_AC1_FAST_SPEED);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -2480,7 +2484,7 @@ impl WallClimb {
     #[allow(clippy::too_many_arguments)]
     fn jump_ac1(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, aim: Vec3, speed: f32, left: bool, from: Option<Pose>) -> Option<WallClimb> {
         let p = root.translation;
-        let j = crate::jump::running(to.y - p.y, (to - p).with_y(0.0).length(), left, speed / JUMP_AC1_FAST_SPEED);
+        let j = crate::jump::running(to.y - p.y, ((to - p).with_y(0.0).length() - JUMP_RECEPTION_STEP).max(0.0), left, speed / JUMP_AC1_FAST_SPEED);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -2544,7 +2548,7 @@ impl WallClimb {
         let way = (to - p).with_y(0.0);
         let aim = way.normalize_or_zero();
         let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
-        let j = crate::jump::freestep(to.y - p.y, way.length(), angle, left, 0.0);
+        let j = crate::jump::freestep(to.y - p.y, (way.length() - JUMP_RECEPTION_STEP).max(0.0), angle, left, 0.0);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -2999,7 +3003,7 @@ impl WallClimb {
         let aim = flat.normalize_or_zero();
         // (Its angle off straight away, positive to the right of the body turned away.)
         let angle = aim.dot(away.cross(Vec3::Y)).atan2(aim.dot(away));
-        let j = crate::jump::rebound(to.y - p.y, flat.length(), angle, left, 0.0);
+        let j = crate::jump::rebound(to.y - p.y, (flat.length() - JUMP_RECEPTION_STEP).max(0.0), angle, left, 0.0);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -4940,6 +4944,11 @@ impl WallClimb {
     /// Coming down into a haystack: the hay entry clip, corrected to end in the middle of it at the
     /// bottom. `step_y` is this frame's vertical step (to tell that the entry height was just crossed).
     fn try_hay(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, step_y: f32) -> bool {
+        // (Not a plain walk off an edge: AC1's plain falls do not enter haystacks, only jumps and the let-go it aims at one;
+        // audit HAY-8.)
+        if self.grab_on_legs {
+            return false;
+        }
         let (name, depth) = if self.faith { (FAITH_LAND, 1.6) } else { (AIR_TO_HAY, 1.2) };
         let Some(hay) = level.haystacks.iter().find(|h| {
             let entry = h.centre.y + depth;

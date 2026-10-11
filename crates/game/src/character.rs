@@ -737,7 +737,7 @@ fn ground_move(
         let w = ((angle.abs() - std::f32::consts::FRAC_PI_2) / std::f32::consts::FRAC_PI_2).clamp(0.0, 1.0);
         let foot = if ch.animator.as_ref().is_none_or(|a| a.lead_left()) { "footl" } else { "footr" };
         let (q, half) = (turn_names(lib, p, &format!("{side}_090"), foot), turn_names(lib, p, &format!("{side}_180"), foot));
-        let (names, stop) = match (q, half) {
+        let (mut names, stop) = match (q, half) {
             (Some((qn, qs)), Some((hn, hs))) => {
                 let mixed = crate::animation::mix_name(&[(&qn[0], 1.0 - w), (&hn[0], w)]);
                 (vec![mixed], if w < 0.5 { qs } else { hs })
@@ -746,6 +746,14 @@ fn ground_move(
             (None, Some(h)) => h,
             (None, None) => return None,
         };
+        // On into the walk (low profile) or jog (high) through the turn's own exit, mixed the same way (AC1's
+        // `PlayTurnStartMove` 0xD99710 through the item's transition, audit GROUND-5; ours went straight into the gait).
+        let gait = if ctl.high { "h_jog" } else { "l_walk" };
+        let exit = |deg: &str| format!("xx_{p}_waitturn_{side}_{deg}_{foot}_tr_{gait}_hipm_{foot}");
+        let (eq, eh) = (exit("090"), exit("180"));
+        if lib.names.contains(&eq) && lib.names.contains(&eh) {
+            names.push(crate::animation::mix_name(&[(&eq, 1.0 - w), (&eh, w)]));
+        }
         return act(lib, names, Vec3::ZERO, false).map(|w| (w.steered(input, stop), None));
     }
     None

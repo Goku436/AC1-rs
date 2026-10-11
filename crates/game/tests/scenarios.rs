@@ -32,12 +32,12 @@ const QUIET: &[(&str, &str)] = &[("AC1_NO_CROWD", "1")];
 
 const SCENARIOS: &[Scenario] = &[
     Scenario {
-        name: "standing turn round in high profile breaks off into the run",
+        name: "standing turn round in high profile: the turn, then its own exit into the jog (AC1's, audit GROUND-5)",
         tags: &["ground"],
         env: &[("AC1_START", "-5,-5,0"), ("AC1_WALK", "4.5"), ("AC1_STEER", "180"), ("AC1_HIGH", "0-5")],
         secs: 3.0,
-        want: &["waitturn_right_180", "turn broken off into the run"],
-        never: &["_tr_h_jog_hipm_"],
+        want: &["waitturn_right_180", "_tr_h_jog_hipm_"],
+        never: &[],
     },
     Scenario {
         name: "sprint stop on the course ramp stays on it (the stop follows the slope)",
@@ -167,8 +167,9 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["ground"],
         env: &[("AC1_START", "-5,-5,0"), ("AC1_WALK", "1.5"), ("AC1_STEER", "180"), ("AC1_CURVE", "1.5")],
         secs: 4.5,
-        want: &["resume into gait"],
-        never: &["_tr_l_walk_hipm_"],
+        // (Through the turn's own exit into the walk, AC1's, audit GROUND-5.)
+        want: &["_tr_l_walk_hipm_"],
+        never: &[],
     },
     Scenario {
         name: "free running at block L's ladder: up the wall and onto the ladder (AC1's wall run before the ladder)",
