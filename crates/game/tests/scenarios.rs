@@ -754,6 +754,14 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        name: "gauntlet G12: up a wall's holds to the top row, up again: AC1's jump up from the climb to the slab above, out from the wall",
+        tags: &["climb", "hang"],
+        env: &[("AC1_START", "-92.6,164,-90,1"), ("AC1_CLIMB", "up=8")],
+        secs: 9.0,
+        want: &["jump up from the climb", "via xx_h_climbing_1m_impultion"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "gauntlet G7: up a wall's holds, along to its edge, the leap across the gap onto the next wall, up to its top",
         tags: &["combo", "climb", "hang"],
         env: &[("AC1_START", "-92.6,93,-90"), ("AC1_CLIMB", "up=2.5,right=3,leap-right=2,right=1,up=8")],

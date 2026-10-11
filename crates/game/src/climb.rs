@@ -855,6 +855,9 @@ const HAY_ARRIVAL_DIVE: f32 = 0.6;
 const STUCK_SPEED: f32 = 0.25;
 const STUCK_TIME: f32 = 0.5;
 const STUCK_PUSH: f32 = 3.0;
+/// The climb's jump up looks for an edge round the point this far over the root and out from the hands (m).
+const CLIMB_JUMP_UP: f32 = 2.25;
+const CLIMB_JUMP_OUT: f32 = 0.8;
 /// A ladder jumped at has at least this much of it (m).
 const LADDER_TARGET_MIN: f32 = 2.0;
 /// ...the root flown to this far over the feet (m: the hands then about 1.5 m over them, AC1's aim point).
@@ -3432,6 +3435,42 @@ impl WallClimb {
         let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
         let to = q + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
         debug!("climb: swing back up to the ledge at {q:.2}");
+        self.start_chain_carry(clips, vec![LEAP.into(), FREE.into()], root, to - (p + travel), Some(1));
+        true
+    }
+
+    /// From the climbing stance, the jump up to a ledge above and out from the wall, into a free hang under it (AC1's
+    /// TryBackEject 0xDF2F50: an edge round the point 2.25 m over the root and 0.8 m out from the hands, at least 0.5 m
+    /// over them; `xx_h_climbing_1m_impultion`, then `_impultion_to_swingback_<min|max>_<200|300>cm` mixed by its height
+    /// and how far out; Banned445's port, audit CLIMB-E12).
+    fn climb_jump_up(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        let n = self.normal.with_y(0.0).normalize_or_zero();
+        let p = root.translation;
+        let hands = p + Vec3::Y * HANG_CORNER_UP - n * CLIMB_ROOT_OUT;
+        let at = Vec3::new(hands.x, p.y + CLIMB_JUMP_UP, hands.z) + n * CLIMB_JUMP_OUT;
+        let Some(q) = level
+            .ledges
+            .iter()
+            .filter(|l| l.out.dot(n) > 0.5)
+            .map(|l| l.closest(at))
+            .filter(|q| (*q - at).with_y(0.0).length() < 0.5 && (q.y - at.y).abs() < 0.75 && q.y > hands.y + 0.5 && (*q - hands).with_y(0.0).length() > 0.3)
+            .min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)))
+        else {
+            return false;
+        };
+        let v = (q.y - p.y - 2.0).clamp(0.0, 1.0);
+        let h = (q - hands).dot(n).clamp(0.0, 1.0);
+        let name = |m: &str, k: &str| format!("xx_h_climbing_1m_impultion_to_swingback_{m}_{k}cm");
+        let jump = mix_name(&[
+            (&name("min", "200"), (1.0 - h) * (1.0 - v)),
+            (&name("min", "300"), (1.0 - h) * v),
+            (&name("max", "200"), h * (1.0 - v)),
+            (&name("max", "300"), h * v),
+        ]);
+        let Some(clips) = ["xx_h_climbing_1m_impultion".to_string(), jump].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>() else { return false };
+        let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
+        let to = q + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
+        debug!("climb: jump up from the climb to the ledge at {q:.2}");
         self.start_chain_carry(clips, vec![LEAP.into(), FREE.into()], root, to - (p + travel), Some(1));
         true
     }
@@ -6432,6 +6471,11 @@ impl WallClimb {
                     return true;
                 }
             }
+        }
+        // From the climbing stance, up with nothing else: the jump up to a ledge above and out from the wall (AC1's
+        // TryBackEject, last in ChooseMove).
+        if (dir == "u" || up_ish) && matches!(self.state.as_str(), "1m" | "2m") && self.climb_jump_up(lib, level, root) {
+            return true;
         }
         // Down at the bottom of the wall: climb off onto the ground.
         // (Down or diagonally down: AC1's directions 2, 3, 8 and 9.)
