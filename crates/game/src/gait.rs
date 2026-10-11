@@ -24,7 +24,9 @@ const RISE: f32 = 1.0;
 /// Started from standing in high profile (not free running), the jog is held this long (s) before the value rises to the
 /// run: the running game's high profile starts reach the jog's 3.5 m/s in 0.3 s, hold it to 0.7 s and reach the run's
 /// 5.1 at 0.9 s (three runs off the Damascus bureau's roofs); ours rose at once and was 0.5-1 m ahead from then on.
-const HIGH_START_HOLD: f32 = 0.6;
+/// (0.8 s from the start: held 0.6 s, ours left the jog at 0.55 s and ran 5.1 m/s at 0.8 s, where the running game holds
+/// 3.5-3.8 to 0.8 s and reaches 5.1 at 1.0 s; audit GROUND-11.)
+const HIGH_START_HOLD: f32 = 0.8;
 /// Fall per second toward a slower value, by the value now (piecewise linear): quick out of a walk, slow through
 /// the jog and run, quick again out of a sprint.
 const FALL: [(f32, f32); 5] = [(0.0, 1.0), (0.333, 1.0), (0.4, 0.3), (0.666, 0.2), (1.0, 1.0)];
