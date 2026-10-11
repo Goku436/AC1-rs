@@ -26,7 +26,7 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
@@ -141,6 +141,8 @@ struct Script {
     high: Option<(f32, f32)>,
     legs: Option<(f32, f32)>,
     hand: Vec<f32>,
+    /// The empty hand held (from-to): AC1's manual catch in a fall.
+    grasp: Option<(f32, f32)>,
 }
 
 #[derive(Component)]
@@ -196,6 +198,7 @@ fn script_from(get: &dyn Fn(&str) -> Result<String, ()>) -> Script {
         taken: false,
         high: range(get("AC1_HIGH")),
         legs: range(get("AC1_LEGS")),
+        grasp: range(get("AC1_GRASP")),
         hand: get("AC1_HAND").ok().map(|s| floats(&s)).unwrap_or_default(),
     }
 }
@@ -717,6 +720,7 @@ fn player_input(
     mut cursor: Query<&mut bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
     scholars: Query<&Transform, (With<crowd::Scholar>, Without<Player>)>,
     mut legs_buffer: Local<f32>,
+    mut climb_latch: Local<(Vec2, f32)>,
 ) {
     // Scripted captures must not pick up stray keystrokes.
     if script.shot.is_some() {
@@ -822,8 +826,8 @@ fn player_input(
     let high = mouse.pressed(MouseButton::Right) || keys.pressed(KeyCode::KeyK);
     let legs = keys.pressed(KeyCode::Space);
     let hand = keys.just_pressed(KeyCode::ShiftLeft) || keys.just_pressed(KeyCode::ShiftRight);
+    ctl.hand_held = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     ctl.high = high;
-    let moving = input.length() > 0.1;
     ctl.free_run = high && legs;
     ctl.blend_walk = !high && legs;
     // The speed comes from AC1's speed value (`gait`) by profile and how far the stick is pushed; blending walks at
@@ -840,24 +844,36 @@ fn player_input(
     } else {
         WALK
     };
-    ctl.climb_dir = input;
+    // The climbing stick (ledge, climb, ladder) in the character's frame, its left and right mirrored while the camera
+    // faces him (AC1's `sub_EDB450`: the camera's forward against his under -0.1736), the mirroring kept until the stick
+    // moves more than 0.3 (AC1's latch at +0x1310; reanalysis, audit INPUT-6 / LEDGE-11).
+    let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+    if (input - climb_latch.0).length() > 0.3 || climb_latch.1 == 0.0 {
+        let mirror = fwd.dot(facing) < -0.1736;
+        *climb_latch = (input, if mirror { -1.0 } else { 1.0 });
+    }
+    ctl.climb_dir = Vec2::new(input.x * climb_latch.1, input.y);
     // On a wall the legs leap (with a direction), jump off a perch or rebound, and the hand lets go.
     // On the ground the legs jump only with a direction in high profile; else they only grab what is in reach.
     let press = keys.just_pressed(KeyCode::Space);
     // AC1 holds a Legs press for 0.3 s (`GoAssassinActionInterpreter`): on the ground a press just before a target
     // comes in reach still jumps at it.
     *legs_buffer = if press { LEGS_BUFFER } else { (*legs_buffer - time.delta_secs()).max(0.0) };
+    ctl.legs_fresh = legs && *legs_buffer > 0.0;
     ctl.leap = legs;
     // (A stop at an edge or leaning on a wall is not on a wall: the legs act as on the ground.)
     let on_wall = ch.wall.as_ref().is_some_and(|w| !w.legs_on_ground());
     if on_wall {
         ctl.wall_legs |= press;
         ctl.toggle_climb |= hand;
-    } else if press || (*legs_buffer > 0.0 && ch.wall.is_none() && high && moving) {
-        ctl.toggle_climb = true;
-        ctl.grab_only = !(high && moving);
-        // A press jumps only at a target (AC1's `JumpToGuidanceTarget`): starting to free-run in the open is no jump.
-        ctl.jump_needs_target = true;
+    } else {
+        // (On the ground: AC1's press runs up a wall ahead; its release within the buffer is the tap jump.)
+        ctl.legs_press |= press;
+        if keys.just_released(KeyCode::Space) && *legs_buffer > 0.0 {
+            ctl.legs_release = true;
+            *legs_buffer = 0.0;
+        }
+        ctl.hand_climb |= hand;
     }
     if ch.wall.is_some() {
         *legs_buffer = 0.0;
@@ -1113,11 +1129,9 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
         if ch.wall.as_ref().is_some_and(|w| !w.legs_on_ground()) {
             ctl.wall_legs = true;
         } else {
-            // (Exactly as a real press: grabbing only unless running in high profile, and a jump only at a target.)
-            let high = script.high.is_some_and(|(a, b)| (a..b).contains(&t));
-            ctl.toggle_climb = true;
-            ctl.grab_only = !(high && script.walk.is_some());
-            ctl.jump_needs_target = true;
+            // (A tap, as a real one: pressed and let go, AC1's jump firing on the release.)
+            ctl.legs_press = true;
+            ctl.legs_release = true;
         }
     }
     // The puppet buttons, as the player would press them.
@@ -1149,19 +1163,26 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
         {
             ctl.wall_legs = true;
         }
-        // Pressing the legs: in low profile (or standing), grab only (as the player's Space).
-        if let Some((a, _)) = script.legs
-            && t > a
-            && t - clock.dt <= a
-            && !(high && ctl.move_dir.length() > 0.1)
+        // Pressing the legs on the ground (as the player's Space); let go within 0.3 s, the tap.
+        if let Some((a, b)) = script.legs
+            && ch.wall.is_none()
         {
-            ctl.toggle_climb = true;
-            ctl.grab_only = true;
+            if t > a && t - clock.dt <= a {
+                ctl.legs_press = true;
+            }
+            if b - a <= LEGS_BUFFER && t > b && t - clock.dt <= b {
+                ctl.legs_release = true;
+            }
+            ctl.legs_fresh = (a..a + LEGS_BUFFER).contains(&t) && t < b;
         }
+    }
+    if let Some((a, b)) = script.grasp {
+        ctl.hand_held = (a..b).contains(&t);
     }
     if script.hand.iter().any(|&at| t > at && t - clock.dt <= at) {
         ctl.push = !ctl.high;
         ctl.hand_drop = character::HAND_DROP_BUFFER;
+        ctl.hand_climb = ch.wall.is_none();
     }
     if let Some(c) = &script.climb {
         // "grab" just grabs; otherwise a list of `dir[=seconds]` (up, down, left, right, `leap-<dir>`, or "drop" to

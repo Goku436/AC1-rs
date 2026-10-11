@@ -96,6 +96,9 @@ impl HayStack {
 /// above its rim, is on its heap (m).
 const HAY_HEAP_MARGIN: f32 = 0.5;
 const HAY_HEAP_ABOVE: f32 = 0.3;
+/// Holds are carved out this far either side of a ladder and out from it (m).
+const LADDER_CARVE_SIDE: f32 = 0.3;
+const LADDER_CARVE_OUT: f32 = 0.75;
 /// A thin beam swung from as a bar (see `add_beam_bars`; m).
 const BEAM_BAR_THICK: f32 = 0.35;
 const BEAM_BAR_OVERLAP: f32 = 0.5;
@@ -120,8 +123,10 @@ pub struct Authored {
     pub out: Vec3,
 }
 
-/// An authored ledge edge sloping more than this (rise over length) is a stair or roof slope, not a hold.
-const AUTHORED_MAX_SLOPE: f32 = 0.35;
+/// An authored ledge edge steeper than this (rise over length, sin 40 degrees) is a stair or roof slope, not a hold: AC1
+/// drops report edges past 40 degrees (0x66C350, Banned445's port; audit GUIDE-1: ours' 0.35, 20 degrees, threw away
+/// 21,312 Damascus holds AC1 keeps).
+const AUTHORED_MAX_SLOPE: f32 = 0.643;
 /// AC1's hold grid shortens a guidance edge this much at its ends (m; `BuildHoldGrid` 0xDF6A40, docs/PARKOUR.md
 /// section 4): a lone piece 0.2 m long or less holds nothing.
 const AUTHORED_TRIM: f32 = 0.1;
@@ -470,6 +475,54 @@ impl Level {
             }
         }
         (hay, ladders, benches, bars)
+    }
+
+    /// Carve the holds out round each ladder, as AC1's hold reports do (BuildLedgeReport, Banned445's port and reanalysis
+    /// GUIDE-2: a box 0.3 m either side of the ladder and 0.75 m out and in from it): a ledge crossing a ladder keeps
+    /// its parts either side. Returns how many pieces were cut.
+    pub fn carve_ladders(&mut self) -> usize {
+        let ladders = self.ladders.clone();
+        let mut cut = 0;
+        for lad in &ladders {
+            let side = lad.out.cross(Vec3::Y).normalize_or_zero();
+            let (lo, hi) = (lad.base.y - 0.5, lad.top + 0.5);
+            let mut kept = Vec::with_capacity(self.ledges.len());
+            for l in self.ledges.drain(..) {
+                if l.a.y.max(l.b.y) < lo || l.a.y.min(l.b.y) > hi {
+                    kept.push(l);
+                    continue;
+                }
+                // The part of the ledge inside the box, as an interval of its parameter.
+                let (pa, pb) = (l.a - lad.base, l.b - lad.base);
+                let mut range = (0.0f32, 1.0f32);
+                for (axis, half) in [(side, LADDER_CARVE_SIDE), (lad.out, LADDER_CARVE_OUT)] {
+                    let (u, v) = (pa.dot(axis), pb.dot(axis));
+                    if (v - u).abs() < 1e-6 {
+                        if u.abs() > half {
+                            range = (1.0, 0.0);
+                        }
+                        continue;
+                    }
+                    let (t0, t1) = ((-half - u) / (v - u), (half - u) / (v - u));
+                    range = (range.0.max(t0.min(t1)), range.1.min(t0.max(t1)));
+                }
+                if range.0 >= range.1 {
+                    kept.push(l);
+                    continue;
+                }
+                cut += 1;
+                let at = |t: f32| l.a.lerp(l.b, t);
+                let len = l.a.distance(l.b);
+                if range.0 * len > 0.05 {
+                    kept.push(Ledge { a: l.a, b: at(range.0), out: l.out });
+                }
+                if (1.0 - range.1) * len > 0.05 {
+                    kept.push(Ledge { a: at(range.1), b: l.b, out: l.out });
+                }
+            }
+            self.ledges = kept;
+        }
+        cut
     }
 
     /// Leave out the holds and beams found on a haystack's heap (over its footprint, above its rim): the hay is solid in
@@ -1370,6 +1423,8 @@ pub fn spawn_level(
         }
         let (hay, ladders, benches, bars) = level.add_city_objects();
         info!("{hay} haystacks, {ladders} ladders, {benches} benches, {bars} swing bars");
+        let carved = level.carve_ladders();
+        info!("{carved} hold pieces carved out round ladders");
         let heaped = level.drop_hay_holds();
         info!("{heaped} holds and beams left out: on a haystack's heap");
         let beam_bars = level.add_beam_bars();

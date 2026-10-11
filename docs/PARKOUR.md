@@ -79,8 +79,10 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   (`HumanGround__PlayStartMove` 0xD98990). **[B, ours: `gait.rs`]**
 - **Turn attenuation** in high profile: beyond 45° off the facing the speed scales down to 0 at 90°, floor 0.1,
   rising back at 5/s and falling at 10/s. **[B]**
-- **Heading** turns toward the stick at 360°/s (`HumanGround__UpdateHeading` 0xD95290). **[B]** (ours: 9 rad/s run
-  turn; to play-test.)
+- **Heading** turns toward the stick at a capped rate and the character moves along the heading, not the stick: 4.0
+  rad/s (2.6 free running), eased down to 1.5 / 0.975 within the last 60 to 10° (the interpreter's RotateTowards,
+  0xEE6D3F); a turn on the spot only past 90°. The running game turned 3.98 and 2.58 rad/s, its motion within 1-5° of
+  its facing. **[B, measured; ours since 2026-10-10]**
 - **Locomotion** is one action (0x05923BDB), an item per leading foot, each blending 17 clips by speed, hip lean
   (crowd avoidance, walk band) and bank (heading change, jog and up), with a jog slow-down timer and a sprint settle
   weight (`HumanGround__UpdateMoveBlend` 0xDA0810). The character moves by the blend's root motion, not by a speed.
@@ -90,7 +92,10 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   ground speed is the blend's own, Σw·d / Σw·T (1.90 walk, 3.54 jog, 5.12 run, 6.28 sprint, slower between bands than
   a straight mix). No pose pops over curving walks, runs and free runs (`pops` example).
 - **Run stop**: `xx_h_{jog,run,sprint}stop_foot?`, weights [jog 0, run 1 − f, sprint f], f = clamp((s − 0.75)·4),
-  then the stop's own `_tr_h_wait`. **[B]**
+  then the stop's own `_tr_h_wait`; locked (steering does not break it off); past the walk band (s > 0.25). In high
+  profile a reversal past 135° plays it too, and at its end, the stick still over 120° round, the skid turn
+  `xx_h_runturn180_<foot>` into `_tr_jog` (the facing flips as it starts). Free running swings round instead. **[B,
+  ours]**
 - **Ground loss** (`HumanGround__CheckGroundLoss` 0xD87720): the drop report (the nearest LedgeGrab edge in a 0.75 m
   zone, |dz| < 0.3, with at least 0.5 m of drop; else the drop under the feet) says the feet are on or past the edge
   line and the velocity does not point back from it → InAir fall. The fall starts at the edge line. **[B]**
@@ -110,13 +115,13 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   70°), look down (event 119: a LedgeGrab edge within 0.6 m, not behind, more than 2 m of drop), the pull-down
   (event 70: an edge within 0.8 m ahead, normal along the facing, more than 2 m of drop). **[B]**
   Seen in the running game (Damascus, the route library): running in high profile to a roof's end that is a beam over a
-  0.1 m crack, the next roof 0.74 m below, AC1 ran onto the beam (`beam_crouchwalk`) and free-stepped off it 2.5 m on
-  (`freestep_front_front`, low: 6 cm up, 5 m/s); at the same kind of beam over 8 m it made the ledge stop. Ours: the
-  ledge stop needs the drop to go on 0.3 m past the edge (no stop at a crack), a beam crossed running in high profile
-  is got onto when past it the floor steps down 0.5-5 m, and off a beam in high profile the stick across it free-steps
-  onto the floor a step down (at most 1.2 m): AC1's two such hops, off that beam and off a 0.57 m block on the open roof
-  (1.07 m down, 3.2 m on in 0.6 s), are both a launch of 5.4 m/s on and 1 m/s up under gravity. A jump onto a post or a
-  beam that short stops on it to balance (the block counts as a post), then free-steps on. **[ours, measured]**
+  0.1 m crack, the next roof 0.74 m below, AC1 ran over the beam and stepped off it 1.07 m on in 0.27 s (`roof2_run_south`);
+  at the same kind of beam over 8 m it made the ledge stop. Ours since 2026-10-10: a beam ending the floor is run over
+  as ground; past it, a drop of 0.53 m or more is AC1's **step off** (event 68, 0xD84190 -> 0xDA7A10, Banned445's port):
+  a free jump aimed 1 + 2·a·s m on (a 1 in high profile, 0 in low; s the speed value) and down to the ground there,
+  in the air from its first frame at the speed carried, launched 0.5 m/s up, falling at the free jump's gravity; else,
+  with a target in the **edge zones** (10-12, the primary only: 0.5-4.2 m on, 2.7 m up, 5 m down; the scorer's far side
+  on), AC1's edge jump at it, either profile. Neither where the ledge stop takes the drop. **[B, ours, measured]**
 - **AC1's candidate query and scorer** (`crate::jump_query`, after Banned445's port of 0xE18970 / 0xE96BF0): the hold
   edges in a box ahead (1 m either side of the way, 0.5-9 m on, 5 m down to 3 m up), chained, a grab point per chain
   where the forward line meets it, classed by three rays (room on top, what is below, a clear line from the chest) and
@@ -138,7 +143,7 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 - **Jump targets at roof edges** are where the way forward crosses the edge, as for beams (AC1's candidates): the edge's
   point nearest a spot 4 m ahead was its end when the way crossed the next piece, and the jump went 0.7 m off the way; a
   beam's own side edges are no roof edges. **[ours, measured]**
-- **Grabbing a wall** (high profile + legs pushing into it), in order: a climb start (hand holds 1.8-2.4 m up and
+- **Grabbing a wall** (the empty hand at it, event 50; the legs only run up it, from the run), in order: a climb start (hand holds 1.8-2.4 m up and
   foot holds 1.2 m below them) → `xx_h_wait_hipm_foot?_tr_climbing_1m` with the root interpolated onto the holds;
   else a ledge 0.53-3.0 m up → the standing straight jump at it (0xB21DA0: knee and waist heights pull up onto the
   top, higher ones end hanging). The grab probe radius is 0.75 m (IHuman vt136). **[B]**
@@ -456,6 +461,41 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   probe (`AC1_PROBE_CLIMB`) measures it; `AC1_CLIMB_WHY` logs why each climbing move is turned down. **[ours]**
 - Our street jumps picked tops past awnings and walls (the flight stopped in the air and dropped back, over and
   over): targets must have a clear way across. **[ours]**
+
+## The audit fixes (2026-10-10)
+Twelve audits of ours against AC1 (Banned445's port, the reanalysis, the route recordings) found 205 differences. Fixed
+in this batch, by audit id:
+- **Buttons** (INPUT-1 to 4, 11, 12): E is the head (eagle view), never a climb. The empty hand (Shift) starts a climb
+  at a wall (event 50), else the pull-down within 0.2 s; held in a fall it catches after 0.3 m (the manual catch). The
+  legs: pressed in high profile at run speed with a wall within 45°, the wall run at once; let go within 0.3 s, the
+  tap jump (high profile moving: the jump targets, then the leap of faith and haystacks only if none; standing: the
+  static jump); low profile, only a bench's seat. A free run's wall run waits out the tap window.
+- **Ground** (GROUND-1 to 3, 6 to 8; EXTRA-1, 2, 12): the heading and run stop above; the look-down latched only by the
+  low-profile edge halt held 0.25 s, kept until the walk restarts; a roof's parapet beam (floor beside it) is never
+  perched on from a halt; the lean starts at the lean spot (0.5 m out, on contact) and squares out from where he is.
+- **Falls** (AIR-1 to 4, 6, 10 to 12): the player's damage table (over 8 m 10, 10 m 20, 12 m 40, 14 m 80, 16 m 120,
+  18 m 160, fatal over 20 m, of 200); every ground landing plays a clip, over 3 m the damage landing (its roll with
+  the stick held); a fall with no target drifts at most 5 m/s, easing off at 4 m/s², and a wall takes only the part
+  into it; catches: the climb only with a hold under each foot, else the wall hang, else the free hang, `_max` after
+  a fall of 3 m or more.
+- **Jumps** (JUMP-1, 2; WALL-9, 12): the free jump aims at AC1's free target, 8 m on and 3 m down, with the beam set's
+  flight (`xx_h_beam_air_*`); an eject with no target flies at that target too, and a hold beats a top by the hold's
+  own height. On a level with no authored holds (the test level) the jump target falls back on the geometry's tops.
+- **Beams and posts** (NARROW-1, 2, 7, 8): arriving along a beam, crouched on the other foot; across it,
+  `freestep_entry_<foot>_tr_beam_air_90` into the crouch across; on a post, `_tr_beam_pilotis_wait_a`; with the stick
+  along the beam, straight into the walk. A free-step reception ending on a lone beam or post goes onto it at once.
+  Jumping off needs free running; the empty hand is only the pull-down (more than 2.5 m under the hold).
+- **Hay** (HAY-1, 6, 10): walking into a haystack dives in (either profile, no button); hopping out goes the stick's
+  way, with room 0.5 m past the rim.
+- **Climbing** (CLIMB-E1, E3; LEDGE-4, 9, 11; WALL-3, 5, 6): the grid window 0.375 m along by 0.3 m up; AC1's move
+  order with or without the legs (grid moves, the inside corner, the reaches, the outside corner, the top-out); the
+  wall hang turns corners with its strafe pair onto the new face; the pull-up ends on the top's height, 0.45 m in from
+  the wrists; the climbing stick's left and right mirror while the camera faces him; a wall run with nothing to grab
+  always rebounds off.
+- **Holds and ladders** (GUIDE-1, 3; LADDER-1, 4): holds kept up to 40° of slope (0.35 threw away 21,312 in Damascus);
+  holds carved out round ladders; a ladder got on from 0.6 m, the stick within 90°; the legs in high profile jump off.
+Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
+down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the

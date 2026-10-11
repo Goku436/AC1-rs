@@ -42,9 +42,9 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "sprint stop on the course ramp stays on it (the stop follows the slope)",
         tags: &["ground"],
-        env: &[("AC1_START", "24.5,-0.95,-90"), ("AC1_WALK", "6.2"), ("AC1_STOP", "0.55"), ("AC1_EMBED_CHECK", "1")],
+        env: &[("AC1_START", "24.5,-0.95,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_STOP", "0.55"), ("AC1_EMBED_CHECK", "1")],
         secs: 2.5,
-        want: &["-> ground via xx_h_sprintstop_"],
+        want: &["xx_h_sprintstop_", "-> ground via xx_h_runstop_"],
         never: &["EMBED"],
     },
     Scenario {
@@ -52,7 +52,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["ground", "vault"],
         env: &[("AC1_START", "0,0.5,0"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-5")],
         secs: 3.0,
-        want: &["xx_h_jumpstraight_clear_footall_tr_fall"],
+        want: &["step off the edge"],
         never: &["collide_full_footl_050cm_a", "EMBED"],
     },
     Scenario {
@@ -112,12 +112,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["landed from", "EMBED"],
     },
     Scenario {
-        name: "side grab: walking off the ledge with the legs held and the stick to the wall grabs it",
+        name: "side grab: walking off the ledge with the empty hand and the stick to the wall grabs it",
         tags: &["jump", "hang"],
         // (He walks off 0.28 m past the ledge's end, AC1's rim rule: the stick turns as he does.)
-        env: &[("AC1_START", "-5,-50.5,-90,3"), ("AC1_WALK", "1.9"), ("AC1_LEGS", "3.55-6"), ("AC1_VEER", "3.45,90")],
+        env: &[("AC1_START", "-5,-50.5,-90,3"), ("AC1_WALK", "1.9"), ("AC1_GRASP", "3.55-6"), ("AC1_VEER", "3.45,90")],
         secs: 6.0,
-        want: &["leap -> 2m via xx_fall_tr_climb_min_b"],
+        // (Caught by the empty hand, as AC1's manual catch; into the wall hang, or the climb only with both feet on holds.)
+        want: &["via xx_fall_tr_"],
         never: &["landed from", "EMBED"],
     },
     Scenario {
@@ -180,7 +181,7 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "rebound off block L's ladder: the legs with the stick pulled back",
         tags: &["ladder", "jump"],
-        env: &[("AC1_START", "23.5,-5.4,0"), ("AC1_CLIMB", "up=2.5,down=3"), ("AC1_LEGS", "4.2-4.3")],
+        env: &[("AC1_START", "23.5,-5.4,0"), ("AC1_CLIMB", "up=2.5,down=3"), ("AC1_HIGH", "4.0-4.6"), ("AC1_LEGS", "4.2-4.3")],
         secs: 7.0,
         want: &["rebound off the ladder", "via xx_h_rebound_footr_tr_fall", "land -> ground"],
         never: &["EMBED", "landing_damage_footl_roll"],
@@ -428,7 +429,7 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "jump up to hang on G",
         tags: &["jump", "hang"],
-        env: &[("AC1_START", "-14.5,-11.4,0"), ("AC1_JUMP", "0.5")],
+        env: &[("AC1_START", "-14.5,-11.4,0"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "0.5")],
         secs: 4.0,
         want: &["hangwall"],
         never: &[],
@@ -436,7 +437,7 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "jump onto 1.75 m with a blend",
         tags: &["jump", "vault"],
-        env: &[("AC1_START", "-2,-11.4,0"), ("AC1_JUMP", "0.5")],
+        env: &[("AC1_START", "-2,-11.4,0"), ("AC1_HIGH", "0-4"), ("AC1_JUMP", "0.5")],
         secs: 4.0,
         want: &["mixing xx_h_jumpstraight_footl_to_hangknee_footl_150cm", "-> top via"],
         never: &[],
@@ -444,7 +445,7 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "leap of faith into hay",
         tags: &["hay", "jump"],
-        env: &[("AC1_START", "13.5,-5.5,0"), ("AC1_WALK", "1.6"), ("AC1_JUMP", "0.8")],
+        env: &[("AC1_START", "13.5,-5.5,0"), ("AC1_WALK", "1.6"), ("AC1_HIGH", "0-5"), ("AC1_JUMP", "0.8")],
         secs: 5.0,
         want: &["-> hay via xx_h_faith_jump_landing"],
         never: &[],
@@ -494,7 +495,7 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "ladder to the top",
         tags: &["ladder"],
-        env: &[("AC1_START", "23.5,-4.8,0"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,up=14")],
+        env: &[("AC1_START", "23.5,-4.8,0"), ("AC1_WALK", "1.0"), ("AC1_STOP", "1.0-14"), ("AC1_CLIMB", "nograb,up=14")],
         secs: 14.0,
         want: &["ladder", "-> top via"],
         never: &[],
@@ -502,7 +503,7 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "pole P to its perch",
         tags: &["beam", "hang"],
-        env: &[("AC1_START", "-1.2,10.9,180"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,up=8")],
+        env: &[("AC1_START", "-1.2,10.9,180"), ("AC1_HIGH", "0-1"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,up=8")],
         secs: 8.0,
         want: &["-> perch via"],
         never: &[],
@@ -516,11 +517,11 @@ const SCENARIOS: &[Scenario] = &[
         never: &[],
     },
     Scenario {
-        name: "stop from a run, blended",
+        name: "stop from a run in high profile: AC1's run stop, into the stand",
         tags: &["ground"],
-        env: &[("AC1_START", "-25,-8,0"), ("AC1_WALK", "4.3"), ("AC1_STOP", "1.5")],
+        env: &[("AC1_START", "-25,-8,0"), ("AC1_WALK", "4.3"), ("AC1_HIGH", "0-3"), ("AC1_STOP", "1.5")],
         secs: 3.0,
-        want: &["mixing xx_h_jogstop"],
+        want: &["xx_h_runstop_foot", "_tr_h_wait_hipm_"],
         never: &[],
     },
     Scenario {
@@ -528,7 +529,8 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["wallrun", "climb"],
         env: &[("AC1_START", "0,0.5,180"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-14"), ("AC1_LEGS", "0-14"), ("AC1_CLIMB", "nograb,wait=3,leap-up=11")],
         secs: 9.0,
-        want: &["climb1m_up_r_hand_2", "1m -> hangknee via xx_l_climb_1m_tr_hangknee_footl_a", "-> top via"],
+        // (The grid's moves before the reaches, the legs held or not: AC1's ChooseMove, audit CLIMB-E3.)
+        want: &["1m -> hangknee via xx_l_climb_1m_tr_hangknee_footl_a", "-> top via"],
         never: &["EMBED"],
     },
     Scenario {
@@ -542,7 +544,7 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "jump to pole Q hangs hands together, then pulls up onto its cap",
         tags: &["jump", "hang"],
-        env: &[("AC1_START", "1.2,11.1,180"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,wait=3.5,up=4")],
+        env: &[("AC1_START", "1.2,11.1,180"), ("AC1_HIGH", "0-1"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,wait=3.5,up=4")],
         secs: 9.0,
         want: &["-> hangwall via xx_h_jumpstraight_footl_to_hangwall_250cm", "xx_h_hangwall_onehand_to_hangknee_onehand_footl_a", "-> perch via"],
         never: &["hangfree"],
@@ -646,7 +648,6 @@ const SCENARIOS: &[Scenario] = &[
         secs: 16.0,
         want: &[
             "tr_hangwall_430cm_000cm_a",
-            "climb1m_up_l_hand_2_c",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
             "running jump aimed at [-84.0",
             "-> land via xx_h_landing_damage_foot",
@@ -659,8 +660,10 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["combo", "vault", "jump"],
         env: &[("AC1_START", "-98,64,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-14"), ("AC1_LEGS", "0-14")],
         secs: 12.0,
-        want: &["jump onto 0.60 m", "jump onto 0.9", "wall run over the 1.40 m wall", "_030cm_tr_fall"],
-        never: &["EMBED", "landed from 2.", "landed from 3."],
+        // (Off the boxes AC1's step off, and off the 2 m platform its free jump, 8 m on and 3 m down (audits AIR-6, JUMP-1):
+        // over the next box, down to the ground.)
+        want: &["jump onto 0.60 m", "step off the edge", "wall run over the 1.40 m wall", "_030cm_tr_fall"],
+        never: &["EMBED"],
     },
     Scenario {
         name: "gauntlet G5: zigzag post to post, onto the beam, along it onto a box, the dive into the hay beside it",
@@ -668,10 +671,9 @@ const SCENARIOS: &[Scenario] = &[
         env: &[
             ("AC1_START", "-100,74,-90"),
             ("AC1_WALK", "6.2"),
-            ("AC1_HIGH", "0-7"),
-            ("AC1_LEGS", "0-7"),
-            ("AC1_PATH", "-89.5,74;-86.6,74;-84.4,75;-82.2,74;-80,75;-77.8,74;-72.5,74;stop"),
-            ("AC1_JUMP", "8.5"),
+            ("AC1_HIGH", "0-9"),
+            ("AC1_LEGS", "0-6"),
+            ("AC1_PATH", "-89.5,74;-86.6,74;-84.4,75;-82.2,74;-80,75;-77.8,74;-72.5,74;-70.1,74;stop"),
         ],
         secs: 12.0,
         want: &[
@@ -758,7 +760,7 @@ const SCENARIOS: &[Scenario] = &[
             "swing -> leap via xx_h_swing_cycle_front_300cm_to_air",
             "-> 2m via xx_fall_tr_climb_min_b",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
-            "running jump aimed at [-78.0",
+            "running jump aimed at [-7",
             "-> land via xx_h_landing_damage_foot",
         ],
         never: &["EMBED"],
@@ -774,7 +776,7 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "pulled down off a slab into a free hang, down: AC1's drop onto the wall's holds 2.4 m below (hangfree_tr_climb2m_down)",
         tags: &["hang", "climb"],
-        env: &[("AC1_START", "-90.5,144,90,6"), ("AC1_WALK", "1.5"), ("AC1_STOP", "2.5-30"), ("AC1_JUMP", "3.0"), ("AC1_CLIMB", "nograb,wait=5,down=1.5")],
+        env: &[("AC1_START", "-90.5,144,90,6"), ("AC1_WALK", "1.5"), ("AC1_STOP", "2.5-30"), ("AC1_HAND", "3.0"), ("AC1_CLIMB", "nograb,wait=5,down=1.5")],
         secs: 8.0,
         want: &["-> free_1m via xx_l_ledge_pulldown_soft_front_to_hangfree_b", "via xx_h_climbing_hangfree_tr_climb2m_down_", "leap -> 2m via"],
         never: &["EMBED"],

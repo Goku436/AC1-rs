@@ -63,6 +63,9 @@ const BEAM_MEET: f32 = 0.6;
 pub enum From {
     Ground,
     Narrow,
+    /// At an edge, walking or running off it, either profile (IHuman vt56, query kinds 1 / 2: reach zones 10-12, the
+    /// primary only; Banned445's port, audit JUMP-2).
+    Edge,
 }
 
 struct Zones {
@@ -79,6 +82,7 @@ fn zones(from: From) -> Zones {
     match from {
         From::Ground => Zones { primary: 1, secondary: 2, tertiary: 3, only_primary: false, min: Vec3::new(-1.0, 0.5, -5.0), max: Vec3::new(1.0, 9.0, 3.0) },
         From::Narrow => Zones { primary: 7, secondary: 8, tertiary: 9, only_primary: true, min: Vec3::new(-1.0, 0.5, -4.3), max: Vec3::new(1.0, 9.0, 3.7) },
+        From::Edge => Zones { primary: 10, secondary: 11, tertiary: 12, only_primary: true, min: Vec3::new(-1.0, 0.5, -5.0), max: Vec3::new(1.0, 4.2, 2.7) },
     }
 }
 

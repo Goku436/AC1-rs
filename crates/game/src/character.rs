@@ -195,6 +195,12 @@ pub struct Character {
     pub wall_foot_w: [f32; 2],
     /// How long (s) he has stood still on the ground (AC1 looks down over an edge after `LOOK_DOWN_STILL`).
     pub still_t: f32,
+    /// How long the low-profile edge halt has held the walk (s), and the look-down it latched (kept until the walk
+    /// starts again).
+    pub halt_t: f32,
+    pub looking_down: bool,
+    /// A reversal's run stop has just played out: with the stick still turned round, AC1's skid turn follows.
+    pub reverse_pending: bool,
     /// The hold each climbing hand is pulled onto now: kept until the pull has faded, then the nearest one taken.
     pub wall_hand_t: [Option<crate::level::Ledge>; 2],
     /// How much the climbing IK (hands on holds, feet on the wall) applies now (0..1, faded).
@@ -250,6 +256,17 @@ pub struct Controller {
     pub jump_needs_target: bool,
     /// The legs pressed while climbing: jump off a perch, rebound off a wall run, fling off a bar.
     pub wall_legs: bool,
+    /// The legs held, pressed less than AC1's 0.3 s tap window ago: maybe a tap still (its release jumps).
+    pub legs_fresh: bool,
+    /// On the ground, the legs pressed this frame (high profile, moving: a wall ahead is run up at once).
+    pub legs_press: bool,
+    /// On the ground, the legs let go within AC1's 0.3 s buffer of the press (AC1's tap jump fires on the release,
+    /// 0xEE817E: high profile moving, the jump; standing, the static jump; low profile, a bench's seat).
+    pub legs_release: bool,
+    /// The empty hand held (the manual catch in a fall).
+    pub hand_held: bool,
+    /// On the ground, the empty hand pressed: climb onto the wall ahead (AC1's event 50), else the pull-down, else the push.
+    pub hand_climb: bool,
     /// High profile (AC1's right button): faster, louder moves.
     pub high: bool,
     /// Free running (high profile + legs): runs up, vaults and jumps on its own.
@@ -439,6 +456,9 @@ pub fn spawn_character(
         wall_hand_w: [0.0; 2],
         wall_foot_w: [0.0; 2],
         still_t: 0.0,
+        halt_t: 0.0,
+        looking_down: false,
+        reverse_pending: false,
         wall_hand_t: [None; 2],
         foot_ik_w: 0.0,
         wall_ik_w: 0.0,
@@ -516,11 +536,14 @@ impl Character {
 }
 
 const WALL_DIST: f32 = 0.34;
-/// Running faster than this (m/s) and steered elsewhere, the run's direction swings round at this rate (rad/s)
-/// keeping its speed (a reversal turns round in about 0.35 s without stopping).
-const RUN_TURN_MIN_SPEED: f32 = 2.6;
-/// (AC1's heading turns at 360 degrees a second, `HumanGround__UpdateHeading` 0xD95290, Banned445.)
-const RUN_TURN_RATE: f32 = std::f32::consts::TAU;
+/// Turning on the ground (rad/s): AC1's rates, walking or running and free running, eased down to the `_NEAR` ones
+/// from `TURN_BAND_OUT` to `TURN_BAND_IN` off the way wanted (rad).
+const TURN_RATE: f32 = 4.0;
+const TURN_RATE_FREE: f32 = 2.6;
+const TURN_RATE_NEAR: f32 = 1.5;
+const TURN_RATE_FREE_NEAR: f32 = 0.975;
+const TURN_BAND_OUT: f32 = std::f32::consts::FRAC_PI_3;
+const TURN_BAND_IN: f32 = 0.1745;
 /// The root's height follows the ground averaged this far behind and ahead (m), over steps up to this high.
 const STRIDE_SPAN: f32 = 0.35;
 const STRIDE_STEP: f32 = 0.4;
@@ -533,13 +556,11 @@ const HEALTH_REGEN: f32 = 0.04;
 /// Faster than the high profile run (5.2 m/s): free running (the sprint, 6.2 m/s) runs up walls and jumps
 /// off edges on its own.
 const SPRINT_SPEED: f32 = 5.5;
-/// Letting go of the direction above this speed stops with a stop clip (m/s).
-const STOP_SPEED: f32 = 2.2;
-/// The jog, run and sprint stops' speeds (m/s): a stop between two mixes them.
-const SPRINT_STOP_SPEED: f32 = 6.2;
-const RUN_STOP_SPEED: f32 = 5.2;
-/// The jog stop's speed (m/s, `xx_h_jogstop_<foot>`).
-const JOG_STOP_SPEED: f32 = 3.5;
+/// After a reversal's run stop, the stick this far round from the facing (cos 120 degrees) skids round into the jog.
+const REVERSE_TURN_COS: f32 = -0.5;
+/// Letting go of the direction above this speed stops with a stop clip (m/s): past the walk band's top (AC1's run stop
+/// wants the speed value over 0.25, 1.9 m/s).
+const STOP_SPEED: f32 = 1.9;
 /// AC1 takes an empty hand pressed within this long (s) for the pull-down (`sub_ED4A20(3, 0.2)`, Banned445's port).
 pub const HAND_DROP_BUFFER: f32 = 0.2;
 /// The ledge stop starts with the edge this close ahead (m; AC1's interpreter, 0.15 m), or as far as a run goes in
@@ -550,20 +571,41 @@ const LEDGE_STOP_FRAME: f32 = 0.05;
 const LEDGE_STOP_DROP: f32 = 5.0;
 /// The drop goes on at least this far past the edge (m) for a ledge stop: not a crack between two roofs.
 const LEDGE_STOP_CRACK: f32 = 0.3;
-/// Running across a beam in high profile, he gets onto it only with a step down past it deeper than this (m) and short of
-/// `LEDGE_STOP_DROP`: one ending the floor (a Damascus roof's end over a crack, the next roof 0.7 m down), not a seam in a
-/// roof.
-const BEAM_EDGE_DROP: f32 = 0.5;
-/// (And at most this deep: past a roof's parapet beam with a ledge 4 m down, the running game made the ledge stop.)
-const BEAM_EDGE_DROP_MAX: f32 = 2.0;
-/// Standing at an edge dropping more than this looks down over it (m).
-const LOOK_DOWN_DROP: f32 = 2.0;
 /// Standing still this long (s) before looking down over an edge (the timer AC1's ground input interpreter checks).
 const LOOK_DOWN_STILL: f32 = 0.25;
 
 /// AC1's ground moves, as clip chains with root motion (see the module docs): turning round while running,
 /// the run and sprint stops, turns on the spot, the ledge stop (with the outward direction to hold back
 /// from), and leaning on a wall run into.
+/// AC1's run turn-around (`HumanGround` actions 0x5e/0x5f, `xx_h_runturn180_<foot>`), then on into the `gait` (jog or
+/// walk, 0x60/0x61), or into its stand if the stick lets go (0x68/0x69). Its clips carry no root turn: the facing flips
+/// as it starts and the body comes round in the clip. `dir` is the way it was going.
+#[allow(clippy::too_many_arguments)]
+fn turn_round(
+    lib: &mut crate::animation::AnimLib,
+    tf: &Transform,
+    rig: &Rig,
+    pose: &Pose,
+    dir: Vec3,
+    gait: &str,
+    f: &str,
+    o: &str,
+) -> Option<crate::climb::WallClimb> {
+    let names = vec![format!("xx_h_runturn180_{f}"), format!("xx_h_runturn180_{f}_tr_{gait}_hipm_{f}")];
+    let stop = Some(format!("xx_h_runturn180_{f}_tr_h_wait_hipm_{o}"));
+    let back = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, -dir), ..*tf };
+    // The fade into it starts from the pose shown, turned with the root (it flips round under the body): else the old
+    // pose, now facing the new way, swung the whole body round in one frame. Turned a little short of half round, so the
+    // fade comes round about the vertical one way (at exactly half a turn its way round was undefined, and the body
+    // tipped over with the legs crossed).
+    let shown = rig.find("Reference").map(|r| {
+        let mut p = pose.clone();
+        p.rotate_model(rig, r, Quat::from_rotation_z(std::f32::consts::PI - TURN_FLIP_SHORT));
+        p
+    });
+    crate::climb::WallClimb::ground_action(lib, &back, &names, Vec3::ZERO, false, shown.or(Some(pose.clone()))).map(|w| w.steered(-dir, stop))
+}
+
 fn ground_move(
     lib: &mut crate::animation::AnimLib,
     level: &Level,
@@ -583,6 +625,11 @@ fn ground_move(
     let act = |lib: &mut crate::animation::AnimLib, names: Vec<String>, correct: Vec3, cancel: bool| {
         WallClimb::ground_action(lib, tf, &names, correct, cancel, from())
     };
+    // A reversal's run stop played out with the stick still turned round (over 120 degrees off the facing): AC1's skid
+    // turn into the jog (`xx_h_runturn180_<foot>_tr_jog_hipm_<foot>`, audit GROUND-6).
+    if ch.reverse_pending && wants && input.dot(fwd) < REVERSE_TURN_COS {
+        return turn_round(lib, tf, &ch.rig, &ch.anim_pose, fwd, "jog", f, o).map(|w| (w, None));
+    }
     if speed > STOP_SPEED {
         let dir = v / speed;
         // Reversing: plant, stop and turn round into a jog.
@@ -591,34 +638,31 @@ fn ground_move(
         // turn: the facing flips as it starts and the body comes round in the clip.
         // (Not in high profile or free running: there, reversing turns the run round and keeps going, as the
         // player wants the momentum; only a slower jog plants and turns.)
+        // (Only below the high profile's run stop now: in high profile a reversal past 135 degrees is AC1's run stop,
+        // below; low profile tops out under this speed.)
         if wants && input.dot(dir) < -0.6 && !ctl.high && !ctl.free_run {
-            let gait = "walk";
-            let names = vec![format!("xx_h_runturn180_{f}"), format!("xx_h_runturn180_{f}_tr_{gait}_hipm_{f}")];
-            let stop = Some(format!("xx_h_runturn180_{f}_tr_h_wait_hipm_{o}"));
-            let back = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, -dir), ..*tf };
-            // The fade into it starts from the pose shown, turned with the root (it flips round under the body): else
-            // the old pose, now facing the new way, swung the whole body round in one frame. Turned a little short of
-            // half round, so the fade comes round about the vertical one way (at exactly half a turn its way round was
-            // undefined, and the body tipped over with the legs crossed).
-            let shown = ch.rig.find("Reference").map(|r| {
-                let mut p = ch.anim_pose.clone();
-                p.rotate_model(&ch.rig, r, Quat::from_rotation_z(std::f32::consts::PI - TURN_FLIP_SHORT));
-                p
+            return turn_round(lib, tf, &ch.rig, &ch.anim_pose, dir, "walk", f, o).map(|w| (w, None));
+        }
+        // The run stop: let go, or (high profile) the stick past 135 degrees off the way (AC1's "run stop allowed",
+        // 0xD7EC90). AC1's stop item mixes the run and sprint stops by the speed value, f = (s - 0.75) * 4 (the jog stop
+        // never plays), is locked (it plays out, steering does not break it off), and goes on into the stand through
+        // `xx_h_runstop_<foot>_tr_h_wait_hipm_<other>` (Banned445's port, audit GROUND-6 to 8).
+        // (Not free running: that swings round at its turn rate.)
+        let reversing = wants && ctl.high && !ctl.free_run && input.dot(dir) < -std::f32::consts::FRAC_1_SQRT_2;
+        if (!wants || reversing) && (ctl.high || ctl.free_run) {
+            let s = crate::gait::value_at(speed);
+            let sprint = ((s - crate::gait::BAND_RUN) * 4.0).clamp(0.0, 1.0);
+            let stop = crate::animation::mix_name(&[(&format!("xx_h_runstop_{f}"), 1.0 - sprint), (&format!("xx_h_sprintstop_{f}"), sprint)]);
+            let names = vec![stop, format!("xx_h_runstop_{f}_tr_h_wait_hipm_{o}")];
+            return act(lib, names, Vec3::ZERO, false).map(|mut w| {
+                w.reverse_turn = reversing;
+                (w, None)
             });
-            return WallClimb::ground_action(lib, &back, &names, Vec3::ZERO, false, shown.or_else(from)).map(|w| (w.steered(-dir, stop), None));
         }
         if !wants {
-            // AC1 mixes its jog, run and sprint stops by speed (`HumanGround`'s stop item).
-            let stops = [(JOG_STOP_SPEED, "jogstop"), (RUN_STOP_SPEED, "runstop"), (SPRINT_STOP_SPEED, "sprintstop")];
-            let k = stops.iter().position(|s| s.0 >= speed).unwrap_or(stops.len() - 1).max(1);
-            let ((sa, a), (sb, b)) = (stops[k - 1], stops[k]);
-            let w = ((speed - sa) / (sb - sa)).clamp(0.0, 1.0);
-            let stop = crate::animation::mix_name(&[(&format!("xx_h_{a}_{f}"), 1.0 - w), (&format!("xx_h_{b}_{f}"), w)]);
-            let mut names = vec![stop];
-            if (a == "runstop" && w < 0.5) || (b == "runstop" && w >= 0.5) {
-                names.push(format!("xx_h_runstop_{f}_tr_h_wait_hipm_{o}"));
-            }
-            return act(lib, names, Vec3::ZERO, true).map(|w| (w, None));
+            // (Low profile faster than a walk: the jog stop.)
+            let names = vec![format!("xx_h_jogstop_{f}")];
+            return act(lib, names, Vec3::ZERO, false).map(|w| (w, None));
         }
         // Running into a tall wall (not free running): hands on it, lean there.
         if !ctl.free_run
@@ -701,7 +745,7 @@ const EDGE_HALT_COS: f32 = 0.342;
 const WALK_STOP_SPEED: f32 = 2.1;
 
 /// Standing, steering this far off the facing (radians) turns on the spot; past `TURN_HALF`, a half turn.
-const TURN_MIN: f32 = 0.8;
+const TURN_MIN: f32 = std::f32::consts::FRAC_PI_2;
 const TURN_HALF: f32 = 2.4;
 
 /// A turn on the spot from standing on `foot` (`footl`/`footr`): `xx_<p>_wait_hipm_<foot>_to_<p>_waitturn_<turn>_<foot>`
@@ -794,8 +838,11 @@ const FREE_RUN_PROBE: f32 = 1.3;
 /// In high profile without the legs, a top this high over the feet (m) with its face within `HIGH_HOP_REACH` is hopped onto.
 const HIGH_HOP_RISE: std::ops::RangeInclusive<f32> = 0.45..=1.3;
 const HIGH_HOP_REACH: f32 = 1.3;
+/// Walking into a haystack's side, this close to it (m: the capsule's radius), dives in.
+const HAY_WALK_IN: f32 = 0.4;
 /// Moving toward a ladder's foot, from this close out in front of it (m), gets on.
-const LADDER_AUTO_REACH: f32 = 1.0;
+/// (AC1: 0.6 m, the stick within 90 degrees of it; the running game got on 0.61 m from ladder 68: audit LADDER-1.)
+const LADDER_AUTO_REACH: f32 = 0.6;
 /// Getting up to a speed over `RUN_START_MIN` (m/s), the body speeds up at `RUN_ACCEL` (m/s²).
 const RUN_START_MIN: f32 = 2.5;
 const RUN_ACCEL: f32 = 13.0;
@@ -826,6 +873,33 @@ pub fn locomotion(
                 continue;
             }
         }
+        // Walking into a haystack, either profile, no button (AC1's event 122, guard 0xD8F0B0: a contact with it, the
+        // facing within 100 degrees of it and the stick within 45 degrees into it; Banned445's port, audit HAY-1).
+        // (Not free running: that dives in off a rim by its own rule, `hay_dive_ahead`, and runs past a hiding spot.)
+        if ch.wall.is_none()
+            && ch.fall_v == 0.0
+            && !ctl.free_run
+            && ctl.move_dir.with_y(0.0).length() > 0.1
+            && let Some(hay) = level.haystacks.iter().find(|h| {
+                let d = (h.centre - tf.translation).with_y(0.0);
+                let reach = h.half + HAY_WALK_IN;
+                // (Or from a top beside it, the hay's top up to a metre under the feet: AC1's free-step entry.)
+                let up = tf.translation.y - h.top();
+                d.x.abs() < reach && d.z.abs() < reach && ((tf.translation.y - h.centre.y).abs() < 0.5 || (-0.3..1.0).contains(&up))
+            })
+            && {
+                let to = (hay.centre - tf.translation).with_y(0.0).normalize_or_zero();
+                ctl.move_dir.with_y(0.0).normalize_or_zero().dot(to) > std::f32::consts::FRAC_1_SQRT_2
+                    && (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero().dot(to) > -0.1736
+            }
+            && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
+            && let Some(w) = crate::climb::WallClimb::into_hay(lib, &level, &tf, ctl.high, Some(ch.anim_pose.clone()))
+        {
+            ch.wall = Some(w);
+            ch.velocity = Vec3::ZERO;
+            ch.exit_fade = None;
+            continue;
+        }
         // Moving into a ladder from in front of it: onto it, no button (AC1's ladder event 38: a ladder within reach, the
         // character in front of it within 90 degrees; the running game walked up to one by the Damascus bureau and climbed
         // it, and free running ran up the wall onto it; ours stood against its rungs).
@@ -837,17 +911,19 @@ pub fn locomotion(
                 d.dot(side).abs() < 0.5
                     && (0.0..LADDER_AUTO_REACH).contains(&d.dot(l.out))
                     && (tf.translation.y - l.base.y).abs() < 0.4
-                    && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(-l.out) > 0.7
+                    && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(-l.out) > 0.0
             })
         {
             ctl.toggle_climb = true;
             ctl.grab_only = true;
         }
         // Free running into a wall: run up it or grab on, as if the legs button were pressed.
-        if ctl.free_run && ch.wall.is_none() {
+        // (From the run, as the press: from a stand AC1 waits for the legs' release, the tap jump at the wall.)
+        // (Past the tap window: a press let go within it is AC1's tap jump, the free run never started.)
+        if ctl.free_run && !ctl.legs_fresh && ch.wall.is_none() {
             let v = ch.velocity.with_y(0.0);
             let dir = ctl.move_dir.with_y(0.0).normalize_or_zero();
-            if v.length() > 0.5
+            if v.length() > STOP_SPEED
                 && dir != Vec3::ZERO
                 && level
                     .raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, dir, FREE_RUN_REACH)
@@ -860,6 +936,81 @@ pub fn locomotion(
         // The empty hand at an edge with a drop of over 2 m ahead, either profile, walking or standing: down onto it into
         // the hang at once, no ledge stop (AC1's pull-down, event 70: the interpreter sends it for the empty hand pressed
         // within 0.2 s with an edge within 0.5 m ahead, as Banned445's port reads it). Elsewhere the hand pushes.
+        // The empty hand at a wall: onto it, climbing (AC1's climb start from the ground is the empty hand, event 50,
+        // `Pad__JustPressed(3)`, as Banned445's port reads the interpreter; low profile Legs at a wall starts nothing).
+        if std::mem::take(&mut ctl.hand_climb)
+            && ch.wall.is_none()
+            && ch.fall_v == 0.0
+            && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
+        {
+            let moving = ch.velocity.with_y(0.0).length() > 1.0;
+            let pose = Some(ch.anim_pose.clone());
+            if let Some(w) = crate::climb::WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, moving, pose) {
+                debug!("climb: the empty hand at the wall: climbing on");
+                ch.wall = Some(w);
+                ch.velocity = Vec3::ZERO;
+                ch.exit_fade = None;
+                ctl.push = false;
+                ctl.pickpocket = false;
+                ctl.hand_drop = 0.0;
+                continue;
+            }
+        }
+        // The legs on the ground (AC1's interpreter, 0xEE817E and on, Banned445's port):
+        // - pressed in high profile, moving, with a wall ahead within 45 degrees of the facing: the wall run, at once;
+        // - let go within the 0.3 s buffer: high profile moving, the tap jump (the leap of faith first, else at a target,
+        //   else the free jump); high profile standing, the static jump (to a hold overhead, else straight up); low
+        //   profile, a bench's seat (low profile's legs otherwise only blend).
+        let legs_press = std::mem::take(&mut ctl.legs_press);
+        let legs_release = std::mem::take(&mut ctl.legs_release);
+        if (legs_press || legs_release)
+            && ch.wall.is_none()
+            && ch.fall_v == 0.0
+            && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
+        {
+            use crate::climb::WallClimb;
+            let v = ch.velocity.with_y(0.0);
+            let moving = v.length() > 0.5 || ctl.move_dir.length() > 0.1;
+            let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+            let pose = || Some(ch.anim_pose.clone());
+            let way = if v.length() > 0.5 { v.normalize() } else { facing };
+            let mut w = None;
+            // (Running: AC1's wall run starts from the run (the speed past the walk's band); from a stand, the press waits for
+            // its release, the tap jump at the wall, as the running game's `wall1_tapjump`.)
+            if legs_press && ctl.high && v.length() > STOP_SPEED && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(facing) >= std::f32::consts::FRAC_1_SQRT_2
+            {
+                // (AC1's wall test from the legs: 1.5 m out at 1.3 m up, audit WALL-3.)
+                let wall = level.raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, way, FREE_RUN_REACH).is_some_and(|h| h.normal.y.abs() < 0.3);
+                if wall {
+                    w = WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, way * v.length().max(1.0), pose());
+                }
+            }
+            if w.is_none() && legs_release {
+                if ctl.high && moving {
+                    let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
+                    let run = if v.length() > 0.5 { v } else { facing };
+                    // (A haystack nearer than a leap of faith, from a top beside it: AC1's tap jump falls back on its
+                    // haystack search, vt76's free-step bands, 3 m down to 1.3 m up.)
+                    // (The jump's targets first: AC1 searches the leap of faith and the haystack only when its guidance
+                    // query found none, audit HAY-10.)
+                    let aimed = WallClimb::has_jump_target(&level, tf.translation, run);
+                    w = (!aimed)
+                        .then(|| WallClimb::leap_of_faith(lib, &level, &tf, way, pose()).or_else(|| WallClimb::hay_dive_ahead(lib, &level, &tf, way, pose())))
+                        .flatten()
+                        .or_else(|| WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run, lead_left, pose()));
+                } else if ctl.high {
+                    w = WallClimb::jump_grab(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose()).or_else(|| WallClimb::jump_straight(lib, &tf, pose()));
+                } else {
+                    w = WallClimb::sit(lib, &level, &tf, pose());
+                }
+            }
+            if let Some(w) = w {
+                ch.wall = Some(w);
+                ch.velocity = Vec3::ZERO;
+                ch.exit_fade = None;
+                continue;
+            }
+        }
         ctl.hand_drop = (ctl.hand_drop - dt).max(0.0);
         if ctl.hand_drop > 0.0
             && ch.wall.is_none()
@@ -909,6 +1060,7 @@ pub fn locomotion(
         // AC1 clip-driven climbing.
         if let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some()) {
             if let Some(w) = &mut ch.wall {
+                w.hand_held = ctl.hand_held;
                 w.move_dir = ctl.move_dir.with_y(0.0).clamp_length_max(1.0);
                 w.sprint = ctl.speed > SPRINT_SPEED;
                 w.high = ctl.high;
@@ -965,11 +1117,10 @@ pub fn locomotion(
                         };
                         // (Hiding on a bench or in hay from the ground is low profile's; in high profile the legs free
                         // run past them.)
-                        ch.wall = (!ctl.high)
-                            .then(|| WallClimb::sit(lib, &level, &tf, pose()))
-                            .flatten()
-                            .or_else(|| WallClimb::into_hay(lib, &level, &tf, ctl.high, pose()))
-                            .or_else(|| WallClimb::leap_of_faith(lib, &level, &tf, facing, pose()));
+                        // (Reached only from code now: free running into a wall, moving into a ladder's foot, a script's
+                        // grab. The player's legs and empty hand on the ground go through `legs_press` / `legs_release` /
+                        // `hand_climb`.)
+                        let _ = facing;
                         // Sprinting at a wall: run up it (AC1's interpreter tests the wall run before the ladder: up a wall
                         // with a ladder on it, onto the ladder).
                         ch.wall = ch.wall.take().or_else(|| {
@@ -979,14 +1130,6 @@ pub fn locomotion(
                         });
                         // A ladder's foot or top: onto it (before the edge it stands at).
                         ch.wall = ch.wall.take().or_else(|| WallClimb::ladder(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose()));
-                        // At an edge in low profile, or standing there in high profile: lower onto it and hang.
-                        if ch.wall.is_none() && (!ctl.high || v.length() < 0.5) {
-                            let looking = ch.animator.as_ref().is_some_and(|a| a.idle_alt.is_some());
-                            ch.wall = WallClimb::pull_down(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, looking, pose());
-                        }
-                        if ch.wall.is_none() && v.length() > 0.5 {
-                            ch.wall = WallClimb::vault(lib, &level, &tf, v, v.length(), pose());
-                        }
                         ch.wall = ch.wall.take().or_else(|| WallClimb::monkey_bars(lib, &level, &tf, pose()));
                         ch.wall = ch.wall.take().or_else(|| {
                             wall_run_now(v, ctl.free_run, &wall_ahead)
@@ -994,18 +1137,7 @@ pub fn locomotion(
                                 .flatten()
                                 .or_else(|| WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v.length() > 1.0, pose()))
                         });
-                        // (A Legs press jumps only at a target, as AC1's `JumpToGuidanceTarget`; with a wall right ahead,
-                        // only over it.)
-                        let blocked = wall_ahead(v.normalize_or_zero(), 1.2);
-                        let target = || WallClimb::jump_reachable(&level, tf.translation, v, blocked);
-                        if ch.wall.is_none() && !grab_only && v.length() > 1.0 && (if needs_target { target() } else { !blocked }) {
-                            // (Off the foot the run is on: AC1's takeoffs are by foot.)
-                            let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
-                            ch.wall = WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, lead_left, pose());
-                        } else if ch.wall.is_none() {
-                            ch.wall = WallClimb::jump_grab(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose())
-                                .or_else(|| (!grab_only && !needs_target).then(|| WallClimb::jump_straight(lib, &tf, pose())).flatten());
-                        }
+                        let _ = (grab_only, needs_target);
                     }
                 }
             }
@@ -1035,6 +1167,8 @@ pub fn locomotion(
                     }
                     continue;
                 }
+                // (A reversal's run stop played out: the skid turn may follow, `ground_move` on the next frame.)
+                ch.reverse_pending = w.finished && w.reverse_turn;
                 if w.finished {
                     // Back on our feet (on top, or landed): ground locomotion, fading from the last climb pose,
                     // picking up on the foot (or into the gait) the last clip ends on.
@@ -1046,6 +1180,33 @@ pub fn locomotion(
                             ch.freestep_left = false;
                         } else if name.contains("freestep_entry_footl") {
                             ch.freestep_left = true;
+                        }
+                    }
+                    // (A free-step reception ending on a post or beam: on it at once, as AC1's NarrowObject takes over
+                    // after the reception; ours ran a ground stop 0.7 m on along the beam and perched half a second late,
+                    // audit NARROW-2.)
+                    // (Not a beam in a floor, a roof's edge or a seam, floor level beside it: AC1 lands and walks on; ours
+                    // crouched across a roof's rim beam.)
+                    let lone = |i: usize| {
+                        let l = &level.perches[i];
+                        let axis = l.axis().with_y(0.0).normalize_or_zero();
+                        let q = l.closest(tf.translation);
+                        let side = axis.cross(Vec3::Y);
+                        axis == Vec3::ZERO || [side, -side].iter().all(|s| level.ground(q + *s * 0.35 + Vec3::Y * 0.2, 0.0, 0.5).is_none())
+                    };
+                    if w.last_clip.as_deref().is_some_and(|n| n.contains("freestep_entry"))
+                        && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some_and(|(i, _)| lone(i))
+                    {
+                        let lead_left = ch.freestep_left;
+                        let from = w.last_pose().cloned().or(Some(ch.anim_pose.clone()));
+                        if let Some(mut p) =
+                            crate::climb::WallClimb::perch(lib, &level, &tf, ctl.move_dir, ctl.speed > SPRINT_SPEED || ctl.free_run, lead_left, from)
+                        {
+                            p.freestep_left = ch.freestep_left;
+                            ch.wall = Some(p);
+                            ch.exit_fade = None;
+                            ch.velocity = Vec3::ZERO;
+                            continue;
                         }
                     }
                     if let (Some(a), Some(name)) = (ch.animator.as_mut(), w.last_clip.as_deref()) {
@@ -1129,6 +1290,7 @@ pub fn locomotion(
             && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
             && let Some((w, lock)) = ground_move(lib, &level, &tf, ch, &ctl)
         {
+            ch.reverse_pending = false;
             // Facing as the move starts, this frame: it is posed this frame (a turn round flips the root under the body,
             // and a frame with the new pose on the old facing showed the body swung round).
             if let Some(r) = w.start_facing() {
@@ -1139,12 +1301,18 @@ pub fn locomotion(
             ch.velocity = Vec3::ZERO;
             continue;
         }
-        // Looking down over an edge while standing at it.
-        let edge_ahead =
-            |d: f32, drop: f32| level.ground(tf.translation + (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero() * d, 0.3, drop).is_none();
+        ch.reverse_pending = false;
+        // Looking down over an edge: latched by the low-profile edge halt held a quarter of a second, the stick still
+        // into the edge (AC1's interpreter 0xEE87DE, Banned445's port, audit EXTRA-2); kept with the stick let go, until
+        // the walk starts again or high profile. (Ours looked down from any stand near an edge, high profile too.)
         ch.still_t = if ch.velocity.length() < 0.2 { ch.still_t + dt } else { 0.0 };
-        // (AC1's interpreter sends the look-down only after standing still a quarter of a second.)
-        let look_down = ch.still_t > LOOK_DOWN_STILL && edge_ahead(0.6, LOOK_DOWN_DROP);
+        if ch.halt_t > LOOK_DOWN_STILL && !ctl.high {
+            ch.looking_down = true;
+        }
+        if ctl.high || ch.velocity.with_y(0.0).length() > 0.2 || ch.wall.is_some() {
+            ch.looking_down = false;
+        }
+        let look_down = ch.looking_down;
         if let (Some(lib), Some(a)) = (lib.as_deref_mut(), ch.animator.as_mut()) {
             // Standing, the low and high profile stands put the feet and hands elsewhere: fade between them (switched at
             // once, the whole body jumped up to 13 cm as the right button went down or up).
@@ -1188,7 +1356,12 @@ pub fn locomotion(
             if dir != Vec3::ZERO && (at_edge || level.ground(at, 0.3, EDGE_HALT_DROP).is_none()) && level.ground(tf.translation, 0.3, 0.3).is_some() {
                 target_v = Vec3::ZERO;
                 ch.velocity = ch.velocity.with_x(0.0).with_z(0.0);
+                ch.halt_t += dt;
+            } else {
+                ch.halt_t = 0.0;
             }
+        } else {
+            ch.halt_t = 0.0;
         }
         // Letting go of the stick at a walk: AC1 stops at once (Idle 0xD8B220, the wait blended in over 0.2 s); faster
         // ones play the run stop (`ground_move`).
@@ -1229,34 +1402,35 @@ pub fn locomotion(
         }
         let k = 1.0 - (-6.0 * dt).exp();
         let (cur, want) = (ch.velocity.with_y(0.0), target_v.with_y(0.0));
-        if cur.length() > RUN_TURN_MIN_SPEED && want.length() > RUN_TURN_MIN_SPEED {
-            // Running, steered elsewhere (even right round): the run swings round at a turn rate, keeping its speed,
-            // rather than easing through a stop.
-            let (a, b) = (cur.normalize(), want.normalize());
-            let angle = a.angle_between(b);
-            let step = (RUN_TURN_RATE * dt).min(angle);
-            let axis = if a.cross(b).y >= 0.0 { Vec3::Y } else { Vec3::NEG_Y };
-            let dir = if angle > 1e-4 { Quat::from_axis_angle(axis, step) * a } else { b };
-            let speed = cur.length() + (want.length() - cur.length()) * k;
-            ch.velocity = dir * speed + Vec3::Y * ch.velocity.y;
-        } else if want.length() > RUN_START_MIN
-            && want.length() > cur.length() + 0.01
-            && cur.dot(want) >= 0.0
-            // (Facing the way already: out of a turn on the spot broken off into the run, speeding up before the body had
-            // come round swung a hand 0.5 m in a frame.)
-            && (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero().dot(want.normalize()) > 0.707
-        {
+        // AC1 moves along the way the body faces, turning that heading toward the stick at a capped rate (the root
+        // motion of its blend carries it along the heading): 4.0 rad/s, 2.6 free running, eased down to 1.5 / 0.975
+        // inside the last 60 to 10 degrees (the interpreter's RotateTowards rates, 0xEE6D3F, Banned445's port). The
+        // running game turned 3.98 rad/s walking and 2.58 free running, its motion within 1-5 degrees of its facing all
+        // the while; ours moved the stick's way at once and the facing caught up, and turned a run at 6.3 rad/s.
+        let heading = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(Vec3::NEG_Z);
+        let speed = if want.length() > RUN_START_MIN && want.length() > cur.length() + 0.01 && heading.dot(want.normalize()) > 0.707 {
             // Getting up to a run: at a steady rate, as the running game's free-run starts (about 13 m/s² from a standstill
             // to 5.6 m/s in 0.45 s; ours, easing in, took 0.65 s).
-            let speed = (cur.length() + RUN_ACCEL * dt).min(want.length());
-            ch.velocity = want.normalize() * speed + Vec3::Y * ch.velocity.y;
+            (cur.length() + RUN_ACCEL * dt).min(want.length())
         } else {
-            ch.velocity = ch.velocity.lerp(target_v, k);
-        }
+            cur.length() + (want.length() - cur.length()) * k
+        };
+        let heading = if want.length() > 0.05 {
+            let to = want.normalize();
+            let angle = heading.angle_between(to);
+            let (fast, slow) = if ctl.free_run { (TURN_RATE_FREE, TURN_RATE_FREE_NEAR) } else { (TURN_RATE, TURN_RATE_NEAR) };
+            let near = ((angle - TURN_BAND_IN) / (TURN_BAND_OUT - TURN_BAND_IN)).clamp(0.0, 1.0);
+            let rate = slow + (fast - slow) * near;
+            let step = (rate * dt).min(angle);
+            let axis = if heading.cross(to).y >= 0.0 { Vec3::Y } else { Vec3::NEG_Y };
+            if angle > 1e-4 { Quat::from_axis_angle(axis, step) * heading } else { to }
+        } else {
+            heading
+        };
+        ch.velocity = heading * speed + Vec3::Y * ch.velocity.y;
         let v = ch.velocity;
-        if v.length() > 0.2 {
-            let face = Quat::from_rotation_arc(Vec3::NEG_Z, Vec3::new(v.x, 0.0, v.z).normalize());
-            tf.rotation = tf.rotation.slerp(face, 1.0 - (-8.0 * dt).exp());
+        if v.with_y(0.0).length() > 0.05 || want.length() > 0.05 {
+            tf.rotation = Quat::from_rotation_arc(Vec3::NEG_Z, heading);
         }
         // Running: vault a low obstacle ahead, and jump off an edge (AC1's free running).
         // (Free running, from a standstill too, the stick held: AC1's free-run target jump only asks for the stick
@@ -1314,11 +1488,18 @@ pub fn locomotion(
                 let sprint = ctl.speed > SPRINT_SPEED || ctl.free_run;
                 WallClimb::perch(lib, &level, &r, ctl.move_dir, sprint, lead_left, Some(ch.anim_pose.clone()))
             });
-            ch.wall = low.or_else(|| edge.then(|| WallClimb::leap_of_faith(lib, &level, &tf, v, Some(ch.anim_pose.clone()))).flatten()).or_else(|| {
-                // (Aimed by the stick too: landed on a post, the body still went the way of the last jump, and the jump on
-                // to a post off to the side went that way, found nothing and fell.)
-                edge.then(|| WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, lead_left, Some(ch.anim_pose.clone()))).flatten()
-            });
+            // (Then, with no jump target ahead, a leap of faith or a haystack below the edge: AC1 searches those only when its
+            // candidates found nothing, audit HAY-10.)
+            let blind = edge && !WallClimb::has_jump_target(&level, tf.translation, toward);
+            ch.wall = low
+                .or_else(|| blind.then(|| WallClimb::leap_of_faith(lib, &level, &tf, v, Some(ch.anim_pose.clone()))).flatten())
+                .or_else(|| blind.then(|| WallClimb::into_hay(lib, &level, &tf, true, Some(ch.anim_pose.clone()))).flatten())
+                .or_else(|| {
+                    // (Aimed by the stick too: landed on a post, the body still went the way of the last jump, and the jump on
+                    // to a post off to the side went that way, found nothing and fell.)
+                    edge.then(|| WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, lead_left, Some(ch.anim_pose.clone())))
+                        .flatten()
+                });
             if ch.wall.is_some() {
                 ch.velocity = Vec3::ZERO;
                 continue;
@@ -1351,12 +1532,22 @@ pub fn locomotion(
         // (The fall starts at the edge line, the feet past it: AC1's ground loss, `HumanGround__CheckGroundLoss`, not the
         // capsule sliding off the rim.)
         if let Some(g) = level.ground(tf.translation, 0.6, 20.0) {
-            if tf.translation.y > g.point.y + 0.6
+            if tf.translation.y > g.point.y + crate::climb::EDGE_STEP_DROP
                 && ch.fall_v == 0.0
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
             {
-                // Off a ledge: an animated fall (lands, catches holds, or drops into hay).
-                ch.wall = crate::climb::WallClimb::falling(lib, &tf, ch.velocity, Some(ch.anim_pose.clone()));
+                // Off a ledge: AC1's edge jump at a target there (either profile, the stick and the facing within 45 degrees
+                // of the way off), else an animated fall (lands, catches holds, or drops into hay).
+                let v = ch.velocity.with_y(0.0);
+                let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+                let stick = ctl.move_dir.with_y(0.0).normalize_or_zero();
+                let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
+                let off = v.length() > 0.5 && stick.dot(facing) > std::f32::consts::FRAC_1_SQRT_2;
+                ch.wall = off
+                    .then(|| crate::climb::WallClimb::edge_jump(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, lead_left, Some(ch.anim_pose.clone())))
+                    .flatten()
+                    .or_else(|| off.then(|| crate::climb::WallClimb::step_off(lib, &level, &tf, v, ctl.high, lead_left, Some(ch.anim_pose.clone()))).flatten())
+                    .or_else(|| crate::climb::WallClimb::falling(lib, &tf, ch.velocity, Some(ch.anim_pose.clone())));
                 if ch.wall.is_some() {
                     ch.velocity = Vec3::ZERO;
                     continue;
@@ -1379,16 +1570,50 @@ pub fn locomotion(
                 let axis = l.axis().with_y(0.0).normalize_or_zero();
                 axis == Vec3::ZERO
                     || axis.dot(way).abs() > 0.866
-                    || (still && (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15)
-                    // (Running in high profile across a beam that ends the floor, a step down past it: AC1 runs onto it; over a
-                    // drop it stops at the edge, the ledge stop.)
-                    || (ctl.high && !still && {
+                    // (Not a roof's parapet beam, floor level beside it: halted at a roof's edge in low profile, AC1 stands
+                    // on the roof and looks down, audit EXTRA-1; ours stepped onto the beam.)
+                    || (still && (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15 && {
                         let q = l.closest(tf.translation);
-                        [0.5, 0.8].iter().all(|&d| {
-                            level.ground(q + way * d, 0.3, BEAM_EDGE_DROP).is_none() && level.ground(q + way * d, 0.3, BEAM_EDGE_DROP_MAX).is_some()
-                        })
+                        let side = axis.cross(Vec3::Y);
+                        [side, -side].iter().all(|s| level.ground(q + *s * 0.35 + Vec3::Y * 0.2, 0.0, 0.5).is_none())
                     })
+                // (Not running across a beam that ends the floor, a step down past it: AC1 runs over it as ground and
+                // steps off the far side, `WallClimb::step_off`, as off the bureau's roof south.)
             };
+            // (Running across a rim beam ending the floor: AC1's edge jump at a target past it first. Not over a drop the
+            // ledge stop takes, in high profile not free running: off the bureau's roof east the running game stopped at
+            // the edge, the street 8 m down, where ours jumped onto a beam 4.5 m below.)
+            // (The drop as the ledge stop measures it: a beam's top more than 2 m down counts.)
+            let ledge_stop_drop = ctl.high && !ctl.free_run && {
+                let p = tf.translation + way * 0.8 + Vec3::Y * 0.2;
+                level.ground(p, 0.0, LEDGE_STOP_DROP).is_none_or(|g| p.y - g.point.y > 2.0 && level.perch_at(g.point, 0.2).is_some())
+            };
+            if ch.fall_v == 0.0
+                && !floor_on
+                && !still
+                && !ledge_stop_drop
+                && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some_and(|(i, _)| {
+                    let axis = level.perches[i].axis().with_y(0.0).normalize_or_zero();
+                    axis != Vec3::ZERO && axis.dot(way).abs() < 0.5
+                })
+                && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(way) > std::f32::consts::FRAC_1_SQRT_2
+                && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
+                && let Some(w) = crate::climb::WallClimb::edge_jump(
+                    lib,
+                    &level,
+                    &tf,
+                    &ch.rig,
+                    &ch.base,
+                    ch.climb_rig,
+                    ch.velocity.with_y(0.0),
+                    ch.animator.as_ref().is_none_or(|a| a.lead_left()),
+                    Some(ch.anim_pose.clone()),
+                )
+            {
+                ch.wall = Some(w);
+                ch.velocity = Vec3::ZERO;
+                continue;
+            }
             if ch.fall_v == 0.0
                 && !floor_on
                 && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some_and(|(i, _)| along(i))
@@ -1602,6 +1827,12 @@ pub fn animate(
             if let Some((layer, w)) = a.lower_pose(&ch.base) {
                 layered(&mut pose, &layer, w, rig, &[b.legs[0].upper, b.legs[1].upper]);
             }
+        }
+        // (A fade back to the ground is stale once a move plays again: the move fades in from the pose shown itself, and
+        // the old pose under it, across a root the move has turned, flips the blend half way (audit ANIM-1: the hands
+        // jumped 0.9 m going from the ledge stop into the pull-down).)
+        if ch.wall.is_some() {
+            ch.exit_fade = None;
         }
         if let Some((from, t, len)) = &mut ch.exit_fade {
             *t -= dt;
