@@ -371,6 +371,9 @@ const HANG_CORNER_UP: f32 = 1.06;
 /// far onto it (m).
 const VAULT_STANDING_SPEED: f32 = 1.9;
 const VAULT_STEP_IN: f32 = 0.4;
+/// A wall hang's root rests this far out from the wall's face at its own height (m), eased there this fast (m/s).
+const HANG_WALL_OUT: f32 = 0.50;
+const HANG_SETTLE_SPEED: f32 = 0.6;
 /// The wall hang's shimmy steps (m): the first from a catch, then each one after.
 const SHIMMY_FIRST: f32 = 0.23;
 const SHIMMY_STEP: f32 = 0.43;
@@ -431,7 +434,8 @@ const EASE_TURN: f32 = 0.25;
 const WALL_RUN: [&str; 3] = ["xx_h_wallingfront_entry_footl_a", "xx_h_wallingfront_entry_footl_b", "xx_h_wallingfront_step1_footr"];
 const WALL_RUN_FALL: &str = "xx_h_wallingfront_step1_footr_tr_fall";
 /// How fast the wall run's kick off the top carries him away from the wall (m/s; `xx_h_rebound_footr_tr_fall`'s root).
-const REBOUND_OFF_SPEED: f32 = 1.7;
+/// (AC1 averaged 2.3 m/s off the top of `wall0`, landing 0.65 m out; ours at 1.7 landed 0.45 m out: audit WALL-7.)
+const REBOUND_OFF_SPEED: f32 = 2.3;
 /// And down (m/s; the same clip's 3 m in 0.47 s).
 const REBOUND_DROP_SPEED: f32 = 6.4;
 /// The wall run's top with nothing to grab and the legs held: the kick off backwards (AC1, seen in the running game).
@@ -663,8 +667,6 @@ enum BeamStance {
 pub const PERCH_REACH: f32 = 0.3;
 /// Running jumps are steered onto a perch they would land within this of.
 const PERCH_MAGNET: f32 = 1.2;
-/// Perch-to-perch jumps reach this far.
-const PERCH_JUMP: std::ops::Range<f32> = 0.8..4.5;
 /// With no target, the free step off a beam goes when there is a floor this far on (m), at most `PERCH_FREE_STEP_DROP`
 /// below.
 const PERCH_FREE_STEP_ON: [f32; 3] = [2.0, 2.5, 3.0];
@@ -672,6 +674,11 @@ const PERCH_FREE_STEP_DROP: f32 = 1.2;
 /// AC1's free step with no target: launched this fast on and up (m/s).
 const FREE_STEP_SPEED: f32 = 5.4;
 const FREE_STEP_UP: f32 = 1.0;
+/// An eject goes the stick's way past this length, at most `EJECT_MAX_TURN` off straight out, none past `EJECT_REFUSE`
+/// (rad).
+const EJECT_STICK_DEAD: f32 = 0.3;
+const EJECT_MAX_TURN: f32 = 89.0 * std::f32::consts::PI / 180.0;
+const EJECT_REFUSE: f32 = 135.0 * std::f32::consts::PI / 180.0;
 /// An eject with no target flies at AC1's free-jump target, this far along (m) and this far down (m) (Banned445's
 /// `jump_off_wall_entry`, "the ledge rule; verified live"; audit WALL-12), leaving at `EJECT_UP` up (m/s).
 const EJECT_FREE_ALONG: f32 = 8.0;
@@ -718,10 +725,10 @@ const CATCH_BEHIND_COS: f32 = -0.5;
 const CATCH_SIDE_REACH: f32 = 1.2;
 /// A jump with no target is weighted for a level one this far ahead (m).
 const FREE_JUMP_DIST: f32 = 2.5;
-/// A jump with no target comes down at this (m/s²) until falling at `FREE_JUMP_FAST` (m/s), then under gravity: the
-/// running game's, measured off a Damascus roof (one jump: 20 m/s², about 8.5 m/s).
+/// A jump with no target comes down at this (m/s²) until falling at `FREE_JUMP_FAST` (m/s), held there till its free
+/// target, then under gravity: the running game's, measured off Damascus roofs (20 m/s², about 8 m/s).
 const FREE_JUMP_GRAVITY: f32 = 20.0;
-const FREE_JUMP_FAST: f32 = 8.5;
+const FREE_JUMP_FAST: f32 = 8.0;
 /// The way over a jump must be clear this high (m) above the higher of its two ends.
 const JUMP_AC1_CLEAR: f32 = 0.6;
 /// At this speed (m/s, the sprint) the reception is all its quick version.
@@ -755,6 +762,9 @@ const JUMP_HOLD_HANG: f32 = 0.9;
 const JUMP_HOLD_FREE_HANG: f32 = 2.1;
 /// ...this far in from the hold's ends (m), for both hands.
 const JUMP_HOLD_INSET: f32 = 0.35;
+/// Ground this far under a jump's takeoff, then a top rising this much over it, is a dip jumped across (m).
+const JUMP_DIP: f32 = 0.4;
+const JUMP_DIP_RISE: f32 = 0.3;
 /// A top jumped to may be up to 3 m below and 1.3 m above (AC1's candidate scorer and its jump bands for a top, via
 /// Banned445's AC1-Movement-Rewritten).
 const JUMP_TARGET_RISE: std::ops::RangeInclusive<f32> = -3.0..=1.3;
@@ -1740,10 +1750,22 @@ fn jump_target_within(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>,
     for turn in [0.0f32] {
         let d = Quat::from_rotation_y(turn) * dir;
         let mut gap = false;
+        // (A dip counts as a gap: ground more than `JUMP_DIP` under the takeoff, then a top rising over it, a platform
+        // across a stretch of floor; AC1's query sees the platform's edge. Only tops over the dip count past it, not the
+        // floor beyond a thin wall.)
+        let mut dip: Option<f32> = None;
         for k in 2..=(reach.end() / 0.25) as usize {
             let t = k as f32 * 0.25;
             match level.ground(from + d * t, 1.2, JUMP_TARGET_DEEP + 0.2) {
                 None => gap = true,
+                Some(g) if !gap && g.point.y < from.y - JUMP_DIP && dip.is_none_or(|y| g.point.y < y + JUMP_DIP_RISE) => {
+                    dip = Some(dip.map_or(g.point.y, |y| y.min(g.point.y)));
+                }
+                Some(g) if !gap && dip.is_some_and(|y| g.point.y > y + JUMP_DIP_RISE) => {
+                    let _ = g;
+                    gap = true;
+                }
+                Some(g) if dip.is_some_and(|y| g.point.y <= y + JUMP_DIP_RISE) => {}
                 // (Room to stand over it, and not inside a block: a probe starting inside one finds the floor under it,
                 // and looking up from there meets the block's roof from below.)
                 // (Not a beam's top: beams are targets by their own rule above.)
@@ -2155,11 +2177,6 @@ impl WallClimb {
 
     /// A running jump aimed at the best place to land ahead (`jump_target`: a post, a beam, a top across a
     /// gap), flying an arc that comes down on it; with none, the plain running jump.
-    /// Something to jump to from `from` along `dir` (a post, a beam, a top across a gap): see `jump_target`.
-    pub fn jump_target_ahead(level: &Level, from: Vec3, dir: Vec3) -> bool {
-        jump_target(level, from, dir, None).is_some()
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn jump_aimed(
         lib: &mut AnimLib,
@@ -2925,7 +2942,25 @@ impl WallClimb {
         let away = normal.with_y(0.0).normalize_or_zero();
         // (The stick's right as he faces the wall.)
         let right = (-away).cross(Vec3::Y);
-        let way = if input.x.abs() > 0.5 { right * input.x.signum() } else { away };
+        // The stick's own way (AC1's `jump_off_wall_dir`, Banned445's port, audit WALL-13): straight out with none, turned
+        // in to 89 degrees off straight out when it points further round, none past 135 (ours snapped to out, left or
+        // right).
+        let stick = right * input.x - away * input.y;
+        let way = if stick.length() < EJECT_STICK_DEAD {
+            away
+        } else {
+            let d = stick.normalize();
+            let angle = d.angle_between(away);
+            if angle > EJECT_REFUSE {
+                return None;
+            }
+            if angle > EJECT_MAX_TURN {
+                let side = (d - away * d.dot(away)).normalize_or_zero();
+                (away * EJECT_MAX_TURN.cos() + side * EJECT_MAX_TURN.sin()).normalize()
+            } else {
+                d
+            }
+        };
         let p = root.translation;
         let top = jump_target_within(level, p, way, None, EJECT_REACH, false);
         // A hold to hang from that way (a beam's end, a ledge), as near as the top and higher: AC1's scorer takes the hang
@@ -4013,7 +4048,16 @@ impl WallClimb {
         // (`ConstrainRootMotionToBeam`), crouched there; free running goes on to jump from the end.
         let end = if cy.dir.dot(line.axis()) > 0.0 { line.b } else { line.a };
         let beyond = level.ground(end + cy.dir * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8);
-        if !self.sprint && !beyond && (end - q).with_y(0.0).dot(cy.dir) < BEAM_END_STOP {
+        // (In every profile: AC1's `ConstrainRootMotionToBeam` holds the root 0.3 m short of a free end; free running, the
+        // jump on takes off from there, audit NARROW-19. Ours ran to the very end first.)
+        if !beyond && (end - q).with_y(0.0).dot(cy.dir) < BEAM_END_STOP {
+            let dir = cy.dir;
+            if self.sprint {
+                root.translation = q;
+                if self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir) {
+                    return;
+                }
+            }
             debug!("climb: stopped short of the beam's end at {:.2}", root.translation);
             stop(self, lib);
             return;
@@ -4102,7 +4146,17 @@ impl WallClimb {
     /// walkable top at about this height, else just off it.
     fn perch_jump(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3) -> bool {
         let from = root.translation;
-        let to = jump_target(level, from, dir, self.perch).filter(|q| PERCH_JUMP.contains(&(*q - from).with_y(0.0).length()));
+        // (Any reach the narrow-object zone allows: ours cut it to 0.8-4.5 m, audit JUMP-7.)
+        let to = jump_target(level, from, dir, self.perch);
+        // (A swing bar ahead no further than the target first: AC1's scorer takes the hang target first, as running jumps
+        // do.)
+        let flat = |q: Vec3| (q - from).with_y(0.0).length();
+        if let Some(q) = bar_ahead_within(level, from, dir, PERCH_BAR_RISE)
+            && to.is_some_and(|t| flat(q) <= flat(t))
+            && self.jump_at_bar(lib, root, q)
+        {
+            return true;
+        }
         // To a target: AC1's free-step jump, the takeoff group by the way it goes off the facing (sideways or back off a
         // post without turning first: the takeoff turns the body).
         if let Some(to) = to
@@ -4947,7 +5001,8 @@ impl WallClimb {
         // seen in the running game off the bureau's wall run, back onto a beam's end 3 m behind and right onto one beside.
         let right = (-out).cross(Vec3::Y);
         let side = if want == Vec3::ZERO { 0.0 } else { want.dot(right) };
-        let input = Vec2::new(if side.abs() > 0.5 { side.signum() } else { 0.0 }, -1.0);
+        // (The way wanted as the hang's stick: right along the wall, down away from it.)
+        let input = if want == Vec3::ZERO { Vec2::new(0.0, -1.0) } else { Vec2::new(side, -want.dot(out)) };
         if let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, input.x > -0.5, self.last.clone()) {
             debug!("climb: wall run eject ({phase})");
             *self = w;
@@ -6093,7 +6148,11 @@ impl WallClimb {
         let Some(v) = &mut self.fall_v else { return };
         // (A free jump comes down harder until it falls at `FREE_JUMP_FAST`: off the Damascus bureau's roof the running
         // game's went from 1.9 to 8.6 m/s down in 0.33 s past its top, and ours, under gravity, landed 1.3 m further.)
-        let g = if self.free_jump && v.y < 0.0 && v.y > -FREE_JUMP_FAST { FREE_JUMP_GRAVITY } else { GRAVITY };
+        // (A free jump flies at its target 3 m down: falling, it comes down at `FREE_JUMP_GRAVITY` to `FREE_JUMP_FAST` and
+        // holds that speed till it is 3 m under its top, then falls under gravity; the running game's levelled off at
+        // about 8 m/s for 0.3 s before its free target, three times, where ours went on to 11 m/s: audit AIR-5.)
+        let to_target = self.free_jump && self.fall_top - root.translation.y < FREE_JUMP_DOWN;
+        let g = if to_target && v.y < 0.0 { if v.y > -FREE_JUMP_FAST { FREE_JUMP_GRAVITY } else { 0.0 } } else { GRAVITY };
         v.y -= g * dt;
         let flat = v.with_y(0.0);
         // Walls stop the flight, at the chest or the knees (a low jump must not slide into a block).
@@ -6678,6 +6737,16 @@ impl WallClimb {
         }
         if self.dead {
             return;
+        }
+        // A wall hang at rest sits AC1's way out from the wall: its root 0.50 m from the face at its own height (the running
+        // game's hangs on `wall1` and `hay70`, 0.49 and 0.52 m, where ours sat 0.68 and 0.47 m out: audits LEDGE-8,
+        // WALL-20), eased there.
+        if matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.mv.is_none() {
+            let n = self.normal.with_y(0.0).normalize_or_zero();
+            if let Some(h) = level.raycast(root.translation, -n, HANG_WALL_OUT + 0.5).filter(|h| h.normal.y.abs() < 0.5) {
+                let err = h.dist - HANG_WALL_OUT;
+                root.translation -= n * err.clamp(-HANG_SETTLE_SPEED * dt, HANG_SETTLE_SPEED * dt);
+            }
         }
         // In the hay at rest: turned to the haystack's own facing as the wait starts (AC1's wait turns him, HAY-2), the
         // fade from the pose shown turned back by it; the settle counted (HAY-5).

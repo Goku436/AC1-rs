@@ -838,9 +838,9 @@ const GAIT_RESYNC: f32 = 1.5;
 /// cast, 0.58 m); further down is a fall.
 const STICK_TO_GROUND: f32 = 0.58;
 
-/// Free running jumps at a target off a drop at least this deep (m): a seam in a roof or a step down is run over, not
-/// jumped (a fence's top, 1 m, is jumped from).
-const FREE_RUN_JUMP_DROP: f32 = 0.8;
+/// Free running jumps off an edge this close ahead (m) with a drop past it deeper than this (m).
+const FREE_RUN_EDGE_AHEAD: f32 = 0.25;
+const FREE_RUN_EDGE_DROP: f32 = 0.5;
 /// Free running grabs or runs up a wall this close ahead (m).
 const FREE_RUN_REACH: f32 = 1.5;
 /// ...probed this high over the feet (AC1's wall test for the wall run, 0xE18390: 1.5 m out at 1.3 m up, as Banned445's
@@ -938,13 +938,13 @@ pub fn locomotion(
             ctl.toggle_climb = true;
             ctl.grab_only = true;
         }
-        // Free running into a wall: run up it or grab on, as if the legs button were pressed.
-        // (From the run, as the press: from a stand AC1 waits for the legs' release, the tap jump at the wall.)
-        // (Past the tap window: a press let go within it is AC1's tap jump, the free run never started.)
+        // Free running into a wall: run up it or grab on, as if the legs button were pressed, at any speed (the running
+        // game ran back up `wall0` from a slow walk after each landing). (Past the tap window: a press let go within it is
+        // AC1's tap jump, the free run never started.)
         if ctl.free_run && !ctl.legs_fresh && ch.wall.is_none() {
             let v = ch.velocity.with_y(0.0);
             let dir = ctl.move_dir.with_y(0.0).normalize_or_zero();
-            if v.length() > STOP_SPEED
+            if v.length() > 0.5
                 && dir != Vec3::ZERO
                 && level.raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, dir, FREE_RUN_REACH).is_some_and(|h| h.normal.y.abs() < 0.3)
             {
@@ -1432,23 +1432,15 @@ pub fn locomotion(
         {
             ch.velocity -= n * ch.velocity.with_y(0.0).dot(n).max(0.0);
         }
-        // After a ledge stop, still pushing at the edge (within 70 degrees of it, AC1's pull-down event): down onto it,
-        // into the hang (AC1's `xx_l_ledge_stop_start_footl_pulldown_front_orientation`, seen in the running game).
+        // After a ledge stop has played out, pushing at the edge again (within 70 degrees of it): walked back up to it, where
+        // the ledge stop starts again and pushing through its start pulls down (AC1, Banned445's port: the pull-down only
+        // at a new stop's start, audit EXTRA-15; ours pulled down at once from 0.5 m back).
         if let Some(n) = ch.edge_lock
             && !ctl.free_run
             && ctl.move_dir.normalize_or_zero().dot(n) >= PULL_DOWN_STICK_COS
-            && ch.velocity.with_y(0.0).length() < 0.5
-            && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
-            && let Some(w) = crate::climb::WallClimb::pull_down(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, false, Some(ch.anim_pose.clone()))
+            && ch.wall.is_none()
         {
-            ch.wall = Some(w);
             ch.edge_lock = None;
-            ch.velocity = Vec3::ZERO;
-            // (Not the ledge stop's fade back to the ground still going under it: the pull-down fades in from the pose
-            // shown itself, and the stop's pose faced the other way round the turned root, the blend flipping half way
-            // (the hands jumped 0.9 m in one frame).)
-            ch.exit_fade = None;
-            continue;
         }
         // After a ledge stop, hold back from the edge until steering away or free running.
         if let Some(n) = ch.edge_lock {
@@ -1507,13 +1499,17 @@ pub fn locomotion(
             // (Not against a wall at the knees: a low wall or a planter is vaulted or stopped at, not jumped from, else the
             // jump starts into it and drops back, over and over.)
             let clear = level.raycast(tf.translation + Vec3::Y * 0.3, dir, 0.6).is_none_or(|h| h.normal.y.abs() > 0.5);
+            // (Free running, AC1's own edge (0xEE7DCE, Banned445's port, audit JUMP-5): a drop of over 0.5 m within 0.25 m
+            // ahead, target or not (the free jump with none). Ours looked 0.6 m ahead, leaving 0.13-0.31 m before the
+            // running game, and wanted 1.2 m of drop or a target past 0.8 m.)
             let edge = on_ground
                 && clear
-                && (v.length() > SPRINT_SPEED || ctl.free_run)
-                && (level.ground(tf.translation + dir * 0.6, 0.8, 1.2).is_none()
-                    || (ctl.free_run
-                        && level.ground(tf.translation + dir * 0.6, 0.3, FREE_RUN_JUMP_DROP).is_none()
-                        && WallClimb::jump_target_ahead(&level, tf.translation, dir)));
+                // (A drop that goes on past a crack: the seams between Damascus roofs are run over, the running game's.)
+                && ((ctl.free_run
+                    && [FREE_RUN_EDGE_AHEAD, FREE_RUN_EDGE_AHEAD + LEDGE_STOP_CRACK]
+                        .iter()
+                        .all(|d| level.ground(tf.translation + dir * *d, 0.3, FREE_RUN_EDGE_DROP).is_none()))
+                    || (v.length() > SPRINT_SPEED && level.ground(tf.translation + dir * 0.6, 0.8, 1.2).is_none()));
             // Free running steps or jumps onto a low obstacle; otherwise running stops against it or glances off.
             // (Toward where the stick points: sliding along a wall, the body's own velocity runs along it.)
             let toward = target_v.with_y(0.0).try_normalize().map_or(v, |d| d * v.length().max(if starting { RUN_VAULT_SPEED } else { 0.0 }));

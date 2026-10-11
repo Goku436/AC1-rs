@@ -471,7 +471,9 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["vault", "jump"],
         env: &[("AC1_START", "-20,-24.5,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-14"), ("AC1_LEGS", "0-14")],
         secs: 12.0,
-        want: &["jump onto 0.60 m", "jump onto 1.00 m"],
+        // (Free running off the 0.6 m box's far edge, a 0.6 m drop: AC1's edge jump (over 0.5 m, within 0.25 m), the free
+        // jump with no target, over the thin wall; then on along the lane's tops. Ours dropped off it and vaulted the wall.)
+        want: &["jump onto 0.60 m", "running jump aimed at [8.", "running jump aimed at [16."],
         never: &["EMBED", "passover"],
     },
     Scenario {
@@ -636,8 +638,10 @@ const SCENARIOS: &[Scenario] = &[
             "caught bar 4",
             "steering onto the perch at [-79.20, 1.50",
             "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a at [-79.",
-            "perch -> jump via xx_h_beam_pilotis_tr_impultionstraight_a at [-79.20",
-            "landed from 0.4 m",
+            // (On to the platform 2.35 m off by the free-step jump at it: the perch's jumps reach as far as AC1's zone 7
+            // allows, audit JUMP-7; ours' 0.8-4.5 m cut had it jump blind.)
+            "free-step jump aimed at [-76.8",
+            "_tr_freestep_entry_footr at [-77.3",
         ],
         never: &["EMBED"],
     },
@@ -679,7 +683,8 @@ const SCENARIOS: &[Scenario] = &[
         secs: 12.0,
         // (Off the boxes AC1's step off, and off the 2 m platform its free jump, 8 m on and 3 m down (audits AIR-6, JUMP-1):
         // over the next box, down to the ground.)
-        want: &["jump onto 0.60 m", "step off the edge", "tr_hangknee_131cm_footl"],
+        // (Off each box's edge free running, AC1's edge jump; then the jumps along the platforms.)
+        want: &["jump onto 0.60 m", "running jump aimed at [-75.", "running jump aimed at [-68."],
         never: &["EMBED"],
     },
     Scenario {
@@ -833,7 +838,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
         ],
         secs: 5.0,
-        want: &["xx_h_hangwall_strafe_left_050cm", "rebound off the wall at [49.", "via xx_h_rebound_right_", "_tr_freestep_entry_footl at [49.10, 8.0"],
+        want: &["xx_h_hangwall_strafe_left_050cm", "rebound off the wall at [49.", "via xx_h_rebound_right_", "_tr_freestep_entry_footl at [49.1"],
         never: &["EMBED"],
     },
 ];
