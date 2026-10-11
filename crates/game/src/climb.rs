@@ -834,6 +834,10 @@ const STEP_UP_MAX: f32 = 0.85;
 /// component toward the landing over `CORNER_HOP_TOWARD` (m: AC1's 0.766 against the un-normalised offset).
 const CORNER_HOP_COS: f32 = 0.766;
 const CORNER_HOP_TOWARD: f32 = 0.766;
+/// AC1's anti-stuck nudge in the air: under this speed (m/s) for this long (s), nudged; the push with no spot (m/s).
+const STUCK_SPEED: f32 = 0.25;
+const STUCK_TIME: f32 = 0.5;
+const STUCK_PUSH: f32 = 3.0;
 /// The swing jump at a top lands this far in from where the way meets it (m).
 const SWING_TOP_IN: f32 = 0.5;
 /// AC1's stick classes on a beam (`ClassifyStickDir` 0xF76150), by the angle from the facing: forward under 75 degrees
@@ -998,6 +1002,9 @@ pub struct WallClimb {
     flung: bool,
     /// This air stay has rebounded off a wall it met.
     air_rebounded: bool,
+    /// In the air and held still (s), and how many anti-stuck nudges so far (AC1's `HumanInAir__AntiStuckNudge`).
+    stuck: (f32, u32),
+    stuck_from: Vec3,
     /// A ground move that follows the stick (a turn round): broken off when the stick lets go of this
     /// direction (world), turns away from it, or the legs are pressed.
     pub steer: Option<Vec3>,
@@ -2018,6 +2025,8 @@ impl WallClimb {
             edge_landed: false,
             flung: false,
             air_rebounded: false,
+            stuck: (0.0, 0),
+            stuck_from: Vec3::ZERO,
             steer: None,
             catch_below: None,
             blended_for: None,
@@ -6564,6 +6573,34 @@ impl WallClimb {
         if v.y > 0.0 && level.ceiling(root.translation, v.y * dt) {
             debug!("climb: a ceiling stops the rise at {:.2}", root.translation);
             v.y = 0.0;
+        }
+        // AC1's anti-stuck nudge (`HumanInAir__AntiStuckNudge` 0xE0B1E0, Banned445's `falls.rs`, audit AIR-14): held
+        // still in the air (under 0.25 m/s of real motion) for 0.5 s, on to the first of four spots 0.5 m ahead, left,
+        // right or behind (0.15 m up) where the body fits; from the third nudge, or with no spot, a 3 m/s push.
+        let moved = (root.translation - self.stuck_from).length() / dt.max(1e-4);
+        self.stuck_from = root.translation;
+        self.stuck.0 = if moved < STUCK_SPEED { self.stuck.0 + dt } else { 0.0 };
+        if self.stuck.0 >= STUCK_TIME {
+            self.stuck.0 = 0.0;
+            self.stuck.1 += 1;
+            let f = flat.normalize_or(root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(Vec3::NEG_Z);
+            let side = f.cross(Vec3::Y);
+            let p = root.translation;
+            // (Clear of walls, and not under a floor: no surface in the 0.5 m over the spot.)
+            let fits = |q: Vec3| level.capsule_push(q).length() < 0.02 && level.ground(q + Vec3::Y * 0.5, 0.0, 0.5).is_none();
+            let spot = (self.stuck.1 < 3).then(|| [f, -side, side, -f].into_iter().map(|d| p + d * 0.5 + Vec3::Y * 0.15).find(|q| fits(*q))).flatten();
+            let push = match spot {
+                Some(q) => (q - p) / STUCK_TIME,
+                None => {
+                    // (A push its own way each time: AC1's is random.)
+                    let a = self.stuck.1 as f32 * 2.4;
+                    Vec3::new(a.cos(), 0.0, a.sin()) * STUCK_PUSH
+                }
+            };
+            debug!("climb: stuck in the air at {p:.2}: nudged {push:.2}");
+            v.x = push.x;
+            v.z = push.z;
+            v.y = v.y.max(push.y);
         }
         let v = *v;
         let step = v * dt;
