@@ -26,7 +26,7 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
@@ -208,7 +208,12 @@ fn main() {
     let cam = env_f32s("AC1_CAM").unwrap_or_default();
     let script = script_from(&|k| std::env::var(k).map_err(|_| ()));
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin { primary_window: Some(game_window()), ..default() }))
+        // (The controller only with `AC1_PAD=1`: Bevy's gamepad backend takes the pad over even with the window in the
+        // background, from every copy the tests start, and another game could not use it.)
+        .add_plugins({
+            let plugins = DefaultPlugins.set(WindowPlugin { primary_window: Some(game_window()), ..default() });
+            if std::env::var("AC1_PAD").is_ok() { plugins } else { plugins.disable::<bevy::gilrs::GilrsPlugin>() }
+        })
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.82)))
         // (Bright sky fill: faces under hoods and walls in shade read as in AC1, not black.)
@@ -234,6 +239,7 @@ fn main() {
         .init_resource::<Eagle>()
         .init_resource::<recorder::Recorder>()
         .init_resource::<pad::PadStick>()
+        .add_systems(Update, place_background_window.run_if(|| std::env::var("AC1_BACKGROUND").is_ok() && std::env::var("AC1_WINDOW_AT").is_err()))
         .add_systems(Update, pad::log_connected)
         .add_systems(
             Update,
@@ -310,8 +316,33 @@ fn game_window() -> Window {
     if env_f32s("AC1_WINDOW_AT").is_some() {
         return Window { focused: false, ..window };
     }
-    let position = bevy::window::WindowPosition::Centered(bevy::window::MonitorSelection::Index(1));
-    Window { position, focused: false, window_level: bevy::window::WindowLevel::AlwaysOnBottom, ..window }
+    // (Made hidden, and shown once `place_background_window` has put it on a monitor other than the main one: asked for
+    // by index, winit had no monitors yet as the window was made and left it in front on the main screen.)
+    Window { focused: false, visible: false, window_level: bevy::window::WindowLevel::AlwaysOnBottom, ..window }
+}
+
+/// In the background (`AC1_BACKGROUND`, no `AC1_WINDOW_AT`): move the hidden window to the centre of a monitor that is
+/// not the main one (the main one if there is no other) once the monitors are known, then show it.
+fn place_background_window(
+    mut frames: Local<u32>,
+    monitors: Query<(&bevy::window::Monitor, Has<bevy::window::PrimaryMonitor>)>,
+    mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
+) {
+    let Ok(mut w) = windows.single_mut() else { return };
+    if w.visible {
+        return;
+    }
+    *frames += 1;
+    let mons: Vec<_> = monitors.iter().collect();
+    if mons.is_empty() && *frames < 60 {
+        return;
+    }
+    if let Some((m, _)) = mons.iter().find(|(_, primary)| !primary).or(mons.first()) {
+        let (ww, wh) = (w.resolution.physical_width() as i32, w.resolution.physical_height() as i32);
+        let at = m.physical_position + IVec2::new(((m.physical_width as i32 - ww) / 2).max(0), ((m.physical_height as i32 - wh) / 2).max(0));
+        w.position = bevy::window::WindowPosition::At(at);
+    }
+    w.visible = true;
 }
 
 /// The test scripts' clock (`AC1_*` hooks and `AC1_SHOT_SECS`): game time, stepped at most 0.05 s a frame as

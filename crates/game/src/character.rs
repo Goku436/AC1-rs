@@ -810,6 +810,10 @@ const TURN_FLIP_SHORT: f32 = 0.08;
 /// The limb IK's weight rises this fast (/s) with a contact and falls this fast once released: 0.25 s in, 0.2 s out
 /// (AC1's `LimbIK__SolveEffectors` 0xE57570, Banned445). Both the climbing hands and feet and the ground's feet.
 const IK_IN_RATE: f32 = 4.0;
+/// The ground's foot IK: standing slower than this (m/s), fading in over `FOOT_IK_IN` and out over `FOOT_IK_OUT` (s).
+const FOOT_IK_STILL: f32 = 0.05;
+const FOOT_IK_IN: f32 = 0.2;
+const FOOT_IK_OUT: f32 = 0.6;
 const IK_OUT_RATE: f32 = 5.0;
 /// How fast a climbing hand's pull onto a hold may change (per second).
 const HAND_IK_RATE: f32 = 6.0;
@@ -843,6 +847,8 @@ const HAY_WALK_IN: f32 = 0.4;
 /// Moving toward a ladder's foot, from this close out in front of it (m), gets on.
 /// (AC1: 0.6 m, the stick within 90 degrees of it; the running game got on 0.61 m from ladder 68: audit LADDER-1.)
 const LADDER_AUTO_REACH: f32 = 0.6;
+/// ...or from its top, from this far in from its edge (m: AC1's feet within 1.5 m of the top).
+const LADDER_TOP_REACH: f32 = 1.5;
 /// Getting up to a speed over `RUN_START_MIN` (m/s), the body speeds up at `RUN_ACCEL` (m/s²).
 const RUN_START_MIN: f32 = 2.5;
 const RUN_ACCEL: f32 = 13.0;
@@ -908,10 +914,12 @@ pub fn locomotion(
             && level.ladders.iter().any(|l| {
                 let d = tf.translation - l.base;
                 let side = l.out.cross(Vec3::Y);
+                let stick = ctl.move_dir.with_y(0.0).normalize_or_zero();
                 d.dot(side).abs() < 0.5
-                    && (0.0..LADDER_AUTO_REACH).contains(&d.dot(l.out))
-                    && (tf.translation.y - l.base.y).abs() < 0.4
-                    && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(-l.out) > 0.0
+                    && (((0.0..LADDER_AUTO_REACH).contains(&d.dot(l.out)) && (tf.translation.y - l.base.y).abs() < 0.4 && stick.dot(-l.out) > 0.0)
+                        // (Or at its top, the stick out over it: the same event's top entry, no button; ours wanted the
+                        // legs there, audit LADDER-9.)
+                        || ((tf.translation.y - l.top).abs() < 0.4 && (-LADDER_TOP_REACH..0.2).contains(&d.dot(l.out)) && stick.dot(l.out) > 0.7))
             })
         {
             ctl.toggle_climb = true;
@@ -925,9 +933,7 @@ pub fn locomotion(
             let dir = ctl.move_dir.with_y(0.0).normalize_or_zero();
             if v.length() > STOP_SPEED
                 && dir != Vec3::ZERO
-                && level
-                    .raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, dir, FREE_RUN_REACH)
-                    .is_some_and(|h| h.normal.y.abs() < 0.3 && crate::climb::wide_wall(&level, tf.translation + Vec3::Y * FREE_RUN_PROBE, dir, h.dist))
+                && level.raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, dir, FREE_RUN_REACH).is_some_and(|h| h.normal.y.abs() < 0.3)
             {
                 ctl.toggle_climb = true;
                 ctl.grab_only = true;
@@ -1129,7 +1135,8 @@ pub fn locomotion(
                                 .flatten()
                         });
                         // A ladder's foot or top: onto it (before the edge it stands at).
-                        ch.wall = ch.wall.take().or_else(|| WallClimb::ladder(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, pose()));
+                        let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
+                        ch.wall = ch.wall.take().or_else(|| WallClimb::ladder(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, ctl.high, lead_left, pose()));
                         ch.wall = ch.wall.take().or_else(|| WallClimb::monkey_bars(lib, &level, &tf, pose()));
                         ch.wall = ch.wall.take().or_else(|| {
                             wall_run_now(v, ctl.free_run, &wall_ahead)
@@ -2027,11 +2034,12 @@ pub fn animate(
             ch.wall_foot_w = [0.0; 2];
         }
 
-        // --- Animated: AC1 clip + foot placement onto the level. Also through the moves made standing on the ground (a stop,
-        // a turn on the spot, leaning on a wall), and faded in and out at `IK_IN_RATE` / `IK_OUT_RATE` where it starts or stops (off
-        // and on at once, the feet popped by its correction at every move's seam).
-        let feet_down = animated && !climbing && ik_on && ch.wall.as_ref().is_none_or(|w| w.legs_on_ground());
-        ch.foot_ik_w = if feet_down { (ch.foot_ik_w + dt * IK_IN_RATE).min(1.0) } else { (ch.foot_ik_w - dt * IK_OUT_RATE).max(0.0) };
+        // --- Animated: AC1 clip + foot placement onto the level, standing still only (AC1's `IKGroundBiped` 0x432AC0: at
+        // a speed of 0.001 or less, linear fades in over 0.2 s and out over 0.6 s once moving; Banned445's port, audit
+        // ANIM-12; ours ran it through every gait and ground move). (AC1 also gates it by the playing action's flag 8:
+        // ours keeps the ground moves out of it.)
+        let feet_down = animated && !climbing && ik_on && ch.wall.is_none() && ch.velocity.with_y(0.0).length() < FOOT_IK_STILL;
+        ch.foot_ik_w = if feet_down { (ch.foot_ik_w + dt / FOOT_IK_IN).min(1.0) } else { (ch.foot_ik_w - dt / FOOT_IK_OUT).max(0.0) };
         let foot_w = smooth(ch.foot_ik_w);
         if foot_w > 0.0
             && let Some(fp) = &mut ch.foot_ik

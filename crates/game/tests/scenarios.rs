@@ -147,6 +147,14 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "waitturn"],
     },
     Scenario {
+        name: "standing on a post, the legs tapped with no stick: AC1's impulsion, straight up and back onto it",
+        tags: &["beam", "jump"],
+        env: &[("AC1_START", "38.6,0,-90,3"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "1.0-1.6")],
+        secs: 3.5,
+        want: &["crouched to jump straight up", "straight up off the perch", "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a"],
+        never: &["EMBED", "landed from 2", "-> ground"],
+    },
+    Scenario {
         name: "running onto the beam to B4 at 15 degrees: onto it once, along it, off its end (it flickered ground/perch)",
         tags: &["beam", "ground"],
         env: &[("AC1_START", "57.5,32.06,-90,5"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_STEER", "-15")],
@@ -274,12 +282,12 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "not in AC1's move graph", "landed from -"],
     },
     Scenario {
-        name: "free running at the 1.4 m passover wall: AC1's wall run over it, a hand on its top, and down",
+        name: "free running at the 1.4 m thin wall: AC1's wall run onto its top (no pass-over: audit WALL-19), and off",
         tags: &["wallrun", "jump"],
         env: &[("AC1_START", "-18,-34,0"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-4"), ("AC1_LEGS", "0-4")],
         secs: 3.5,
-        want: &["wall run over the 1.40 m wall", "via xx_h_passover_handl_030cm_tr_fall", "landed from 1."],
-        never: &["EMBED", "landed from -"],
+        want: &["tr_hangknee_131cm_footl", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl", "-> land via"],
+        never: &["EMBED", "landed from -", "passover"],
     },
     Scenario {
         name: "passover over a 4.4 m drop: over the wall and round into the wall hang on its far side",
@@ -405,7 +413,7 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "free running past hiding spot A in high profile runs on, not into the hay",
         tags: &["hay", "ground"],
-        env: &[("AC1_START", "13.5,-12.5,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-2"), ("AC1_LEGS", "0.5-2")],
+        env: &[("AC1_START", "13.5,-12.5,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-2"), ("AC1_LEGS", "0-2")],
         secs: 2.5,
         want: &[],
         never: &["into the haystack"],
@@ -491,6 +499,14 @@ const SCENARIOS: &[Scenario] = &[
         secs: 2.5,
         want: &["waitturn_left_090", "let go mid-turn: ends in xx_l_waitturn_left_090_footl_tr_l_wait_hipm_footl"],
         never: &[],
+    },
+    Scenario {
+        name: "walking out over block L's ladder at its top: onto it and down, no button (AC1's top entry, low profile)",
+        tags: &["ladder"],
+        env: &[("AC1_START", "23.5,-6.48,180,5"), ("AC1_WALK", "1.5")],
+        secs: 4.0,
+        want: &["onto ladder 1", "via xx_l_wait_hipm_foot", "_tr_ladder_pulldown", "xx_ladder_pulldown_tr_l_ladder_wait_r_a"],
+        never: &["EMBED", "landed from"],
     },
     Scenario {
         name: "ladder to the top",
@@ -662,7 +678,7 @@ const SCENARIOS: &[Scenario] = &[
         secs: 12.0,
         // (Off the boxes AC1's step off, and off the 2 m platform its free jump, 8 m on and 3 m down (audits AIR-6, JUMP-1):
         // over the next box, down to the ground.)
-        want: &["jump onto 0.60 m", "step off the edge", "wall run over the 1.40 m wall", "_030cm_tr_fall"],
+        want: &["jump onto 0.60 m", "step off the edge", "tr_hangknee_131cm_footl"],
         never: &["EMBED"],
     },
     Scenario {
@@ -740,10 +756,9 @@ const SCENARIOS: &[Scenario] = &[
         env: &[("AC1_START", "-98,114,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-14"), ("AC1_LEGS", "0-14"), ("AC1_CLIMB", "nograb,wait=3,leap-up=8")],
         secs: 12.0,
         want: &[
-            "wall run over the 1.40 m wall",
-            // (Its first hold row, 2.39 m, is under AC1's catch height for a wall run, 1 m over the feet at the end of
-            // its step: the 2.99 m row, its 251 and 430 cm catches blended.)
-            "tr_hangwall_251cm_000cm_a",
+            // (Onto the thin wall's top, then AC1's free jump off it catches the wall of holds in the air.)
+            "tr_hangknee_131cm_footl",
+            "-> 2m via xx_fall_tr_climb_min_b",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
             "running jump aimed at [-79.00, 2.00, 114.00]",
             "freestep_down_tr_freestep_entry",
