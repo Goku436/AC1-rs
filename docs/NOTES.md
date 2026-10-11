@@ -100,14 +100,16 @@ body in some clips) whichever way round stays nearest the last frame (the shorte
 
 Ground moves (AC1's `HumanGround`, played as clip chains with root motion, then back to walking; the clips' paths are
 flat, so the stops and landings follow the ground's height, kept for the rest of the move, up a ramp too):
-- letting go of the direction while running stops (`xx_h_runstop_<foot>` + `_tr_h_wait_hipm`, sprinting
-  `xx_h_sprintstop_<foot>`; steering again breaks it off); reversing while running turns round with AC1's run
-  turn-around (actions 0x5e/0x5f, `xx_h_runturn180_<foot>`: the facing flips as it starts and the body comes round in
+- letting go of the direction while running stops (AC1's run stop, the run and sprint stops mixed by the speed value,
+  locked: steering does not break it off); in high profile reversing past 135 degrees plays the run stop, then the
+  skid turn (actions 0x5e/0x5f, `xx_h_runturn180_<foot>`: the facing flips as it starts and the body comes round in
   the clip), then on into the jog or walk (0x60/0x61, `_tr_<jog|walk>_hipm_<foot>`), or, the stick let go, into its
-  stand (0x68/0x69, `_tr_h_wait_hipm_<other foot>`); standing, steering more than 45 degrees off the
+  stand (0x68/0x69, `_tr_h_wait_hipm_<other foot>`); standing, steering more than 90 degrees off the
   facing turns on the spot, a quarter or a half turn to that side (`xx_<l|h>_wait_hipm_<foot>_to_<l|h>_waitturn_
   <left|right>_<090|180>_<foot>`: AC1 ships all four, in both profiles, from either foot), then into the walk (low
-  profile) or jog (high). Only the turn itself plays: AC1's move graph goes from it straight into the walk, jog, run or
+  profile) or jog (high), the quarter and half turns mixed by the angle, through the turn's own `_tr_<l_walk|h_jog>` exit
+  (AC1's pivot item and its transition, audits GROUND-4, GROUND-5; what follows describes the older code). Formerly:
+  only the turn itself played: AC1's move graph goes from it straight into the walk, jog, run or
   sprint, so the gait the stick asks for takes over as it ends (on the turn's foot, as the graph has it), and in high
   profile the turn breaks off into the run once it and the stick are within 30 degrees (the `_tr_<gait>` exits that
   walk off forward are not used). Turns follow the stick: steering during one bends it toward the stick (up to 4 rad/s on top
@@ -126,8 +128,10 @@ flat, so the stops and landings follow the ground's height, kept for the rest of
   (stops, turns, landings, rolls) stop at an edge with more than 0.6 m below, as at a wall, rather than walk off it;
 - walking at an edge with more than 5 m below stops at it (`xx_h_ledge_stop_start_footl`, `_end_footl`,
   `_end_tr_h_wait_footr`) and holds back from it until steering away or free running; standing at an edge with more
-  than 2 m below looks down over it (`xx_l_ledge_lookdown_front_<foot>` as the idle);
-- low profile + legs at an edge with a hold along it (or the legs standing there in high profile) pulls down onto it,
+  than 2 m below, halted at it in low profile for 0.25 s, looks down over it
+  (`xx_l_ledge_lookdown_<front|left|right>_<foot>` mixed by the edge's side, as the idle);
+- the empty hand at an edge with a hold along it (pressed within 0.2 s), or pushing through the ledge stop's start,
+  pulls down onto it,
   and down on the stick then climbs down the wall's holds and steps off at the bottom: the root faces the wall throughout while the
   body starts turned round (`xx_l_ledge_<stop_start_footl|lookdown_front>_pulldown_front_orientation`, which steps
   back over the edge), `xx_l_ledge_pulldown_soft_front`, then `_to_hangwall_straight_a/b` (feet on the wall) or
@@ -339,7 +343,7 @@ swing (`xx_h_swing_cycle_<front|back>_<up|down>`) and Space flings off at the ne
 pushing on) flings on its own, so a run goes through a row of bars hands-free as in AC1. Only bars lying across the
 way (within 60 degrees of square) are caught: a pole along the path is not swung on. A flight whose knees meet an
 edge with its top at most 0.7 m over the feet (the next roof, a parapet) lands on that top instead of being stopped
-against it. Running-jump takeoffs leave at 5 m/s at most. Ladders (block L, south of the course): Space at the foot climbs on, W/S climb 0.5 m a step
+against it. Running-jump takeoffs leave at 5 m/s at most. Ladders (block L, south of the course): walking into the foot (or out over the top) climbs on, W/S climb 0.5 m a step
 (`xx_l_ladder_climb_<up|down>_<l|r>` between `xx_l_ladder_wait_l/r`), it climbs off at the top or steps off at the
 bottom, Space at the top edge climbs down onto it (`xx_h_wait_hipm_footl_tr_ladder_pulldown`), Space on it lets go.
 Hanging on a wall with a ladder beside, sideways goes across onto it (`xx_l_climbing_1m_tr_l_ladder_wait_*`,
@@ -460,8 +464,9 @@ no code):
 - Haystack: `EntityDescriptorObject_HayStack`, `BhvHayStack(Data)`, `HumanHayStackData`, actor state
   `InHayStack`, entry types `Top`, `Ground`, `FreeStep`, `SideJump` (only Top is recreated).
 - Leap of faith: actor state `LeapOfFaith`, `LeapOfFaithClip` resolved on jump start/end.
-- Landing: `LandingType` Safe / SmallDamage / HeavyDamage / Fatal: the damage landing from 3 m (no health lost: small damage's limit is the largest float, `HumanInAir`'s constructor 0xE0FE80), heavy over 6.3 m (10 health), fatal over 7 m (200)
-  of drop from the top of the fall (the game's landing function, as Banned445's AC1-Movement-Rewritten reads it).
+- Landing: `LandingType` Safe / SmallDamage / HeavyDamage / Fatal: the damage landing from 3 m; the player's damage is
+  the flagged mode's fixed table (over 8 m 10, 10 m 20, 12 m 40, 14 m 80, 16 m 120, 18 m 160, fatal over 20 m, of 200);
+  the 6.3 / 7 m limits of `HumanInAir`'s constructor 0xE0FE80 are the non-player default (audit AIR-1, AIR-18).
 - In-air jump types: `JumpType_Straight`, `JumpType_1m`, `JumpType_3m5m`.
 
 ## Format notes (forge v25)
@@ -619,7 +624,7 @@ space, the variants of one move mixed by weight. AC1 fits its moves to the world
 - run stops: jog, run and sprint stops by speed; leans: hands at 70 and 150 cm by the wall's height;
 - climbing entries and grabs by height (`hangknee_131cm`/`200cm`, `150cm`/`200cm`), passing over by depth
   (`passover_030cm`/`100cm`), `hangwall_tr_hangknee` by angle (straight, 45 in, 30 out), take-offs by direction.
-Items also give blend-in times (0.2 s mostly), where the root motion comes from (the clip, physics, or steered:
+Items also give blend-in times (a NONE kind, a cut, for 86% of items; audit ANIM-15), where the root motion comes from (the clip, physics, or steered:
 entries are steered), the feet at start and end, and transitions to other actions. Which action plays when is
 partly code, partly data.
 
@@ -716,7 +721,7 @@ line-up of every type stands south of the flow lane (`AC1_NPCS` in scripted runs
 
 ## Viewpoints
 Cities place viewpoint towers and spires as entity groups named `ReachHighPoint_*` (and one entity with a
-`ReachHighPointComponent`); the sync spot is the highest beam or post end on it. Damascus has 12. Eagle Vision (Q)
+`ReachHighPointComponent`); the sync spot is the highest beam or post end on it. Damascus has 12. Eagle Vision (E)
 marks them with gold columns. A viewpoint's entity sits partway up its tower, so the spot is lifted to the top above it.
 Standing on one, the legs do the leap of faith to its nearest hay whichever way Altaïr faces (up to 12.8 m out; AC1
 builds each viewpoint over its hay). The high dive (`..._3000cm_down`) is used only where nothing is under its 8 m
@@ -750,7 +755,8 @@ end onto another going on from it (within 0.45 m, 35 degrees) walks on along it.
 balancing on it, and free running carries on along or off it.
 
 ## City parkour objects
-Hay, benches and the ladders and poles of cities without authored ones have no data of their own: they are found by mesh name when a city is placed, and
+Benches, and the ladders and poles of cities without authored ones, are found by mesh name (haystacks and hiding
+spots have components of their own, not yet read, audit GUIDE-7; they take the entity's position and facing): they are found by mesh name when a city is placed, and
 set up against the built collision (`Level::add_city_objects`), logged as "N haystacks, N ladders, ...":
 - hay: `Hay_Bale_Charette*`, `Hay_Bale_Chariot*`, `Hay_Bale_01` (not the straw strewn on the ground, `Hay_Bale_Tile*`).
   Their meshes use a vertex format not decoded yet, so a cart's stack stands where its entity is (1.8 x 1.8 m, 1.8 m

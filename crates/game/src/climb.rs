@@ -101,17 +101,17 @@
 //! `xx_h_collide_full_footl_<050|070>cm_*` chain mixed by height) or jumps onto it (higher), and runs on along
 //! its top. AC1 has no vault: its `passover` clips (`HumanLedge`) go over a ledge's edge downward.
 //!
-//! Ladders: Space at the foot of one plays `xx_l_wait_hipm_footl_tr_l_ladder_climb_up_r` onto it, with
+//! Ladders: walking into the foot of one plays `xx_h_wait_hipm_footl_tr_h_ladder_climb_up_r` onto it, with
 //! the rungs 0.44 m in front of the root; the hands are in one of two configurations, `xx_l_ladder_wait_l`
 //! / `_r`, and `xx_l_ladder_climb_<up|down>_<l|r>` move 0.5 m from one to the other; in high profile the
 //! `xx_h_` set climbs 1 m a step. Near the top `xx_l_ladder_climb_up_<l|r>_tr_l_wait_hipm_foot<l|r>_a/b` climbs off
 //! onto it (+1 m up and forward; high: `xx_h_ladder_climb_up_<l|r>_tr_freestep_foot<l|r>_a/b` runs off); at the
-//! bottom `xx_<l|h>_ladder_climb_down_<l|r>_tr_<l|h>_wait_hipm_foot<r|l>` steps off. The legs with the stick pulled
-//! back rebound off it backwards (`xx_h_ladder_wait_<l|r>_tr_rebound_foot<l|r>`). This is `HumanLadderData`'s table
+//! bottom `xx_<l|h>_ladder_climb_down_<l|r>_tr_<l|h>_wait_hipm_foot<r|l>` steps off. The legs in high profile
+//! jump off it backwards (`xx_h_ladder_wait_<l|r>_tr_rebound_foot<l|r>`). This is `HumanLadderData`'s table
 //! of the actions AC1's code asks for (docs/NOTES.md "What the executable's code asks for").
-//! From the top, Space at the ladder's edge turns and climbs down onto it
-//! (`xx_h_wait_hipm_footl_tr_ladder_pulldown`, `xx_ladder_pulldown_tr_l_ladder_wait_r_a/b`). Space on the
-//! ladder lets go (`xx_l_ladder_wait_<l|r>_tr_falling`).
+//! From the top, walking out over it turns and climbs down onto it (`xx_<l|h>_wait_hipm_<foot>_tr_ladder_pulldown`,
+//! `xx_ladder_pulldown_tr_<l|h>_ladder_wait_r_a/b`). The empty hand on the ladder lets go
+//! (`xx_l_ladder_wait_<l|r>_tr_falling`). From the air a ladder is caught (`xx_fall_tr_ladder_min_a/b`).
 //!
 //! Kiosk frames (monkey bars): Space under the end of one jumps up to it
 //! (`xx_h_kiosk_freestep_footr_tr_monkeybar_footr`, +1.9 m forward), `xx_h_kiosk_monkeybar_footr` swings
@@ -3669,7 +3669,7 @@ impl WallClimb {
         true
     }
 
-    /// Low profile at the edge of a drop, the legs pressed: lower onto the edge and hang from it (turning
+    /// At the edge of a drop, the empty hand (or pushing through the ledge stop): lower onto the edge and hang from it (turning
     /// round over it, `xx_l_ledge_pulldown_soft_front`, then `_to_hangwall_straight_a/b` with the feet on the wall below,
     /// or `_front_to_hangfree_a/b`). Needs a hold along the edge; the chain is steered so the hands end on it.
     #[allow(clippy::too_many_arguments)]

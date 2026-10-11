@@ -21,7 +21,7 @@
 //! - translations, millimetres: `20` u32 `[x:11][y:11][z:10]` signed; `24` i16 x3; `1c` f32 x3 (m)
 //! - scalar byte channels (facial, events): `2c`, `34`, `38`; `28` f32, the camera clips' field of view (radians)
 //!
-//! Hash 0 tracks are root motion (translation + rotation); hash 2/3 are event channels. Voice-line clips (`vo_*`, 16 of
+//! Hash 0 tracks are root motion (translation + rotation); hash 2 is the limb-contact (actuator contacts) track, hash 3 an event channel (audit ANIM-15). Voice-line clips (`vo_*`, 16 of
 //! them) have a duration and no track table: read as clips without tracks.
 
 use crate::u32_at;

@@ -7,19 +7,20 @@
 //! (held, it leaps up a wall hold to hold and climbs over the top). Shift is the empty hand: a gentle push,
 //! by a scholar a pickpocket, on a wall let go. (Combat is left out for now.) P free camera (WASD fly along the view, Space/E up, Ctrl/Q down,
 //! Shift faster; P again returns to Altaïr),
-//! On a wall WASD climbs, Space + WASD leaps, S at the bottom steps off, Shift lets go. On the ground a Space
-//! press jumps only in high profile with a direction and only at a target (a top, post, beam, hold, thin wall to go
-//! over or bar; AC1's `JumpToGuidanceTarget`, the press held 0.3 s), or runs up a wall when sprinting at it;
-//! standing or in low profile it only grabs what is in reach (a wall, up to a ledge, a ladder, a bar). E is the head
+//! On a wall WASD climbs, Space + WASD leaps, S at the bottom steps off, Shift lets go. On the ground (AC1's buttons):
+//! Space pressed in high profile at run speed runs up a wall ahead; let go within 0.3 s it is the tap jump (high
+//! profile, moving: at a target, else the leap of faith or a haystack, else AC1's free jump; standing, the static
+//! jump); in low profile it only sits on a bench. Shift (the empty hand) climbs onto a wall, pulls down over an edge,
+//! and held in a fall catches a hold. E is the head
 //! (Eagle Vision), C centres the camera, as AC1's default keys (`DefaultBindings.map` and the manual). Free
 //! running into a wall grabs or runs up it at any speed; running vaults low walls and sprinting jumps off edges
 //! on its own; on a post Space jumps to the next one, on a beam a direction walks along it; on a swing bar Space
 //! lets go at the next forward swing (S held drops); on a ladder W/S climb, Shift lets go; Space under a kiosk
 //! frame swings
 //! across it. Pulling up onto a post or at the end of a wall uses one hand (pillars P and Q behind block A).
-//! Ground moves: run stops, turning round, turns on the spot, ledge stops and looking down at big drops, low
-//! profile + Space at an edge pulls down onto it, running into a tall wall leans on it, rolls off high landings,
-//! Space by a haystack hides in it (platform E and its haystacks, north of block D).
+//! Ground moves: run stops, turning round, turns on the spot, ledge stops and looking down at big drops, the empty
+//! hand at an edge pulls down onto it, running into a tall wall leans on it, rolls off high landings, walking into a
+//! haystack dives in (platform E and its haystacks, north of block D).
 //! F1 toggle IK, F2 skeleton,
 //! F3 IK targets, F6 pause the pose gallery and NPC line-up (they only move near the camera anyway), F12 screenshot,
 //! [ / ] step through every AC1 clip in the library (Backspace returns to locomotion).
@@ -116,7 +117,7 @@ struct Script {
     stick: bool,
     /// Go limp (the ragdoll) at this time.
     limp: Option<f32>,
-    /// Press the head button (Q) at this time.
+    /// Press the head button (E) at this time.
     eagle: Option<f32>,
     /// Walking: let go of the direction at this time, or turn it round.
     stop: Option<(f32, f32)>,
@@ -1013,7 +1014,7 @@ fn place_labels(
 /// Labels further than this from the camera are hidden (m).
 const LABEL_RANGE: f32 = 40.0;
 
-/// AC1's head button (Q): at a viewpoint, synchronize (the camera sweeps round Altaïr); elsewhere, held,
+/// AC1's head button (E): at a viewpoint, synchronize (the camera sweeps round Altaïr); elsewhere, held,
 /// Eagle Vision (the world dims and guards show red, the crowd pale blue).
 #[derive(Resource, Default)]
 struct Eagle {

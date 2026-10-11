@@ -112,7 +112,8 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   lower → the foot collide `collide_full_footl_{050,070}cm`, blended by height; the root moves 0.15 s to the contact
   + 0.4·h. Leaving: along the stick, [back, side] blended by angle, × height × [walk, jog]. **[B, ours: `collide`]**
 - **Edges**: the ledge stop (event 69, only for a drop over 5 m), the low-profile halt within 0.16 m (normal within
-  70°), look down (event 119: a LedgeGrab edge within 0.6 m, not behind, more than 2 m of drop), the pull-down
+  70°), look down (event 119: latched by the low-profile halt held 0.25 s, the edge within 0.16 m, more than 2 m of drop;
+mixed front / left / right by the edge's side), the pull-down
   (event 70: an edge within 0.8 m ahead, normal along the facing, more than 2 m of drop). **[B]**
   Seen in the running game (Damascus, the route library): running in high profile to a roof's end that is a beam over a
   0.1 m crack, the next roof 0.74 m below, AC1 ran over the beam and stepped off it 1.07 m on in 0.27 s (`roof2_run_south`);
@@ -176,7 +177,8 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   - **68**, when no jump was just started (+0x112F): an edge report → sent at once (handled by a sub-state; with the
     +0x112B flag set it is sent with 1.0).
   - **70, pull-down**: an edge report and the playing item allowing it (bit 4 of the move mask), then either the legs
-    held 0.2 s (button 3, 0xED4A20) or the stick within 70° (1.2217 rad) of the edge; otherwise the interpreter only
+    pressed within the last 0.2 s (button 3, the empty hand, 0xED4A20) or the stick within 70° (1.2217 rad) of the edge;
+    otherwise the interpreter only
     marks the frame (+4 = 0x1D).
   - The **jump** asks the playing item too (bit 0 of the mask) before `JumpToGuidanceTarget`. The mask is checked only
     when the item has its flag 0x14 & 2 (0xEF0320), against the current item and the one blending out.
@@ -273,16 +275,22 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - **Arrival** (0xE07D00): free step → the reception `<flight>_tr_freestep_entry_foot?[_fast]` (0x010DE1FE /
   0x010DF150), into the run, walk, wait or the beam; wall hang → `xx_h_air_surface_tr_hangwall_reception_*` (action 0x011FF16A: **[V]** 0xE02790 weights its six clips by the wall's lean under the edge, measured about the body's side: leaning out → `straight` to `30_out` (full at 30°), sloping in → `straight` to `45_in` (full at 45°); the `max` set for a jump over 6 m or a second measure over 2.5, else `min`; the clips carry no yaw); free
   hang → the swing reception; post / beam → their mounts (0xE50190, 0xE52AD0). **[B, ours]**
-- **Ground landing** (`HumanInAir__SetupToGround_Landing` 0xE05940): the drop from the apex; over 3 m the damage
-  landing (`xx_h_landing_damage_footl`, or `_roll` when moving) with a camera shake of (drop − 3)/7; heavy over 6.3 m,
-  fatal over 7.0 m (0xE00FE0; **[V]** its limits are `HumanInAir` fields set by its constructor 0xE0FE80: small damage at the largest float, so from 3 m to 6.3 m only the animation, no health; heavy costs 10 health, fatal 200; a flagged mode (+0xE2 & 8) uses a fixed table instead, 10-20 m in 2 m steps costing 20-160). Up to 3 m: moving with the stick within 75° of the motion → the forward landings
+- **Ground landing** (`HumanInAir__SetupToGround_Landing` 0xE05940): over 3 m of drop from the jump or fall's start
+  the damage landing (`xx_h_landing_damage_footl`, or `_roll` with the stick held) with a camera shake of (drop − 3)/7.
+  Damage: the player is the flagged mode (+0xE2 & 8): a fixed table, over 8 m 10, 10 m 20, 12 m 40, 14 m 80, 16 m 120,
+  18 m 160, fatal over 20 m (of 200); the 6.3 / 7.0 m limits (0xE00FE0) are the non-player default (audit AIR-1, AIR-18).
+  Up to 3 m: forward when the impact velocity comes in within 75° of level, else straight (not by the stick, AIR-15)
   (`landing_forward_{soft,hard}`, by the speed bucket [< 0.2, < 0.5, < 0.9, else] into walk, jog or sprint impulsion,
-  or into the wait when slow); no stick → the straight landings. **[B, ours]**
-- **Catching** while falling (0xE0A990 / 0xE0AC70): a hand box 0.4 × 0.3 m, edges within 70°, reach +1.4 m (ledge) /
-  +1.95 m (wall); posts and beams are caught too (0xE0BB70). **[B]**
+  or into the wait when slow). **[B, ours]**
+- **Catching** while falling (0xE0A990 / 0xE0AC70): a hand box 0.4 × 0.3 m, edges within 70°, reach +1.4 m (the ledge
+  search, giving the wall hang when the feet find the wall) / +1.95 m (the free-hang search); posts and beams are caught
+  too (0xE0BB70); ladders (0xE04100); the knee catch (`xx_fall_tr_hangknee_*`); the edge landing (a lip with a drop past
+  it: `xx_fall_step_off_*`, no landing). **[B, ours]**
 
 ## 6. Jump targets
-- AC1 always jumps at a target. The candidates are scored by `0xE96BF0`: within 45° of the wanted direction, no lower
+- AC1 always jumps at a target; with no candidate it builds the free-jump target (0xB1E7F0: 8 m on, 3 m down) and
+  jumps at it, flying the beam set's `xx_h_beam_air_*` (audit JUMP-1, JUMP-11). The candidates are scored by
+  `0xE96BF0`: within 45° of the wanted direction, no lower
   than 3 m down, the **highest** first, then the nearest. **[B]**
   **[V]** More exactly, the scorer keeps a best candidate per kind (by the candidate's type bits): free-step targets
   (type 1, or 0x10000 with sub-type 2) the **nearest**; the hang-type ones (type bits 0x80 with sub-types 0x10/0x20)
@@ -290,7 +298,8 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   **highest**. At the end a hang-type best wins over the nearest free-step one when it is at least as high and either
   nearer or 2.5 m higher (target type 0x80 returned); else the free-step one. So onto tops, posts and beams AC1 jumps
   at the nearest in the cone, not the highest.
-- The candidates are guidance: LedgeGrab edges facing the player (a roof edge: land 0.45 m in from it if at most
+- The candidates are guidance: LedgeGrab edges facing the player (a roof edge: land just in from it (ours 0.05 m,
+  measured; Banned445's 0.45 m is his placeholder; the blend aims 0.5 m short, the reception carrying the rest) if at most
   1.3 m up; a ledge to hang from if higher, wall hang when a wall is under it, else free), thin wall tops (passover),
   beams, posts, ladders, bars. **[B: a reduced port; the game's own candidate list (IHuman vt56/64/68) is not
   traced]**
@@ -354,7 +363,8 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - Moves are discrete (new hand targets, the root interpolated over the clip): shimmy with alternating hands (free
   space swept with a 0.15 m sphere over 1.55 m; step = min(d − 0.4, 1.0 − hand spacing), blocked under 0.7 m, at
   least 0.15 m); up/down: into the climb when foot holds 1.2 m below exist, else a hand step to a ledge 0.6-1.2 m
-  away, else the hop up into a free hang (0xDD62A0), else the pull-up if there is room (0xDE2270); corners
+  away, else the swing back up to a ledge out from the wall (0xDD62A0, `hangwall_to_swingback_up_*`, ending in a free
+  hang), else the pull-up if there is room (0xDE2270); corners
   (0xDD3BB0), side jumps between ledges (0xDDD490); lost ledge (0xDD20D0) → InAir. **[B]**
 - Hang → climb: `xx_h_hang{wall,free}_{u,d}_climb_1m` and the sideways `{ul,l,dl,ur,r,dr}` variants (0xDD46A0,
   0xDD48B0). **[B]**
@@ -385,15 +395,14 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   Damascus → 1141 perches). **[V]**
 
 ## 9. Wall run, ladders, hay, swing bars
-- **Wall run over a thin wall** **[ours, AC1's clips]**: a top 1.3-2.5 m up, at most 1.2 m deep with a drop of 0.5 m
-  or more beyond: the run up, `xx_h_wallingfront_entry_footl_tr_passover_<131|200>cm_handl` (to 2 m, from the entry) or
-  `xx_h_wallingfront_step1_footr_tr_passover_<201|250>cm_handr` (from the first step), blended by height, into
-  `xx_h_passover_<hand>_<030|100>cm` (7° off) and its fall, the root carried past the far edge.
+- **Wall run over a thin wall**: removed 2026-10-10. AC1's walling classifier (0xE341D0) never returns the pass-over
+  class, so the `xx_h_wallingfront_*_tr_passover_*` exits are unreachable; a thin wall's top is knelt onto
+  (`tr_hangknee_131cm`) or hung from (audit WALL-19).
 - **Wall run onto a ladder** **[ours]**: sprinting at a wall with a ladder up it, the wall run comes first (as the
   interpreter tests it before the ladder) and ends `xx_h_wallingfront_step1_footr_tr_h_ladder_up_l` (7° from
   `xx_h_ladder_climb_up_l`'s start) on the ladder.
 - **Ladders and haystack boxes** **[V, ours]** (the running game at the Damascus bureau): moving into a ladder's foot
-  from up to 1 m in front gets on with no button. Walking into a haystack's 1.06 m box, AC1 leans on it
+  from 0.6 m in front gets on with no button (the running game: 0.61 m), and walking out over its top too. Walking into a haystack's 1.06 m box, AC1 leans on it
   (`xx_h_collide_full_hand_070cm`), and pushing on 0.2 s climbs onto the rim
   (`xx_h_lean_wait_025cm_twohand_070cm_to_hangknee_footl_070cm`, `_tr_hangknee_footl`, the free-step stand) and
   dives in (`xx_h_freestep_footr_to_haystack_02`). From the hay, the stick toward a side with a drop past it goes out
@@ -523,9 +532,11 @@ ladder (`HumanLadderData`), the ground (the 17-clip move blend, the starts from 
 their action items, landings by AC1's stick / speed rule), beams and posts (starts, jog stop, turns, side entry,
 impulse jumps), jumps (takeoff / flight / reception tables, the edge classification of 0xE18970) and the edge events (as
 the input interpreter sends them). Checked by mapping every action id Banned445's port lists for each context to its
-clips (`forge` example `action_clips`) against the clips our code plays: what is left unplayed is combat's (hurt
-falls, stumbles), other characters' (`cmaa_*`), and the leap of faith's code-driven fall (`xx_h_faith_jump_fall`; ours
-stretches the dive over the whole fall).
+clips (`forge` example `action_clips`) against the clips our code plays: left unplayed are combat's (hurt
+falls, stumbles), other characters' (`cmaa_*`), the leap of faith's code-driven fall (`xx_h_faith_jump_fall`; ours
+stretches the dive over the whole fall), and much of `HumanLedge` (audit LEDGE-15): the hang-type switches
+(`hangwall_tr_hangfree*`, `hangfree_tr_hangwall*`), the wall hang's hand steps (`hangwall_climb_*`), the swing back
+(`hangwall_to_swingback_*`), the wall-free hang (`hangwallfree_*`), `hangfree_strafe_*_000cm_*`.
 
 ## Open questions
 - Whether the player's jumps ever use the navigation meshes' jump links (the candidates come from the guidance).

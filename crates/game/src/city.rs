@@ -21,7 +21,8 @@
 //! holding the ones the city uses, and their materials and textures, are read from it too (Damascus:
 //! 251 of them, 240 meshes, placing 17474 meshes instead of 7362).
 //!
-//! Holds: the city carries no hold data we can read, so they are found in the geometry of buildings
+//! Holds: AC1's own authored guidance is read where the city has it (`Level::use_authored`); without it, they are found
+//! in the geometry of buildings
 //! and walls (not terrain or rocks): every horizontal edge (30 cm or longer) where a walkable top
 //! (normal up) meets a wall below it (normal sideways), convex, becomes a ledge facing out of the
 //! wall: roof edges, wall tops, sills, balconies and beam ends. The climbing moves that grab one
