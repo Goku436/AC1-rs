@@ -1350,8 +1350,11 @@ const SCENARIOS: &[Scenario] = &[
         secs: 17.0,
         want: &[
             "jump up from the climb to the ledge at [114.10, 11.48",
-            "hand steps onto the edge 0.12 up and 0.46 out",
-            "hand steps onto the edge 0.32 up and 0.37 out",
+            // (How far up is measured from the free hang's hands, which ease down to AC1's 2.4 m over the root: 0.12-0.13.)
+            "hand steps onto the edge 0.1",
+            "up and 0.46 out",
+            "hand steps onto the edge 0.3",
+            "up and 0.37 out",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4",
         ],
         never: &["xx_l_climb_1ru_d_1m", "EMBED"],
@@ -1382,6 +1385,43 @@ const SCENARIOS: &[Scenario] = &[
         secs: 3.0,
         want: &["robe cloth: 146 vertices (44 pinned), 253 edges, 6 capsules, AC1's settings", "56 of 56 bone modifiers", "wind: Wind_Masyaf_001"],
         never: &["cloth not read", "drawn skinned"],
+    },
+    // User reports #3-#5 (towers): the octagonal tower east of the city (289, 46), its faces 22-34 degrees apart. Climbing
+    // right off its south face, the climber turns to each angled face its holds are on (AC1 faces its climber along its
+    // holds' wall normals); ours kept facing the south face, the hands on the next face and the body in the air. The
+    // step off sideways onto the 0.25 m cornice band under the W face (fallen off at once) is turned down.
+    Scenario {
+        name: "Damascus octagonal tower: climbing right round its angled faces turns the body to each (user reports #4, #5)",
+        tags: &["climb"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "289.3,42.6,180,16"), ("AC1_CLIMB", "up=8,right=6")],
+        secs: 16.0,
+        want: &["onto holds on a face 34 degrees round, turning to it", "1m -> 2m via xx_l_climb_1m_r_2m at [286.6"],
+        never: &["EMBED", "stepped off the wall sideways"],
+    },
+    // User report #3: the minaret by the viewpoint at (128, -12) (`Minaret_M_02a`, the wooden balcony on its corbel). The jump
+    // up from its shaft hangs him free under the balcony's floor edge; AC1's free hang rests 2.4 m under its hold (ours
+    // 2.1: the hands in the air over it), and the balcony's knobs (0.10-0.19 m guidance pieces, AC1's probes hold them at
+    // their middle, audit GUIDE-2; ours dropped them) take a hand on the way up onto the railing.
+    Scenario {
+        name: "Damascus minaret: from the free hang under the balcony, a hand onto the railing's knob, up onto the railing (user report #3)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "129.3,-18.1,180,17"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-3"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_CLIMB", "nograb,wait=2.5,up=20"),
+        ],
+        secs: 24.0,
+        want: &[
+            "jump up from the climb to the ledge at [129.29, 24.24",
+            "free_open -> free_1lu via xx_h_hangfree_climb_1m_u_1lu",
+            "-> perch via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [129.37, 25.47",
+        ],
+        never: &["EMBED"],
     },
 ];
 

@@ -639,6 +639,23 @@ in this batch, by audit id:
     split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
   - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
     the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
+- **Towers** (user reports #3-#5, 2026-10-12; GUIDE-2):
+  - GUIDE-2: a guidance piece too short to shorten (0.2 m or less, its ends free) holds at its middle, as AC1's probes
+    take one (`sub_116D3C0`, read in Ghidra: shortened 0.1 m at both ends, the midpoint at 2·0.1 + 0.0005 or less);
+    ours dropped them. Damascus: 197,063 holds from 166,951 (8,975 left out as buried). The `Minaret_M_02a` balconies'
+    knobs (0.10-0.19 m pieces at the railing's middle) are among them.
+  - The free hang at rest eases its root 2.4 m under its hold (AC1's `ComputeRootFromHandTargets` 0xDD6730, type 1: the
+    higher hand's target − 2.4); ours ended the moves into it 2.1 m under, the wait clip's wrists 0.2-0.3 m over the
+    hold, the hands in the air, and the hand steps up missed their holds by that much.
+  - A move onto holds on a face 3-60 degrees round from the climber's (an octagonal tower's next face, a round tower's
+    ring) turns the body about the hands to the holds' mean wall normal over the move, and the wall normal with it, as
+    AC1 faces its climber along its holds' normals (`climb_pose`, Banned445's port); ours kept facing the old face.
+  - The step off sideways onto the ground needs room to stand (the body pushed under 0.1 m out of walls): not a tower's
+    0.25 m cornice band, fallen off at once. [ours]
+  - Not changed: from #14's spot (the round tower's pilaster, hands at 26.88) the next hold up is 2.43 m over the hands
+    (29.31) and the ring beside it at 28.71 lies 0.5-0.6 m to either side of the pilaster. AC1's reach up from the climb
+    (0xDF0050: a foot hold 0.8-2.2 m up with a hand hold 1.2 m over it), its grid (rows to 3.3 m over the feet) and its
+    jump up (TryBackEject: an edge 1.5-3.0 m over the feet, 0.3-1.3 m out) find none there either: a live check.
 - **User reports (2026-10-12)**:
   - #1, hiding places: the hop out's room is AC1's `Guard_HopOut` box (half extents 0.35 across, 0.5 along, 0.75 up),
     0.5 m past where the way out leaves the footprint and 1.25 m over what he sits on, the haystack itself left out (its
