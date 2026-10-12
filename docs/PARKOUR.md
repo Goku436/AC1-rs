@@ -530,6 +530,9 @@ in this batch, by audit id:
     free-step jump on out. [ours] The stall's own collision is left out of the kiosk's room and clear-way tests and the
     way over: in Damascus it stands in the way (ours places it about 0.9 m out in front of the counter, a placement still
     to check) where AC1 comes onto the counter. The ground-entered overhead monkey bars are gone.
+  - NARROW-11: on a beam, the empty hand with nothing to pull down onto climbs onto a wall ahead, else to its right or
+    left (event 16 after the pull-down, holds probed 0.95 m ahead or 0.8 m to a side; ours: the ground's climb start
+    turned that way). Test spot G13.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

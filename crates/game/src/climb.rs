@@ -751,6 +751,9 @@ struct KioskRun {
 }
 /// Standing on a perch: within this of its top line.
 pub const PERCH_REACH: f32 = 0.3;
+/// The climb start from a beam probes its holds this far ahead, or to a side (m; event 16, Banned445's port).
+const BEAM_CLIMB_AHEAD: f32 = 0.95;
+const BEAM_CLIMB_SIDE: f32 = 0.8;
 /// Running jumps are steered onto a perch they would land within this of.
 const PERCH_MAGNET: f32 = 1.2;
 /// With no target, the free step off a beam goes when there is a floor this far on (m), at most `PERCH_FREE_STEP_DROP`
@@ -4061,6 +4064,29 @@ impl WallClimb {
         let w = Self::pull_down_onto(lib, level, root, rig, base, cr, ledge, edge, [&names[0], &names[1]], from)?;
         debug!("climb: down off the post to hang ({side})");
         Some(w)
+    }
+
+    /// On a beam (standing or walking), the empty hand with no hold to pull down onto: the climb start onto a wall ahead,
+    /// else to its right, else its left (AC1's event 16: its foot and hand holds probed 0.95 m ahead or 0.8 m to a side,
+    /// then the ordinary climb start; Banned445's port). Ours: the ground's climb start (`try_enter`) turned that way.
+    #[allow(clippy::too_many_arguments)]
+    fn climb_from_beam(&self, lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig) -> Option<WallClimb> {
+        let beam = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() != Vec3::ZERO);
+        if !beam {
+            return None;
+        }
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let right = fwd.cross(Vec3::Y);
+        [(fwd, BEAM_CLIMB_AHEAD), (right, BEAM_CLIMB_SIDE), (-right, BEAM_CLIMB_SIDE)].into_iter().find_map(|(dir, reach)| {
+            // (A wall that way within the probe's reach, at the hands' height.)
+            level.raycast(root.translation + Vec3::Y * 1.2, dir, reach + 0.3).filter(|h| h.normal.y.abs() < 0.3)?;
+            let turned = Transform { rotation: facing(dir), ..*root };
+            let mut w = Self::try_enter(lib, level, &turned, rig, base, cr, false, self.freestep_left, self.last.clone())?;
+            // (Turning there over the start, from the way he stood.)
+            w.ease_in(self.last.clone(), root);
+            debug!("climb: from the beam onto the wall {}", if dir == fwd { "ahead" } else { "beside it" });
+            Some(w)
+        })
     }
 
     /// The pull-down's hang from `ledge` at `edge`: `first` (the turn toward the wall and the lowering), then onto the
@@ -7461,6 +7487,12 @@ impl WallClimb {
                     return;
                 }
                 debug!("climb: no hold to pull down onto from the perch");
+                // (On a beam, then the climb start onto a wall ahead, else to either side: AC1's event 16 after the
+                // pull-down, its holds probed 0.95 m ahead or 0.8 m to a side (Banned445's port, audit NARROW-11).)
+                if let Some(w) = self.climb_from_beam(lib, level, root, rig, base, cr) {
+                    *self = w;
+                    return;
+                }
             }
             self.perch_step(lib, level, root, dt);
             return;

@@ -1322,6 +1322,14 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     walls.cuboid(Vec3::new(-92.8, top(2.0) + 0.8, z - 2.0), Vec3::new(-92.0, top(2.0) + 1.0, z + 2.0));
     hold_rows(strips, level, Vec3::new(-92.8, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &[top(2.0) + 1.0]);
 
+    // G13: a beam run up to a wall with holds up it: standing on the beam, the empty hand climbs onto the wall (AC1's
+    // climb from a beam, event 16).
+    let z = 174.0;
+    walls.cuboid(Vec3::new(-92.0, 0.0, z - 2.0), Vec3::new(-88.0, top(6.0), z + 2.0));
+    hold_rows(strips, level, Vec3::new(-92.0, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &[top(0.0), top(1.0), top(2.0), top(3.0), top(4.0), top(5.0)]);
+    platform(walls, -99.0, -96.0, z, 2.0);
+    beam(walls, level, -96.0, -92.0, z, 2.0);
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -1335,6 +1343,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G10: bar to a wall, climb, roof, down a roof", Vec3::new(-82.0, 5.5, 124.0)),
         ("G11: beam corner hop", Vec3::new(-86.0, 3.5, 154.0)),
         ("G12: the jump up from the climb", Vec3::new(-95.0, 4.0, 164.0)),
+        ("G13: a beam to a wall, climbed from", Vec3::new(-95.0, 4.0, 174.0)),
     ]
 }
 

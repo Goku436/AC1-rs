@@ -613,6 +613,15 @@ const SCENARIOS: &[Scenario] = &[
         never: &["onto kiosk", "EMBED"],
     },
     Scenario {
+        // (Audit NARROW-11: AC1's climb from a beam, event 16, after the pull-down finds nothing.)
+        name: "standing on G13's beam at its wall, the empty hand climbs onto the wall",
+        tags: &["beam", "climb"],
+        env: &[("AC1_START", "-92.7,174,-90,2.5"), ("AC1_HAND", "1.5")],
+        secs: 3.5,
+        want: &["onto perch", "from the beam onto the wall ahead", "via xx_h_wait_hipm_footl_tr_climbing_1m"],
+        never: &["EMBED"],
+    },
+    Scenario {
         // (Audit NARROW-16: AC1's kiosk, a market stall's counter, jumped onto across its front: the entry, one run along
         // the counter and off its end into the air.)
         name: "the tap jump at kiosk K's counter across its front: onto it, along it and off its end",

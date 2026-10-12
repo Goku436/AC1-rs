@@ -1248,6 +1248,8 @@ fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut C
         ctl.push = !ctl.high;
         ctl.hand_drop = character::HAND_DROP_BUFFER;
         ctl.hand_climb = ch.wall.is_none();
+        // (On a wall, a beam or a post, as the key: the hand's let go there.)
+        ctl.toggle_climb |= ch.wall.as_ref().is_some_and(|w| !w.legs_on_ground());
     }
     if let Some(c) = &script.climb {
         // "grab" just grabs; otherwise a list of `dir[=seconds]` (up, down, left, right, `leap-<dir>`, or "drop" to
