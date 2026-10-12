@@ -11,7 +11,7 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
-use crate::settings::{AntiAlias, DetailLevel, FRAME_CAPS, Preset, RESOLUTIONS, Settings, Shadows, TEXTURES, VIEWS, WindowMode, word};
+use crate::settings::{AntiAlias, DetailLevel, FRAME_CAPS, Preset, RESOLUTIONS, Settings, Shadows, TEXTURES, VIEWS, VOLUMES, WindowMode, word};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Which {
@@ -46,6 +46,7 @@ enum Id {
     AntiAlias,
     Fog,
     View,
+    Volume,
     Restart,
     Hosting,
     HostPort,
@@ -184,6 +185,7 @@ fn rows(which: Which, s: &Settings, net: Option<&crate::net::Net>, recording: bo
             out.push(row(Id::AntiAlias, "Anti-aliasing", aa.into(), Kind::Choice));
             out.push(row(Id::Fog, "Fog", on_off(s.fog), Kind::Choice));
             out.push(row(Id::View, "View distance", format!("{} m", s.view), Kind::Choice));
+            out.push(row(Id::Volume, "Sound volume (M mutes)", format!("{} %", s.volume), Kind::Choice));
             if let Some(what) = restart_needed(s) {
                 out.push(row(Id::Restart, &format!("Restart now (for {what})"), String::new(), Kind::Button));
             }
@@ -232,6 +234,7 @@ fn change(id: Id, s: &mut Settings, dir: i32) {
         Id::AntiAlias => s.aa = step(&[AntiAlias::Off, AntiAlias::Fxaa, AntiAlias::Msaa2, AntiAlias::Msaa4], s.aa, dir),
         Id::Fog => s.fog ^= true,
         Id::View => s.view = step(&VIEWS, s.view, dir),
+        Id::Volume => s.volume = step(&VOLUMES, s.volume, dir),
         _ => {}
     }
 }
@@ -582,6 +585,10 @@ mod tests {
         change(Id::Shadows, &mut s, -1);
         assert_eq!(s.preset(), Preset::Custom);
         assert_eq!(step(&VIEWS, 777, 1), VIEWS[0]);
+        change(Id::Volume, &mut s, 1);
+        assert_eq!(s.volume, 0, "the volume wraps from full to silent");
+        change(Id::Volume, &mut s, -1);
+        assert_eq!(s.volume, 100);
     }
 
     #[test]

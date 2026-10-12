@@ -24,12 +24,13 @@
 //! haystack dives in (platform E and its haystacks, north of block D).
 //! F1 hides the text (the HUD and the labels), F2 the map menu (1 the test level, 2 Masyaf, 3 Damascus: the game starts
 //! again in it), F8 the graphics settings (`settings`, `menu`: presets Low / Medium / High / Ultra, window mode,
-//! resolution, vsync, frame cap, city detail, texture size, shadows, anti-aliasing, fog, view distance; saved to
+//! resolution, vsync, frame cap, city detail, texture size, shadows, anti-aliasing, fog, view distance, sound volume; saved to
 //! `ac1-settings.txt` beside the executable), F10 online (`net`: hosting on / off and its port, joining an IP and port,
 //! the replay recorder; the menus take the arrows, Enter, Esc, typing and the mouse), F4 toggle IK, F5 skeleton,
 //! F3 IK targets, F6 pause the pose gallery and NPC line-up (they only move near the camera anyway), F11 the collision
 //! round the player drawn (`collision_view`: walls orange, floors green, the near faces outlined), F12 screenshot, M
-//! mutes the sound (AC1's own, played from the clips' event keys: steps, landings, grunts; `sound`),
+//! mutes the sound (AC1's own, `sound`: Altaïr's from the clips' event keys, steps, landings, grunts; in a city its placed
+//! sounds, fountains, braziers, flags, kiosks, palms, and its ambience loops and one-off sounds; placed and panned from the camera),
 //! [ / ] step through every AC1 clip in the library (Backspace returns to locomotion).
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
