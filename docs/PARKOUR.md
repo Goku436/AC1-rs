@@ -639,6 +639,73 @@ in this batch, by audit id:
     split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
   - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
     the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
+- **Towers** (user reports #3-#5, 2026-10-12; GUIDE-2):
+  - GUIDE-2: a guidance piece too short to shorten (0.2 m or less, its ends free) holds at its middle, as AC1's probes
+    take one (`sub_116D3C0`, read in Ghidra: shortened 0.1 m at both ends, the midpoint at 2·0.1 + 0.0005 or less);
+    ours dropped them. Damascus: 197,063 holds from 166,951 (8,975 left out as buried). The `Minaret_M_02a` balconies'
+    knobs (0.10-0.19 m pieces at the railing's middle) are among them.
+  - The free hang at rest eases its root 2.4 m under its hold (AC1's `ComputeRootFromHandTargets` 0xDD6730, type 1: the
+    higher hand's target − 2.4); ours ended the moves into it 2.1 m under, the wait clip's wrists 0.2-0.3 m over the
+    hold, the hands in the air, and the hand steps up missed their holds by that much.
+  - A move onto holds on a face 3-60 degrees round from the climber's (an octagonal tower's next face, a round tower's
+    ring) turns the body about the hands to the holds' mean wall normal over the move, and the wall normal with it, as
+    AC1 faces its climber along its holds' normals (`climb_pose`, Banned445's port); ours kept facing the old face.
+  - The step off sideways onto the ground needs room to stand (the body pushed under 0.1 m out of walls): not a tower's
+    0.25 m cornice band, fallen off at once. [ours]
+  - Not changed: from #14's spot (the round tower's pilaster, hands at 26.88) the next hold up is 2.43 m over the hands
+    (29.31) and the ring beside it at 28.71 lies 0.5-0.6 m to either side of the pilaster. AC1's reach up from the climb
+    (0xDF0050: a foot hold 0.8-2.2 m up with a hand hold 1.2 m over it), its grid (rows to 3.3 m over the feet) and its
+    jump up (TryBackEject: an edge 1.5-3.0 m over the feet, 0.3-1.3 m out) find none there either: a live check.
+- **User reports (2026-10-12)**:
+  - #1, hiding places: the hop out's room is AC1's `Guard_HopOut` box (half extents 0.35 across, 0.5 along, 0.75 up),
+    0.5 m past where the way out leaves the footprint and 1.25 m over what he sits on, the haystack itself left out (its
+    meshes' bounds with the collision shapes of hay and hiding-place entities touching them: a cart's bed, a hiding
+    place's plank box, 3.1 m across in some, and the tarp's frame over it) (`Level::hay_hop_room`). Ours cast a ray from
+    over the middle, 1.25 m over the 1.07 m rim, which in Damascus' rooftop hiding places met the tarp's frame (2.3 m up)
+    every way, and the hop itself was stopped at the box's own wall: he stayed in. The older over-the-top ray stays as a
+    second way to pass. The hop turns to the way out eased (turned in one frame from the wait's facing, the hands jumped
+    0.6 m). The load logs the haystacks with no way out: in Damascus one pile in a walled yard (178.4, -221.9), none of
+    the 123 hiding places.
+  - #12, parapets: a Damascus roof's parapet (0.3 m wide, the roof 0.24 m under it, the street 8 m down) is a narrow top
+    (`Level::add_narrow_tops`), and standing by it with the stick along it he got onto it and crouch-walked it; AC1 runs
+    along it as ground. No beam with floor beside it (0.35 m to each side) is got onto from the ground any more, standing
+    or walking, the stick along it or not. The top itself stays: free running off the bureau's roof the running game
+    jumps onto one (audit JUMP-3's route; dropping parapets from the tops, first tried, lost that jump)
+    (EXTRA-1's rule held only for standing on its line). A side entry onto a beam
+    (`xx_h_freestep_entry_<foot>_tr_crouch<walk|jog>_*`) ends on the beam, its clip's own way corrected onto the line:
+    played from where it met the parapet it walked 1.4 m off into the air, then the perch pulled him back.
+  - #10, ejects: the eject with nothing to land on (`back_eject`) goes the stick's way by AC1's `jump_off_wall_dir`
+    (straight away with no stick, at most 89 degrees off it, none past 135: into the wall) at the free-jump target, its
+    takeoff the rebound groups' front 300 cm clips blended by the angle (`frontleft`/`frontright` straight away,
+    `left`/`right` along the wall), after the rebound pose (`xx_h_hangwall_tr_rebound_<foot>`) as an eject at a target
+    has; it was always 45 degrees off to the stick's side. Every eject, at a target too (`rebound_jump`, which searches
+    along that way), reads the stick as the camera sees it (`move_dir`: AC1's jump off a wall reads the interpreter's
+    camera-relative +0x1250, Banned445's port), not the climbing stick in the character's frame; scripted runs that hold
+    only the climbing stick fall back on it.
+- **2026-10-12, user reports #7-#9 (Damascus)**:
+  - #9, a balcony's handrail 2.34 m over a beam's end: the wall run's tops came from the collision only (the floor behind
+    the rail, under it, is not open), so it rebounded. Now a guidance edge in front stands in for the top when the
+    collision gives none, as AC1's walling probes A and D take edges (0xE36BD0): one 1.25-2 m (A) or 2.1-2.6 m (D) over
+    the feet whose `ClassifyLedgeCandidate` (0xE341D0) cast, 45 degrees up over its edge and in, runs 0.4 m past it
+    (class 1, a pull-up), with a beam or a floor there to kneel on [ours]. On the rail (a beam) it is the pull-up onto a
+    post, then on over it. (`xx_h_hangwall_tr_passover_handr`, 0x0109BBBD, is only compared against in the passover's
+    update 0xDE2EE0, never started by the code found: not used.)
+  - #7, #8, a balcony held out on stepped corbels (edges 0.45 m further out and 0.12-0.3 m up each, out to its front):
+    the climb's jump up to an overhang (TryBackEject) is tried from any climbing pose, as AC1's ChooseMove does, not only
+    the level ones; ours' fallback "bring the hands level first" no longer steps down (from the raised hand it went
+    1ru -> 1m -> 1ru for ever). In the free hang, up onto an edge the clips miss: AC1's vertical rows (`FindVerticalRows`
+    0xDD8F70, Banned445's `vertical_rows`), 0.1-0.8 m up, up to 0.5 m in or out and 0.2 m along, the highest; both hands
+    step onto it in turn (the second following on, `ContinuePendingVerticalStep`), the body carried under it. Then the
+    free hang's top-out onto the balcony.
+  - #11, #6, #13, "thin air": [ours] the running jump into the wall hang
+    (`jump_hangwall`) put each hand on whichever hold was nearest where the clips ended, within 3 m: by a market stall one
+    took a house's roof edge 8 m up and the other the stall's awning 5 m up, and he hung from the air between them. The
+    hands now land on the hold aimed at (their middle on its grab point, each then on a hold within 0.35 m), as AC1 flies
+    the jump at its target's grab point. A climbing leap's way, chest to chest up or down with it, must be clear (a leap
+    to the side and 2.4 m down from a wall hang stood on a porch roof went through the roof to a hold under it). The
+    wall run on nothing was a scaffold's collision: skinned props with more than 24 bones were left undrawn as
+    characters, and the scaffolds (69 bones) and storage racks (61) with them; an entity with collision shapes is now
+    drawn whatever its skeleton, as the running game draws that scaffold (checked live) (the city's load logs how many collided entities draw nothing: 0 in Damascus).
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.

@@ -8,7 +8,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Layer | State |
 |---|---|
 | `.forge` archives (index, names, FILEDATA records) | done, all 18 archives |
-| Chunked LZO1X decompression | done: 15906/15906 data files decompress (`examples/decodecheck`); 9357 split into objects, the rest are streamed sound (6531 `*_BAO_*`: Ubisoft BAO audio, signatures 01 1b 01 00 / 02 1f 00 10 as the QuickBMS scimitar script names them, not object containers) and each forge's `GlobalMetaFile` (18: one 170-byte record, byte-identical in every forge: small ids and values and a 32-bit time of 2014-07-22, likely the build's; nothing about the world, `examples/entryhex`) |
+| Chunked LZO1X decompression | done: 15906/15906 data files decompress (`examples/decodecheck`); 9357 split into objects, the rest are streamed sound (6531 `*_BAO_*`: Ubisoft BAO audio, not object containers; see "Sound") and each forge's `GlobalMetaFile` (18: one 170-byte record, byte-identical in every forge: small ids and values and a 32-bit time of 2014-07-22, likely the build's; nothing about the world, `examples/entryhex`) |
 | Object container (class hash, name, id, body) | done |
 | TextureMap -> PNG (DXT1/3/5, BGRA8) | done, verified visually: 32286/32286 textures decode (`examples/texcheck`); colour space (`GammaSettings`) and sampler (address, filter modes) read and used; cube maps 57/58, ramps (`TextureGradient`) 3/3. Stored levels as they are (`texture_levels`): 32251 block-compressed (27620 DXT1, 1878 DXT3, 2753 DXT5), every one in whole 4x4 blocks at its top level, 30640 with the full mip chain; city textures go to the GPU that way |
 | Material (85c817c3): template and typed parameter table (scalars, colours, texture slots) | 15666/15929 parse (`examples/texcheck`): every character material; the rest carry a parameter class not read yet (c52e2125, 213: glows, skies, water), a 1 at +0x29 (28 trees) or 2/4 at +0x31 (25) |
@@ -18,19 +18,24 @@ install**. No game files, textures, meshes or code from the original are stored 
 | City placement: entities' world transforms and meshes across a forge's data files, EntityGroup (3f742d26) members | done: Masyaf 4344 meshes placed (926 from groups; 2221 entities collide by their shapes, 5 data files of them looked up in `DataPC_Kingdom.forge`), Damascus 17581 (8851 entities from groups, 15.9 M collision triangles), shared props from `DataPC_Common.forge` |
 | Characters assembled from shared parts across data files (soldiers, crowds) | done: AC1's NPC builders (`EntityBuilder`/`BuildTable`), links into `DataPC_Common.forge` through an object index; the NPC line-up and scholars use them |
 | Move graph (`ActionKit`/`ActionBlock`) | done: 452/452 blocks parse (15463 actions, 15958 items); blend spaces used for locomotion, stops, leans, grabs, leaps |
-| Collision shapes (`MeshShape`, `BoxShape`, `BarrelShape`, `CapsuleShape`, `ListShape`) and rigid bodies (`RigidBody`, its collision layer) | done: 14889/14889 meshes (6.5 M triangles) and 2098/2098 primitives parse; cities collide as AC1: by the entities' rigid bodies where their layer stops the player (Damascus: 16000 bodies, 289 left out: camera, horse and projectile barriers, out-of-bounds walls; 3.77 M triangles), entities with none collide with nothing but terrain; F8 draws it, `AC1_COLLISION_SWEEP` measures it ("Collision shapes") |
+| Collision shapes (`MeshShape`, `BoxShape`, `BarrelShape`, `CapsuleShape`, `ListShape`) and rigid bodies (`RigidBody`, its collision layer) | done: 14889/14889 meshes (6.5 M triangles) and 2098/2098 primitives parse; cities collide as AC1: by the entities' rigid bodies where their layer stops the player (Damascus: 16000 bodies, 289 left out: camera, horse and projectile barriers, out-of-bounds walls; 3.77 M triangles), entities with none collide with nothing but terrain; F11 draws it, `AC1_COLLISION_SWEEP` measures it ("Collision shapes") |
 | Levels of detail (`LODSelector`, `forge::lod`) | done: 18807/18807 selectors parse (`examples/lodcheck`); cities draw each mesh at AC1's level for its distance |
 | World grid (`World`'s `GridLayout`, `GridPartition`) and distant stand-ins (`FakeEntities`, `forge::world`) | done: 12/13 worlds' grids read (`Map_Menu`'s layout is empty), 9/10 stand-in sets check (every span inside its submesh and on a cell with a data file; `Flashback_Paradise`: one span past its submesh); cities stream their drawn meshes by these cells |
 | Havok packfiles (`HavokChunk`), ragdolls (`RagdollNew`) | done: 72/72 ragdolls read; the dead go limp (Verlet ragdoll with AC1's bodies and limits) |
-| Cloth (`ClothComponent`, Altaïr's robe tails) | done: simulated over the skinned mesh, colliding with the legs |
+| Cloth (`ClothComponent`, Altaïr's robe tails) | done on AC1's data (`forge::cloth`, `ik::cloth`): the soft mesh's 146 vertices (44 pinned) and 253 edges, per-vertex pull and collision radius, the entity's `Cloth` settings, the 6 `humanragdoll_forcloth` capsules (thighs, shins, feet) mapped onto bones, the 20 `ClothActionSettings`, AC1's 0.033333 s step, the city's `Wind` |
+| Bone modifiers (secondary motion: hinges, look-ats, compressions, rotation copies, roll bones, spring box) | done (`forge::modifier`, `ik::secondary`): all 56 of Altaïr's (main 31, skirt 20, hood 3, sword tag 2) parse and run every frame after the IK |
+| Wind (`Wind`, a city's `Wind_<City>_001`) | done for Damascus and Masyaf (the test level borrows Masyaf's); AC1's noise tables, checked against a value read from the running game |
 | Viewpoints (`ReachHighPoint_*` groups, entities named `*ReachHighPoint*`) | done: Damascus 12, each with a leap of faith into its hay; Masyaf 1 (the tutorial tower, its hay not found: 19.8 m to the nearest) |
 | City parkour objects by mesh name (hay carts, `Ladder_*`, `Banc_*`, `Pole_*`) | done: Damascus 46 haystacks, 301 ladders, 320 benches, 159 swing bars; Masyaf 14, 40, 28, 2; climbing probe 8/20 spots over the top |
 | Navigation meshes (`NavMeshManager`) | done: 1432/1432 parse (67836 pieces, 1.13 M triangles); city routes (A*) |
 | Clip sets (`AnimSet`) | done: 81 read; soldiers and townsfolk play their own clips |
 | Flight recorder (F9), controller, scenario suite | done |
+| In-game menus: graphics settings (F8, presets for low-end PCs, saved beside the exe), online (F10: two players over UDP, host / join, replays) | first version ("Graphics settings and online play") |
 | Ghost mode, AC1's development flight (the Human Debug context, unreachable in retail; F7) | done: no collision, action 0x0006F88B (request 7) plays `Ghost_mode01` then `Ghost_mode02` looping, out with request 33's `xx_h_jump_falling01` and a fall (from Banned445's MIT port, `debug_fly.rs`) |
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
+| Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
+| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; IMA-ADPCM decodes for 206069/206076 resources and 2229/2243 streams (the rest: Ogg-page tracks, stereo tracks); 18698 Ogg resources and 110 Ogg streams found (played as Ogg); 4178 streams are the headerless rest of a resource (speech), not decoded. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks) on the surface's sound material (cities: from `CollisionMaterial`), and the city's ambience loops (Damascus: 116 region links, 36 sets, 11 streamed loops); M mutes |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); sun 11000 lux with three shadow cascades in 120 m (the first 12 m) and a linear haze from 220 m to 1.1 km (as Banned445's repo; AC1's `WorldAmbiance`/`LayeredSky` not decoded); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
 | Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); combat removed for now; scholar crowds to blend into | first version |
 | Player controller, free-running, combat, AI, crowds, missions | long-term |
@@ -433,8 +438,8 @@ Collected 2026-10-05, to check what this project has understood wrong.
   already never draws them, but takes the last row when a table has only weight-0 rows); pre-Unity cloth is
   `ClothSettings`-driven Verlet with distance constraints, per-vertex collision spheres against capsules on the
   bones, and a blend back to the skinned pose by the character's speed (AC1 ships `DynamicMesh`
-  `UCMA_Altair_Cloth_SoftBody` and `ClothActionSettings` `Altair_ClothActionSettings`; the robe here still uses its
-  own constants). Its AC1 file lists (`File Lists/AC1.gfl`, `Full File Lists/AC1.fgfl`: a 24-byte header, then Oodle Kraken, which the
+  `UCMA_Altair_Cloth_SoftBody` and `ClothActionSettings` `Altair_ClothActionSettings`; the robe here runs on them
+  since 2026-10-12, see "Cloth"). Its AC1 file lists (`File Lists/AC1.gfl`, `Full File Lists/AC1.fgfl`: a 24-byte header, then Oodle Kraken, which the
 pure-Rust `oozextract` crate unpacks) list each forge's data files and their objects by name and id: nothing that
 `forge::index` does not already give.
 - AC1 used Autodesk HumanIK for the hands and feet when climbing and pushing (Autodesk and Ubisoft, 2009). The IK here
@@ -536,7 +541,7 @@ no code):
 - Open: the skinned hay meshes (`Hay_Bale_01`, `Hay_Bale_Charette_01A`, stride 32, w always 32767) measure 6.2 m
   across at the skinned scale (1/2048), twice a cart's size; their scale or a per-mesh factor is not known yet.
 - Cloth mesh (first byte 4, e.g. Altaïr's long robe): u32 4, u32 1, u8 0, an embedded cloth-sim object (class
-  0x5755de7f, `?`), then the usual bone count, bones and compiled mesh (found by walking back from the compiled tag).
+  0x5755de7f, `SubMesh`: the soft body's own vertices and constraints, read by `forge::cloth`), then the usual bone count, bones and compiled mesh (found by walking back from the compiled tag).
 - Static mesh (first byte 0): no bones, no palettes, stride-24 vertices = the skinned layout without palette
   indices and weights. The position's w is a scale shared by the mesh (sign varies): positions are
   `xyz / 32768 * |w| / 8` m, so every mesh uses the full i16 range (sword |w| = 8, a Masyaf terrain tile 3976,
@@ -572,7 +577,42 @@ A class id is the CRC32 of the engine's class name (Mesh `415d9568`, Entity, Ske
 TextureSet, TextureMapSpec, CompiledMesh all check). The `catalog` tool reads the names at run time from the game's
 own executable (its RTTI descriptors, `.?AV<name>@scimitar@@`, and identifier strings) and labels every class: all
 183 classes in the install get a name. Not parsed yet: `GridCellDataBlock` (a grid cell's own record; the grid itself is read, see "City rendering cost and streaming"),
-`ContactTable` (per-material contact sounds and effects; there is no audio yet), `BodyPartMapping`.
+`BodyPartMapping`. (`ContactTable` is read, see "Sound".)
+
+## Sound
+Read by `forge::sound` (layouts in its header), measured with `bao scan <game dir>`; `bao wav` writes a sound to
+`out/sound/`, `bao clip <game dir> <clip>` lists a clip's event keys and what they play. Found with Banned445's
+AC1-Movement-Rewritten (MIT), which first played AC1's sounds.
+- Sounds are BAOs (Ubisoft's DARE engine): events (what the game triggers), sounds (gains, random containers) and
+  resources (the samples) by BAO id, the top nibble the kind. `SoundBao` objects hold one each (speech one a language);
+  the streamed files hold long sounds (`Common_BAO_*`: ambience and music; `<language>_BAO_*`: speech, whose start is
+  a resource with the same low bits).
+- Events: play (a sound, with a random pitch range), switch (by a variable: 0 is the surface's sound material), multi
+  (several at once). Sounds: one resource (rate, channels, frames), or a random container (weights, the last pick not
+  repeated). Resources: IMA-ADPCM (Ubisoft's header: PCM frames first, a mono last sample apart), Ogg Vorbis, or
+  interleaved IMA tracks (the ambience: four mono tracks).
+- What plays when is in the clips: their event tracks hold `AudioEvent`s (a `SoundBao` by object id: grunts, cloth,
+  hand slaps) and `ContactEvent`s (`ContactEventTypeHuman`: `ft_walk_cycle`, `ft_run_cycle`, `ft_land_heavy`, ...)
+  that the character's `ContactTable` (`ContactTable_AlTair` in "Rank 9": 24 surface groups of 15) turns into events.
+  Keys are in 1/120 s.
+- In game (`crates/game/src/sound.rs`): each frame the player's clips (`animation::Playing`: the heaviest of a blend,
+  a legs-only or one-shot clip over it, the climbing move) fire the keys they passed; a gait's next step carries the
+  phase over, a loop wraps, a move played again starts over. Events resolve with switch 0 = the surface's sound
+  material; switches 1 and 3 (cases 0-4 and 0-1 in the footsteps; what sets them in AC1 is not known) play their
+  default. Each resource is decoded once and played at the listener with the event's gain and pitch. M mutes,
+  `AC1_MUTE=1` starts muted, `AC1_VOLUME=dB`; headless runs have no audio plugin (no device needed).
+- Surfaces: a `MeshShape`'s triangles name `CollisionMaterial`s, whose body +0 is the sound material (0-24: Stone_Clean
+  4, Marble 6, Wood_Plank 9, Grass_Short 14, Water_Shallow 19, Metal_Grill 24; `Default` 4001, none). Cities keep it per
+  triangle (`Level::tri_sound`); the footsteps' switch 0 is the material under the player (`Level::sound_material_at`).
+- Not in AC1's clip data: the free jump's take-off (`xx_h_impultionstraight_*_to_jumpstraight_clear_*`,
+  `xx_h_jumpstraight_clear_*` have no keys); it plays the contact table's `ft_jump_start` (picked here).
+- Ambience (`bao ambience <game dir> <City>`): a few grid cells' data files hold an `AssassinAmbienceRegionCellData`
+  (linked from the cell's own record, class ac2bbf68), naming a `SoundAmbienceSet` (`A_Wind_Damas_City`,
+  `A_City_Poor_Area`, ...) whose first sound is the loop: a sound of type 6, a streamed file of four mono IMA tracks
+  (`_LP_4.0`: quad, folded to stereo front over back, not checked), the rest one-off sounds (not played: their timing is
+  not known). The region's area is not read (only the cells linking it, a big region's a coarse one), so the game plays
+  the wind set and the other sets linked from the finest cells over the player, fading over 2 s; the crowd murmur
+  (`walla`) sets are left out. Not checked against the running game.
 
 ## Navigation meshes
 `NavMeshManager_<cell>` (format in `crates/forge/src/navmesh.rs`): pieces, each a walkable polygon with world-space
@@ -755,7 +795,7 @@ rigid body collides with nothing (Damascus 3368 entities with meshes: pigeons, t
 awnings, flags, spice bags, torches, NPC parts), except terrain (`city::terrain`: ground, rock, cliff, mountain
 meshes), as AC1 keeps that collision in data not loaded here (Masyaf's ground and rocks, 2.7 M triangles, in the
 Kingdom's world). `AC1_COLLISION=render` collides with the solid render meshes instead, `fallback` adds them for every
-entity with no rigid body (the behaviour before). F8 draws the collision round the player (`collision_view`: walls
+entity with no rigid body (the behaviour before). F11 draws the collision round the player (`collision_view`: walls
 orange, floors green, faces looking down blue, the near ones outlined); `AC1_SHOW_COLLISION` draws every shape
 at load.
 
@@ -796,11 +836,55 @@ rebuilt from the particles (a bone with several children turns by a frame on two
 is over goes limp and settles; `AC1_LIMP=secs` drops the player for testing.
 
 ## Cloth
-Altaïr's entity has a `ClothComponent`: `UCMA_Altair_Cloth` (his robe tails) as a soft body colliding with
-`humanragdoll_forcloth`'s capsules. `ik::cloth` runs it over the skinned mesh: the vertices as Verlet particles,
-held to their edge lengths and across neighbouring triangles, pinned at the waist and kept within reach of where the
-animation puts them (more toward the hem), pushed out of capsules round the hips and legs; drawn from a world-space
-copy (`robe.rs`). `AC1_NO_CLOTH` keeps the skinned mesh.
+Altaïr's entity has a `ClothComponent`: `UCMA_Altair_Cloth` (his robe tails, the `DynamicMesh`
+`UCMA_Altair_Cloth_SoftBody`) as a soft body colliding with `humanragdoll_forcloth`'s capsules. Everything it runs on
+is AC1's data (2026-10-12; layouts first found by Banned445's AC1-Movement-Rewritten, MIT, `src/cloth.rs`; class names
+by CRC32 of the exe's strings: `SubMesh`, `ClothRagdoll`, `ClothRagdollCapsule`, `WindForce`, `ClothActionEntry`,
+`Hinge`); formats in the header of `crates/forge/src/cloth.rs`, tested on the install by `crates/forge/tests/cloth_data.rs`:
+- The soft mesh: its own 146 float vertices with skin weights (the compiled mesh's 146 in another order, matched by
+  place), 208 triangles of which 253 edges are constraints (the quads' sides), per vertex a pull toward the animation
+  (44 pinned at 255, others 0, 15/255 or 127/255) and a collision radius (0.01 to 0.07 m).
+- `Cloth`: damping 0.1, upward damping 0.75 (+ -2 per m/s the character rises, up to 5), 3 iterations, pull from
+  motion 0.03 per m/s and 0.015 per unit of turn, falling at most 0.99/s; `ClothComponent` gravity -9.8; a
+  `WindForce` (scale 1, 0.3 of the force along the surface kept, random amplitude 1).
+- 19 capsules of which 6 on (thighs r 0.092, shins 0.11, feet 0.08-0.09, all mode 0: a vertex goes out on the side
+  its animated place is), each in a ragdoll body's frame, moved onto the skeleton bone through the packfile's
+  `hkSkeletonMapper` (21 bones to 19 bodies).
+- `Altair_ClothActionSettings`: 20 (action, strength): the wall hang 0.9, sitting 0.01 (the robe follows the
+  animation), the free-hang climb 0.5, leans 0.5, collisions 0.9, the ladder 0.96, the wall run's catch 0.5, a fight
+  grab 0.6, five unknown actions 0.
+`ik::cloth` steps it as AC1 does (Banned445's recreation, written fresh): Verlet with the damping (an upward-moving
+vertex by the upward damping), gravity and the wind (its part along the cloth's normal whole, 0.3 of the rest, times
+1 ± a random amount), drawn to its animated place by its own pull or the motion pull, whichever is more (the motion
+pull: speed and turn, eased off by the playing action's strength, 1 for actions not listed); then 3 times: out of the
+capsules, edges to a length between the rest pose's and the animated one's. `robe.rs` skins the soft vertices on the
+CPU, steps the cloth 0.033333 s at a time on game time (AC1 steps once a frame at its 30 fps) and draws the robe on
+the body with its offsets from the animated pose eased between the last two steps, so it moves the same at 60 or 144
+fps and in the headless fixed 1/60 s runs. Ours, not AC1's: that timing (AC1 runs the step every frame whatever its
+length), the strength read only from the climb's clip (the ground's locomotion is in no listed action), a frame
+counted at most 0.1 s. `AC1_NO_CLOTH` keeps the skinned mesh.
+
+## Bone modifiers (secondary motion)
+Each skeleton carries modifiers its `SkeletonComponent` runs over the pose every frame (`forge::modifier`, layouts in
+its header; `ik::secondary` runs them): Altaïr's main skeleton 14 hinges, 10 compressions, 6 roll bones, a spring
+box; the skirt 16 hinges, a look-at, a compression, 2 rotation copies; the hood a look-at (its root's X aimed at a
+helper under the head) and 2 hinges; the sword tag 2 hinges. Hinges swing a bone about one axis: its swing speed
+gains from the bone's own motion (`inertia`), the authored force (gravity, in the model's frame) and the wind (the
+entity's `SkeletonComponent` `WindForce`, scale 1), loses `damping` while it swings against the force, and is held
+by hard limits with soft zones inside them (later limits measured from another bone's frame); after a jump of over
+2 m or a long frame it settles in three longer steps. The order is AC1's: by bone depth, then bone order, then as
+written. They run after our IK (the look-at of the head included), so the hood follows the head as AC1's does; the
+add-on skeletons' modified bones start each frame from their rest pose. The behaviour follows Banned445's
+recreation (`src/visual_pose.rs`, `src/skirt_hinge.rs`, his commits caab683, 826e97e), written fresh.
+`AC1_NO_SECONDARY` turns them off.
+
+## Wind
+A city has one `Wind` entity (`Wind_Damascus_001` in Damascus's `Cell01364_DataBlock`, `Wind_Masyaf_001` in Masyaf's
+`Cell05460_DataBlock`): strength 10, noise on (61.4 % spread, 100 % speed, 33.1 % floor, 11.7 % magnitude speed),
+blowing along its placement's X axis. Its force wanders by AC1's 1D gradient noise (tables from Knuth's subtractive
+generator, seeds 84 and 42), on game time since the map loaded; `ik::wind` reproduces a value Banned445 read from the
+running game. The data block takes seconds to read, so `wind.rs` keeps the wind in the temp directory after the first
+time. The test level uses Masyaf's; Acre, Jerusalem and Kingdom have none yet. `AC1_WIND=0` turns it off.
 
 ## NPCs (`EntityBuilder`, `BuildTable`)
 A builder names a base entity and tables; a table is weighted rows whose cells set a column: a mesh (through its
@@ -838,12 +922,12 @@ roof: 0.21 m refused it before); it also
 needs room to stand (1.7 m of headroom 0.5 m in, no wall just past the edge, probed from in front of the wall, and the
 spot not inside a solid): window sills are holds whose top is a window, not a floor to climb onto, and a beam stuck into
 a building shows its top inside the wall. Narrow wall tops (a fence's or a parapet's, 0.15-0.35 m deep behind a hold
-with a drop past it, open above) become perches along their middle (`Level::add_narrow_tops`), and so does AC1's own
+with a drop past it and in front of the hold, open above; not a roof's parapet with the roof just under it) become perches along their middle (`Level::add_narrow_tops`), and so does AC1's own
 rule, its runtime beam contacts (as Banned445's port reads them): two holds along each other within 30 degrees, facing
 away from each other, overlapping, at most 1 m apart, with a drop past both (no floor within 0.5 m under the top 0.3 m
 out from each: not a strip or a seam in a roof, where running across one he was caught balancing), give a beam along
 their middle, its pieces in line up to 1 m apart joined; both kinds kept only where the drop is there, tested every 0.25 m along (a roof edge's strip over a drop for half its length was a beam its whole length; the running game stepped off it where the roof ran flush) (Damascus 9,064 in all; none along one of AC1's authored beams, in line with it and overlapping it: north of the open roof one ran on 2.5 m over the roof past the authored beam's end, where the running game stepped off). Got onto from the ground only walking
-along it (within 30 degrees) or standing still on its line. A plank bridge 0.9 m wide by the Damascus bureau (`Wood_Bridge_01a`) is one:
+along it (within 30 degrees) or standing still on its line; from a halt never one with floor beside it. A plank bridge 0.9 m wide by the Damascus bureau (`Wood_Bridge_01a`) is one:
 the running game walked it as a narrow object (`HumanNarrowObject`, `xx_l_beam_crouchwalk`). The cities' authored
 guidance has no `Beam` edges at all (Damascus: 0): AC1's narrow objects come from these pairs. Walking off a beam's
 end onto another going on from it (within 0.45 m, 35 degrees) walks on along it. Climbing onto one ends crouched,
@@ -862,15 +946,18 @@ set up against the built collision (`Level::add_city_objects`), logged as "N hay
   high); a cart's parts merge into one stack.
 - rooftop hiding spots `Hiding_Spot_*` (a plank box under a tarp, not the `_Tarp` mesh): hay too, its top the box's
   rim, 1.07 m over the roof (AC1's state in one is `HumanHayStack`). Free running at one, the running game hopped onto
-  the rim and dived in (`xx_h_freestep_footr_to_haystack_02`); ours does too, diving from within 0.6 m of its edge.
+  the rim and dived in (`xx_h_freestep_footr_to_haystack_02`); ours does too, diving from within 0.6 m of its edge. Out of one by AC1's
+  hop-out room test past its footprint, its own shapes (the plank box, the tarp's frame) left out (`Level::hay_hop_room`).
 - ladders `Ladder_<h>m`: thin and over 2 m tall. The building is the side with a roof just under its top (the ladder
   leans on that wall, its rails standing up past the roof edge, so its top is that roof's floor); else the nearer wall.
   The foot stands toward the outer side of its bounds. Climbed from the street onto a roof and back down in Damascus.
   A ladder's foot or top is taken before the edge it stands at.
 - benches `Banc_*`: sat on facing away from the wall behind them.
 - poles `Pole_*` lying down (stuck out of a wall, or across a gap): swing bars along their length.
-Skinned props (hay carts, market stalls) are drawn in their bind pose; `AC1_POSE_PROPS` stands them in their own
-skeleton's pose instead (24 bones at most), which so far changes nothing visible on the carts.
+Skinned props (hay carts, market stalls, scaffolds, storage racks) are drawn in their bind pose; `AC1_POSE_PROPS` stands
+them in their own skeleton's pose instead, which so far changes nothing visible on the carts. A prop's skeleton has 24
+bones at most, or any number on an entity with collision shapes (Damascus's `Scaffold_2x3x8`, 69 bones; characters have
+70 and more and no collision): a collided entity left undrawn was solid thin air (user report #13).
 
 The climbing probe (`AC1_PROBE_CLIMB=n`) takes the n holds nearest the start that hang 1.6-2.6 m over the ground, grabs
 each and holds up for 10 s, and logs how far he got, where the wall's top is and which holds go up it. Damascus: 8 of 20
@@ -968,17 +1055,56 @@ their compact bodies (Damascus 51 MB) and built for the GPU on loader threads, n
 level (or its cell's stand-in shows) until the new mesh is there, and a mesh nothing has drawn for 5 s leaves the GPU.
 Headless runs draw nothing: no city meshes, materials or textures are made.
 
-`AC1_DETAIL` (default medium):
+`AC1_DETAIL`, else the graphics menu's city detail and texture size (F8, `settings.rs`; default medium):
 
 | Detail | Box round the camera (half side) | LOD distances | Vertex budget | Largest texture |
 |---|---|---|---|---|
 | low (a weak laptop's integrated GPU) | 64 m (AC1's own loading radius in Damascus) | x1.5 (coarser sooner) | 1.5 M | 256 px |
 | medium | 128 m | AC1's | 4 M | 512 px |
 | high | 256 m | x0.75 | 12 M | 1024 px |
+| ultra | 384 m | x0.5 | 20 M | 2048 px |
 | full | everything, no stand-ins | full detail always | none | 512 px (the city as drawn before streaming, to compare) |
 
 Most of Damascus' 28 s is gameplay set-up after the city's 10 s load (holds, beams, ladders, hay against the built
 collision); streaming only what is drawn leaves that as it is.
+
+## Graphics settings and online play (the F8 and F10 menus)
+Both menus are drawn as the F2 map menu (`menu.rs`): Up / Down pick a row, Left / Right (or a click, the right button
+back, or the wheel) change it, Enter presses a button or opens a text field (typing, Backspace, Enter keeps, Esc drops),
+Esc or the key closes. The cursor is freed while one is open and the game gets no keys; closing gives the camera the
+cursor back. Every change is saved at once to `ac1-settings.txt` beside the executable (`key = value` lines; unknown
+lines or bad values keep the defaults) and read at the next start. Scripted and headless runs (`AC1_HEADLESS`,
+`AC1_SHOT`, `AC1_FRAMES`, `AC1_CONTROL`, `AC1_NO_SETTINGS`) ignore the file and run on the defaults, so the scenarios
+are untouched; `AC1_SETTINGS=<file>` reads (and writes) that file in any run; `AC1_DETAIL` and `AC1_WINDOW_SIZE` still win.
+
+| Setting (F8) | Choices | Applies |
+|---|---|---|
+| Preset | Low, Medium (the game as before the menu), High, Ultra; Custom once a row differs | sets detail, textures, shadows, anti-aliasing, view distance |
+| Window | windowed, borderless fullscreen, fullscreen (the monitor's mode) | live |
+| Resolution | 1280x720 ... 3840x2160 (windowed) | live |
+| VSync | on (`Fifo`) / off (`AutoNoVsync`) | live |
+| Frame cap | off, 30, 60, 120, 144 (the frame's rest slept out in `Last`) | live |
+| City detail | low, medium, high, ultra, full (`stream::Detail`: draw box, LOD scale, vertex budget) | live; to or from full on a restart |
+| Texture size | 256, 512, 1024, 2048 px (city textures are cut down as they load) | restart (the menu's Restart row starts the game again where he stands) |
+| Shadows | off; low (one 1024 cascade over 40 m, hardware 2x2 filtering); medium (as set up: the city's 3 cascades in 120 m, 2048); high (4096 maps) | live |
+| Anti-aliasing | off, FXAA, MSAA 2x, MSAA 4x (the default) | live |
+| Fog | on / off (the city's linear haze) | live |
+| View distance | 600, 1200, 2500, 5000 m (the far plane; the haze closes in by 90 % of it) | live |
+
+Low (low detail, 256 px, no shadows, no AA, 1.2 km) is for weak PCs: Damascus draws about 1.2 M vertices there against
+about 8 M at Ultra.
+
+Online (F10, `net.rs`; the old `feature/multiplayer` branch, folded in on 2026-10-12): two players over UDP, each
+sending its root, every bone's rotation (16-bit) and the first four bones' positions and its camera 30 times a second;
+the other player is a second Altaïr posed from them (made, hidden, when a session starts). Rows: Hosting on / off and,
+when on, the hosting port (UDP, default 7777; open it in the firewall / router to be joined from outside); when off, Join
+IP, Join port and Join game (and Leave); Record replay (`replay.rs`: `replays/ac1-replay-<secs>-<pid>.bin`, about
+20 MB a minute, played back with `AC1_REPLAY=<file>` or `replay.bat`). The status line shows listening, connected (to
+whom), the peer count (a host takes one friend; a new one once the last has been quiet 6 s) and errors (a port in use,
+a bad address, "nobody is listening there" when Windows reports the joined port closed). `AC1_HOST=port` /
+`AC1_JOIN=ip:port` start the same from the environment. Checked between two copies on 127.0.0.1 (windowed and
+headless): each hears and shows the other. Not done: NAT punching, more than two players, anything but poses (no
+shared world state).
 
 ## Animation notes
 See the header of `crates/forge/src/anim.rs`. In short: per-track blocks

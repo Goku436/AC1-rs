@@ -1,4 +1,4 @@
-//! F8: the collision round the player, drawn. Every collision face within `RADIUS` of the player as a translucent
+//! F11: the collision round the player, drawn. Every collision face within `RADIUS` of the player as a translucent
 //! surface (walls orange, floors and tops green, faces looking down blue), and the faces within `EDGE_RADIUS` outlined,
 //! so what stops the body and what it stands on can be told from what is only drawn (cloth, foliage, the cut-outs of
 //! the meshes). Rebuilt when the player has moved `REBUILD` from where it was built (or the level changed). `AC1_COLLISION_VIEW=1` starts
@@ -45,7 +45,7 @@ fn colour(n: Vec3) -> [f32; 4] {
     }
 }
 
-/// F8 in and out; the surface rebuilt as the player moves, the near faces outlined every frame.
+/// F11 in and out; the surface rebuilt as the player moves, the near faces outlined every frame.
 pub fn collision_view(
     keys: Res<ButtonInput<KeyCode>>,
     mut view: ResMut<CollisionView>,
@@ -55,9 +55,9 @@ pub fn collision_view(
     (mut meshes, mut mats): (ResMut<Assets<Mesh>>, ResMut<Assets<StandardMaterial>>),
     mut gizmos: Gizmos,
 ) {
-    if keys.just_pressed(KeyCode::F8) {
+    if keys.just_pressed(KeyCode::F11) {
         view.on = !view.on;
-        info!("collision view {}", if view.on { "on (F8)" } else { "off" });
+        info!("collision view {}", if view.on { "on (F11)" } else { "off" });
     }
     let Ok(tf) = player.single() else { return };
     let at = tf.translation;

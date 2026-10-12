@@ -21,6 +21,8 @@
 //! - translations, millimetres: `20` u32 `[x:11][y:11][z:10]` signed; `24` i16 x3; `1c` f32 x3 (m)
 //! - scalar byte channels (facial, events): `2c`, `34`, `38`; `28` f32, the camera clips' field of view (radians)
 //!
+//! Event tracks (sounds and contacts) sit between the body's header and the track table, see `parse_events`.
+//!
 //! Hash 0 tracks are root motion (translation + rotation); hash 2 is the limb-contact (actuator contacts) track, hash 3 an event channel (audit ANIM-15). Voice-line clips (`vo_*`, 16 of
 //! them) have a duration and no track table: read as clips without tracks.
 
@@ -58,6 +60,179 @@ pub struct Track {
 pub struct Animation {
     pub duration: f32,
     pub tracks: Vec<Track>,
+    /// The clip's event keys (sounds, surface contacts), in time order; empty when it has none or they did not
+    /// parse (see `parse_events`).
+    pub events: Vec<AnimEvent>,
+}
+
+/// One key of a clip's event tracks.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimEvent {
+    /// Seconds into the clip.
+    pub time: f32,
+    pub kind: EventKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EventKind {
+    /// `ContactEvent`: a foot, hand or body meeting a surface; `ty` indexes `CONTACT_HUMAN`. The character's contact
+    /// table turns it into a sound (see `forge::sound::contact_table`).
+    Contact { ty: u32 },
+    /// `AudioEvent`: a sound; `sound` is the forge object id of the `SoundBao` its reference points at.
+    Audio { sound: u32 },
+    /// Any other event (speech, sound sets, AI and sync events, blood), by class id; `None` for an event held by
+    /// reference.
+    Other(Option<u32>),
+}
+
+/// `ContactEventTypeHuman`, the contact events' types, in the order of the exe's enum.
+pub const CONTACT_HUMAN: [&str; 15] = [
+    "ft_body_roll",
+    "ft_jump_start",
+    "ft_land_hands",
+    "ft_land_heavy",
+    "ft_land_light",
+    "ft_land_medium",
+    "ft_pivot",
+    "ft_run_cycle",
+    "ft_slide",
+    "ft_sneak_cycle",
+    "ft_step_foot",
+    "ft_step_toe",
+    "ft_walk_cycle",
+    "ft_walk_end",
+    "ft_walk_start",
+];
+
+/// Class ids (CRC32 of the class names).
+const CLASS_ANIM_TRACK_EVENT: u32 = 0x41682213;
+const CLASS_EVENT_SEED_LINK_DATA: u32 = 0x6ce04d52;
+const CLASS_CONTACT_EVENT: u32 = 0x97840cbf;
+const CLASS_AUDIO_EVENT: u32 = 0xa7a64a34;
+
+/// Fields after an event's u32 handle, by class: `u` u32, `b` u8, `R` a sound reference (u32 object id, u32 class,
+/// u32 ?, u32 the referenced `SoundBao`'s object id). From each class's serializer, as Banned445's
+/// AC1-Movement-Rewritten lists them. `FXEvent` (0x6627c719) is not known: a clip holding one has no events.
+fn event_fields(class: u32) -> Option<&'static [u8]> {
+    Some(match class {
+        CLASS_CONTACT_EVENT => b"ubb",
+        CLASS_AUDIO_EVENT => b"uRb",
+        // AudioBaseEvent, SpeechEvent
+        0xdf260da5 | 0x90d9ec94 => b"uR",
+        // SoundSetEvent
+        0x0efffe90 => b"uu",
+        // BloodSplatterEvent
+        0xd84e267f => b"uuuu",
+        // AnimAssassinationEvent
+        0x28c6e4ee => b"u",
+        // EntityEvent, DropObjectEvent, AnimSyncFallEvent, AnimSyncDieEvent, AIAnimationEvent: the handle only
+        0x691a6344 | 0x46d8b31e | 0x8ed28ae9 | 0x1b735fbf | 0xf9bfcb7c => b"",
+        _ => return None,
+    })
+}
+
+/// A bounds-checked little-endian reader that reports the offset it failed at.
+struct Cursor<'a> {
+    b: &'a [u8],
+    at: usize,
+}
+
+impl<'a> Cursor<'a> {
+    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
+        let Some(s) = self.b.get(self.at..self.at + n) else { bail!("event data ends at {:#x} (wanted {n} bytes)", self.at) };
+        self.at += n;
+        Ok(s)
+    }
+    fn u8(&mut self) -> Result<u8> {
+        Ok(self.take(1)?[0])
+    }
+    fn u16(&mut self) -> Result<u16> {
+        Ok(u16::from_le_bytes(self.take(2)?.try_into()?))
+    }
+    fn u32(&mut self) -> Result<u32> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into()?))
+    }
+    /// An object pointer: u8 0 = an object inline (u32 id, u32 class: returns the class), 2 = a reference (u32),
+    /// 3 = none.
+    fn object(&mut self) -> Result<Option<u32>> {
+        let at = self.at;
+        match self.u8()? {
+            0 => {
+                self.u32()?;
+                Ok(Some(self.u32()?))
+            }
+            2 => {
+                self.u32()?;
+                Ok(None)
+            }
+            3 => Ok(None),
+            t => bail!("object pointer tag {t} at {at:#x}"),
+        }
+    }
+}
+
+/// The event tracks of an animation body (`Object::body`, from the duration). At +10: u32 track count, then per track
+/// an inline `AnimTrackEvent`: u32 ?, u32 seed count, per seed {seed object pointer, event object pointer (inline: u32
+/// handle and the class's fields, `event_fields`), u32 ?, u8 ?, `EventSeedLinkData` pointer (inline: 9 bytes ?)}, u32 ?,
+/// u16 key count, then one u16 time a key in 1/120 s, key k firing seed k. The layout follows Banned445's
+/// AC1-Movement-Rewritten (MIT).
+pub fn parse_events(body: &[u8]) -> Result<Vec<AnimEvent>> {
+    let mut r = Cursor { b: body, at: 10 };
+    let n = r.u32()?;
+    ensure!(n < 256, "{n} event tracks at 0xa");
+    let mut out = Vec::new();
+    for _ in 0..n {
+        let at = r.at;
+        ensure!(r.object()? == Some(CLASS_ANIM_TRACK_EVENT), "no AnimTrackEvent at {at:#x}");
+        r.u32()?;
+        let seeds = r.u32()? as usize;
+        ensure!(seeds < 4096, "{seeds} event seeds at {:#x}", r.at - 4);
+        let mut kinds = Vec::with_capacity(seeds);
+        for _ in 0..seeds {
+            r.object()?;
+            let at = r.at;
+            let kind = match r.object()? {
+                Some(class) => {
+                    let Some(fields) = event_fields(class) else { bail!("event class {class:08x} at {at:#x} not known") };
+                    r.u32()?;
+                    let mut vals = Vec::with_capacity(fields.len());
+                    for f in fields {
+                        vals.push(match f {
+                            b'u' => r.u32()?,
+                            b'b' => r.u8()? as u32,
+                            _ => {
+                                r.take(12)?;
+                                r.u32()?
+                            }
+                        });
+                    }
+                    match class {
+                        CLASS_CONTACT_EVENT => EventKind::Contact { ty: vals[0] },
+                        CLASS_AUDIO_EVENT => EventKind::Audio { sound: vals[1] },
+                        c => EventKind::Other(Some(c)),
+                    }
+                }
+                None => EventKind::Other(None),
+            };
+            r.u32()?;
+            r.u8()?;
+            let at = r.at;
+            if let Some(c) = r.object()? {
+                ensure!(c == CLASS_EVENT_SEED_LINK_DATA, "seed link class {c:08x} at {at:#x}");
+                r.take(9)?;
+            }
+            kinds.push(kind);
+        }
+        r.u32()?;
+        let keys = r.u16()? as usize;
+        let mut kinds = kinds.into_iter();
+        for _ in 0..keys {
+            let time = r.u16()? as f32 / 120.0;
+            out.push(AnimEvent { time, kind: kinds.next().unwrap_or(EventKind::Other(None)) });
+        }
+    }
+    out.sort_by(|a, b| a.time.total_cmp(&b.time));
+    Ok(out)
 }
 
 fn smallest_three(idx: usize, c: [f32; 3], negate: bool) -> [f32; 4] {
@@ -154,7 +329,7 @@ pub fn parse_animation(obj: &[u8]) -> Result<Animation> {
     // (Voice lines, `vo_*`: a duration and no bone tracks at all, only what goes with the speech.)
     let Some(first) = body.windows(4).position(|w| w == tag) else {
         ensure!(duration.is_finite() && duration > 0.0, "no track table and no duration");
-        return Ok(Animation { duration, tracks: vec![] });
+        return Ok(Animation { duration, tracks: vec![], events: parse_events(body).unwrap_or_default() });
     };
     ensure!(first >= 8, "track table too early");
     let count = u32_at(body, first - 8) as usize;
@@ -206,7 +381,7 @@ pub fn parse_animation(obj: &[u8]) -> Result<Animation> {
         p = q + n * vs;
     }
     ensure!(p == body.len(), "{} trailing bytes after tracks", body.len() - p);
-    Ok(Animation { duration, tracks })
+    Ok(Animation { duration, tracks, events: parse_events(body).unwrap_or_default() })
 }
 
 fn segment(keys: &[u16], frame: f32) -> (usize, usize, f32) {
@@ -329,7 +504,12 @@ pub fn mix(clips: &[(&Animation, f32)]) -> Option<Animation> {
         let keys = t.keys.iter().map(|&k| (k as f32 * scale).round().min(u16::MAX as f32) as u16).collect();
         tracks.push(Track { keys, ..t.clone() });
     }
-    Some(Animation { duration: n as f32 / FPS, tracks })
+    // So are its events, stretched the same way.
+    let events = clips.iter().max_by(|a, b| a.1.total_cmp(&b.1)).map_or_else(Vec::new, |(a, _)| {
+        let scale = n as f32 / FPS / a.duration.max(1e-3);
+        a.events.iter().map(|e| AnimEvent { time: e.time * scale, ..e.clone() }).collect()
+    });
+    Some(Animation { duration: n as f32 / FPS, tracks, events })
 }
 
 /// Bits of the limb-contact track (hash 2, one byte a key): the limb holds on (a hold, the wall, the ground) while its
@@ -394,6 +574,7 @@ mod tests {
                 Track { bone_hash: 0, kind: 0, keys: vec![0, f], channel: Channel::Translation(vec![[0.0; 3], [x, 0.0, 0.0]]) },
                 Track { bone_hash: 7, kind: 0, keys: vec![0, f], channel: Channel::Rotation(vec![[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, s, c]]) },
             ],
+            events: vec![],
         }
     }
 
