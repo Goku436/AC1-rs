@@ -522,6 +522,14 @@ in this batch, by audit id:
   Banned445's decode) in place of ours' mesh-name beams and single-hold tops; not the default yet (31 of 41 routes
   against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
   beam the running game lands on).
+- **Fourth batch** (NARROW-11, 14, 16; EXTRA-16; HAY-7, 9; INPUT-10):
+  - NARROW-16: kiosks are AC1's market-stall counters, read from the cities' `Kiosk_*` entity groups (Damascus: 112
+    stalls), not overhead bars: a jump target (type 0x400, its piece's middle, in the jump's own zone only), the entry
+    side taken against the stall entity's +Y (0x4C2F90's second matrix row). Across the front: the entry, one run along
+    the counter and `_tr_fall` off its end; along it, the side free step (ended where it leaves the counter) and a
+    free-step jump on out. [ours] The stall's own collision is left out of the kiosk's room and clear-way tests and the
+    way over: in Damascus it stands in the way (ours places it about 0.9 m out in front of the counter, a placement still
+    to check) where AC1 comes onto the counter. The ground-entered overhead monkey bars are gone.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

@@ -28,7 +28,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P) | first version |
-| Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosk monkey bars); combat removed for now; scholar crowds to blend into | first version |
+| Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); combat removed for now; scholar crowds to blend into | first version |
 | Player controller, free-running, combat, AI, crowds, missions | long-term |
 
 ## Running
@@ -351,12 +351,13 @@ Hanging on a wall with a ladder beside, sideways goes across onto it (`xx_l_clim
 the move whose hands end nearest its rails, the rest made up over it. Sideways on a ladder goes back onto the wall's
 holds (`xx_h_ladder_wait_tr_{hangwall|hangfree}_{left|right}`), steered like a leap since its rungs aren't level with
 the holds. E's ladder has holds to its right to try it.
-Kiosk frame (overhead bars at 2.1 m, east of block L): Space under it, or at most 1 m short of its end, with nothing
-in the way, jumps up to it
-(`xx_h_kiosk_freestep_footr_tr_monkeybar_footr`), `xx_h_kiosk_monkeybar_footr` crosses hand over hand and
-`_tr_fall` drops off at the end (or on Space); AC1 only ships the right-to-left-hand half of the step, so every
-other step plays it mirrored (`ik::mirror`: bones paired by name, unnamed ones by mirrored rest position, each
-bone given its pair's reflected skinning delta). On the ground the root's height follows the ground averaged 0.35 m
+Kiosks (`HumanKiosk`, audit NARROW-16): a market stall's counter (its `Kiosk` guidance pieces, 0.74 m up, along the
+front and the two sides, in every `Kiosk_*` entity group: they had been missed, the guidance check reading only
+top-level entities) is a jump target (type 0x400, its piece's middle, in the jump's own zone only). Across its front:
+`xx_h_kiosk_front_freestep_footr_tr_monkeybar_<left|right>_footr`, one `xx_h_kiosk_front_monkeybar_<side>_footr` along
+the counter and `_tr_fall` off its end; along the stall entity's +Y (within 10 degrees) onto a side,
+`xx_h_kiosk_side_freestep_foot<l|r>` and a free-step jump on out (Banned445's port). Kiosk K south of block L is one.
+(Ours had kiosks as overhead monkey bars jumped up to from the ground: removed.) On the ground the root's height follows the ground averaged 0.35 m
 behind and ahead along the way it moves (steps under 0.4 m count; an edge or a wall does not), so stairs become a
 steady climb with each foot set on its own step by the foot IK (which also drops the pelvis for the lower foot and
 tilts the feet to slopes), instead of the body jumping 17 cm a step.
@@ -594,7 +595,7 @@ The PIKVR test campaign (parkour, IK, visuals, research) is planned in `docs/PIK
 - `AC1_SCENARIOS=1 cargo test -p ac1 --test scenarios -- --nocapture`: 39 scripted runs (climbs, top-outs, free
   running up a wall, the risky leap, Pole Q's hang, the course and the flow lane, stopping against a low block and
   stepping up, glancing off it, a quarter turn let go, ladder, poles, bench, hay and the leap of faith off tower V,
-  block L stopping a run toward the kiosk, pulling down and climbing down, turning round at an edge, blended grabs and
+  block L stopping a run, pulling down and climbing down, turning round at an edge, blended grabs and
   stops, the ragdoll) checked against their
   logs; skipped without the flag or without the game. Each run also lists the steps between clips that AC1's move
   graph does not have ("off the move graph"), reported, not failed. Scripts run on their own clock, stepped at most 0.05 s a
@@ -732,7 +733,9 @@ A climbable entity carries a `GuidanceSystem` (55af1c3e) inside its body: the ed
 `crates/forge/src/guidance.rs`, found through Banned445's AC1-Movement-Rewritten). Every one parses
 (`examples/guidancecheck`): Damascus 8023/8023 (151,456 enabled edges: 150,915 ledge grabs, 317 ladders, 356 poles),
 Masyaf 963/963 (13,217), Acre 7018/7018 (138,980), Jerusalem 6493/6493 (105,908), Kingdom 5374/5374 (26,836). No beam
-or kiosk edges are authored in the cities.
+edges are authored in the cities. Kiosk edges are, inside entity groups' members (every `Kiosk_*` stall: three, its
+counter's front and sides), which the check, reading top-level entities only, does not count; the city loader reads
+them (Damascus: 336 pieces, 112 stalls).
 - A ladder is a vertical edge from its foot to its top (4.5 m for `Ladder_4m`), its horizontal normal out from the wall.
 - A pole is two horizontal edges along it, one per side: one swing bar.
 - A ledge grab's two normals are its top's (up) and its wall's (out).

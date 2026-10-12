@@ -113,12 +113,12 @@
 //! `xx_ladder_pulldown_tr_<l|h>_ladder_wait_r_a/b`). The empty hand on the ladder lets go
 //! (`xx_l_ladder_wait_<l|r>_tr_falling`). From the air a ladder is caught (`xx_fall_tr_ladder_min_a/b`).
 //!
-//! Kiosk frames (monkey bars): Space under the end of one jumps up to it
-//! (`xx_h_kiosk_freestep_footr_tr_monkeybar_footr`, +1.9 m forward), `xx_h_kiosk_monkeybar_footr` swings
-//! along it hand over hand (1.1 m a step, the hands 1.9 m above the root) to its far end, and
-//! `xx_h_kiosk_monkeybar_footr_tr_fall` drops off (also on Space). The step clip only swings from the
-//! right hand to the left (AC1 has no `_footl` one), so every other step plays it mirrored (see
-//! `ik::mirror`), and the drop off plays mirrored after a mirrored step.
+//! Kiosks (market stalls, `HumanKiosk`): AC1's jump query takes a stall's counter (its `Kiosk` guidance pieces, 0.74 m
+//! up) as a target (type 0x400) in the jump's own reach zone. Jumped onto across its front, the entry
+//! (`xx_h_kiosk_front_freestep_footr_tr_monkeybar_<left|right>_footr`, turning along the counter), one run along it
+//! (`xx_h_kiosk_front_monkeybar_<side>_footr`) and off its end (`..._tr_fall`) into the air; along the stall's axis,
+//! within 10 degrees (a side), `xx_h_kiosk_side_freestep_foot<l|r>` then a free-step jump on out of it (Banned445's
+//! port, `kiosk.rs`). (Ours had them as overhead monkey bars jumped up to from the ground: AC1 has no such move.)
 //!
 //! Clip seams inside a move crossfade over 0.05-0.25 s by how far the hands and feet jump: some AC1
 //! chains do not line up (the standing jump-up starts in the air, its crouch ends on the ground).
@@ -688,6 +688,67 @@ enum BeamStance {
     Along(usize),
     Across,
 }
+
+/// The side a kiosk is come onto from (`HumanKioskEntrySide`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KioskSide {
+    FrontLeft,
+    FrontRight,
+    LateralLeft,
+    LateralRight,
+}
+
+impl KioskSide {
+    fn lateral(self) -> bool {
+        matches!(self, KioskSide::LateralLeft | KioskSide::LateralRight)
+    }
+    /// The entry's clip (`HumanKiosk`'s first stage: the front sides' and the lateral ones').
+    fn entry(self) -> &'static str {
+        match self {
+            KioskSide::FrontLeft => "xx_h_kiosk_front_freestep_footr_tr_monkeybar_left_footr",
+            KioskSide::FrontRight => "xx_h_kiosk_front_freestep_footr_tr_monkeybar_right_footr",
+            KioskSide::LateralLeft => "xx_h_kiosk_side_freestep_footl",
+            KioskSide::LateralRight => "xx_h_kiosk_side_freestep_footr",
+        }
+    }
+    /// A front side's run along the counter (the second stage) and its way off the end (the third).
+    fn run_and_off(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            KioskSide::FrontLeft => Some(("xx_h_kiosk_front_monkeybar_left_footr", "xx_h_kiosk_front_monkeybar_left_footr_tr_fall")),
+            KioskSide::FrontRight => Some(("xx_h_kiosk_front_monkeybar_right_footr", "xx_h_kiosk_front_monkeybar_right_footr_tr_fall")),
+            _ => None,
+        }
+    }
+}
+
+/// The side a jump comes onto a kiosk from (0xE08672; Banned445's port, read live): along the kiosk entity's +Y (its
+/// second matrix row, 0x4C2F90) within 10 degrees one lateral side, against it the other; otherwise a front side, by the
+/// facing against it.
+fn kiosk_entry_side(axis: Vec3, dir: Vec3, facing: Vec3) -> KioskSide {
+    let (a, d) = (axis.with_y(0.0).normalize_or_zero(), dir.with_y(0.0).normalize_or_zero());
+    let k = a.dot(d);
+    if k > KIOSK_LATERAL_COS {
+        KioskSide::LateralLeft
+    } else if k < -KIOSK_LATERAL_COS {
+        KioskSide::LateralRight
+    } else if a.dot(facing.with_y(0.0)) < 0.0 {
+        KioskSide::FrontLeft
+    } else {
+        KioskSide::FrontRight
+    }
+}
+
+/// On a kiosk's counter (`HumanKiosk`, context 19): come onto from a jump at it (target type 0x400). A front side plays
+/// the entry, one run along the counter and its `_tr_fall` off the end, into the air; a lateral side the side free step,
+/// then a free-step jump out the way it came.
+#[derive(Clone, Copy, Debug)]
+struct KioskRun {
+    side: KioskSide,
+    /// The jump's way.
+    dir: Vec3,
+    /// 0 the entry, 1 the run along it.
+    stage: u8,
+}
 /// Standing on a perch: within this of its top line.
 pub const PERCH_REACH: f32 = 0.3;
 /// Running jumps are steered onto a perch they would land within this of.
@@ -828,14 +889,16 @@ const LADDER_LEAP_REACH: f32 = 0.8;
 const LADDER_ON: &str = "xx_h_wait_hipm_footl_tr_h_ladder_climb_up_r";
 /// Low profile climbs a ladder at half rate with the stick pushed less than this.
 const LADDER_SLOW_STICK: f32 = 0.7;
-const MONKEY: &str = "monkey";
-const MONKEY_ON: &str = "xx_h_kiosk_freestep_footr_tr_monkeybar_footr";
-const MONKEY_STEP: &str = "xx_h_kiosk_monkeybar_footr";
-const MONKEY_OFF: &str = "xx_h_kiosk_monkeybar_footr_tr_fall";
-/// Jumping up into a frame starts under it or at most this far short of its end (m).
-const MONKEY_REACH: f32 = 1.0;
-/// The frame is this far above the root while hanging from it (m).
-const MONKEY_HANG: f32 = 1.9;
+/// On a kiosk (`HumanKiosk`, see `KioskRun`).
+const KIOSK: &str = "kiosk";
+/// A jump along a kiosk's axis within 10 degrees comes onto one of its sides (cos 10 degrees: `entry_side`).
+const KIOSK_LATERAL_COS: f32 = 0.984_807_7;
+/// A jump target this near a kiosk's piece is that kiosk (m).
+const KIOSK_AT: f32 = 0.05;
+/// Off the end of a counter (`_tr_fall`): the way on it carries into the fall (m/s; the clip goes 0.9 m on in 0.53 s).
+const KIOSK_OFF_SPEED: f32 = 1.7;
+/// A side's free step is taken as off the counter once its root is this far under where it started (m).
+const KIOSK_OFF_DROP: f32 = 0.05;
 /// A low obstacle run onto (see `vault`): top height above the feet, and how far ahead it is spotted; tops
 /// up to `STEP_UP_MAX` are stepped onto from stopping against them (`collide`); the root ends this far in from the edge.
 /// (From 0.5 m: AC1's obstacle response starts there (event 42's guard 0xB25230, a contact at least 0.5 m over the
@@ -1069,9 +1132,10 @@ pub struct WallClimb {
     /// The foot the next free-step jump takes off from (the last one's reception lands on the other, so they alternate).
     pub freestep_left: bool,
     cycle: Option<Cycle>,
-    /// Ladder or kiosk frame being climbed.
+    /// Ladder being climbed.
     ladder: Option<usize>,
-    monkey: Option<usize>,
+    /// On a kiosk's counter (`HumanKiosk`).
+    kiosk: Option<KioskRun>,
     /// The current move plays mirrored left to right.
     mirrored: bool,
     /// This fall was steered already (onto a perch, or aimed by a perch jump).
@@ -1758,6 +1822,9 @@ fn ac1_jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) ->
             onto(edge - c.wall * JUMP_FAR_END_SHORT).or(Some(c.pos))
         }
         (Kind::Edge, 1) => [ROOF_EDGE_INSET, 0.15, 0.3].iter().find_map(|d| onto(c.pos - c.wall * *d)),
+        // (A kiosk's counter: its piece's middle, where `jump_kiosk` comes down; inside the stall's own shape in a city,
+        // which AC1's move goes through.)
+        (Kind::Kiosk, 0x400) => return Some(c.pos),
         _ => None,
     };
     spot.filter(|p| open(*p))
@@ -2009,7 +2076,7 @@ fn off_wall(state: &str) -> bool {
             | BENCH_SIT
             | LADDER_L
             | LADDER_R
-            | MONKEY
+            | KIOSK
     )
 }
 
@@ -2096,7 +2163,7 @@ impl WallClimb {
             freestep_left: true,
             cycle: None,
             ladder: None,
-            monkey: None,
+            kiosk: None,
             mirrored: false,
             aimed: false,
             bar: None,
@@ -2283,6 +2350,13 @@ impl WallClimb {
             && b.y >= t.y
         {
             return Self::jump(lib, level, root, dir, left, from);
+        }
+        // At a kiosk: onto its counter (AC1's jump type 0x400, then `HumanKiosk`).
+        if let Some(t) = top
+            && let Some(k) = level.kiosk_at(t, KIOSK_AT)
+            && let Some(w) = Self::jump_kiosk(lib, root, k.axis, t, speed, left, false, from.clone())
+        {
+            return Some(w);
         }
         let at_hold = top.is_none();
         // A thin wall ahead, too high to land on: over it, a hand on its top (AC1's passover).
@@ -2661,6 +2735,59 @@ impl WallClimb {
         }
         w.ease_in(from, root);
         debug!("climb: free-step jump aimed at {to:.2}, {:.0} degrees off the facing ({} then {})", angle.to_degrees(), takeoff.name, flight.name);
+        Some(w)
+    }
+
+    /// A jump onto the kiosk counter at `to` (AC1's jump type 0x400; `axis` the stall's, along its front): the takeoff and
+    /// flight of a running jump (`freestep`: from a post or beam, a free step's), the difference to the target spread over
+    /// the flight, then the entry by the side it comes from (`kiosk_entry_side`), `HumanKiosk`'s first stage; `kiosk_next`
+    /// plays the rest. `None` when the clips are missing or land too far off.
+    #[allow(clippy::too_many_arguments)]
+    fn jump_kiosk(lib: &mut AnimLib, root: &Transform, axis: Vec3, to: Vec3, speed: f32, left: bool, freestep: bool, from: Option<Pose>) -> Option<WallClimb> {
+        let p = root.translation;
+        let way = (to - p).with_y(0.0);
+        let aim = way.normalize_or_zero();
+        if aim == Vec3::ZERO {
+            return None;
+        }
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let j = if freestep {
+            let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
+            crate::jump::freestep(to.y - p.y, way.length(), angle, left, 0.0)
+        } else {
+            crate::jump::running(to.y - p.y, way.length(), left, speed / JUMP_AC1_FAST_SPEED)
+        };
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, flight) = (mix(&j.takeoff)?, mix(&j.flight)?);
+        // (The facing on arrival: the jump's way, the takeoff having turned to it.)
+        let side = kiosk_entry_side(axis, aim, aim);
+        let entry = lib.get(side.entry())?;
+        // (A running jump faces its way from the takeoff; a free step's takeoff turns the body itself.)
+        let planned = Transform { rotation: if freestep { root.rotation } else { facing(aim) }, ..*root };
+        let rot = world_rot(planned.rotation);
+        let turned = world_rot(planned.rotation * root_delta(root_rotation_at(&takeoff, takeoff.frames())));
+        let landed = p + rot * root_motion_at(&takeoff, takeoff.frames()) + turned * root_motion_at(&flight, flight.frames());
+        let correct = to - landed;
+        if correct.with_y(0.0).length() > JUMP_AC1_SLACK * way.length().max(JUMP_AC1_SHORT) {
+            debug!("climb: the jump clips land {:.2} m off the kiosk", correct.length());
+            return None;
+        }
+        // (No test of the way over: a city stall's own shape stands in it (ours places it 0.9 m out in front of the counter,
+        // and its intact front closes it up to the awning), and AC1 comes onto the counter all the same.)
+        // (A side's free step runs on along the counter and off it, 4 m on and 2.9 m down: AC1 jumps on out from it
+        // (0xE3BF90). Ours ends it where it leaves the counter's height, the jump on out taking over there.)
+        let off_counter =
+            side.lateral().then(|| (1..=entry.frames() as usize).map(|f| f as f32).find(|&f| root_motion_at(&entry, f).z < -KIOSK_OFF_DROP)).flatten();
+        let cut = off_counter.map(|f| (entry.name.clone(), f / FPS));
+        let mut w = WallClimb::new(VAULT, -aim);
+        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), entry], vec![VAULT.into(), VAULT.into(), KIOSK.into()], &planned, correct, Some(1));
+        w.cut = cut;
+        w.kiosk = Some(KioskRun { side, dir: aim, stage: 0 });
+        w.ease_in(from, root);
+        debug!("climb: jump onto kiosk at {to:.2}, side {side:?} ({} then {})", takeoff.name, flight.name);
         Some(w)
     }
 
@@ -4486,6 +4613,14 @@ impl WallClimb {
         {
             return true;
         }
+        // At a kiosk: onto its counter, from the free step (AC1's jump type 0x400).
+        if let Some(to) = to
+            && let Some(k) = level.kiosk_at(to, KIOSK_AT)
+            && let Some(w) = Self::jump_kiosk(lib, root, k.axis, to, 0.0, self.freestep_left, true, self.last.clone())
+        {
+            *self = w;
+            return true;
+        }
         // To a target: AC1's free-step jump, the takeoff group by the way it goes off the facing (sideways or back off a
         // post without turning first: the takeoff turns the body).
         if let Some(to) = to
@@ -5107,75 +5242,34 @@ impl WallClimb {
         }
     }
 
-    /// Space under the end of a kiosk frame, facing along it: jump up to it and cross it.
-    pub fn monkey_bars(lib: &mut AnimLib, level: &Level, root: &Transform, from: Option<Pose>) -> Option<WallClimb> {
-        let p = root.translation;
-        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
-        let clip = lib.get(MONKEY_ON)?;
-        let reach = root_motion_at(&clip, clip.frames());
-        let (i, dir, q) = level.monkey.iter().enumerate().find_map(|(i, m)| {
-            let dir = m.axis() * m.axis().dot(fwd).signum();
-            let q = m.closest(p.with_y(m.a.y));
-            let lateral = (q - p).with_y(0.0) - dir * (q - p).with_y(0.0).dot(dir);
-            let end = if dir.dot(m.axis()) > 0.0 { m.b } else { m.a };
-            let left = (end - p).with_y(0.0).dot(dir);
-            // Under the frame, or at most `MONKEY_REACH` short of its end (the clip jumps up into it).
-            let along = (p - m.a).with_y(0.0).dot(m.axis());
-            let under = (-MONKEY_REACH..=(m.b - m.a).with_y(0.0).length() + MONKEY_REACH).contains(&along);
-            (dir.dot(fwd) > 0.7 && under && lateral.length() < 0.6 && (1.8..2.5).contains(&(m.a.y - p.y)) && left > reach.x + 1.2).then_some((i, dir, q))
-        })?;
-        let rot = facing(dir);
-        let natural = p + world_rot(rot) * reach;
-        // Land under the frame's line, hanging from it.
-        let target = q + dir * (natural - q).with_y(0.0).dot(dir) - Vec3::Y * MONKEY_HANG;
-        // Nothing in the way (the move slides the root there).
-        let to = (target - p).with_y(0.0);
-        if to.length() > 0.05 && level.raycast(p + Vec3::Y * 1.0, to.normalize(), to.length() + 0.3).is_some_and(|h| h.normal.y.abs() < 0.5) {
-            return None;
+    /// A `HumanKiosk` stage ended: a front side's entry goes on into its run along the counter, the run off its end into
+    /// the air (`_tr_fall` posing the fall); a lateral side's free step jumps on out along the jump's way, at a target
+    /// there, else AC1's free step (Banned445's port: 0xE3E320, 0xE3E390, 0xE3BF90).
+    fn kiosk_next(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        let Some(mut k) = self.kiosk else { return false };
+        if k.side.lateral() {
+            self.kiosk = None;
+            let w = jump_target(level, root.translation, k.dir, None)
+                .and_then(|to| Self::jump_freestep(lib, level, root, to, true, self.last.clone()))
+                .or_else(|| Self::free_step(lib, root, k.dir, true, self.last.clone()));
+            debug!("climb: off the kiosk's side, on along {:.2}", k.dir);
+            return w.map(|w| *self = w).is_some();
         }
-        let mut w = WallClimb::new(MONKEY, -dir);
-        w.monkey = Some(i);
-        w.start(clip, MONKEY.into(), &Transform { translation: p, rotation: rot, ..*root });
-        if let Some(m) = &mut w.mv {
-            m.correct = target - natural;
-        }
-        w.ease_in(from, root);
-        debug!("climb: onto kiosk frame {i}");
-        Some(w)
-    }
-
-    /// Hanging from a kiosk frame: another step along it, or drop off at its end (or when asked).
-    fn monkey_next(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, done: &Clip) -> bool {
-        let Some(m) = self.monkey.and_then(|i| level.monkey.get(i).copied()) else { return false };
-        // (`mirrored` still describes the move that just ended.)
-        let (was_step, was_mirrored) = (done.name == MONKEY_STEP, self.mirrored);
-        let dir = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
-        let end = if dir.dot(m.axis()) > 0.0 { m.b } else { m.a };
-        let step = lib.get(MONKEY_STEP);
-        let len = step.as_ref().map_or(0.0, |c| root_motion_at(c, c.frames()).x);
-        if !std::mem::take(&mut self.want_drop)
-            && (end - root.translation).with_y(0.0).dot(dir) > len + 0.3
-            && let Some(step) = step
+        let Some((run, off)) = k.side.run_and_off() else { return false };
+        if k.stage == 0
+            && let Some(c) = lib.get(run)
         {
-            // Keep under the line.
-            let natural = root.translation + world_rot(root.rotation) * root_motion_at(&step, step.frames());
-            let q = m.closest(natural.with_y(m.a.y)) - Vec3::Y * MONKEY_HANG;
-            // Hands alternate: after a step, the next one is its mirror image.
-            let mirror = was_step && !was_mirrored;
-            self.start(step, MONKEY.into(), root);
-            self.mirrored = mirror;
-            // The step ends in the other hand's pose: no crossfade needed between halves.
-            self.fade = None;
-            if let Some(mv) = &mut self.mv {
-                mv.correct = q - natural;
-            }
+            k.stage = 1;
+            self.kiosk = Some(k);
+            self.start(c, KIOSK.into(), root);
+            debug!("climb: along the kiosk's counter");
             return true;
         }
-        let Some(off) = lib.get(MONKEY_OFF) else { return false };
-        let mirror = was_step && was_mirrored;
-        self.monkey = None;
-        self.let_fall(off, root, dir * 1.5);
-        self.mirrored = mirror;
+        let Some(c) = lib.get(off) else { return false };
+        self.kiosk = None;
+        let dir = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        self.let_fall(c, root, dir * KIOSK_OFF_SPEED);
+        debug!("climb: off the kiosk's counter");
         true
     }
 
@@ -5789,6 +5883,10 @@ impl WallClimb {
     /// The legs pressed while on the wall: jump off a perch, fling off a bar, rebound off a wall run, hop
     /// out of hay. Returns false when none of those applies (leaps are the held legs).
     pub fn legs(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, input: Vec2) -> bool {
+        // (On a kiosk's counter nothing answers the legs either.)
+        if self.kiosk.is_some() {
+            return true;
+        }
         // On a wall in high profile, the legs: eject off it (AC1's rebound) at the best place to land away from the wall,
         // or along it with the stick to a side (the stick up is a leap up the wall). Nothing to land on: with the stick
         // back, push off backwards and fall, catching what comes. (In low profile the running game does nothing.)
@@ -5922,8 +6020,8 @@ impl WallClimb {
             self.want_drop = true;
             return true;
         }
-        if self.monkey.is_some() {
-            self.want_drop = true;
+        // (On a kiosk's counter nothing answers the hand: `HumanKiosk` plays its stages out.)
+        if self.kiosk.is_some() {
             return true;
         }
         let _ = input;
@@ -7267,7 +7365,7 @@ impl WallClimb {
             if self.state == SWING && self.swing_next(lib, level, root, &done.clip) {
                 return;
             }
-            if self.state == MONKEY && self.monkey_next(lib, level, root, &done.clip) {
+            if self.state == KIOSK && self.kiosk_next(lib, level, root) {
                 return;
             }
             // Balancing on a post, leaning, hiding: their loops start in another pose than the move
@@ -7548,11 +7646,21 @@ mod tests {
             VAULT,
             LADDER_L,
             LADDER_R,
-            MONKEY,
+            KIOSK,
         ] {
             assert!(off_wall(s), "{s}");
         }
         assert!(!off_wall("1m") && !off_wall(FREE));
+    }
+
+    #[test]
+    fn kiosk_sides_follow_its_axis() {
+        // Along the axis within 10 degrees: the lateral sides; across it, the front side by the facing against the axis.
+        assert_eq!(kiosk_entry_side(Vec3::X, Vec3::X, Vec3::X), KioskSide::LateralLeft);
+        assert_eq!(kiosk_entry_side(Vec3::X, Vec3::NEG_X, Vec3::NEG_X), KioskSide::LateralRight);
+        assert_eq!(kiosk_entry_side(Vec3::X, Vec3::Z, Vec3::new(0.5, 0.0, 1.0)), KioskSide::FrontRight);
+        assert_eq!(kiosk_entry_side(Vec3::X, Vec3::Z, Vec3::new(-0.5, 0.0, 1.0)), KioskSide::FrontLeft);
+        assert!(!kiosk_entry_side(Vec3::X, Vec3::new(0.97, 0.0, 0.26), Vec3::X).lateral());
     }
 
     #[test]

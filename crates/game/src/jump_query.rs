@@ -8,7 +8,8 @@
 //! 0.5 m out and 5 cm over it: the room on top (back toward the wall), what lies below, and a clear line from the chest
 //! (0.75 m up). It must lie in AC1's side-view reach zones (13 polygons, read from the running game); the zone it is in
 //! decides which jumps it allows (onto it, over it, to hang from it). Beams lying along the way within 40 degrees give
-//! the in-zone point nearest 4 m on; edges facing away give the far end of the top behind them.
+//! the in-zone point nearest 4 m on; edges facing away give the far end of the top behind them. A kiosk's pieces (a
+//! market stall's counter) give their middle, a jump onto the kiosk, in the jump's own zone only.
 //!
 //! The scorer then prefers, in front of a plane through the hips tilted down ahead: a swing bar, the nearest roof edge
 //! (a top at least 1 m deep, or a beam), the highest other target in a 45 degree cone, a far edge below; then behind it
@@ -97,6 +98,9 @@ pub enum Kind {
     FarEdge,
     /// A swing bar.
     Pole,
+    /// A kiosk: a market stall's counter (AC1's `Kiosk` guidance pieces), jumped onto at its middle (jump type 0x400,
+    /// then `HumanKiosk`).
+    Kiosk,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -108,15 +112,16 @@ pub struct Candidate {
     pub ty: u32,
     /// Below: 2 a floor within 0.5 m, 4 within 2 m, 8 a deep drop with a wall under it, 16 without; 1 beams, far edges.
     pub sub: u32,
-    /// The jumps it allows: 1 onto it, 2 over it, 0x40 a wall hang, 0x80 a free hang, 0x10000 a beam or far edge.
+    /// The jumps it allows: 1 onto it, 2 over it, 0x40 a wall hang, 0x80 a free hang, 0x400 onto a kiosk, 0x10000 a
+    /// beam or far edge.
     pub flags: u32,
     pub kind: Kind,
     /// The perch it lies on (beams), to leave out the one stood on.
     pub perch: Option<usize>,
 }
 
-/// The jump chosen: the candidate and the jump type (1 onto a top, 2 over it, 0x40 / 0x80 to hang, 0x10000 onto a
-/// beam or far edge).
+/// The jump chosen: the candidate and the jump type (1 onto a top, 2 over it, 0x40 / 0x80 to hang, 0x400 onto a
+/// kiosk, 0x10000 onto a beam or far edge).
 pub type Choice = (Candidate, u32);
 
 fn ray_distance(level: &Level, from: Vec3, dir: Vec3, max: f32) -> f32 {
@@ -224,10 +229,11 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
         b: Vec3,
         wall: Vec3,
         sector: u8,
+        kiosk: bool,
     }
     let reach = pos + dir * 5.0;
     let mut pieces: Vec<Piece> = vec![];
-    for l in &level.ledges {
+    for (l, kiosk) in level.ledges.iter().map(|l| (l, false)).chain(level.kiosks.iter().map(|k| (&k.edge, true))) {
         let mid = (l.a + l.b) * 0.5;
         if (mid - reach).with_y(0.0).length() > 6.0 + l.a.distance(l.b) * 0.5 {
             continue;
@@ -246,13 +252,14 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
             0
         // (Ours: to either side only up to 90 degrees; an edge facing away is a far edge's. Banned445's port takes up
         // to 135 degrees, the chain builder being undecoded; that made a Damascus roof's own diagonal corner, 0.8 m on,
-        // a target.)
-        } else if ang <= std::f32::consts::FRAC_PI_2 + 1e-4 {
+        // a target. A kiosk's pieces keep the 135: AC1 takes a jump along a counter's side, 9 degrees off it, as its
+        // lateral entry, live.)
+        } else if ang <= if kiosk { 3.0 * std::f32::consts::FRAC_PI_4 } else { std::f32::consts::FRAC_PI_2 } + 1e-4 {
             if w.dot(right) > 0.0 { 1 } else { 2 }
         } else {
             3
         };
-        pieces.push(Piece { a, b, wall: w, sector });
+        pieces.push(Piece { a, b, wall: w, sector, kiosk });
     }
 
     // Chains of touching pieces facing the same way.
@@ -269,7 +276,7 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
             let head = chain.front().unwrap().1;
             let mut grew = false;
             for o in 0..pieces.len() {
-                if used[o] || pieces[o].sector != pieces[s].sector {
+                if used[o] || pieces[o].sector != pieces[s].sector || pieces[o].kiosk != pieces[s].kiosk {
                     continue;
                 }
                 let (a, b) = (pieces[o].a, pieces[o].b);
@@ -299,6 +306,8 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
     for chain in &chains {
         let Some((pi, g)) = grab_point(chain, centre, dir) else { continue };
         let piece = &pieces[pi];
+        // (A kiosk's piece is aimed at its middle, 0xE18970 in Banned445's port.)
+        let g = if piece.kiosk { (piece.a + piece.b) * 0.5 } else { g };
         let w = piece.wall;
         // (Off the forward line, it must face the jumper within 45 degrees.)
         let (sa, sb) = ((piece.a - centre).dot(right), (piece.b - centre).dot(right));
@@ -317,7 +326,10 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
             continue;
         };
         let o = g + w * 0.5 + up * 0.05;
-        let room = ray_distance(level, o, -w, 1.75) - 0.5;
+        // (A kiosk is taken as open on top and in reach (ours): a city stall's intact collision closes its front from the
+        // counter up to the awning, and its wares stand on the ground 0.9 m in front of it, yet AC1 comes onto its counter,
+        // so its rays cannot meet them; ours has no collision layers to leave them out by.)
+        let room = if piece.kiosk { 1.0 } else { ray_distance(level, o, -w, 1.75) - 0.5 };
         let ty = if room < 0.03 {
             64
         } else if room < 0.3 {
@@ -337,7 +349,12 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
         } else {
             8
         };
-        let mut flags: u32 = 0xC3;
+        // (A kiosk is only ever jumped onto, and only in the jump's own zone.)
+        let mut flags: u32 = match (piece.kiosk, zone1) {
+            (true, true) => 0x400,
+            (true, false) => continue,
+            _ => 0xC3,
+        };
         if g.y - pos.y < -0.5 {
             flags &= !2;
         }
@@ -372,7 +389,8 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
             flags &= !0xC0;
         }
         if flags != 0 {
-            out.push(Candidate { pos: g, wall: w, ty, sub, flags, kind: Kind::Edge, perch: None });
+            let kind = if piece.kiosk { Kind::Kiosk } else { Kind::Edge };
+            out.push(Candidate { pos: g, wall: w, ty, sub, flags, kind, perch: None });
         }
     }
 
@@ -490,7 +508,7 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
 
 /// The jump type of a candidate's flags, by priority.
 fn first_type(flags: u32) -> u32 {
-    for t in [0x10000, 1, 2, 4, 8, 0x40, 0x80] {
+    for t in [0x400, 0x10000, 1, 2, 4, 8, 0x40, 0x80] {
         if flags & t != 0 {
             return t;
         }

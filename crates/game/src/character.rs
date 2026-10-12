@@ -1233,7 +1233,6 @@ pub fn locomotion(
                         // A ladder's foot or top: onto it (before the edge it stands at).
                         let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
                         ch.wall = ch.wall.take().or_else(|| WallClimb::ladder(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, ctl.high, lead_left, pose()));
-                        ch.wall = ch.wall.take().or_else(|| WallClimb::monkey_bars(lib, &level, &tf, pose()));
                         ch.wall = ch.wall.take().or_else(|| {
                             wall_run_now(v, ctl.free_run, &wall_ahead)
                                 .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose()))

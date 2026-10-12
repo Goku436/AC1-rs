@@ -605,12 +605,31 @@ const SCENARIOS: &[Scenario] = &[
         never: &[],
     },
     Scenario {
-        name: "free running past block L stops at it, not through it onto the kiosk",
+        name: "free running at block L runs up it, not through it",
         tags: &["ground", "vault"],
         env: &[("AC1_START", "14,-7.5,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-8"), ("AC1_LEGS", "0-8")],
         secs: 6.0,
         want: &["wallrun"],
-        never: &["onto kiosk frame", "EMBED"],
+        never: &["onto kiosk", "EMBED"],
+    },
+    Scenario {
+        // (Audit NARROW-16: AC1's kiosk, a market stall's counter, jumped onto across its front: the entry, one run along
+        // the counter and off its end into the air.)
+        name: "the tap jump at kiosk K's counter across its front: onto it, along it and off its end",
+        tags: &["jump", "misc"],
+        env: &[("AC1_START", "29.85,-14,180"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0.3-0.4")],
+        secs: 4.0,
+        want: &["jump onto kiosk at", "along the kiosk's counter", "off the kiosk's counter", "-> ground"],
+        never: &["EMBED", "landing_death"],
+    },
+    Scenario {
+        // (Audit NARROW-16: along the stall's axis, onto a side: the side free step, then a free-step jump on out.)
+        name: "the tap jump at kiosk K along its axis: onto its side and a free step on out",
+        tags: &["jump", "misc"],
+        env: &[("AC1_START", "24.5,-9.6,-90"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0.2-0.3")],
+        secs: 4.0,
+        want: &["side Lateral", "off the kiosk's side"],
+        never: &["EMBED", "landing_death"],
     },
     Scenario {
         // (As the running AC1 does at a Damascus roof's edge: the ledge stop, then still pushing at the edge, down onto it.)

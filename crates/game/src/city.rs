@@ -721,6 +721,8 @@ fn spawn_world(
                     a: world.transform_point3(Vec3::from(e.a)),
                     b: world.transform_point3(Vec3::from(e.b)),
                     out: wall.with_y(0.0).normalize_or_zero(),
+                    // (The entity's own +Y, game space: along a market stall's front, its kiosk axis.)
+                    axis: world.transform_vector3(Vec3::Y).with_y(0.0).normalize_or_zero(),
                 });
             }
         }

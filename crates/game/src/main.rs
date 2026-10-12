@@ -15,9 +15,8 @@
 //! (Eagle Vision), C centres the camera, as AC1's default keys (`DefaultBindings.map` and the manual). Free
 //! running into a wall grabs or runs up it at any speed; running vaults low walls and sprinting jumps off edges
 //! on its own; on a post Space jumps to the next one, on a beam a direction walks along it; on a swing bar Space
-//! lets go at the next forward swing (S held drops); on a ladder W/S climb, Shift lets go; Space under a kiosk
-//! frame swings
-//! across it. Pulling up onto a post or at the end of a wall uses one hand (pillars P and Q behind block A).
+//! lets go at the next forward swing (S held drops); on a ladder W/S climb, Shift lets go; the tap jump at a
+//! market stall's counter (a kiosk) jumps onto it and runs along it or across it (kiosk K, south of block L). Pulling up onto a post or at the end of a wall uses one hand (pillars P and Q behind block A).
 //! Ground moves: run stops, turning round, turns on the spot, ledge stops and looking down at big drops, the empty
 //! hand at an edge pulls down onto it, running into a tall wall leans on it, rolls off high landings, walking into a
 //! haystack dives in (platform E and its haystacks, north of block D).
@@ -1391,8 +1390,11 @@ fn draw_edges(
             gizmos.line(l.a + lift, l.b + lift, Color::srgb(1.0, 0.55, 0.15));
         }
     }
-    for l in level.bars.iter().chain(&level.monkey).filter(|l| near(l.a, l.b)) {
+    for l in level.bars.iter().filter(|l| near(l.a, l.b)) {
         gizmos.line(l.a, l.b, Color::srgb(0.75, 0.45, 0.2));
+    }
+    for k in level.kiosks.iter().filter(|k| near(k.edge.a, k.edge.b)) {
+        gizmos.line(k.edge.a, k.edge.b, Color::srgb(0.75, 0.45, 0.2));
     }
 }
 
