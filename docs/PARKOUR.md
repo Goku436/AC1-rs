@@ -680,6 +680,15 @@ in this batch, by audit id:
     0xDD8F70, Banned445's `vertical_rows`), 0.1-0.8 m up, up to 0.5 m in or out and 0.2 m along, the highest; both hands
     step onto it in turn (the second following on, `ContinuePendingVerticalStep`), the body carried under it. Then the
     free hang's top-out onto the balcony.
+  - #11, #6, #13, "thin air": [ours] the running jump into the wall hang
+    (`jump_hangwall`) put each hand on whichever hold was nearest where the clips ended, within 3 m: by a market stall one
+    took a house's roof edge 8 m up and the other the stall's awning 5 m up, and he hung from the air between them. The
+    hands now land on the hold aimed at (their middle on its grab point, each then on a hold within 0.35 m), as AC1 flies
+    the jump at its target's grab point. A climbing leap's way, chest to chest up or down with it, must be clear (a leap
+    to the side and 2.4 m down from a wall hang stood on a porch roof went through the roof to a hold under it). The
+    wall run on nothing was a scaffold's collision: skinned props with more than 24 bones were left undrawn as
+    characters, and the scaffolds (69 bones) and storage racks (61) with them; an entity with collision shapes is now
+    drawn whatever its skeleton, as the running game draws that scaffold (checked live) (the city's load logs how many collided entities draw nothing: 0 in Damascus).
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.

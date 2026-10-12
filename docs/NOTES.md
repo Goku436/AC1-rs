@@ -825,8 +825,10 @@ set up against the built collision (`Level::add_city_objects`), logged as "N hay
   A ladder's foot or top is taken before the edge it stands at.
 - benches `Banc_*`: sat on facing away from the wall behind them.
 - poles `Pole_*` lying down (stuck out of a wall, or across a gap): swing bars along their length.
-Skinned props (hay carts, market stalls) are drawn in their bind pose; `AC1_POSE_PROPS` stands them in their own
-skeleton's pose instead (24 bones at most), which so far changes nothing visible on the carts.
+Skinned props (hay carts, market stalls, scaffolds, storage racks) are drawn in their bind pose; `AC1_POSE_PROPS` stands
+them in their own skeleton's pose instead, which so far changes nothing visible on the carts. A prop's skeleton has 24
+bones at most, or any number on an entity with collision shapes (Damascus's `Scaffold_2x3x8`, 69 bones; characters have
+70 and more and no collision): a collided entity left undrawn was solid thin air (user report #13).
 
 The climbing probe (`AC1_PROBE_CLIMB=n`) takes the n holds nearest the start that hang 1.6-2.6 m over the ground, grabs
 each and holds up for 10 s, and logs how far he got, where the wall's top is and which holds go up it. Damascus: 8 of 20

@@ -1127,6 +1127,62 @@ const SCENARIOS: &[Scenario] = &[
         want: &["back eject, -89 degrees off straight away", "the run ends at [21.37, 0.00, 23."],
         never: &["EMBED"],
     },
+    // User report #11 (Damascus, by a market stall): the running jump at a house's roof edge flew the surface flight into
+    // the wall hang, its hands taking each the hold nearest where the clips ended: one the roof edge 8 m up, the other the
+    // stall's awning 5 m up, and he hung from the air between them (hands 6.4 m up at z -4.6). Now the hands land on the
+    // hold aimed at.
+    Scenario {
+        name: "Damascus report #11: the running jump at the roof edge by the market stall hangs from the edge (not the air)",
+        tags: &["jump", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "178.04,-2.44,-69.2,10.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-4"),
+            ("AC1_LEGS", "0-4"),
+        ],
+        secs: 3.5,
+        want: &["running jump at the wall's ledge [188.38, 8.00, -6.37]", "-> hangwall_open via xx_hangwall_reception_front_straight_max_c at [187.7"],
+        never: &["EMBED", "reception_front_straight_max_c at [187.67, 5.4"],
+    },
+    // User report #13 (Damascus): a wall run up nothing drawn, on the collision of a scaffold (`Scaffold_2x3x8_01A01`, a
+    // skinned prop with 69 bones) left undrawn as a character. Now drawn; no entity is collided with and not drawn.
+    Scenario {
+        name: "Damascus report #13: the wall run by the crates runs up the scaffold, drawn (nothing collided with is undrawn)",
+        tags: &["wallrun"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "226.82,-13.47,41.8,4.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-5"),
+            ("AC1_PATH", "225.37,-15.75;225.6,-18.2;226.3,-19.4;227.5,-20.6"),
+        ],
+        secs: 3.0,
+        want: &["0 entities collided with and none of their meshes drawn", "via xx_h_wallingfront_entry_footl_a at [226."],
+        never: &["EMBED"],
+    },
+    // User report #6 (Damascus): free running off a roof at a building's ledge 7.8 m up, he took a window 2 m below it (the
+    // per-hand hold search of #11) and, leaping to the side from there, went 2.4 m down through the porch roof he stood on.
+    // Now he catches the ledge.
+    Scenario {
+        name: "Damascus report #6: free running off the roof at the building's ledge catches the ledge (not a window below)",
+        tags: &["jump", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "103.14,-51.31,-99.6,8.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-4"),
+            ("AC1_LEGS", "0-4"),
+            ("AC1_PATH", "105.2,-50.21;106.08,-48.85;106.2,-47.6;106.0,-40"),
+        ],
+        secs: 3.0,
+        want: &["found the hold at [106.", ", 7.77, -42.8", "-> free_1m via xx_fall_tr_hangfree_min_b"],
+        never: &["EMBED", "hangwall_reception"],
+    },
     Scenario {
         // (AC1's Ghost mode, the Human Debug context: no collision, `Ghost_mode01` then the loop; out, request 33's
         // `xx_h_jump_falling01` and a fall from rest. Banned445's port.)
