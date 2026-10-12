@@ -1889,6 +1889,15 @@ fn wall_run_options() -> Vec<GrabOpt> {
     ]
 }
 
+/// A free hang's hand step up (AC1's vertical rows, `free_step_up`): an edge this far over the lower hand (m), up to
+/// `HANG_STEP_DEPTH` in or out of the hands and `HANG_STEP_ALONG` along, facing within 60 degrees of the hold (cos), not
+/// within `HANG_STEP_HELD` of a hand (the edge held).
+const HANG_STEP_UP: std::ops::RangeInclusive<f32> = 0.1..=0.8;
+const HANG_STEP_DEPTH: f32 = 0.5;
+const HANG_STEP_ALONG: f32 = 0.2;
+const HANG_STEP_FACING: f32 = 0.5;
+const HANG_STEP_HELD: f32 = 0.2;
+
 /// How far the hands and feet move between two poses (m), for sizing crossfades.
 fn seam_gap(rig: &Rig, cr: ClimbRig, a: &Pose, b: &Pose) -> f32 {
     let (ma, mb) = (a.model(rig), b.model(rig));
@@ -2474,6 +2483,11 @@ fn facing(dir: Vec3) -> Quat {
 
 fn is_free(state: &str) -> bool {
     state.starts_with("free_")
+}
+
+/// The climbing stances (on the wall's holds by hands and feet, level or a hand raised).
+fn is_climb_stance(state: &str) -> bool {
+    matches!(state, "1m" | "2m" | "1lu" | "1ru" | "2lu" | "2ru")
 }
 
 /// States the climber rests in between moves with both hands level.
@@ -4106,6 +4120,9 @@ impl WallClimb {
             .filter(|q| (*q - at).with_y(0.0).length() < 0.5 && (q.y - at.y).abs() < 0.75 && q.y > hands.y + 0.5 && (*q - hands).with_y(0.0).length() > 0.3)
             .min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)))
         else {
+            if why() {
+                debug!("climb: no jump up from the climb: no edge round {at:.2}");
+            }
             return false;
         };
         let v = (q.y - p.y - 2.0).clamp(0.0, 1.0);
@@ -7238,6 +7255,54 @@ impl WallClimb {
         false
     }
 
+    /// A free hang's hand steps up onto an edge the clips' own reach misses: AC1's vertical row search
+    /// (`FindVerticalRows` 0xDD8F70 / `sub_116F4A0`; Banned445's `vertical_rows`): from the hands' midpoint, an edge
+    /// 0.1-0.8 m up, up to 0.5 m in or out of the hands and 0.2 m along, facing as the hold does (within 60 degrees), the
+    /// edge held cut out (0.2 m round the hands); the highest wins. One hand steps onto it
+    /// (`xx_h_hangfree_climb_1m_u_<1lu|1ru>`, the hands taken in turn) and the other follows (AC1's
+    /// `ContinuePendingVerticalStep` 0xDCF3C0, `_<1lu|1ru>_u_1m`), the body carried under the new edge. A balcony's
+    /// stepped corbels go up so, each step 0.45 m further out and 0.12-0.3 m up (user reports #7, #8).
+    fn hang_row_step(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        if !matches!(self.state.as_str(), FREE | FREE_OPEN) {
+            return false;
+        }
+        let n = self.normal.with_y(0.0).normalize_or_zero();
+        let along = Vec3::Y.cross(n).normalize_or_zero();
+        // (The edge held: the free hang's root hangs `JUMP_HOLD_FREE_HANG` under it, just out from it.)
+        let mid = root.translation + Vec3::Y * JUMP_HOLD_FREE_HANG - n * 0.05;
+        let Some(row) = level
+            .ledges
+            .iter()
+            .filter(|l| l.out.with_y(0.0).normalize_or_zero().dot(n) > HANG_STEP_FACING)
+            .filter_map(|l| {
+                let q = l.closest(mid + Vec3::Y * (HANG_STEP_UP.start() + HANG_STEP_UP.end()) * 0.5);
+                let d = q - mid;
+                (HANG_STEP_UP.contains(&d.y)
+                    && d.dot(along).abs() <= HANG_STEP_ALONG
+                    && d.dot(n).abs() <= HANG_STEP_DEPTH
+                    && (q - mid).with_y(0.0).length() + (q.y - mid.y).abs() > HANG_STEP_HELD)
+                    .then_some((q, d.y))
+            })
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(q, _)| q)
+        else {
+            return false;
+        };
+        // (The hand not moved last first, AC1's `PickVerticalHandAndAnim` 0xDCB3E0: the one that led before, as the other
+        // followed it.)
+        let first = if self.last_hand_up != 0 { "1lu" } else { "1ru" };
+        let Some(clips) =
+            [format!("xx_h_hangfree_climb_1m_u_{first}"), format!("xx_h_hangfree_climb_{first}_u_1m")].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
+        let to = row + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
+        debug!("climb: the free hang's hand steps onto the edge {:.2} up and {:.2} out at {row:.2} (AC1's vertical rows)", row.y - mid.y, (row - mid).dot(n));
+        self.start_chain(clips, vec![format!("free_{first}"), FREE.into()], root, to - (root.translation + travel));
+        true
+    }
+
     /// AC1's transition from the climbing stance into a free hang (`HumanClimb__TryTransitionToLedgeHang` 0xDF4BA0, after a
     /// short move up from a level pose was found; Banned445's port, the lean read from the exe): with the hands on
     /// `to_hands` after the move and each foot on the hold two rows under its hand, the body's line (the higher foot to the
@@ -7347,6 +7412,10 @@ impl WallClimb {
         if self.take_first(lib, level, root, rig, base, cr, cands) {
             return true;
         }
+        // From a free hang, up onto an edge further in or out (AC1's hand step on its vertical rows).
+        if dir == "u" && self.hang_row_step(lib, level, root) {
+            return true;
+        }
         // At the bottom, sideways with no holds that way: step off sideways onto the ground (AC1's corner-to-ground,
         // before the corner climbs; audit CLIMB-E10).
         if (dir == "l" || dir == "r") && self.try_step_off_side(lib, level, root, dir == "l") {
@@ -7392,20 +7461,22 @@ impl WallClimb {
         if (dir == "u" || up_ish) && self.try_top_out(lib, level, root, rig, base, cr) {
             return true;
         }
+        // From any climbing stance, up with nothing else: the jump up to a ledge above and out from the wall (AC1's
+        // TryBackEject, last in ChooseMove, from any pose; under a Damascus balcony's stepped corbels, user report #7,
+        // ours stepped 1m -> 1ru -> 1m for ever: the hand raised had no row over it and the level-up below took it back).
+        if (dir == "u" || up_ish) && is_climb_stance(&self.state) && self.climb_jump_up(lib, level, root) {
+            return true;
+        }
         // Up with nothing above and a hand raised (at the top edge): bring the hands level first, the
-        // top-out follows on the next press.
+        // top-out follows on the next press. (Not down: the top-out needs the hands up on the top edge, and from the
+        // lower row up went straight back to the raised hand, round and round.)
         if dir == "u" && !is_rest(&self.state) && !is_free(&self.state) {
-            for d in ["u", "d", "l", "r"] {
+            for d in ["u", "l", "r"] {
                 let back: Vec<_> = self.candidates(lib, d, Vec2::ZERO).into_iter().filter(|c| is_rest(&c.to)).collect();
                 if self.take_first(lib, level, root, rig, base, cr, back) {
                     return true;
                 }
             }
-        }
-        // From the climbing stance, up with nothing else: the jump up to a ledge above and out from the wall (AC1's
-        // TryBackEject, last in ChooseMove).
-        if (dir == "u" || up_ish) && matches!(self.state.as_str(), "1m" | "2m") && self.climb_jump_up(lib, level, root) {
-            return true;
         }
         // Down at the bottom of the wall: climb off onto the ground.
         // (Down or diagonally down: AC1's directions 2, 3, 8 and 9.)

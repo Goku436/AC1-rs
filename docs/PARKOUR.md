@@ -639,6 +639,14 @@ in this batch, by audit id:
     split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
   - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
     the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
+- **2026-10-12, user reports (Damascus)**:
+  - #7, #8, a balcony held out on stepped corbels (edges 0.45 m further out and 0.12-0.3 m up each, out to its front):
+    the climb's jump up to an overhang (TryBackEject) is tried from any climbing pose, as AC1's ChooseMove does, not only
+    the level ones; ours' fallback "bring the hands level first" no longer steps down (from the raised hand it went
+    1ru -> 1m -> 1ru for ever). In the free hang, up onto an edge the clips miss: AC1's vertical rows (`FindVerticalRows`
+    0xDD8F70, Banned445's `vertical_rows`), 0.1-0.8 m up, up to 0.5 m in or out and 0.2 m along, the highest; both hands
+    step onto it in turn (the second following on, `ContinuePendingVerticalStep`), the body carried under it. Then the
+    free hang's top-out onto the balcony.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.

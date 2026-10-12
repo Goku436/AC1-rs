@@ -1125,6 +1125,49 @@ const SCENARIOS: &[Scenario] = &[
         want: &["back eject (frontleft)", "the run ends at [16.06, 0.00, 2"],
         never: &["EMBED"],
     },
+    // User reports #7 and #8: up the wall under a Damascus balcony held out on stepped corbels, each step 0.45 m further
+    // out and 0.12-0.3 m up. At the wall's top the stick up jumps up onto the corbels (AC1's TryBackEject, from a raised
+    // hand's pose too), the free hang climbs them hand over hand out to the balcony's front (AC1's vertical rows, an edge
+    // up to 0.5 m in or out) and pulls up onto it. Ours stepped 1m -> 1ru -> 1m over and over.
+    Scenario {
+        name: "Damascus: up the wall, onto the balcony's corbels and out along them, up onto the balcony (report #7)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "112,-24.4,-90,5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-2"),
+            ("AC1_LEGS", "0-2"),
+            ("AC1_STOP", "2.5"),
+            ("AC1_CLIMB", "nograb,wait=3,up=14"),
+        ],
+        secs: 17.0,
+        want: &[
+            "jump up from the climb to the ledge at [114.10, 11.48",
+            "hand steps onto the edge 0.12 up and 0.46 out",
+            "hand steps onto the edge 0.32 up and 0.37 out",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4",
+        ],
+        never: &["xx_l_climb_1ru_d_1m", "EMBED"],
+    },
+    Scenario {
+        name: "Damascus: the same balcony from further along its wall, after a move to the left (report #8)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "112,-24.4,-90,5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-2"),
+            ("AC1_LEGS", "0-2"),
+            ("AC1_STOP", "2.5"),
+            ("AC1_CLIMB", "nograb,wait=3,up=3.4,left=1.2,up=10"),
+        ],
+        secs: 18.0,
+        want: &["jump up from the climb to the ledge at [114.10, 11.48, -26.", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4"],
+        never: &["EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
