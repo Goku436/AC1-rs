@@ -12,6 +12,12 @@
 //!   this game sees it.
 //! - Direct3D 9: its `Present` runs the hook once a frame (`d3d`), reading commands from a file (`cmd`: screenshots,
 //!   key presses), so the game can be driven and seen from outside whatever window has the focus.
+//! - The player: found through hooks on his input interpreter and `ActionComponent::Play` (`trace`): `where`, `tp`, a
+//!   plain trace; and the live log (`live`, off unless `live on` or the file `ac1-hook.live`): every frame in the flight
+//!   recorder's format (root, facing, speed, context and action, AC1's own bones, the limb IK goals, the pad and the
+//!   camera) into `ac1-live.txt`, and the context switches, landings, grabs and actions into `ac1-live-events.txt`,
+//!   both beside the exe, each started over past its size limit. Its layouts and line format are in `livefmt` (pure
+//!   Rust, tested on any target); the `ac1` example `livelog` follows, sums up and compares them.
 //!
 //! What it does is written to `ac1-hook.log` beside the exe. Nothing here runs outside a 32-bit build (the 64-bit
 //! build is only for the workspace's checks).
@@ -26,6 +32,10 @@ mod cmd;
 mod d3d;
 #[cfg(target_pointer_width = "32")]
 mod input;
+#[cfg(target_pointer_width = "32")]
+mod live;
+#[cfg_attr(not(target_pointer_width = "32"), allow(dead_code))]
+mod livefmt;
 #[cfg(target_pointer_width = "32")]
 mod patch;
 mod sys;

@@ -16,7 +16,7 @@
 
 use std::io::Write;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::{patch, sys};
 
@@ -33,6 +33,11 @@ const ENTITY_MATRIX: usize = 0x10;
 static PLAY_STUB: AtomicUsize = AtomicUsize::new(0);
 static GROUND_STUB: AtomicUsize = AtomicUsize::new(0);
 static HUMAN: AtomicUsize = AtomicUsize::new(0);
+/// The player's input interpreter (the ground state's `this`).
+static INTERP: AtomicUsize = AtomicUsize::new(0);
+/// The player's `ActionComponent` as of the last frame, while tracing or the live log is on (0 otherwise).
+static PLAYER_ACTIONS: AtomicUsize = AtomicUsize::new(0);
+static TRACING: AtomicBool = AtomicBool::new(false);
 
 /// Actions the player started since the last frame line.
 static STARTED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
@@ -58,8 +63,8 @@ pub fn install() {
 }
 
 unsafe extern "thiscall" fn play(this: usize, id: u32, b: u32, c: u32, d: u32) -> u32 {
-    let human = HUMAN.load(Ordering::Relaxed);
-    if human != 0 && sys::peek(human + HUMAN_ACTIONS) == Some(this as u32) && OUT.lock().unwrap().is_some() {
+    let player = PLAYER_ACTIONS.load(Ordering::Relaxed);
+    if player != 0 && this == player {
         STARTED.lock().unwrap().push(id);
     }
     // SAFETY: the original, through its stub, with the same arguments.
@@ -67,6 +72,7 @@ unsafe extern "thiscall" fn play(this: usize, id: u32, b: u32, c: u32, d: u32) -
 }
 
 unsafe extern "thiscall" fn interpret(this: usize, a: u32, b: u32, c: u32) -> u32 {
+    INTERP.store(this, Ordering::Relaxed);
     if let Some(h) = sys::peek(this + 0x10).filter(|&h| h != 0)
         && HUMAN.swap(h as usize, Ordering::Relaxed) != h as usize
     {
@@ -95,12 +101,33 @@ fn now() -> Option<([f32; 3], f32, String)> {
     Some(([f(12), f(13), f(14)], yaw, context))
 }
 
+/// The player's `Human` (0 until the ground interpreter first runs).
+pub fn human() -> usize {
+    HUMAN.load(Ordering::Relaxed)
+}
+
+/// The player's input interpreter (0 until it first runs on the ground).
+pub fn interp() -> usize {
+    INTERP.load(Ordering::Relaxed)
+}
+
+/// Once a frame (from `Present`): the actions the player started since the last frame, while tracing or the live log
+/// is on (the `Play` hook keeps them only then).
+pub fn take_started(live: bool) -> Vec<u32> {
+    let human = HUMAN.load(Ordering::Relaxed);
+    let wanted = human != 0 && (live || TRACING.load(Ordering::Relaxed));
+    let actions = if wanted { sys::peek(human + HUMAN_ACTIONS).unwrap_or(0) as usize } else { 0 };
+    PLAYER_ACTIONS.store(actions, Ordering::Relaxed);
+    let mut started = STARTED.lock().unwrap();
+    if started.is_empty() { Vec::new() } else { started.drain(..).collect() }
+}
+
 /// Once a frame (from `Present`): the frame's line while tracing.
-pub fn frame(n: u32) {
+pub fn frame(n: u32, started: &[u32]) {
     let mut out = OUT.lock().unwrap();
     let Some((file, start)) = out.as_mut() else { return };
     let Some((p, yaw, context)) = now() else { return };
-    let ids: Vec<String> = STARTED.lock().unwrap().drain(..).map(|id| format!("{id:08x}")).collect();
+    let ids: Vec<String> = started.iter().map(|id| format!("{id:08x}")).collect();
     let _ = writeln!(file, "{n}\t{:.4}\t{:.3}\t{:.3}\t{:.3}\t{yaw:.1}\t{context}\t{}", start.elapsed().as_secs_f32(), p[0], p[1], p[2], ids.join(","));
 }
 
@@ -111,6 +138,7 @@ pub fn command(arg: &str) -> String {
         if let Some((mut f, _)) = out.take() {
             let _ = f.flush();
         }
+        TRACING.store(false, Ordering::SeqCst);
         return "trace off".into();
     }
     match std::fs::File::create(arg) {
@@ -118,7 +146,7 @@ pub fn command(arg: &str) -> String {
             let mut w = std::io::BufWriter::new(f);
             let _ = writeln!(w, "frame\tseconds\tx\ty\tz\tyaw\tcontext\tactions");
             *out = Some((w, std::time::Instant::now()));
-            STARTED.lock().unwrap().clear();
+            TRACING.store(true, Ordering::SeqCst);
             format!("trace into {arg}")
         }
         Err(e) => format!("trace: cannot write {arg}: {e}"),

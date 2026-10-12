@@ -4,6 +4,8 @@
 //! - `key <DIK hex> [frames]`: hold a key that many frames (6 by default), e.g. `key 1c` Enter, `key 01` Escape;
 //! - `log <text>`: write a line to the log (to mark places in it);
 //! - `trace <path>` / `trace off`: the player frame by frame into a file (`trace`); `where`: one line to the log;
+//! - `live on [MB]` / `live off` / `live`: the live log, the player frame by frame in the flight recorder's format plus
+//!   an event log, beside the exe (`live`; also on while the file `ac1-hook.live` is there);
 //! - `tp <x> <y> <z> [yaw]`: put the player there (game space, Z up; yaw in degrees from +X toward +Y);
 //! - `mouse <button> [frames]`: hold a mouse button (0 left, 1 right = high profile); `look <dx> <dy> <frames>`: move
 //!   the mouse that much each frame (the camera); `cursor <x> <y>`: the Windows cursor (the menus follow it).
@@ -13,7 +15,7 @@
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::{d3d, input, sys, trace};
+use crate::{d3d, input, live, sys, trace};
 
 static FRAME: AtomicU32 = AtomicU32::new(0);
 
@@ -21,7 +23,10 @@ static FRAME: AtomicU32 = AtomicU32::new(0);
 pub fn frame(device: *mut c_void) {
     let n = FRAME.fetch_add(1, Ordering::SeqCst);
     input::tick();
-    trace::frame(n);
+    let started = trace::take_started(live::on());
+    trace::frame(n, &started);
+    live::frame(n, &started);
+    live::poll_flag(n);
     if !n.is_multiple_of(6) {
         return;
     }
@@ -73,6 +78,7 @@ pub fn frame(device: *mut c_void) {
                 format!("look {rest}")
             }
             "where" => trace::here(),
+            "live" => live::command(rest),
             _ => format!("unknown command: {line}"),
         };
         sys::log(&format!("[frame {n}] {said}"));

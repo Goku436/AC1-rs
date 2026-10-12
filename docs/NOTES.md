@@ -652,6 +652,28 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
   starts. Every change to movement is scored on all of them. 41 routes (with ladder 68 by the bureau and the roof
   haystack north-east of it): 31 within 1 m at the inputs' end (30 at rest), mean path gap 0.48 m (roof2_free_ne, where AC1 misses its own
   target, 5.6 m of it).
+- ac1-hook's live log (2026-10-12, `crates/hook/src/live.rs`, `livefmt.rs`): `live on [MB]` / `live off` in
+  `ac1-hook.cmd` (or the file `ac1-hook.live` beside the exe: there, on; gone, off) writes the real game's player every
+  frame to `ac1-live.txt` beside the exe in the flight recorder's line format (Bevy space; `time` is game seconds, the
+  frames' lengths from 0x192DDA8 added up), so `pops` and the comparisons read both games' files:
+  `time root x y z yaw <deg> vel <m/s> | <context> clip <last action's clip> | bones Hips Head LeftHand RightHand LeftFoot
+  RightFoot x,y,z | targets <limb IK goals> | ac1 frame= wall= mode= dt= sub= speed= act= started=id:clip,... stick=
+  latch= btn= high= legs= hand= cam= camdir=`; and `ac1-live-events.txt`: takeoffs, landings (time in the air, drop),
+  grabs, other context switches, every action started, teleports. Each file starts over past its limit (50 MB, the
+  events 8 MB), two old ones kept (`.1`, `.2`); writes buffered, flushed twice a second. Off, it costs nothing but a
+  file check a second. Where each field comes from: the root, facing and context as `trace` (Entity matrix, `Human`
+  +0x48's class); the speed from the root's move over the frame; actions from the `ActionComponent::Play` hook, named
+  from `ac1-hook.actions.tsv` beside the exe (`livelog names` writes it); the bones from the `Human`'s bone handles
+  (+0x280 Head, +0x290/+0x298 hands, +0x2A0/+0x2A8 feet; Hips looked up by its hash in the skeleton) read out of the
+  skeleton component's global pose as last rebuilt; the IK goals from the limb IK at `Human` +0x530 (four limbs of 0x90:
+  on, weight, settled, the hold's point in its object's space); the input from the interpreter (+0xD0 its pad: buttons,
+  stick; +0x112B high profile, +0x1126 / +0x1129 the legs / hand buffers, +0x1300 the latched stick); the camera from the
+  `CameraManager` (0x1A11998) -> switcher -> the camera's matrix; the sub-state from the context data (ground +0xB0 and
+  its speed, climb +0x20). Layouts in `livefmt.rs`' header; the bones, goals, input and camera were read off the exe and
+  are to be checked live (the hook logs the classes it found them in; `livelog summary` checks the bones sit about 1 m
+  from the root and the camera looks at the player). The reader is the `ac1` example `livelog`: `tail` follows the file
+  (`--for secs`), `summary [--last secs]` sums one up, `compare <real> <ours recording>` lines a real run up with an
+  ac1-rs F9 recording of the same route from when each starts moving (gaps, modes, clips, when each switch happens).
 - The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
   each, with a `combo` scenario each (`AC1_SCENARIO_TAGS=combo`, about 40 s): G1 box, two beams across a gap, a swing
   bar, down onto a low beam (AC1's beam landing); G2 free running onto a ladder, up, a beam bridge, the leap of faith
