@@ -652,6 +652,28 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
   starts. Every change to movement is scored on all of them. 41 routes (with ladder 68 by the bureau and the roof
   haystack north-east of it): 31 within 1 m at the inputs' end (30 at rest), mean path gap 0.48 m (roof2_free_ne, where AC1 misses its own
   target, 5.6 m of it).
+- ac1-hook's live log (2026-10-12, `crates/hook/src/live.rs`, `livefmt.rs`): `live on [MB]` / `live off` in
+  `ac1-hook.cmd` (or the file `ac1-hook.live` beside the exe: there, on; gone, off) writes the real game's player every
+  frame to `ac1-live.txt` beside the exe in the flight recorder's line format (Bevy space; `time` is game seconds, the
+  frames' lengths from 0x192DDA8 added up), so `pops` and the comparisons read both games' files:
+  `time root x y z yaw <deg> vel <m/s> | <context> clip <last action's clip> | bones Hips Head LeftHand RightHand LeftFoot
+  RightFoot x,y,z | targets <limb IK goals> | ac1 frame= wall= mode= dt= sub= speed= act= started=id:clip,... stick=
+  latch= btn= high= legs= hand= cam= camdir=`; and `ac1-live-events.txt`: takeoffs, landings (time in the air, drop),
+  grabs, other context switches, every action started, teleports. Each file starts over past its limit (50 MB, the
+  events 8 MB), two old ones kept (`.1`, `.2`); writes buffered, flushed twice a second. Off, it costs nothing but a
+  file check a second. Where each field comes from: the root, facing and context as `trace` (Entity matrix, `Human`
+  +0x48's class); the speed from the root's move over the frame; actions from the `ActionComponent::Play` hook, named
+  from `ac1-hook.actions.tsv` beside the exe (`livelog names` writes it); the bones from the `Human`'s bone handles
+  (+0x280 Head, +0x290/+0x298 hands, +0x2A0/+0x2A8 feet; Hips looked up by its hash in the skeleton) read out of the
+  skeleton component's global pose as last rebuilt; the IK goals from the limb IK at `Human` +0x530 (four limbs of 0x90:
+  on, weight, settled, the hold's point in its object's space); the input from the interpreter (+0xD0 its pad: buttons,
+  stick; +0x112B high profile, +0x1126 / +0x1129 the legs / hand buffers, +0x1300 the latched stick); the camera from the
+  `CameraManager` (0x1A11998) -> switcher -> the camera's matrix; the sub-state from the context data (ground +0xB0 and
+  its speed, climb +0x20). Layouts in `livefmt.rs`' header; the bones, goals, input and camera were read off the exe and
+  are to be checked live (the hook logs the classes it found them in; `livelog summary` checks the bones sit about 1 m
+  from the root and the camera looks at the player). The reader is the `ac1` example `livelog`: `tail` follows the file
+  (`--for secs`), `summary [--last secs]` sums one up, `compare <real> <ours recording>` lines a real run up with an
+  ac1-rs F9 recording of the same route from when each starts moving (gaps, modes, clips, when each switch happens).
 - The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
   each, with a `combo` scenario each (`AC1_SCENARIO_TAGS=combo`, about 40 s): G1 box, two beams across a gap, a swing
   bar, down onto a low beam (AC1's beam landing); G2 free running onto a ladder, up, a beam bridge, the leap of faith
@@ -920,7 +942,7 @@ them (Damascus: 336 pieces, 112 stalls).
 - A ladder is a vertical edge from its foot to its top (4.5 m for `Ladder_4m`), its horizontal normal out from the wall.
 - A pole is two horizontal edges along it, one per side: one swing bar.
 - A ledge grab's two normals are its top's (up) and its wall's (out).
-Cities use them (`Level::use_authored`): the ledge grabs (sloping at most 0.35) are the holds, instead of the edges
+Cities use them (`Level::use_authored`): the ledge grabs (sloping at most 40 degrees) are the holds, instead of the edges
 and lips found in the geometry; the ladders and horizontal poles replace the ones guessed from mesh names. Damascus:
 174,677 ledge pieces, of which 151,176 holds: a piece is shortened 0.1 m at a free end (a vertex no other piece uses), as AC1's hold grid shortens edges, so the lone 8-12 cm window-frame bits leave nothing (leaping to one hung him from the air) while a sill stored as three short pieces stays one hold; then 6,745 more left out as buried in a wall (no way to them from 0.45 m in front: a box's top 0.3 m behind a bare wall's face was grabbed through it), 333 ladders, 183 swing poles. `AC1_GEOMETRY_HOLDS` brings the geometry's holds back. A top-out may come down onto a floor up to 0.45 m under the hold (a parapet's lip in front of a
 roof: 0.21 m refused it before); it also
@@ -937,6 +959,37 @@ the running game walked it as a narrow object (`HumanNarrowObject`, `xx_l_beam_c
 guidance has no `Beam` edges at all (Damascus: 0): AC1's narrow objects come from these pairs. Walking off a beam's
 end onto another going on from it (within 0.45 m, 35 degrees) walks on along it. Climbing onto one ends crouched,
 balancing on it, and free running carries on along or off it.
+
+## The grab data against AC1's (2026-10-12)
+`AC1_GRAB_AUDIT=<file.tsv>` (`grab_audit`, cities) writes every authored guidance piece with its source (the group or
+entity placing it and its first mesh), its fate in ours, and ours' holds, perches, bars and ladders that no authored
+piece backs. Every `GuidanceSystem` in the data sits inline in an entity or a group member (none elsewhere, no
+`GuidanceSystemComponent` or run-time generated guidance in any city); the inactive ones (Damascus 180) are the other
+state of breakable props (`Kiosk_*`, `Scaffold_*`, `Storage_01a`: intact and broken) and the animated city gates.
+Ledge-grab pieces (Damascus 203,012; Masyaf 14,323), before -> after this pass:
+
+| fate | Damascus | Masyaf | why |
+|---|---|---|---|
+| kept (half or more on a hold of ours) | 186,832 -> 188,188 | 13,074 -> 13,158 | |
+| steep (past 40 degrees) | 5,949 | 60 | AC1's own report rule (0x66C350): pointed window arches, roof slopes |
+| buried (`Level::hold_open`: no way in from 0.45 m in front) | 8,815 | 1,090 | ours' rule; scaffolds 1,243 of their 1,931 (a breakable's volume taken for collision, below), crates and baskets stacked side by side, an awning's back beam behind its front one, short end pieces; Masyaf's terrain edges under its render-mesh collision |
+| hay (on a haystack's heap) | 1,356 -> 0 | 83 -> 0 | the hiding places' tarp frames (2.3-2.5 m over the box's rim, authored), dropped only on the frames square to the city's axes; now only geometry holds are dropped there |
+| ladder (carved round a ladder) | 57 | 15 | AC1's report rule |
+| lost | 3 | 0 | tiny pieces |
+
+Ladders (333 / 42), poles (366 / 4) and kiosk pieces (336 / 27) are all kept. Ours without an authored piece, before ->
+after: Damascus 29 perches (24 on `WoodBeam` meshes lying in the street 0.1-0.2 m up) and 16 beam-end holds from mesh
+names -> 0 (`Level::drop_unbacked`), 11 swing bars from `Pole_*` meshes -> 0 (no poles by name where the holds are
+authored); left: 1,347 thin-beam swing bars from pairs of authored holds (AC1 swings from any free hang a jump reaches).
+By prop type (Damascus, pieces / kept): houses 74,289 / 69,848, windows 19,649 / 17,469 (2,036 steep arches), souks
+8,064 / 7,904, towers and minarets 7,517 / 7,135, beams 5,549 / 5,228, walls 5,084 / 4,924, hiding places 4,836 / 4,805,
+doors 4,608 / 4,155, awnings 3,685 / 3,221, balconies 3,143 / 3,024, gardens 3,005 / 2,868, baskets 2,603 / 2,015,
+scaffolds 1,931 / 688, handrails 1,570 / 1,370, kiosks 1,344 / 1,132, barrels 915 / 689, lamps 643 / 630, stairs 548 /
+478, carts 494 / 446, crates 120 / 75 (only `Crate_1m_01A` carries guidance: 30 of 193 crates; a stall's small crates,
+most lanterns and suspended lamps, tents and most garden props have none in AC1 either). Open: scaffolds and market
+stalls refer to a `BhvBreakableStructure` volume (a `ListShape` of boxes round a scaffold from 1.05 to 4.8 m up, a
+`BoxShape` by each stall) and to their broken state's `MeshShape` (`*_01b`, `Kiosk_Collision_Broken`), which the city
+loads as solid collision: it buries the scaffolds' holds (for the collision builders).
 
 ## City parkour objects
 Benches, and the ladders and poles of cities without authored ones, are found by mesh name. Haystacks and hiding spots
