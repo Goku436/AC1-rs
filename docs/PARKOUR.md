@@ -245,6 +245,13 @@ The climbing is a grid, not free placement:
   holds or a ladder across a gap (0xDF0050, 0xDEF3A0); corner climbs (0xDF29E0); the jump up from the climb
   (`TryBackEject` 0xDF2F50: search 2.25 m over the root, 0.8 m out). **[B]**
 - Climb → ground below: `xx_l_climb_{1m,2m}_tr_h_wait_hipm_footl_a/b` (0xDF1D20). **[B, ours]**
+- `ChooseMove`'s checks on a table move: the body's boxes at the pose it ends in (`Human__ClimbBodyBoxesFree`
+  0xB2DF90, axes right / in / up from the root: half 0.375 × 0.25 × 0.5 at 0.5 m up, 0.15 × 0.15 × 0.4 at 1.4 m; a long
+  move sideways 0.575 wide, 0.05 m back from its side). The lean guard (0xDF47E0) on the long moves and the short ones
+  down, into a pose with one side a row higher: the lean of the hands' line (going up) or the feet's (going down) from
+  up, seen from the side, positive leaning out (0xDF2CD0); refused when new − old < −30° going up (the new one taken as
+  0-45°), old − new < −30° going down (the old one so taken); the long move then falls to the short one. **[V]** Ours
+  tests both on its table moves.
 - Climb out over the top (`TryReachLedgeAbove` 0xDF1730: dirs 0, 1, 6, 7 from a level pose): the edge is the middle of
   the two hand holds, the way in the negated sum of their normals (else a guidance edge round the root + 0.8 m up,
   0.5 m in). Room is three empty boxes (0xB2E240, the knee catch's test too; axes along the edge, in, up): 0.6 m wide
@@ -530,6 +537,8 @@ in this batch, by audit id:
   beam the running game lands on).
 - **2026-10-11, climbing and ladders** (CLIMB-E6): the climb-out's room is AC1's three boxes over the edge (no headroom
   or wall rays; a top too thin to probe is climbed onto at the edge's height); gauntlet G13 (an awning over a wall's top).
+  (CLIMB-E13, E14) The table moves get AC1's body boxes at the pose they end in (up and down too; the two side rays
+  dropped for them) and its lean guard; gauntlet G14 (a block out of a wall between two rows).
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

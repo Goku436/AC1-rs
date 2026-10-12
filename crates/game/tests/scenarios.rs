@@ -778,6 +778,15 @@ const SCENARIOS: &[Scenario] = &[
         want: &["no room over the edge"],
         never: &["hangknee", "EMBED"],
     },
+    // Audit CLIMB-E13: AC1's body boxes at the pose a climbing move ends in (0xB2DF90).
+    Scenario {
+        name: "gauntlet G14: up a wall's holds to a block sticking out of it: the climbing move up into it refused (AC1's body boxes)",
+        tags: &["climb"],
+        env: &[("AC1_START", "-92.6,184,-90,1"), ("AC1_CLIMB", "up=6"), ("AC1_CLIMB_WHY", "1")],
+        secs: 8.0,
+        want: &["no room for the body there (AC1's body boxes)"],
+        never: &["EMBED"],
+    },
     Scenario {
         name: "gauntlet G7: up a wall's holds, along to its edge, the leap across the gap onto the next wall, up to its top",
         tags: &["combo", "climb", "hang"],

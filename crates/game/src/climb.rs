@@ -929,11 +929,13 @@ struct Cand {
     names: Vec<String>,
     to: String,
     feet: Feet,
+    /// A move from AC1's climbing tables (`climb_table`): checked as AC1's `ChooseMove` checks its moves.
+    table: Option<crate::climb_table::Move>,
 }
 
 impl Cand {
     fn new(name: impl Into<String>, to: impl Into<String>, feet: Feet) -> Self {
-        Self { names: vec![name.into()], to: to.into(), feet }
+        Self { names: vec![name.into()], to: to.into(), feet, table: None }
     }
 }
 
@@ -1243,6 +1245,50 @@ pub(crate) fn climb_out_room(level: &Level, edge: Vec3, out: Vec3) -> bool {
     level.box_free(edge - d * 0.35 + Vec3::Y * 1.075, [side, d, Vec3::Y], Vec3::new(0.3, 0.65, 0.725))
         && level.box_free(edge + Vec3::Y * 0.95, [side, d, Vec3::Y], Vec3::new(0.1, 0.1, 0.85))
         && level.box_free(edge - tilt_d * 0.4, [side, tilt_d, tilt_up], Vec3::new(0.1, 0.1, 0.5))
+}
+
+/// AC1's body boxes at a climbing pose (`Human__ClimbBodyBoxesFree` 0xB2DF90; read from the exe, as Banned445's port has
+/// it): with the root at `root` facing `fwd` (into the wall), nothing in a box from the root up to 1 m, 0.75 m wide and
+/// 0.5 m deep round it, nor in one from 1 m up to 1.8 m, 0.3 m square. A long move to the side (`side` -1 left, +1 right)
+/// widens the first to 1.15 m, 0.05 m back from that side.
+fn climb_body_free(level: &Level, root: Vec3, fwd: Vec3, side: i32) -> bool {
+    let right = fwd.cross(Vec3::Y).normalize_or_zero();
+    let axes = [right, fwd, Vec3::Y];
+    let (wide, shift) = if side != 0 { (0.575, -0.05 * side as f32) } else { (0.375, 0.0) };
+    level.box_free(root + Vec3::Y * 0.5 + right * shift, axes, Vec3::new(wide, 0.25, 0.5))
+        && level.box_free(root + Vec3::Y * 1.4, axes, Vec3::new(0.15, 0.15, 0.4))
+}
+
+/// The lean of the line through `a` and `b` seen from the side (rad, from straight up): positive when its upper end is
+/// further out from the wall than its lower one (AC1's 0xDF2CD0; `fwd` into the wall).
+fn lean_angle(a: Vec3, b: Vec3, fwd: Vec3) -> f32 {
+    let side = fwd.with_y(0.0).normalize_or_zero().cross(Vec3::Y);
+    let (a, b) = (a - side * a.dot(side), b - side * b.dot(side));
+    let (lo, hi) = if a.y <= b.y { (a, b) } else { (b, a) };
+    let d = hi - lo;
+    if d.abs().max_element() <= 5e-4 {
+        return 0.0;
+    }
+    let d = d.normalize();
+    let angle = d.y.clamp(-1.0, 1.0).acos();
+    if Vec3::Y.cross(d).dot(side) < 0.0 { -angle } else { angle }
+}
+
+/// AC1's lean guard on a climbing move (0xDF47E0, read from the exe; ChooseMove asks it of a long move, and of a short
+/// one down): into a pose with one side a row higher, going up, refused when the hands' line now leans out more than
+/// 30 degrees past where the new hands' does (that one taken as 0-45 degrees); going down, the same of the feet, the
+/// old line clamped and the new one not. Level poses and sideways moves are never refused.
+fn lean_refused(m: &crate::climb_table::Move, hands: [Vec3; 2], to_hands: [Vec3; 2], feet: [Vec3; 2], to_feet: [Vec3; 2], fwd: Vec3) -> bool {
+    let quarter = std::f32::consts::FRAC_PI_4;
+    let limit = -std::f32::consts::FRAC_PI_6;
+    if matches!(m.to, 0 | 3) {
+        return false;
+    }
+    match m.dir {
+        0 | 1 | 6 | 7 => lean_angle(to_hands[0], to_hands[1], fwd).clamp(0.0, quarter) - lean_angle(hands[0], hands[1], fwd) < limit,
+        2 | 3 | 8 | 9 => lean_angle(feet[0], feet[1], fwd).clamp(0.0, quarter) - lean_angle(to_feet[0], to_feet[1], fwd) < limit,
+        _ => false,
+    }
 }
 
 /// The hold for a wrist at `wrist` in AC1's climbing probe box (`BuildHoldGrid` 0xDF6A40, docs/PARKOUR.md section 4):
@@ -5049,8 +5095,8 @@ impl WallClimb {
         }
         let side = if x > 0.0 { "right" } else { "left" };
         let cands = vec![
-            Cand { names: vec![format!("xx_h_ladder_wait_tr_hangwall_{side}")], to: HANGWALL_OPEN.into(), feet: Feet::Wall },
-            Cand { names: vec![format!("xx_h_ladder_wait_tr_hangfree_{side}")], to: FREE.into(), feet: Feet::Free },
+            Cand { names: vec![format!("xx_h_ladder_wait_tr_hangwall_{side}")], to: HANGWALL_OPEN.into(), feet: Feet::Wall, table: None },
+            Cand { names: vec![format!("xx_h_ladder_wait_tr_hangfree_{side}")], to: FREE.into(), feet: Feet::Free, table: None },
         ];
         let ladder = self.ladder.take();
         if self.take_first(lib, level, root, rig, base, cr, cands) {
@@ -6049,14 +6095,14 @@ impl WallClimb {
         // In the climbing stance AC1's move tables pick the move (`climb_table`, `ChooseMove` 0xDFDE90): the pose and the
         // stick's direction give the long move (first, whatever the stick's length) and the short one, each an action whose clip plays;
         // the pose it ends in is the table's (the clip's name says otherwise for `xx_l_climb_2ru_u_2ru`).
-        let wall: Vec<(String, String)> = match crate::climb_table::pose_of(&self.state) {
+        let wall: Vec<Cand> = match crate::climb_table::pose_of(&self.state) {
             Some(pose) => {
                 let stick = if input.length() > 0.3 { input } else { dir_vector(dir) };
                 crate::climb_table::moves(pose, stick)
                     .into_iter()
                     .filter_map(|m| {
                         let clips = lib.graph.action_clips(m.action)?;
-                        Some((clips.first()?.first()?.clone(), crate::climb_table::POSES[m.to].to_string()))
+                        Some(Cand { table: Some(m), ..Cand::new(clips.first()?.first()?.clone(), crate::climb_table::POSES[m.to], Feet::Wall) })
                     })
                     .collect()
             }
@@ -6065,10 +6111,10 @@ impl WallClimb {
                 if vertical {
                     wall.sort_by_key(|(_, to)| !to.ends_with(prefer));
                 }
-                wall
+                wall.into_iter().map(|(name, to)| Cand::new(name, to, Feet::Wall)).collect()
             }
         };
-        out.extend(wall.into_iter().map(|(name, to)| Cand::new(name, to, Feet::Wall)));
+        out.extend(wall);
         if self.state == "1m" || self.state == "2m" {
             if !vertical {
                 // At the end of a wall, turn the corner (inside corners first, then around the outside).
@@ -6141,7 +6187,11 @@ impl WallClimb {
                 _ => {}
             }
         }
-        bases.into_iter().map(|(base, to, feet)| Cand { names: chain_names(lib, &base), to: to.into(), feet }).filter(|c| !c.names.is_empty()).collect()
+        bases
+            .into_iter()
+            .map(|(base, to, feet)| Cand { names: chain_names(lib, &base), to: to.into(), feet, table: None })
+            .filter(|c| !c.names.is_empty())
+            .collect()
     }
 
     /// Take the first candidate whose end pose has both hands on holds and the feet as it needs.
@@ -6299,7 +6349,8 @@ impl WallClimb {
             // corner; the holds run on to its end, under the other wall). Climbing jumps too. (Corners go round.)
             let slide = (end.pos + land - root.translation).with_y(0.0);
             let side = slide - normal * slide.dot(normal);
-            if !corner && side.length() > 0.05 {
+            // (A table move: AC1's body boxes where it ends, below, in place of these rays.)
+            if !corner && c.table.is_none() && side.length() > 0.05 {
                 let into = [0.5, 1.2].iter().any(|h| {
                     level.raycast(root.translation + Vec3::Y * *h, side.normalize(), side.length() + BODY_SIDE).is_some_and(|w| w.normal.y.abs() < 0.5)
                 });
@@ -6355,6 +6406,36 @@ impl WallClimb {
                 Vec3::ZERO
             };
             let err = flat + keep + normal * out - Vec3::Y * down + to_hang + step + stance;
+            // AC1's checks on a move from its tables (`ChooseMove` 0xDFDE90): the body's two boxes at the climbing pose it
+            // ends in (`Human__ClimbBodyBoxesFree` 0xB2DF90, under `IsGridMoveValid`; audit CLIMB-E13), and on the long moves
+            // and the short ones down, the lean guard (0xDF47E0, audit CLIMB-E14).
+            if let Some(m) = c.table
+                && crate::climb_table::pose_of(&c.to).is_some()
+            {
+                let fwd = -normal.with_y(0.0).normalize_or(Vec3::NEG_Z);
+                if !climb_body_free(level, end.pos + err, fwd, if m.long { m.cols.signum() } else { 0 }) {
+                    if why() {
+                        debug!("climb: {} : no room for the body there (AC1's body boxes)", c.names[0]);
+                    }
+                    continue;
+                }
+                if m.long || matches!(m.dir, 2 | 3 | 8 | 9) {
+                    let mut start = base.clone();
+                    sample(&clips[0], 0.0, &mut start, cr.reference);
+                    let sm = start.model(rig);
+                    let r = world_rot(root.rotation);
+                    let now = cr.hands.map(|b| root.translation + r * sm[b].pos);
+                    let now = now.map(|h| hold_in_box(level, h, normal).unwrap_or(h));
+                    // (Each foot's hold two rows, 1.2 m, under its hand's, as AC1's grid has them.)
+                    let feet = |hands: [Vec3; 2]| hands.map(|h| hold_in_box(level, h - Vec3::Y * 1.2, normal).unwrap_or(h - Vec3::Y * 1.2));
+                    if lean_refused(&m, now, targets, feet(now), feet(targets), fwd) {
+                        if why() {
+                            debug!("climb: {} : refused, the holds lean out from the wall (AC1's lean guard)", c.names[0]);
+                        }
+                        continue;
+                    }
+                }
+            }
             let tos = chain_states(clips.len(), &self.state, &c.to);
             self.start_chain(clips, tos, root, err);
             return true;
@@ -6397,7 +6478,7 @@ impl WallClimb {
             return None;
         }
         debug!("climb: leap mixed {:.2} toward its other length, landing {:.2} m off (was {:.2})", w, (mid(&mend) - t).length(), (a - t).length());
-        Some((Cand { names, to: c.to.clone(), feet: c.feet }, clips, mend))
+        Some((Cand { names, to: c.to.clone(), feet: c.feet, table: c.table }, clips, mend))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -7527,6 +7608,45 @@ impl WallClimb {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lean_guard_refuses_moves_from_hands_leaning_out() {
+        use crate::climb_table::{Move, Side};
+        // The wall at -Z, out is +Z. The left hand a row up and 0.4 m further out (34 degrees out); after the long move up,
+        // both on the wall's face.
+        let fwd = Vec3::NEG_Z;
+        let long_up = Move { to: 2, side: Side::R, cols: 0, rows: 2, action: 1, long: true, dir: 1 };
+        let leaning = [Vec3::new(-0.3, 0.6, 0.4), Vec3::new(0.3, 0.0, 0.0)];
+        let flat = [Vec3::new(-0.3, 1.2, 0.0), Vec3::new(0.3, 0.6, 0.0)];
+        let feet = [Vec3::ZERO; 2];
+        assert!(lean_refused(&long_up, leaning, flat, feet, feet, fwd));
+        assert!(!lean_refused(&long_up, flat, flat, feet, feet, fwd));
+        // Leaning back into the wall instead, or into a level pose, or sideways: never.
+        let back = leaning.map(|h| h * Vec3::new(1.0, 1.0, -1.0));
+        assert!(!lean_refused(&long_up, back, flat, feet, feet, fwd));
+        assert!(!lean_refused(&Move { to: 0, ..long_up }, leaning, flat, feet, feet, fwd));
+        assert!(!lean_refused(&Move { dir: 4, ..long_up }, leaning, flat, feet, feet, fwd));
+        // Down: the feet's lines, the new one leaning out past the old one by 30 degrees.
+        let down = Move { dir: 2, ..long_up };
+        assert!(lean_refused(&down, flat, flat, flat, leaning, fwd));
+        assert!(!lean_refused(&down, flat, flat, leaning, flat, fwd));
+    }
+
+    #[test]
+    fn climb_out_room_sees_an_awning_out_front() {
+        let mut b = crate::level::Builder::default();
+        // A wall top at y = 3 along x, its face at z = 0 facing +Z.
+        b.cuboid(Vec3::new(-2.0, 0.0, -2.0), Vec3::new(2.0, 3.0, 0.0));
+        let mut level = Level { tris: b.tris.clone(), ..default() };
+        level.build_grid();
+        let edge = Vec3::new(0.0, 3.0, 0.0);
+        assert!(climb_out_room(&level, edge, Vec3::Z));
+        // An awning 1.5 m over it, 0.2-1 m out.
+        b.cuboid(Vec3::new(-2.0, 4.5, 0.2), Vec3::new(2.0, 4.6, 1.0));
+        let mut level = Level { tris: b.tris, ..default() };
+        level.build_grid();
+        assert!(!climb_out_room(&level, edge, Vec3::Z));
+    }
 
     #[test]
     fn landings_go_on_by_the_stick_and_profile() {

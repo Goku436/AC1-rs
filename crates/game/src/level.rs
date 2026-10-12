@@ -1327,6 +1327,13 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     hold_rows(strips, level, Vec3::new(-92.0, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &[top(0.0), top(1.0), top(2.0), top(3.0)]);
     walls.cuboid(Vec3::new(-93.0, top(3.0) + 1.5, z - 2.0), Vec3::new(-92.2, top(3.0) + 1.6, z + 2.0));
 
+    // G14: a wall with holds up to 4.8 m, a block sticking 0.6 m out of it between two rows: the climbing move up into it
+    // is refused (AC1's body boxes at the pose a move ends in, 0xB2DF90; audit CLIMB-E13).
+    let z = 184.0;
+    walls.cuboid(Vec3::new(-92.0, 0.0, z - 2.0), Vec3::new(-88.0, top(5.0), z + 2.0));
+    hold_rows(strips, level, Vec3::new(-92.0, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &(0..6).map(|k| top(k as f32)).collect::<Vec<_>>());
+    walls.cuboid(Vec3::new(-92.6, top(2.0) + 0.16, z - 2.0), Vec3::new(-92.0, top(2.0) + 0.36, z + 2.0));
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -1341,6 +1348,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G11: beam corner hop", Vec3::new(-86.0, 3.5, 154.0)),
         ("G12: the jump up from the climb", Vec3::new(-95.0, 4.0, 164.0)),
         ("G13: no climbing out under an awning", Vec3::new(-95.0, 4.0, 174.0)),
+        ("G14: a block in the way up the wall", Vec3::new(-95.0, 4.0, 184.0)),
     ]
 }
 
@@ -1437,8 +1445,9 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     ]
 }
 
-struct Builder {
-    tris: Vec<Tri>,
+#[derive(Default)]
+pub(crate) struct Builder {
+    pub(crate) tris: Vec<Tri>,
 }
 
 impl Builder {
@@ -1446,7 +1455,7 @@ impl Builder {
         self.tris.push(Tri { a, b, c });
         self.tris.push(Tri { a, b: c, c: d });
     }
-    fn cuboid(&mut self, min: Vec3, max: Vec3) {
+    pub(crate) fn cuboid(&mut self, min: Vec3, max: Vec3) {
         let p = |x: f32, y: f32, z: f32| Vec3::new(x, y, z);
         let (a, b) = (min, max);
         self.quad(p(a.x, b.y, a.z), p(a.x, b.y, b.z), p(b.x, b.y, b.z), p(b.x, b.y, a.z)); // top
