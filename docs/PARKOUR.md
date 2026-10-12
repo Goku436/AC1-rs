@@ -714,6 +714,23 @@ in this batch, by audit id:
     are floors to our collision; the run's body stays upright (AC1 pitches it with the slope, Banned445's port does not
     either). The test level's leaning wall is south of the passover walls. (`wall0`'s entry, 0.10 m higher in the running
     game than in ours, is still to explain: a lean of 11 degrees would give that height but not its 0.57 m out.)
+  - Checked, no change:
+    - CLIMB-E16 (timing): at the fixed step the reach items take their clips' time, `_a` 0.200 s, `_b` 0.400, `_c`
+      0.666 (block A, up), against the running game's 0.200 / 0.385 / 0.682 (`wall1_hang_up`): `_b` and `_c` together
+      1.066 s against 1.067. The audit's 0.43 / 0.75 s came from the windowed runs' uneven frames.
+    - INPUT-15 (AC1's ability stack): not needed yet. Nothing in ours gives or takes an ability (no missions, memory
+      blocks or tutorial); in free roam AC1 allows every one at MaxSpeed 4 (Banned445's default set), so the stack would
+      only ever say yes. It comes with the first mission or Masyaf's opening, which lock moves.
+    - LADDER-7 (the rest): Damascus' 333 authored ladder edges lean less than 10 degrees (278 under 5), so the forced
+      revolve off a ladder leaning 10 degrees or more over the climber never fires there; ours keeps ladders upright
+      (the authored edge's top is kept as a height). The back-approach turn needs a ladder whose near side is blocked at
+      chest height (AC1's attach box, 0.95 m up); none is known. To settle: the other cities' ladders' leans, and a
+      free-standing ladder with something in front of it in a city.
+    - LEDGE-7 (the wall-free hang): no free hang in the hang scenarios (20 rests, Damascus' included) has a wall under its
+      hands (AC1's test: 0.15 m in, 0.6 / 1.2 / 1.8 m down): ours takes the free hang only where the feet find no wall.
+      AC1 reaches `hangwallfree_wait` through entries that force a free hang whatever is under it (walling's free-hang
+      catches B and C with their swing strength, the jump's `hangwallfree` 250 / 300 cm action). To settle: a live log
+      of which actions end in `xx_h_hangwallfree_wait` on a Damascus wall, then those entries first.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
