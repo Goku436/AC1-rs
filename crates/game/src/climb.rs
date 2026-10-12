@@ -1886,6 +1886,60 @@ fn wall_run_options() -> Vec<GrabOpt> {
     ]
 }
 
+/// A free hang's hand step up (AC1's vertical rows, `free_step_up`): an edge this far over the lower hand (m), up to
+/// `HANG_STEP_DEPTH` in or out of the hands and `HANG_STEP_ALONG` along, facing within 60 degrees of the hold (cos), not
+/// within `HANG_STEP_HELD` of a hand (the edge held).
+const HANG_STEP_UP: std::ops::RangeInclusive<f32> = 0.1..=0.8;
+const HANG_STEP_DEPTH: f32 = 0.5;
+const HANG_STEP_ALONG: f32 = 0.2;
+const HANG_STEP_FACING: f32 = 0.5;
+const HANG_STEP_HELD: f32 = 0.2;
+
+/// A wall run's pull-up lips over the feet (m): AC1's probe A after the entry (0.25-1 h over the root the entry leaves
+/// 1 m up) and probe D's pull-up after the vertical step (0.5-1 h over the root `WALL_RUN_STEP_TOP` up); h = 1 m.
+const WALL_RUN_LIP_A: std::ops::RangeInclusive<f32> = (WALL_RUN_UP + 0.25)..=(WALL_RUN_UP + 1.0);
+const WALL_RUN_LIP_D: std::ops::RangeInclusive<f32> = (WALL_RUN_STEP_TOP + 0.5)..=(WALL_RUN_STEP_TOP + 1.0);
+/// A lip's room: AC1's class 1 (room to kneel) when the cast over its edge runs at least this far past it (m).
+const WALL_RUN_LIP_ROOM: f32 = 0.4;
+/// A lip is taken up to this far to the side of the line run up (m).
+const WALL_RUN_LIP_SIDE: f32 = 0.3;
+
+/// A lip a wall run pulls up onto that the top probe misses (a balcony's handrail: the floor behind it lies under the
+/// rail, not open): AC1's walling probes A and D (`FindLedgeCandidates` 0xE36BD0) take the guidance edges in front,
+/// and `ClassifyLedgeCandidate` 0xE341D0 gives one room to kneel (class 1, a pull-up) when its cast from under the edge,
+/// 45 degrees up over it and in, runs 0.4 m or more past it (Banned445's `walling.rs`). A in its band first, then D,
+/// each the highest; ours only where a beam or a floor is there to kneel on. (Its flat distance ahead, its height over
+/// the feet.)
+fn wall_run_lip(level: &Level, feet: Vec3, fwd: Vec3, reach: f32) -> Option<(f32, f32)> {
+    let side = Vec3::Y.cross(fwd).normalize_or_zero();
+    let cast = (Vec3::Y + fwd) * std::f32::consts::FRAC_1_SQRT_2;
+    level
+        .ledges
+        .iter()
+        .filter(|l| l.out.dot(-fwd) > 0.7)
+        .filter_map(|l| {
+            let along = (l.a - feet).dot(fwd);
+            let q = l.closest((feet + fwd * along).with_y((l.a.y + l.b.y) * 0.5));
+            let (d, h) = ((q - feet).dot(fwd), q.y - feet.y);
+            let band = if WALL_RUN_LIP_A.contains(&h) {
+                1
+            } else if WALL_RUN_LIP_D.contains(&h) {
+                0
+            } else {
+                return None;
+            };
+            if !(0.0..=reach).contains(&d) || (q - feet).dot(side).abs() > WALL_RUN_LIP_SIDE {
+                return None;
+            }
+            let start = q + Vec3::Y * 0.05 - fwd * 0.05 - cast * 0.5;
+            let room = level.raycast(start, cast, 2.0).map_or(2.0, |hit| (hit.point - q).with_y(0.0).length());
+            let kneel = level.perch_at(q + fwd * 0.1, 0.3).is_some() || level.ground(q + fwd * 0.3 + Vec3::Y * 0.3, 0.0, 0.5).is_some_and(|g| g.normal.y > 0.8);
+            (room >= WALL_RUN_LIP_ROOM && kneel).then_some((band, d, h))
+        })
+        .max_by(|a, b| (a.0, a.2).partial_cmp(&(b.0, b.2)).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(_, d, h)| (d, h))
+}
+
 /// How far the hands and feet move between two poses (m), for sizing crossfades.
 fn seam_gap(rig: &Rig, cr: ClimbRig, a: &Pose, b: &Pose) -> f32 {
     let (ma, mb) = (a.model(rig), b.model(rig));
@@ -2493,6 +2547,11 @@ fn eject_way(away: Vec3, input: Vec2) -> Option<Vec3> {
 
 fn is_free(state: &str) -> bool {
     state.starts_with("free_")
+}
+
+/// The climbing stances (on the wall's holds by hands and feet, level or a hand raised).
+fn is_climb_stance(state: &str) -> bool {
+    matches!(state, "1m" | "2m" | "1lu" | "1ru" | "2lu" | "2ru")
 }
 
 /// States the climber rests in between moves with both hands level.
@@ -3511,6 +3570,9 @@ impl WallClimb {
                 (edge.unwrap_or(hit.dist), y - root.translation.y)
             })
         });
+        // A wall run's lip the top probe misses: AC1's walling probes take the guidance edges, not the collision's tops
+        // (a balcony's handrail, the floor behind it under the rail; user report #9).
+        let top = top.or_else(|| carry.and(hit).filter(|h| h.dist < reach).and_then(|_| wall_run_lip(level, root.translation, fwd, reach)));
         // A wall run steps up the wall, so it needs one flush under the edge or the holds.
         let flush_under = |p: Vec3| level.raycast(p + normal * 0.3 - Vec3::Y * 0.9, -normal, 0.55).is_some();
         let slack = if carry.is_some() { WALL_RUN_SLACK } else { JUMP_HANG_REACH };
@@ -4129,6 +4191,9 @@ impl WallClimb {
             .filter(|q| (*q - at).with_y(0.0).length() < 0.5 && (q.y - at.y).abs() < 0.75 && q.y > hands.y + 0.5 && (*q - hands).with_y(0.0).length() > 0.3)
             .min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)))
         else {
+            if why() {
+                debug!("climb: no jump up from the climb: no edge round {at:.2}");
+            }
             return false;
         };
         let v = (q.y - p.y - 2.0).clamp(0.0, 1.0);
@@ -7279,6 +7344,54 @@ impl WallClimb {
         false
     }
 
+    /// A free hang's hand steps up onto an edge the clips' own reach misses: AC1's vertical row search
+    /// (`FindVerticalRows` 0xDD8F70 / `sub_116F4A0`; Banned445's `vertical_rows`): from the hands' midpoint, an edge
+    /// 0.1-0.8 m up, up to 0.5 m in or out of the hands and 0.2 m along, facing as the hold does (within 60 degrees), the
+    /// edge held cut out (0.2 m round the hands); the highest wins. One hand steps onto it
+    /// (`xx_h_hangfree_climb_1m_u_<1lu|1ru>`, the hands taken in turn) and the other follows (AC1's
+    /// `ContinuePendingVerticalStep` 0xDCF3C0, `_<1lu|1ru>_u_1m`), the body carried under the new edge. A balcony's
+    /// stepped corbels go up so, each step 0.45 m further out and 0.12-0.3 m up (user reports #7, #8).
+    fn hang_row_step(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        if !matches!(self.state.as_str(), FREE | FREE_OPEN) {
+            return false;
+        }
+        let n = self.normal.with_y(0.0).normalize_or_zero();
+        let along = Vec3::Y.cross(n).normalize_or_zero();
+        // (The edge held: the free hang's root hangs `JUMP_HOLD_FREE_HANG` under it, just out from it.)
+        let mid = root.translation + Vec3::Y * JUMP_HOLD_FREE_HANG - n * 0.05;
+        let Some(row) = level
+            .ledges
+            .iter()
+            .filter(|l| l.out.with_y(0.0).normalize_or_zero().dot(n) > HANG_STEP_FACING)
+            .filter_map(|l| {
+                let q = l.closest(mid + Vec3::Y * (HANG_STEP_UP.start() + HANG_STEP_UP.end()) * 0.5);
+                let d = q - mid;
+                (HANG_STEP_UP.contains(&d.y)
+                    && d.dot(along).abs() <= HANG_STEP_ALONG
+                    && d.dot(n).abs() <= HANG_STEP_DEPTH
+                    && (q - mid).with_y(0.0).length() + (q.y - mid.y).abs() > HANG_STEP_HELD)
+                    .then_some((q, d.y))
+            })
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(q, _)| q)
+        else {
+            return false;
+        };
+        // (The hand not moved last first, AC1's `PickVerticalHandAndAnim` 0xDCB3E0: the one that led before, as the other
+        // followed it.)
+        let first = if self.last_hand_up != 0 { "1lu" } else { "1ru" };
+        let Some(clips) =
+            [format!("xx_h_hangfree_climb_1m_u_{first}"), format!("xx_h_hangfree_climb_{first}_u_1m")].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
+        let to = row + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
+        debug!("climb: the free hang's hand steps onto the edge {:.2} up and {:.2} out at {row:.2} (AC1's vertical rows)", row.y - mid.y, (row - mid).dot(n));
+        self.start_chain(clips, vec![format!("free_{first}"), FREE.into()], root, to - (root.translation + travel));
+        true
+    }
+
     /// AC1's transition from the climbing stance into a free hang (`HumanClimb__TryTransitionToLedgeHang` 0xDF4BA0, after a
     /// short move up from a level pose was found; Banned445's port, the lean read from the exe): with the hands on
     /// `to_hands` after the move and each foot on the hold two rows under its hand, the body's line (the higher foot to the
@@ -7388,6 +7501,10 @@ impl WallClimb {
         if self.take_first(lib, level, root, rig, base, cr, cands) {
             return true;
         }
+        // From a free hang, up onto an edge further in or out (AC1's hand step on its vertical rows).
+        if dir == "u" && self.hang_row_step(lib, level, root) {
+            return true;
+        }
         // At the bottom, sideways with no holds that way: step off sideways onto the ground (AC1's corner-to-ground,
         // before the corner climbs; audit CLIMB-E10).
         if (dir == "l" || dir == "r") && self.try_step_off_side(lib, level, root, dir == "l") {
@@ -7433,20 +7550,22 @@ impl WallClimb {
         if (dir == "u" || up_ish) && self.try_top_out(lib, level, root, rig, base, cr) {
             return true;
         }
+        // From any climbing stance, up with nothing else: the jump up to a ledge above and out from the wall (AC1's
+        // TryBackEject, last in ChooseMove, from any pose; under a Damascus balcony's stepped corbels, user report #7,
+        // ours stepped 1m -> 1ru -> 1m for ever: the hand raised had no row over it and the level-up below took it back).
+        if (dir == "u" || up_ish) && is_climb_stance(&self.state) && self.climb_jump_up(lib, level, root) {
+            return true;
+        }
         // Up with nothing above and a hand raised (at the top edge): bring the hands level first, the
-        // top-out follows on the next press.
+        // top-out follows on the next press. (Not down: the top-out needs the hands up on the top edge, and from the
+        // lower row up went straight back to the raised hand, round and round.)
         if dir == "u" && !is_rest(&self.state) && !is_free(&self.state) {
-            for d in ["u", "d", "l", "r"] {
+            for d in ["u", "l", "r"] {
                 let back: Vec<_> = self.candidates(lib, d, Vec2::ZERO).into_iter().filter(|c| is_rest(&c.to)).collect();
                 if self.take_first(lib, level, root, rig, base, cr, back) {
                     return true;
                 }
             }
-        }
-        // From the climbing stance, up with nothing else: the jump up to a ledge above and out from the wall (AC1's
-        // TryBackEject, last in ChooseMove).
-        if (dir == "u" || up_ish) && matches!(self.state.as_str(), "1m" | "2m") && self.climb_jump_up(lib, level, root) {
-            return true;
         }
         // Down at the bottom of the wall: climb off onto the ground.
         // (Down or diagonally down: AC1's directions 2, 3, 8 and 9.)

@@ -665,6 +665,21 @@ in this batch, by audit id:
     along that way), reads the stick as the camera sees it (`move_dir`: AC1's jump off a wall reads the interpreter's
     camera-relative +0x1250, Banned445's port), not the climbing stick in the character's frame; scripted runs that hold
     only the climbing stick fall back on it.
+- **2026-10-12, user reports #7-#9 (Damascus)**:
+  - #9, a balcony's handrail 2.34 m over a beam's end: the wall run's tops came from the collision only (the floor behind
+    the rail, under it, is not open), so it rebounded. Now a guidance edge in front stands in for the top when the
+    collision gives none, as AC1's walling probes A and D take edges (0xE36BD0): one 1.25-2 m (A) or 2.1-2.6 m (D) over
+    the feet whose `ClassifyLedgeCandidate` (0xE341D0) cast, 45 degrees up over its edge and in, runs 0.4 m past it
+    (class 1, a pull-up), with a beam or a floor there to kneel on [ours]. On the rail (a beam) it is the pull-up onto a
+    post, then on over it. (`xx_h_hangwall_tr_passover_handr`, 0x0109BBBD, is only compared against in the passover's
+    update 0xDE2EE0, never started by the code found: not used.)
+  - #7, #8, a balcony held out on stepped corbels (edges 0.45 m further out and 0.12-0.3 m up each, out to its front):
+    the climb's jump up to an overhang (TryBackEject) is tried from any climbing pose, as AC1's ChooseMove does, not only
+    the level ones; ours' fallback "bring the hands level first" no longer steps down (from the raised hand it went
+    1ru -> 1m -> 1ru for ever). In the free hang, up onto an edge the clips miss: AC1's vertical rows (`FindVerticalRows`
+    0xDD8F70, Banned445's `vertical_rows`), 0.1-0.8 m up, up to 0.5 m in or out and 0.2 m along, the highest; both hands
+    step onto it in turn (the second following on, `ContinuePendingVerticalStep`), the body carried under it. Then the
+    free hang's top-out onto the balcony.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
