@@ -264,7 +264,13 @@ pub struct Level {
     pub beam_tops: Vec<Line>,
     /// Names shown over the test world's buildings and features (for finding things while testing).
     pub labels: Vec<(String, Vec3)>,
+    /// Per triangle of `tris` (cities): its surface's sound material (AC1's `CollisionMaterial`, see
+    /// `sound_material_at`), `NO_SOUND` where not known; shorter than `tris` when the last ones have none.
+    pub tri_sound: Vec<u8>,
 }
+
+/// `Level::tri_sound` of a triangle whose surface has no sound material.
+pub const NO_SOUND: u8 = u8::MAX;
 
 /// Test level holds: strips this deep (m) out from their wall, the grab line 6 cm out (where the hands hold; the strip's
 /// outer edge, beyond it, is outlined as well: see `draw_edges`).
@@ -857,6 +863,24 @@ impl Level {
     /// Ground under `p`, searching from `up` above it down to `down` below.
     pub fn ground(&self, p: Vec3, up: f32, down: f32) -> Option<Hit> {
         self.raycast(p + Vec3::Y * up, Vec3::NEG_Y, up + down)
+    }
+
+    /// The sound material of the ground under `p` (the footstep events' switch 0, see `sound`): the nearest triangle a
+    /// ray down from 0.5 m over it meets within 1.5 m. `None` where that surface has none (the test level).
+    pub fn sound_material_at(&self, p: Vec3) -> Option<u32> {
+        if self.tri_sound.is_empty() {
+            return None;
+        }
+        let origin = p + Vec3::Y * 0.5;
+        let mut best: Option<(f32, u32)> = None;
+        for i in self.tris_near(p - Vec3::new(0.01, 1.0, 0.01), origin + Vec3::new(0.01, 0.0, 0.01)) {
+            if let Some((h, _)) = self.raycast_tris(std::iter::once(&self.tris[i as usize]), origin, Vec3::NEG_Y, 1.5)
+                && best.is_none_or(|b| h.dist < b.0)
+            {
+                best = Some((h.dist, i));
+            }
+        }
+        best.and_then(|(_, i)| self.tri_sound.get(i as usize)).filter(|&&m| m != NO_SOUND).map(|&m| m as u32)
     }
 
     /// The triangles that may touch the box `lo`..`hi` (each once).

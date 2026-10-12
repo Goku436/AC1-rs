@@ -778,6 +778,8 @@ fn spawn_world(
         ..default()
     });
     let mut shapes: HashMap<u32, Option<Vec<[Vec3; 3]>>> = HashMap::new();
+    // (A mesh shape's triangles' sound materials, from their `CollisionMaterial`s: the footsteps' surface.)
+    let mut shape_sound: HashMap<u32, Vec<u8>> = HashMap::new();
     let (mut shape_tris, mut shaped, mut prims) = (0usize, 0usize, 0usize);
     // Out-of-bounds and camera-only shapes left out of the collision.
     let mut skipped_bounds = 0usize;
@@ -838,7 +840,18 @@ fn spawn_world(
                 }
                 seen.push(so.id);
                 let tris = shapes.entry(so.id).or_insert_with(|| match parse_mesh_shape(so.body) {
-                    Ok(sh) => Some(sh.triangles.iter().map(|t| t.map(|i| Vec3::from(sh.vertices[i as usize]))).collect()),
+                    Ok(sh) => {
+                        let sound = |k: &u8| {
+                            sh.materials
+                                .get(*k as usize)
+                                .and_then(|id| index.get(id))
+                                .filter(|o| o.class == forge::sound::CLASS_COLLISION_MATERIAL)
+                                .and_then(|o| forge::sound::collision_sound_material(o.body))
+                                .map_or(crate::level::NO_SOUND, |m| m as u8)
+                        };
+                        shape_sound.insert(so.id, sh.triangle_materials.iter().map(sound).collect());
+                        Some(sh.triangles.iter().map(|t| t.map(|i| Vec3::from(sh.vertices[i as usize]))).collect())
+                    }
                     Err(e) => {
                         warn!("city: collision shape {}: {e:#}", so.name);
                         None
@@ -847,6 +860,10 @@ fn spawn_world(
                 let Some(tris) = tris else { continue };
                 has_shape = true;
                 shape_tris += tris.len();
+                if let Some(sound) = shape_sound.get(&so.id).filter(|s| s.len() == tris.len()) {
+                    level.tri_sound.resize(level.tris.len(), crate::level::NO_SOUND);
+                    level.tri_sound.extend(sound);
+                }
                 level.tris.extend(tris.iter().map(|t| {
                     let [a, b, c] = t.map(|v| world.transform_point3(v));
                     Tri { a, b, c }

@@ -8,7 +8,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Layer | State |
 |---|---|
 | `.forge` archives (index, names, FILEDATA records) | done, all 18 archives |
-| Chunked LZO1X decompression | done: 15906/15906 data files decompress (`examples/decodecheck`); 9357 split into objects, the rest are streamed sound (6531 `*_BAO_*`: Ubisoft BAO audio, signatures 01 1b 01 00 / 02 1f 00 10 as the QuickBMS scimitar script names them, not object containers) and each forge's `GlobalMetaFile` (18: one 170-byte record, byte-identical in every forge: small ids and values and a 32-bit time of 2014-07-22, likely the build's; nothing about the world, `examples/entryhex`) |
+| Chunked LZO1X decompression | done: 15906/15906 data files decompress (`examples/decodecheck`); 9357 split into objects, the rest are streamed sound (6531 `*_BAO_*`: Ubisoft BAO audio, not object containers; see "Sound") and each forge's `GlobalMetaFile` (18: one 170-byte record, byte-identical in every forge: small ids and values and a 32-bit time of 2014-07-22, likely the build's; nothing about the world, `examples/entryhex`) |
 | Object container (class hash, name, id, body) | done |
 | TextureMap -> PNG (DXT1/3/5, BGRA8) | done, verified visually: 32286/32286 textures decode (`examples/texcheck`); colour space (`GammaSettings`) and sampler (address, filter modes) read and used; cube maps 57/58, ramps (`TextureGradient`) 3/3. Stored levels as they are (`texture_levels`): 32251 block-compressed (27620 DXT1, 1878 DXT3, 2753 DXT5), every one in whole 4x4 blocks at its top level, 30640 with the full mip chain; city textures go to the GPU that way |
 | Material (85c817c3): template and typed parameter table (scalars, colours, texture slots) | 15666/15929 parse (`examples/texcheck`): every character material; the rest carry a parameter class not read yet (c52e2125, 213: glows, skies, water), a 1 at +0x29 (28 trees) or 2/4 at +0x31 (25) |
@@ -33,6 +33,8 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Ghost mode, AC1's development flight (the Human Debug context, unreachable in retail; F7) | done: no collision, action 0x0006F88B (request 7) plays `Ghost_mode01` then `Ghost_mode02` looping, out with request 33's `xx_h_jump_falling01` and a fall (from Banned445's MIT port, `debug_fly.rs`) |
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
+| Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
+| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; IMA-ADPCM decodes for 206069/206076 resources and 2229/2243 streams (the rest: Ogg-page tracks, stereo tracks); 18698 Ogg resources and 110 Ogg streams found (played as Ogg); 4178 streams are the headerless rest of a resource (speech), not decoded. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks) on the surface's sound material (cities: from `CollisionMaterial`), and the city's ambience loops (Damascus: 116 region links, 36 sets, 11 streamed loops); M mutes |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); sun 11000 lux with three shadow cascades in 120 m (the first 12 m) and a linear haze from 220 m to 1.1 km (as Banned445's repo; AC1's `WorldAmbiance`/`LayeredSky` not decoded); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
 | Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); combat removed for now; scholar crowds to blend into | first version |
 | Player controller, free-running, combat, AI, crowds, missions | long-term |
@@ -574,7 +576,42 @@ A class id is the CRC32 of the engine's class name (Mesh `415d9568`, Entity, Ske
 TextureSet, TextureMapSpec, CompiledMesh all check). The `catalog` tool reads the names at run time from the game's
 own executable (its RTTI descriptors, `.?AV<name>@scimitar@@`, and identifier strings) and labels every class: all
 183 classes in the install get a name. Not parsed yet: `GridCellDataBlock` (a grid cell's own record; the grid itself is read, see "City rendering cost and streaming"),
-`ContactTable` (per-material contact sounds and effects; there is no audio yet), `BodyPartMapping`.
+`BodyPartMapping`. (`ContactTable` is read, see "Sound".)
+
+## Sound
+Read by `forge::sound` (layouts in its header), measured with `bao scan <game dir>`; `bao wav` writes a sound to
+`out/sound/`, `bao clip <game dir> <clip>` lists a clip's event keys and what they play. Found with Banned445's
+AC1-Movement-Rewritten (MIT), which first played AC1's sounds.
+- Sounds are BAOs (Ubisoft's DARE engine): events (what the game triggers), sounds (gains, random containers) and
+  resources (the samples) by BAO id, the top nibble the kind. `SoundBao` objects hold one each (speech one a language);
+  the streamed files hold long sounds (`Common_BAO_*`: ambience and music; `<language>_BAO_*`: speech, whose start is
+  a resource with the same low bits).
+- Events: play (a sound, with a random pitch range), switch (by a variable: 0 is the surface's sound material), multi
+  (several at once). Sounds: one resource (rate, channels, frames), or a random container (weights, the last pick not
+  repeated). Resources: IMA-ADPCM (Ubisoft's header: PCM frames first, a mono last sample apart), Ogg Vorbis, or
+  interleaved IMA tracks (the ambience: four mono tracks).
+- What plays when is in the clips: their event tracks hold `AudioEvent`s (a `SoundBao` by object id: grunts, cloth,
+  hand slaps) and `ContactEvent`s (`ContactEventTypeHuman`: `ft_walk_cycle`, `ft_run_cycle`, `ft_land_heavy`, ...)
+  that the character's `ContactTable` (`ContactTable_AlTair` in "Rank 9": 24 surface groups of 15) turns into events.
+  Keys are in 1/120 s.
+- In game (`crates/game/src/sound.rs`): each frame the player's clips (`animation::Playing`: the heaviest of a blend,
+  a legs-only or one-shot clip over it, the climbing move) fire the keys they passed; a gait's next step carries the
+  phase over, a loop wraps, a move played again starts over. Events resolve with switch 0 = the surface's sound
+  material; switches 1 and 3 (cases 0-4 and 0-1 in the footsteps; what sets them in AC1 is not known) play their
+  default. Each resource is decoded once and played at the listener with the event's gain and pitch. M mutes,
+  `AC1_MUTE=1` starts muted, `AC1_VOLUME=dB`; headless runs have no audio plugin (no device needed).
+- Surfaces: a `MeshShape`'s triangles name `CollisionMaterial`s, whose body +0 is the sound material (0-24: Stone_Clean
+  4, Marble 6, Wood_Plank 9, Grass_Short 14, Water_Shallow 19, Metal_Grill 24; `Default` 4001, none). Cities keep it per
+  triangle (`Level::tri_sound`); the footsteps' switch 0 is the material under the player (`Level::sound_material_at`).
+- Not in AC1's clip data: the free jump's take-off (`xx_h_impultionstraight_*_to_jumpstraight_clear_*`,
+  `xx_h_jumpstraight_clear_*` have no keys); it plays the contact table's `ft_jump_start` (picked here).
+- Ambience (`bao ambience <game dir> <City>`): a few grid cells' data files hold an `AssassinAmbienceRegionCellData`
+  (linked from the cell's own record, class ac2bbf68), naming a `SoundAmbienceSet` (`A_Wind_Damas_City`,
+  `A_City_Poor_Area`, ...) whose first sound is the loop: a sound of type 6, a streamed file of four mono IMA tracks
+  (`_LP_4.0`: quad, folded to stereo front over back, not checked), the rest one-off sounds (not played: their timing is
+  not known). The region's area is not read (only the cells linking it, a big region's a coarse one), so the game plays
+  the wind set and the other sets linked from the finest cells over the player, fading over 2 s; the crowd murmur
+  (`walla`) sets are left out. Not checked against the running game.
 
 ## Navigation meshes
 `NavMeshManager_<cell>` (format in `crates/forge/src/navmesh.rs`): pieces, each a walkable polygon with world-space

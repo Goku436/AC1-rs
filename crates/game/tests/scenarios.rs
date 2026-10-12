@@ -1406,7 +1406,9 @@ fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
         .env("AC1_SHOT", &shot)
         .env("AC1_SHOT_SECS", s.secs.to_string())
         .env("AC1_EMBED_CHECK", "1")
-        .env("AC1_POP_CHECK", "1");
+        .env("AC1_POP_CHECK", "1")
+        // (Windowed runs silent too.)
+        .env("AC1_MUTE", "1");
     // (Windowed too at the fixed step: a scenario's screenshots show the very run the headless suite checks.)
     c.env("AC1_STEP", "60");
     if !windowed() {

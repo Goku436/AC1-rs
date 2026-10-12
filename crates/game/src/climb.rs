@@ -4284,6 +4284,25 @@ impl WallClimb {
     }
 
     /// The clip playing now: a walk along a beam (its start, then its steps), a move, or the hang loop.
+    /// The clip playing now, for its event keys (see `animation::Playing`).
+    pub fn playing(&self) -> Option<crate::animation::Playing> {
+        use crate::animation::Playing;
+        if let Some(cy) = &self.cycle {
+            return Some(match &cy.intro {
+                Some((c, t, _)) => Playing { slot: 0, clip: c.clone(), t: *t, looping: false, synced: false },
+                None => {
+                    let c = &cy.clips[cy.foot];
+                    Playing { slot: 0, clip: c.clone(), t: cy.phase * c.anim.duration, looping: true, synced: true }
+                }
+            });
+        }
+        match (&self.mv, &self.wait) {
+            (Some(m), _) => Some(Playing { slot: 0, clip: m.clip.clone(), t: m.t.min(m.clip.anim.duration), looping: false, synced: false }),
+            (None, Some(w)) => Some(Playing { slot: 0, clip: w.clone(), t: self.wait_t, looping: !self.wait_hold, synced: false }),
+            _ => None,
+        }
+    }
+
     pub fn clip_name(&self) -> Option<&str> {
         let cycle = self.cycle.as_ref().map(|c| c.intro.as_ref().map_or(c.clips[c.foot].name.as_str(), |i| i.0.name.as_str()));
         cycle.or(self.mv.as_ref().map(|m| m.clip.name.as_str())).or(self.wait.as_ref().map(|w| w.name.as_str()))

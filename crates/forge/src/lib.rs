@@ -26,6 +26,7 @@ pub mod navmesh;
 mod read;
 pub mod shape;
 pub mod skeleton;
+pub mod sound;
 pub mod texture;
 pub mod world;
 

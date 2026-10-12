@@ -160,6 +160,8 @@ pub struct Character {
     pub pose: Pose,
     /// AC1 animation playback; `None` falls back to procedural locomotion.
     pub animator: Option<crate::animation::Animator>,
+    /// The clips playing this frame, for their sounds (see `sound`).
+    pub playing: Vec<crate::animation::Playing>,
     /// Animation-driven foot placement on uneven ground.
     foot_ik: Option<ik::placement::FootPlacement>,
     /// Clip-driven wall climbing (used when animation data is available).
@@ -515,6 +517,7 @@ pub fn spawn_character(
         idle,
         base,
         animator,
+        playing: vec![],
         foot_ik,
         wall: None,
         climb_rig: crate::climb::ClimbRig {
@@ -2145,6 +2148,12 @@ pub fn animate(
             }
         }
         ch.anim_pose = pose.clone();
+        ch.playing = match (&ch.wall, &ch.animator) {
+            _ if ch.limp => vec![],
+            (Some(w), _) => w.playing().into_iter().collect(),
+            (None, Some(a)) => a.playing(),
+            (None, None) => vec![],
+        };
         // Limp: AC1's ragdoll settling the body on what is under it.
         let limp = ch.limp;
         if !limp {
