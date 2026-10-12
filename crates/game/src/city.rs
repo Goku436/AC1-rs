@@ -241,6 +241,26 @@ fn primitive_tris(p: &Primitive) -> Vec<[Vec3; 3]> {
 
 /// The component that makes an entity a viewpoint.
 const CLASS_REACH_HIGH_POINT: u32 = 0x1150330c;
+/// The components that make an entity a haystack to dive into and a rooftop hiding place (CRC32 of `BhvHayStack`,
+/// `BhvHidingPlace`; audit GUIDE-7).
+const CLASS_BHV_HAYSTACK: u32 = 0x19f58e6a;
+const CLASS_BHV_HIDING_PLACE: u32 = 0xdc3f581a;
+
+/// Whether an entity's body holds an object of `class` (a component).
+fn has_class(body: &[u8], class: u32) -> bool {
+    (0..body.len().saturating_sub(3)).any(|k| u32_at(body, k) == class)
+}
+
+/// Hay or a hiding place, by the component an entity's (or a group's) body holds.
+fn bhv_of(body: &[u8]) -> Option<crate::level::CityObject> {
+    if has_class(body, CLASS_BHV_HAYSTACK) {
+        Some(crate::level::CityObject::Hay)
+    } else if has_class(body, CLASS_BHV_HIDING_PLACE) {
+        Some(crate::level::CityObject::HidingSpot)
+    } else {
+        None
+    }
+}
 
 /// Entity group class: entities embedded in its body (see the module docs).
 const CLASS_ENTITY_GROUP: u32 = 0x3f742d26;
@@ -612,6 +632,8 @@ fn spawn_world(
     // What is placed: the entities, and the entities embedded in entity groups: `[id][entity class]`
     // followed by the entity's world transform and references, up to the next one.
     let mut placements: Vec<(u32, &[u8])> = vec![];
+    // Entities placed from a group marked hay or a hiding place (`bhv_of`), by id.
+    let mut group_bhv: HashMap<u32, crate::level::CityObject> = HashMap::new();
     let mut vantage: Vec<Vec3> = vec![];
     let mut placed_ids = std::collections::HashSet::new();
     let mut grouped = 0;
@@ -662,9 +684,15 @@ fn spawn_world(
                 vantage.push((to_bevy * m).w_axis.truncate());
             }
             let starts: Vec<usize> = (4..b.len().saturating_sub(68)).filter(|&k| u32_at(b, k) == CLASS_ENTITY && transform(&b[k + 4..]).is_some()).collect();
+            // (A hiding place's component sits on a member of its group with no mesh of its own: the group's members
+            // carry it.)
+            let marked_group = bhv_of(b);
             for (i, &k) in starts.iter().enumerate() {
                 let end = starts.get(i + 1).map_or(b.len(), |&n| n - 4);
                 if placed_ids.insert(u32_at(b, k - 4)) {
+                    if let Some(kind) = marked_group {
+                        group_bhv.insert(u32_at(b, k - 4), kind);
+                    }
                     placements.push((u32_at(b, k - 4), &b[k + 4..end]));
                     grouped += 1;
                 }
@@ -687,6 +715,9 @@ fn spawn_world(
     let (mut shape_tris, mut shaped, mut prims) = (0usize, 0usize, 0usize);
     // Out-of-bounds and camera-only shapes left out of the collision.
     let mut skipped_bounds = 0usize;
+    // (Entities marked hay or a hiding place by their component, those of them with no mesh named for it, and entities
+    // with such a mesh name but no component.)
+    let mut marked = (0usize, 0usize, 0usize);
     // (Picks: each one's top, to stand later ones on.)
     let mut tops: HashMap<usize, f32> = HashMap::new();
     for (pi, &(ent_id, body)) in placements.iter().enumerate() {
@@ -815,6 +846,32 @@ fn spawn_world(
         if ent_meshes.is_empty() {
             continue;
         }
+        // Hay and hiding places by AC1's own component (`BhvHayStack`, `BhvHidingPlace`, as Banned445's decode finds
+        // them; audit GUIDE-7): on the entity, its meshes named for one, else its first mesh, give the object's bounds; on
+        // another member of its group (a hiding place's), its meshes named for one. The mesh names alone only where
+        // neither has a component (counted below).
+        use crate::level::CityObject;
+        let own = bhv_of(body);
+        let bhv = own.or_else(|| group_bhv.get(&ent_id).copied());
+        let volume = |k: Option<CityObject>| matches!(k, Some(CityObject::Hay | CityObject::HidingSpot));
+        // (Named for it, or on a group member only: no first-mesh stand-in.)
+        let named = bhv.is_some_and(|k| own.is_none() || ent_meshes.iter().any(|m| city_object(&m.name) == Some(k)));
+        let kind_of = |i: usize, name: &str| -> Option<CityObject> {
+            let by_name = city_object(name);
+            match bhv {
+                Some(k) if by_name == Some(k) || (!named && i == 0) => Some(k),
+                Some(_) => by_name.filter(|_| !volume(by_name)),
+                None => by_name,
+            }
+        };
+        if ent_meshes.iter().enumerate().any(|(i, m)| volume(kind_of(i, &m.name))) {
+            if bhv.is_some() {
+                marked.0 += 1;
+                marked.1 += usize::from(!named);
+            } else {
+                marked.2 += 1;
+            }
+        }
         // (placeholder, real) material pairs: adjacent material ids.
         let mrefs = refs_of(CLASS_MATERIAL);
         let overrides: HashMap<u32, u32> = mrefs.windows(2).filter(|w| w[1].0 == w[0].0 + 4).map(|w| (w[0].1.id, w[1].1.id)).collect();
@@ -835,10 +892,10 @@ fn spawn_world(
             let names: Vec<&str> = ent_meshes.iter().map(|m| m.name.as_str()).collect();
             info!("meshes at {:.2}: {names:?}", world.w_axis.truncate());
         }
-        for mesh in ent_meshes {
+        for (mi, mesh) in ent_meshes.into_iter().enumerate() {
             // Hay whose mesh can't be read yet (its vertex format is one not decoded): a cart-sized stack where the
             // entity stands.
-            if city_object(&mesh.name) == Some(crate::level::CityObject::Hay) && parse_mesh(mesh.body).is_err() {
+            if kind_of(mi, &mesh.name) == Some(CityObject::Hay) && parse_mesh(mesh.body).is_err() {
                 let c = world.w_axis.truncate();
                 level.city_objects.push((
                     crate::level::CityObject::Hay,
@@ -851,7 +908,7 @@ fn spawn_world(
             // A skinned parkour object with no prop skeleton to pose it (a haystack): only its bind-pose bounds,
             // for the object (not drawn).
             if skel.is_none()
-                && let Some(kind) = city_object(&mesh.name)
+                && let Some(kind) = kind_of(mi, &mesh.name)
                 && let Ok(pm) = parse_mesh(mesh.body)
                 && !pm.bones.is_empty()
             {
@@ -967,7 +1024,7 @@ fn spawn_world(
             }
             // Gameplay objects by name (haystacks, ladders, benches, horizontal poles), by their placed bounds;
             // `Level::add_city_objects` sets them up against the built collision.
-            if let Some(kind) = city_object(&mesh.name) {
+            if let Some(kind) = kind_of(mi, &mesh.name) {
                 let (lo, hi) = tris
                     .iter()
                     .flatten()
@@ -996,6 +1053,7 @@ fn spawn_world(
             }
         }
     }
+    info!("city {forge_file}: {} hay and hiding places by their component ({} with no mesh named for one), {} by mesh name only", marked.0, marked.1, marked.2);
     if picks.is_some() {
         info!("props from {forge_file}: {placed} meshes, {} collision triangles, {:.1}s", level.tris.len(), t0.elapsed().as_secs_f32());
         return Ok(Vec3::ZERO);

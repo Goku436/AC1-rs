@@ -438,6 +438,15 @@ const SCENARIOS: &[Scenario] = &[
         want: &[],
         never: &["into the haystack"],
     },
+    // Audit CLIMB-E16: AC1's empty hand releases into the air, near the ground too (the step down is the stick's).
+    Scenario {
+        name: "on wall A just off the ground, let go: the release into a fall, not the step down",
+        tags: &["climb"],
+        env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "wait=1.5,drop=2")],
+        secs: 6.0,
+        want: &["via xx_h_hangwall_tr_fall_a", "land -> ground"],
+        never: &["xx_l_climb_1m_tr_h_wait_hipm_footl", "EMBED"],
+    },
     Scenario {
         name: "free hang on C, drop",
         tags: &["hang"],
@@ -546,6 +555,16 @@ const SCENARIOS: &[Scenario] = &[
         secs: 14.0,
         want: &["ladder", "-> top via"],
         never: &[],
+    },
+    // Audit LEDGE-3: from the wall hang on pole P's lowest cap, up to the next one 0.6 m above with no hold for the feet
+    // 1.2 m under it: AC1's hand step (one hand, then the other), not the climbing stance with the feet on the cap let go of.
+    Scenario {
+        name: "pole P, up from its wall hang: AC1's hand step to the cap above, one hand then the other",
+        tags: &["hang"],
+        env: &[("AC1_START", "-1.2,10.9,180"), ("AC1_HIGH", "0-1"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,up=8")],
+        secs: 4.0,
+        want: &["hangwall -> hangwall_1", "_1ru_u_1m", "-> hangwall_open via xx_h_hangwall_climb_1"],
+        never: &["EMBED"],
     },
     Scenario {
         name: "pole P to its perch",
@@ -769,6 +788,59 @@ const SCENARIOS: &[Scenario] = &[
         want: &["jump up from the climb", "via xx_h_climbing_1m_impultion"],
         never: &["EMBED"],
     },
+    // Audit LEDGE-13 (the blend): from the free hang off G12's slab, down onto the holds 1 m under it, AC1's drop mixed from
+    // its four clips by the exe's weights (TryFreeHangDropToClimb 0xDDF390).
+    Scenario {
+        name: "gauntlet G12's slab, then down: AC1's free-hang drop onto the holds below, its four clips mixed",
+        tags: &["climb", "hang"],
+        env: &[("AC1_START", "-92.6,164,-90,1"), ("AC1_CLIMB", "up=7.5,down=4")],
+        secs: 12.0,
+        want: &["drop onto the wall below mixed", "-> 2m via xx_h_climbing_hangfree_tr_climb2m_down_"],
+        never: &["EMBED"],
+    },
+    // Audit CLIMB-E6: AC1's room test over the edge is three empty boxes (0xB2E240), the first 1 m out and 1.8 m up.
+    Scenario {
+        name: "gauntlet G13: up a wall's holds to its top under an awning 1.5 m over it: no climbing out (AC1's room boxes)",
+        tags: &["climb"],
+        env: &[("AC1_START", "-92.6,174,-90,1"), ("AC1_CLIMB", "up=8")],
+        secs: 9.0,
+        want: &["no room over the edge"],
+        never: &["hangknee", "EMBED"],
+    },
+    // Audit CLIMB-E13: AC1's body boxes at the pose a climbing move ends in (0xB2DF90).
+    Scenario {
+        name: "gauntlet G14: up a wall's holds to a block sticking out of it: the climbing move up into it refused (AC1's body boxes)",
+        tags: &["climb"],
+        env: &[("AC1_START", "-92.6,184,-90,1"), ("AC1_CLIMB", "up=6"), ("AC1_CLIMB_WHY", "1")],
+        secs: 8.0,
+        want: &["no room for the body there (AC1's body boxes)"],
+        never: &["EMBED"],
+    },
+    // Audit LADDER-7: AC1's ladders are climbed from either side; the revolve round one (event 5) where there is room.
+    Scenario {
+        name: "gauntlet G16: up a free-standing ladder, the stick to the right: round it onto its other side (AC1's revolve), down",
+        tags: &["ladder"],
+        env: &[("AC1_START", "-90.44,204,-90"), ("AC1_CLIMB", "up=1.5,wait=0.5,right=0.5,wait=1,down=5")],
+        secs: 9.0,
+        want: &["round ladder", "via xx_h_ladder_turn_r_a", "via xx_h_ladder_turn_r_b_tr_h_wait_r", "-> ground via"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "gauntlet G16: at a free-standing ladder's back: onto it from there (AC1's ladders are two-sided), up, down",
+        tags: &["ladder"],
+        env: &[("AC1_START", "-89.56,204,90"), ("AC1_CLIMB", "up=1.5,down=4")],
+        secs: 7.0,
+        want: &["onto ladder", "from its back", "via xx_l_ladder_climb_up_", "-> ground via"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "block L's ladder against its wall, the stick to the side: no room to go round it (the wall)",
+        tags: &["ladder"],
+        env: &[("AC1_START", "23.5,-5.4,0"), ("AC1_CLIMB", "up=1.5,wait=0.5,right=0.5")],
+        secs: 5.0,
+        want: &["via xx_l_ladder_climb_up_"],
+        never: &["round ladder", "EMBED"],
+    },
     Scenario {
         name: "gauntlet G7: up a wall's holds, along to its edge, the leap across the gap onto the next wall, up to its top",
         tags: &["combo", "climb", "hang"],
@@ -883,6 +955,50 @@ const SCENARIOS: &[Scenario] = &[
         ],
         secs: 5.0,
         want: &["xx_h_hangwall_strafe_left_050cm", "rebound off the wall at [49.", "via xx_h_rebound_right_", "_tr_freestep_entry_footl at [49.1"],
+        never: &["EMBED"],
+    },
+    // Audit JUMP-10: the tap jump at the bureau's wall from 1.5 m off. AC1's scorer picks the hold 2.4 m up as a wall-hang
+    // target (0x40): the running game flew `_to_surface` into `xx_h_air_surface_tr_hangwall_reception_front_straight_min`,
+    // hanging at x 49.17, 5.36 m up (route wall1_tapjump). Ours ran up the wall and rebounded off it.
+    Scenario {
+        name: "Damascus: the tap jump at the bureau's wall flies at AC1's wall-hang target (the scorer's pick) into the wall hang",
+        tags: &["jump", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "47.6,-20,-90,5.55"),
+            ("AC1_WALK", "2"),
+            ("AC1_STOP", "1.2"),
+            ("AC1_HIGH", "0-4"),
+            ("AC1_LEGS", "0-0.3"),
+        ],
+        secs: 3.0,
+        want: &["running jump at the wall's ledge [49.6", "_to_surface at", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c at [49.0"],
+        never: &["EMBED", "wallingfront"],
+    },
+    // Audit JUMP-3: free running south over the bureau's roofs (route roof1_free_south). The running game's first jump,
+    // 0.59 s into the run, took the running takeoff; its second, 0.31 s after the first reception handed over to the
+    // ground, the impulsion (`xx_h_impultionstraight_footr_to_ground_to_air_front_down_footl`, at y 14.35) and the free-step
+    // takeoff.
+    Scenario {
+        name: "Damascus: free running over the bureau's roofs, the jump soon after a reception takes off with AC1's impulsion",
+        tags: &["jump", "combo"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "53,-20.4,-180,12.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-5"),
+        ],
+        secs: 3.0,
+        want: &[
+            "via xx_h_run_front_050cm_footr_to_air at [53.00, 11.85, -18.",
+            "via xx_h_impultionstraight_",
+            "_to_ground_to_air_front_down_foot",
+            "at [53.00, 11.89, -14.",
+            "via xx_h_freestep_front_front_300cm_",
+        ],
         never: &["EMBED"],
     },
 ];

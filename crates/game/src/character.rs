@@ -195,6 +195,9 @@ pub struct Character {
     pub wall_foot_w: [f32; 2],
     /// How long (s) he has stood still on the ground (AC1 looks down over an edge after `LOOK_DOWN_STILL`).
     pub still_t: f32,
+    /// How long (s) he has been moving on the ground since he stood still or came down from a move: a jump sooner than
+    /// `climb::IMPULSION_WITHIN` starts with AC1's impulsion (audit JUMP-3).
+    pub moving_t: f32,
     /// How long the low-profile edge halt has held the walk (s), and the look-down it latched (kept until the walk
     /// starts again).
     pub halt_t: f32,
@@ -523,6 +526,7 @@ pub fn spawn_character(
         wall_hand_w: [0.0; 2],
         wall_foot_w: [0.0; 2],
         still_t: 0.0,
+        moving_t: 0.0,
         halt_t: 0.0,
         looking_down: false,
         look_edge: None,
@@ -969,6 +973,12 @@ pub fn locomotion(
     let dt = time.delta_secs().min(0.05);
     for (mut tf, mut ch, mut ctl) in &mut q {
         let ch = &mut *ch;
+        // (A jump on short notice: from a standstill, or soon after the walk or run starts or a move hands back to the
+        // ground, audit JUMP-3.)
+        if ch.wall.is_some() {
+            ch.moving_t = 0.0;
+        }
+        crate::climb::set_short_notice(ch.wall.is_none() && ch.moving_t < crate::climb::IMPULSION_WITHIN);
         if ch.health > 0.0 {
             ch.health = (ch.health + HEALTH_REGEN * dt).min(1.0);
         }
@@ -1024,6 +1034,8 @@ pub fn locomotion(
                 let stick = ctl.move_dir.with_y(0.0).normalize_or_zero();
                 d.dot(side).abs() < 0.5
                     && (((0.0..LADDER_AUTO_REACH).contains(&d.dot(l.out)) && (tf.translation.y - l.base.y).abs() < 0.4 && stick.dot(-l.out) > 0.0)
+                        // (Or from behind: AC1 climbs a ladder from either side, where it stands free; audit LADDER-7.)
+                        || ((-LADDER_AUTO_REACH..0.0).contains(&d.dot(l.out)) && (tf.translation.y - l.base.y).abs() < 0.4 && stick.dot(l.out) > 0.0)
                         // (Or at its top, the stick out over it: the same event's top entry, no button; ours wanted the
                         // legs there, audit LADDER-9.)
                         || ((tf.translation.y - l.top).abs() < 0.4 && (-LADDER_TOP_REACH..0.2).contains(&d.dot(l.out)) && stick.dot(l.out) > 0.7))
@@ -1475,6 +1487,7 @@ pub fn locomotion(
         // into the edge (AC1's interpreter 0xEE87DE, Banned445's port, audit EXTRA-2); kept with the stick let go, until
         // the walk starts again or high profile. (Ours looked down from any stand near an edge, high profile too.)
         ch.still_t = if ch.velocity.length() < 0.2 { ch.still_t + dt } else { 0.0 };
+        ch.moving_t = if ch.velocity.length() < 0.2 { 0.0 } else { ch.moving_t + dt };
         if ch.halt_t > LOOK_DOWN_STILL && !ctl.high {
             ch.looking_down = true;
         }

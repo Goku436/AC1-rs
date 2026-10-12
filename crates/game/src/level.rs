@@ -35,6 +35,20 @@ impl Ledge {
         let t = ((p - self.a).dot(d) / d.length_squared()).clamp(0.0, 1.0);
         self.a + d * t
     }
+
+    /// Where the vertical plane through `p` along `dir` meets the ledge, clamped to its ends: AC1's grab point, `p`
+    /// projected onto the hold along the probe's direction, not across to it (audit GUIDE-8, reanalysis GUIDE-9). The
+    /// closest point when `dir` runs along the ledge.
+    pub fn project_along(&self, p: Vec3, dir: Vec3) -> Vec3 {
+        let d = self.b - self.a;
+        let n = dir.with_y(0.0).normalize_or_zero().cross(Vec3::Y);
+        let denom = d.dot(n);
+        if n == Vec3::ZERO || denom.abs() < 1e-4 * d.length() {
+            return self.closest(p);
+        }
+        let t = ((p - self.a).dot(n) / denom).clamp(0.0, 1.0);
+        self.a + d * t
+    }
 }
 
 /// Beam ends sticking out of a wall less than this are hand holds too (m).
@@ -882,6 +896,23 @@ impl Level {
         [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z].iter().filter(|d| self.raycast_sided(p, **d, INSIDE_PROBE).is_some_and(|(_, behind)| behind)).count() >= 3
     }
 
+    /// Nothing in the oriented box at `centre` with unit `axes` and `half` extents along them: no face crosses it (AC1's
+    /// box queries, 0xB2D2A0, under `Human__ClimbBodyBoxesFree` 0xB2DF90 and the climb-out's room test 0xB2E240). A face
+    /// only touching a side (within 1 mm) does not count.
+    pub fn box_free(&self, centre: Vec3, axes: [Vec3; 3], half: Vec3) -> bool {
+        let reach = axes[0].abs() * half.x + axes[1].abs() * half.y + axes[2].abs() * half.z;
+        let near = self.tris_near(centre - reach, centre + reach);
+        let local = |p: Vec3| {
+            let d = p - centre;
+            Vec3::new(d.dot(axes[0]), d.dot(axes[1]), d.dot(axes[2]))
+        };
+        let half = (half - Vec3::splat(1e-3)).max(Vec3::ZERO);
+        !near.iter().any(|&i| {
+            let t = &self.tris[i as usize];
+            tri_crosses_box([local(t.a), local(t.b), local(t.c)], half)
+        })
+    }
+
     /// Narrow wall tops (a fence's or a parapet's, no deeper than `NARROW_TOP_MAX` behind a hold, with a drop past
     /// it and open above) become perches along their middle: climbing onto one ends balancing on it, as on a beam,
     /// not standing on a top too narrow to stand on. Holds next to each other along a top make one perch.
@@ -1303,6 +1334,24 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     walls.cuboid(Vec3::new(-92.8, top(2.0) + 0.8, z - 2.0), Vec3::new(-92.0, top(2.0) + 1.0, z + 2.0));
     hold_rows(strips, level, Vec3::new(-92.8, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &[top(2.0) + 1.0]);
 
+    // G13: a wall with holds up to its top edge, an awning over it 1.5 m above the edge, 0.2 to 1 m out: no climbing out
+    // (AC1's room boxes over the edge reach 1 m out and 1.8 m up, 0xB2E240; audit CLIMB-E6).
+    let z = 174.0;
+    walls.cuboid(Vec3::new(-92.0, 0.0, z - 2.0), Vec3::new(-88.0, top(3.0), z + 2.0));
+    hold_rows(strips, level, Vec3::new(-92.0, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &[top(0.0), top(1.0), top(2.0), top(3.0)]);
+    walls.cuboid(Vec3::new(-93.0, top(3.0) + 1.5, z - 2.0), Vec3::new(-92.2, top(3.0) + 1.6, z + 2.0));
+
+    // G14: a wall with holds up to 4.8 m, a block sticking 0.6 m out of it between two rows: the climbing move up into it
+    // is refused (AC1's body boxes at the pose a move ends in, 0xB2DF90; audit CLIMB-E13).
+    let z = 184.0;
+    walls.cuboid(Vec3::new(-92.0, 0.0, z - 2.0), Vec3::new(-88.0, top(5.0), z + 2.0));
+    hold_rows(strips, level, Vec3::new(-92.0, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &(0..6).map(|k| top(k as f32)).collect::<Vec<_>>());
+    walls.cuboid(Vec3::new(-92.6, top(2.0) + 0.16, z - 2.0), Vec3::new(-92.0, top(2.0) + 0.36, z + 2.0));
+
+    // G16: a ladder standing free in the open (its front to -X): climbed from either side, and round it from one side to
+    // the other (AC1's revolve; audit LADDER-7).
+    level.ladders.push(Ladder { base: Vec3::new(-90.0, 0.0, 204.0), top: 4.5, out: Vec3::NEG_X });
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -1316,6 +1365,9 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G10: bar to a wall, climb, roof, down a roof", Vec3::new(-82.0, 5.5, 124.0)),
         ("G11: beam corner hop", Vec3::new(-86.0, 3.5, 154.0)),
         ("G12: the jump up from the climb", Vec3::new(-95.0, 4.0, 164.0)),
+        ("G13: no climbing out under an awning", Vec3::new(-95.0, 4.0, 174.0)),
+        ("G14: a block in the way up the wall", Vec3::new(-95.0, 4.0, 184.0)),
+        ("G16: a free-standing ladder", Vec3::new(-92.0, 4.0, 204.0)),
     ]
 }
 
@@ -1412,8 +1464,9 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     ]
 }
 
-struct Builder {
-    tris: Vec<Tri>,
+#[derive(Default)]
+pub(crate) struct Builder {
+    pub(crate) tris: Vec<Tri>,
 }
 
 impl Builder {
@@ -1421,7 +1474,7 @@ impl Builder {
         self.tris.push(Tri { a, b, c });
         self.tris.push(Tri { a, b: c, c: d });
     }
-    fn cuboid(&mut self, min: Vec3, max: Vec3) {
+    pub(crate) fn cuboid(&mut self, min: Vec3, max: Vec3) {
         let p = |x: f32, y: f32, z: f32| Vec3::new(x, y, z);
         let (a, b) = (min, max);
         self.quad(p(a.x, b.y, a.z), p(a.x, b.y, b.z), p(b.x, b.y, b.z), p(b.x, b.y, a.z)); // top
@@ -2094,6 +2147,24 @@ fn segment_segment(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> (Vec3, Vec3) {
     (p1 + d1 * s, p2 + d2 * t)
 }
 
+/// Does the triangle `v` cross the box round the origin with `half` extents along x, y, z (separating axes: the box's
+/// faces, the triangle's plane and the nine edge crossings)?
+fn tri_crosses_box(v: [Vec3; 3], half: Vec3) -> bool {
+    let apart = |axis: Vec3| {
+        if axis.length_squared() < 1e-12 {
+            return false;
+        }
+        let p = v.map(|q| q.dot(axis));
+        let r = half.x * axis.x.abs() + half.y * axis.y.abs() + half.z * axis.z.abs();
+        p[0].min(p[1]).min(p[2]) > r || p[0].max(p[1]).max(p[2]) < -r
+    };
+    let edges = [v[1] - v[0], v[2] - v[1], v[0] - v[2]];
+    if [Vec3::X, Vec3::Y, Vec3::Z].into_iter().any(apart) || apart(edges[0].cross(edges[1])) {
+        return false;
+    }
+    !edges.iter().any(|e| [Vec3::X, Vec3::Y, Vec3::Z].into_iter().any(|a| apart(a.cross(*e))))
+}
+
 /// Closest points between segment `a`-`b` and triangle `t` (segment point, triangle point).
 fn segment_triangle(a: Vec3, b: Vec3, t: &Tri) -> (Vec3, Vec3) {
     // Crossing the triangle: touching.
@@ -2122,6 +2193,19 @@ fn segment_triangle(a: Vec3, b: Vec3, t: &Tri) -> (Vec3, Vec3) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hold_is_met_along_the_probe_not_across() {
+        let l = Ledge { a: Vec3::new(-5.0, 2.0, 0.0), b: Vec3::new(5.0, 2.0, 0.0), out: Vec3::Z };
+        // (From 1 m out, coming in 45 degrees off square: 1 m along it, where the closest point is straight in front.)
+        let p = Vec3::new(0.0, 2.0, 1.0);
+        let q = l.project_along(p, Vec3::new(1.0, 0.0, -1.0));
+        assert!((q - Vec3::new(1.0, 2.0, 0.0)).length() < 1e-4, "{q}");
+        assert!((l.closest(p) - Vec3::new(0.0, 2.0, 0.0)).length() < 1e-4);
+        // (Along the hold: the closest point; past its end: the end.)
+        assert!((l.project_along(p, Vec3::X) - Vec3::new(0.0, 2.0, 0.0)).length() < 1e-4);
+        assert!((l.project_along(Vec3::new(9.0, 2.0, 1.0), Vec3::NEG_Z) - l.b).length() < 1e-4);
+    }
 
     #[test]
     fn perch_lookup() {
@@ -2166,6 +2250,21 @@ mod tests {
                 assert!((a.dist - b.dist).abs() < 1e-5);
             }
         }
+    }
+
+    #[test]
+    fn box_free_sees_faces_crossing_it() {
+        let level = boxed(Vec3::new(-1.0, 0.0, -1.0), Vec3::new(1.0, 1.0, 1.0));
+        let axes = [Vec3::X, Vec3::Y, Vec3::Z];
+        // Over the top, clear; dipping 0.1 m into it, not; resting on it, clear (touching only).
+        assert!(level.box_free(Vec3::new(0.0, 1.5, 0.0), axes, Vec3::splat(0.4)));
+        assert!(!level.box_free(Vec3::new(0.0, 1.3, 0.0), axes, Vec3::splat(0.4)));
+        assert!(level.box_free(Vec3::new(0.0, 1.4, 0.0), axes, Vec3::splat(0.4)));
+        // Off a corner, turned 45 degrees to face it: a face 0.3 m from its centre along the diagonal.
+        let r = Quat::from_rotation_y(std::f32::consts::FRAC_PI_4);
+        let turned = [r * Vec3::X, Vec3::Y, r * Vec3::Z];
+        assert!(level.box_free(Vec3::new(1.45, 0.5, 1.45), turned, Vec3::splat(0.3)));
+        assert!(!level.box_free(Vec3::new(1.15, 0.5, 1.15), turned, Vec3::splat(0.3)));
     }
 
     #[test]
