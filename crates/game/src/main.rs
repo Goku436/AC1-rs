@@ -1955,7 +1955,7 @@ fn hud(
         "ground (procedural)".to_string()
     };
     t.0 = format!(
-        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F4)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | F7 fly (Ghost mode) | G outlines (both, grab, edge, none) | E eagle | C centre camera | [ ] clips, F1 hide text, F2 maps, F7 fly, F8 graphics, F11 collision, F10 online, M mute, F5 skeleton, F3 IK targets, F6 gallery, F12 shot\n{details}{online}",
+        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F4)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | F7 fly (Ghost mode) | G outlines (both, grab, edge, none) | E eagle | C centre camera | [ ] clips, F1 hide text, F2 maps, F8 graphics, F11 collision, F10 online, M mute, F5 skeleton, F3 IK targets, F6 gallery, F12 shot\n{details}{online}",
         if ch.health <= 0.0 {
             "DESYNCHRONISED".to_string()
         } else {
