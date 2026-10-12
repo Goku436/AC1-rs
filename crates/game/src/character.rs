@@ -2256,13 +2256,24 @@ pub fn animate(
                 // (One hold at a time: a hand pulled onto one lets go of it before the next is taken, else it jumped
                 // from hold to hold as the nearest changed.)
                 let same = |a: &crate::level::Ledge, b: &crate::level::Ledge| a.a == b.a && a.b == b.b;
+                // (Round a corner in the wall hang, the hand goes onto the new hold's point, as AC1's hand targets: the
+                // hold kept is the nearest, so none is let go of to switch once round.)
+                let grip = w.corner_grip(i);
+                if grip.is_some() {
+                    ch.wall_hand_t[i] = near.map(|(l, _, _)| l);
+                }
                 let switching = matches!((&ch.wall_hand_t[i], &near), (Some(t), Some((l, _, _))) if !same(t, l));
                 if ch.wall_hand_t[i].is_none() || (switching && ch.wall_hand_w[i] <= 0.0) {
                     ch.wall_hand_t[i] = near.map(|(l, _, _)| l);
                 }
-                let held = ch.wall_hand_t[i].as_ref().map(|l| crate::climb::hold_on(l, wrist));
+                let held = match grip {
+                    Some(g) => Some((g, 0.0)),
+                    None => ch.wall_hand_t[i].as_ref().map(|l| crate::climb::hold_on(l, wrist)),
+                };
                 let switching = matches!((&ch.wall_hand_t[i], &near), (Some(t), Some((l, _, _))) if !same(t, l));
                 let want = match held {
+                    // (The corner's targets are the reach itself: held to them whatever the clip's contacts.)
+                    Some(_) if grip.is_some() => 1.0,
                     Some((_, d)) if !switching && holds([contact::LEFT_HAND, contact::RIGHT_HAND][i]) => 1.0 - ((d - 0.06) / 0.14).clamp(0.0, 1.0),
                     _ => 0.0,
                 };

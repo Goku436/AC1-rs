@@ -513,7 +513,11 @@ in this batch, by audit id:
   way, with room 0.5 m past the rim.
 - **Climbing** (CLIMB-E1, E3; LEDGE-4, 9, 11; WALL-3, 5, 6): the grid window 0.375 m along by 0.3 m up; AC1's move
   order with or without the legs (grid moves, the inside corner, the reaches, the outside corner, the top-out); the
-  wall hang turns corners with its strafe pair onto the new face; the pull-up ends on the top's height, 0.45 m in from
+  wall hang turns corners with its strafe pair onto the new face (AC1 has no wall-hang corner clips: actions
+  0x1E67E885-88 are `hangwall_strafe_<side>_050cm_open` + `_close`), the root turned by AC1's interpolator over both
+  clips (0xDD3BB0 → 0x711130: slerped at a steady rate, the clips' sideways root motion unused) about the hands, which
+  go along the holds through the corner [ours: AC1 moves the root on a straight line and holds the hands on the corner
+  point by IK]; it had turned in 0.25 s in place, then slid 0.85 m; the pull-up ends on the top's height, 0.45 m in from
   the wrists; the climbing stick's left and right mirror while the camera faces him; a wall run with nothing to grab
   always rebounds off.
 - **Holds and ladders** (GUIDE-1, 3; LADDER-1, 4): holds kept up to 40° of slope (0.35 threw away 21,312 in Damascus);
