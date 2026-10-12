@@ -49,8 +49,6 @@ pub fn forge_of(city: &str) -> String {
     let name: String = c.next().map(|f| f.to_ascii_uppercase()).into_iter().chain(c.map(|x| x.to_ascii_lowercase())).collect();
     format!("DataPC_{name}.forge")
 }
-/// Largest texture side kept (the chain's bigger levels are dropped, to keep memory in check).
-const MAX_TEXTURE: u32 = 512;
 
 /// Game (Z up) to Bevy (Y up).
 fn game_to_bevy() -> Mat4 {
@@ -465,22 +463,22 @@ fn cutout(name: &str) -> bool {
 }
 
 /// A city texture for the GPU: kept block-compressed as stored (BC1/BC2/BC3, `bc`: the device takes them) with its
-/// mip chain, else decoded to RGBA8 (`image`); levels over `MAX_TEXTURE` dropped either way. Its sampler and colour space
+/// mip chain, else decoded to RGBA8 (`image`); levels over `max` px dropped either way (`stream::Detail`). Its sampler and colour space
 /// from its header.
-fn city_image(body: &[u8], bc: bool) -> Option<Image> {
+fn city_image(body: &[u8], bc: bool, max: u32) -> Option<Image> {
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
     use forge::PixelFormat;
     let t = forge::texture_levels(body).ok()?;
     if !bc || !t.pixels.is_block() {
-        return forge::decode_texture(body).ok().map(image);
+        return forge::decode_texture(body).ok().map(|t| image(t, max));
     }
     let (mut w, mut h, mut levels) = (t.width, t.height, &t.levels[..]);
-    while w.max(h) > MAX_TEXTURE && levels.len() > 1 {
+    while w.max(h) > max && levels.len() > 1 {
         (w, h, levels) = ((w / 2).max(1), (h / 2).max(1), &levels[1..]);
     }
     // (Block formats take whole blocks at the top level: every one in the install has them.)
     if w % 4 != 0 || h % 4 != 0 {
-        return forge::decode_texture(body).ok().map(image);
+        return forge::decode_texture(body).ok().map(|t| image(t, max));
     }
     let srgb = t.sampling.srgb;
     let format = match t.pixels {
@@ -498,8 +496,8 @@ fn city_image(body: &[u8], bc: bool) -> Option<Image> {
     Some(img)
 }
 
-fn image(mut t: forge::Texture) -> Image {
-    while t.width.max(t.height) > MAX_TEXTURE && !t.mips.is_empty() {
+fn image(mut t: forge::Texture, max: u32) -> Image {
+    while t.width.max(t.height) > max && !t.mips.is_empty() {
         t.rgba = t.mips.remove(0);
         t.width = (t.width / 2).max(1);
         t.height = (t.height / 2).max(1);
@@ -637,7 +635,8 @@ fn spawn_world(
     // is). Not when nothing is drawn (headless) or for picked props (drawn at full detail).
     let lod_files = if opts.render && picks.is_none() { lod_datas(game_dir, &objects, &index) } else { vec![] };
     let lod_objects: Vec<Vec<Object>> = lod_files.iter().map(|d| forge::parse_objects(d).unwrap_or_default()).collect();
-    let mut rindex = index.clone();
+    // (Headless: none, nothing is drawn.)
+    let mut rindex = if opts.render { index.clone() } else { Index::default() };
     for o in lod_objects.iter().flatten() {
         rindex.entry(o.id).or_insert(o);
     }
@@ -665,7 +664,8 @@ fn spawn_world(
             .find_map(|s| refs(&rindex, s, forge::CLASS_TEXTURE).first().map(|r| r.1))
     };
     // A material slot for a mesh's material (`MatBank`); nothing is made when nothing is drawn.
-    let mut bank = MatBank::new(bc);
+    let detail = crate::stream::Detail::from_env();
+    let mut bank = MatBank::new(bc, detail.max_texture);
     let slot_of = |bank: &mut MatBank, mats: &mut Assets<StandardMaterial>, images: &mut Assets<Image>, material: u32, cut: bool, is_water: bool| -> u32 {
         if !opts.render {
             return 0;
@@ -1157,7 +1157,8 @@ fn spawn_world(
             if bc { " (block-compressed)" } else { "" },
             t1.elapsed().as_secs_f32()
         );
-        let render = crate::stream::CityRender::new(store, bank.list.clone(), commands, meshes);
+        info!("city {forge_file}: detail {detail:?}");
+        let render = crate::stream::CityRender::new(store, bank.list.clone(), detail, commands, meshes);
         commands.insert_resource(render);
     }
     // Navigation meshes: every cell's walkable triangles (already in world space).
@@ -1264,6 +1265,8 @@ struct MatBank {
     slots: HashMap<(u32, u32, bool, bool), u32>,
     list: Vec<Handle<StandardMaterial>>,
     bc: bool,
+    /// The largest texture side kept.
+    max_texture: u32,
     /// (Textured materials, textures, their bytes.)
     textured: usize,
     textures: usize,
@@ -1271,8 +1274,8 @@ struct MatBank {
 }
 
 impl MatBank {
-    fn new(bc: bool) -> Self {
-        Self { slots: HashMap::new(), list: vec![], bc, textured: 0, textures: 0, texture_bytes: 0 }
+    fn new(bc: bool, max_texture: u32) -> Self {
+        Self { slots: HashMap::new(), list: vec![], bc, max_texture, textured: 0, textures: 0, texture_bytes: 0 }
     }
 
     /// The slot of a material with these maps (made on first use).
@@ -1313,8 +1316,8 @@ impl MatBank {
                     self.texture_bytes += img.data.as_ref().map_or(0, Vec::len);
                     images.add(img)
                 };
-                let img = city_image(t.body, self.bc).map(&mut add);
-                let normal = nrm.and_then(|n| city_image(n.body, self.bc)).map(&mut add);
+                let img = city_image(t.body, self.bc, self.max_texture).map(&mut add);
+                let normal = nrm.and_then(|n| city_image(n.body, self.bc, self.max_texture)).map(&mut add);
                 self.textured += 1;
                 StandardMaterial {
                     base_color_texture: img,
@@ -1538,6 +1541,10 @@ fn render_store<F: Fn(&mut MatBank, &mut Assets<StandardMaterial>, &mut Assets<I
     {
         match forge::world::fake_entities(fakes.body, &g) {
             Ok(blocks) => {
+                // (Pieces listed here, their meshes built on all cores: block, triangles, material, world, cell.)
+                let mut pms = vec![];
+                type Job = (usize, Vec<u32>, u32, Mat4, Option<usize>);
+                let mut jobs: Vec<Job> = vec![];
                 for b in blocks {
                     let Some(pm) = rindex.get(&b.mesh).and_then(|o| parse_mesh(o.body).ok().map(|pm| (pm, o.name.clone()))) else { continue };
                     let (pm, name) = pm;
@@ -1552,17 +1559,32 @@ fn render_store<F: Fn(&mut MatBank, &mut Assets<StandardMaterial>, &mut Assets<I
                                 continue;
                             }
                             covered[r.clone()].iter_mut().for_each(|c| *c = true);
-                            if let Some(mesh) = piece_mesh(&pm, &all[r]) {
-                                let cell = cell_of(&mut store, (0, sp.cell.0, sp.cell.1));
-                                store.fakes.push(FakePiece { mesh, material, world, cell: Some(cell) });
-                            }
+                            let cell = cell_of(&mut store, (0, sp.cell.0, sp.cell.1));
+                            jobs.push((pms.len(), all[r].to_vec(), material, world, Some(cell)));
                         }
                         let rest: Vec<u32> = all.chunks_exact(3).enumerate().filter(|(t, _)| !covered[3 * t]).flat_map(|(_, t)| t.iter().copied()).collect();
-                        if let Some(mesh) = piece_mesh(&pm, &rest) {
-                            store.fakes.push(FakePiece { mesh, material, world, cell: None });
-                        }
+                        jobs.push((pms.len(), rest, material, world, None));
                     }
+                    pms.push(pm);
                 }
+                let chunk = jobs.len().div_ceil(threads).max(1);
+                let pms = &pms;
+                let pieces: Vec<FakePiece> = std::thread::scope(|sc| {
+                    let handles: Vec<_> = jobs
+                        .chunks(chunk)
+                        .map(|part| {
+                            sc.spawn(move || {
+                                part.iter()
+                                    .filter_map(|(b, idx, material, world, cell)| {
+                                        piece_mesh(&pms[*b], idx).map(|mesh| FakePiece { mesh, material: *material, world: *world, cell: *cell })
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                        })
+                        .collect();
+                    handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+                });
+                store.fakes = pieces;
             }
             Err(e) => warn!("city: no stand-ins: {e:#}"),
         }
