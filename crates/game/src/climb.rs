@@ -420,9 +420,6 @@ const STEP_OFF_UP: f32 = 0.5;
 /// The pull-down off a beam or post wants more drop than this (m) under the hold, this far out from it (m).
 const POST_DROP_MIN: f32 = 2.5;
 const POST_DROP_OUT: f32 = 0.6;
-/// Hopping out of the hay wants room this far past its rim (m), this high up (m).
-const HAY_HOP_ROOM: f32 = 0.5;
-const HAY_HOP_UP: f32 = 1.25;
 /// The empty hand held catches after this much fall from the fall's top (m).
 const CATCH_HELD_FALL: f32 = 0.3;
 /// The climbing catch needs a hold this close to each foot (m).
@@ -5992,19 +5989,25 @@ impl WallClimb {
         let p = root.translation;
         let d = self.move_dir.with_y(0.0);
         let d = if d.length() > 0.3 { d.normalize() } else { (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(Vec3::NEG_Z) };
-        if let Some(hs) = level.haystacks.iter().find(|h| h.contains(p, 0.3)) {
-            let out = hs.half / d.x.abs().max(d.z.abs()).max(0.5) + HAY_HOP_ROOM;
-            let from = Vec3::new(hs.centre.x, p.y.max(hs.top()), hs.centre.z) + Vec3::Y * HAY_HOP_UP;
-            if level.raycast(from, d, out).is_some() || level.inside_solid(from + d * out) {
-                debug!("climb: no room to hop out of the hay toward {d:.2}");
-                return false;
-            }
+        // (The box past the footprint's edge where the way out leaves it, low over the root: AC1 ignores the haystack itself.
+        // Ours cast from over its middle, at 1.25 m over its top: in a rooftop hiding spot, its rim 1.07 m up, that ray ran
+        // into the tarp's frame over the box, 2.3 m up, every way, and there was no getting out: user report, 2026-10-12.)
+        if let Some(hs) = level.haystacks.iter().find(|h| h.contains(p, 0.3))
+            && !level.hay_hop_room(hs, p, d)
+        {
+            debug!("climb: no room to hop out of the hay toward {d:.2}");
+            return false;
         }
         let at = Transform { rotation: facing(d), ..*root };
         // (Into the stand of the profile held: AC1 has the hop out's end into either, `_tr_l_wait` / `_tr_h_wait`.)
         let end = if self.high { "xx_l_haystack_hop_out_tr_h_wait" } else { HAY_HOP_OUT[1] };
         let Some(clips) = [HAY_HOP_OUT[0], end].iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { return false };
         self.start_chain(clips, vec![HAY_OUT.into(), GROUND.into()], &at, Vec3::ZERO);
+        // (Turned from the hiding place's own facing, which the wait took, eased round: in one frame the hands jumped
+        // 0.6 m.)
+        if let Some(m) = &mut self.mv {
+            m.ease_rot = root.rotation * at.rotation.inverse();
+        }
         true
     }
 
@@ -8107,11 +8110,13 @@ impl WallClimb {
             if matches!(m.to.as_str(), JUMP | LAND | GROUND | GROUND_ACT | HAY_OUT) {
                 // Sliding along the ground (takeoff, landing): stop at walls, for the rest of the clip too; a
                 // ground move (a stop, a turn round, a landing) stops at an edge too rather than walk off it.
+                // (Not the hop out of the hay at a wall: it goes over the hiding place's own rim, 1.07 m up, its room
+                // tested before it starts; stopped by that rim at the root's height, he stayed inside the box.)
                 let slide = (next - root.translation).with_y(0.0);
                 let ledge = m.to != JUMP
                     && level.ground(root.translation, 0.3, 0.3).is_some()
                     && level.ground(next + slide.normalize_or_zero() * 0.25, 0.3, GROUND_MOVE_DROP).is_none();
-                if slide.length() > 1e-4 && (blocked(level, root.translation, slide) || ledge) {
+                if slide.length() > 1e-4 && ((m.to != HAY_OUT && blocked(level, root.translation, slide)) || ledge) {
                     m.start -= slide;
                     next = at(m);
                 }

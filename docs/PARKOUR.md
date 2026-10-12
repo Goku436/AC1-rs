@@ -639,6 +639,16 @@ in this batch, by audit id:
     split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
   - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
     the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
+- **User reports (2026-10-12)**:
+  - #1, hiding places: the hop out's room is AC1's `Guard_HopOut` box (half extents 0.35 across, 0.5 along, 0.75 up),
+    0.5 m past where the way out leaves the footprint and 1.25 m over what he sits on, the haystack itself left out (its
+    meshes' bounds with the collision shapes of hay and hiding-place entities touching them: a cart's bed, a hiding
+    place's plank box, 3.1 m across in some, and the tarp's frame over it) (`Level::hay_hop_room`). Ours cast a ray from
+    over the middle, 1.25 m over the 1.07 m rim, which in Damascus' rooftop hiding places met the tarp's frame (2.3 m up)
+    every way, and the hop itself was stopped at the box's own wall: he stayed in. The older over-the-top ray stays as a
+    second way to pass. The hop turns to the way out eased (turned in one frame from the wait's facing, the hands jumped
+    0.6 m). The load logs the haystacks with no way out: in Damascus one pile in a walled yard (178.4, -221.9), none of
+    the 123 hiding places.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.

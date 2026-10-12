@@ -1125,6 +1125,30 @@ const SCENARIOS: &[Scenario] = &[
         want: &["back eject (frontleft)", "the run ends at [16.06, 0.00, 2"],
         never: &["EMBED"],
     },
+    // User report #1 (2026-10-12): stuck in a Damascus rooftop hiding place. The hop out's room was tested along a ray
+    // from over its middle, 1.25 m over its 1.07 m rim, which ran into the tarp's frame every way; and the hop was stopped
+    // at the box's own wall. Now AC1's `Guard_HopOut` box past the footprint, the hiding place's own shapes left out.
+    Scenario {
+        name: "Damascus: free running into a rooftop hiding place, then out of it again (user report #1)",
+        tags: &["hay"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "185.6,-137.72,90,9"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-1.2"),
+            ("AC1_LEGS", "0-1.2"),
+            ("AC1_STOP", "1.2-30"),
+            ("AC1_CLIMB", "nograb,wait=3.0,up=0.3"),
+        ],
+        secs: 4.5,
+        want: &[
+            "dive into the haystack at [181.73, 7.72, -137.72]",
+            "hay -> hayout via xx_l_haystack_hop_out",
+            "hayout -> ground via xx_l_haystack_hop_out_tr_l_wait at [181.73, 7.72, -139.9",
+        ],
+        never: &["no room to hop out"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {

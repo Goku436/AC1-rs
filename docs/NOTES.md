@@ -807,7 +807,8 @@ set up against the built collision (`Level::add_city_objects`), logged as "N hay
   high); a cart's parts merge into one stack.
 - rooftop hiding spots `Hiding_Spot_*` (a plank box under a tarp, not the `_Tarp` mesh): hay too, its top the box's
   rim, 1.07 m over the roof (AC1's state in one is `HumanHayStack`). Free running at one, the running game hopped onto
-  the rim and dived in (`xx_h_freestep_footr_to_haystack_02`); ours does too, diving from within 0.6 m of its edge.
+  the rim and dived in (`xx_h_freestep_footr_to_haystack_02`); ours does too, diving from within 0.6 m of its edge. Out of one by AC1's
+  hop-out room test past its footprint, its own shapes (the plank box, the tarp's frame) left out (`Level::hay_hop_room`).
 - ladders `Ladder_<h>m`: thin and over 2 m tall. The building is the side with a roof just under its top (the ladder
   leans on that wall, its rails standing up past the roof edge, so its top is that roof's floor); else the nearer wall.
   The foot stands toward the outer side of its bounds. Climbed from the street onto a roof and back down in Damascus.
