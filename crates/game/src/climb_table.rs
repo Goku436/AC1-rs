@@ -104,6 +104,10 @@ pub struct Move {
     pub cols: i32,
     pub rows: i32,
     pub action: u32,
+    /// From the long table.
+    pub long: bool,
+    /// The stick's direction it was found for (0-9).
+    pub dir: usize,
 }
 
 /// The move from `pose` toward `dir` in one table, following redirects.
@@ -114,7 +118,7 @@ pub fn lookup(table: &[[Entry; 10]; 6], actions: &[[u32; 10]; 6], pose: usize, d
             Entry::None => return None,
             Entry::Redirect(nd) => d = nd,
             Entry::To(to, side, cols, rows) => {
-                return (actions[pose][d] != 0).then_some(Move { to, side, cols, rows, action: actions[pose][d] });
+                return (actions[pose][d] != 0).then_some(Move { to, side, cols, rows, action: actions[pose][d], long: false, dir });
             }
         }
     }
@@ -125,7 +129,7 @@ pub fn lookup(table: &[[Entry; 10]; 6], actions: &[[u32; 10]; 6], pose: usize, d
 /// interpreter writes 1.0 there every frame, reanalysis CLIMB-2, audit CLIMB-E7), then the short one.
 pub fn moves(pose: usize, input: bevy::math::Vec2) -> Vec<Move> {
     let dir = quantize(input);
-    lookup(&LONG, &LONG_ACTIONS, pose, dir).into_iter().chain(lookup(&SHORT, &SHORT_ACTIONS, pose, dir)).collect()
+    lookup(&LONG, &LONG_ACTIONS, pose, dir).map(|m| Move { long: true, ..m }).into_iter().chain(lookup(&SHORT, &SHORT_ACTIONS, pose, dir)).collect()
 }
 
 /// The pose index of a climbing state name.

@@ -212,8 +212,9 @@ reach (was 4.6 m). An eject's targets start 0.5 m off (running jumps' at 1 m): A
 of the wall 0.95 m off, and so does ours now (route `wall1_eject_right` 3.34 -> 0.45 m). As AC1's interpreter checks
 the jump off before any move (Banned445's port, verified live), high profile + legs ejects in the middle of a move from
 hold to hold too (a hand step, a reach, a shimmy), cutting it; pressed during a leap between holds it is kept 0.3 s
-(the legs buffer) and ejects as the hand lands. Still to do (audit WALL-8): AC1 turns the root away from the wall in one
-frame at the takeoff; ours eases it (cut in after the rebound pose, the takeoff's first frame jumped 1 m). Not yet: the ladder's rebound (`xx_h_ladder_wait_<l|r>_tr_rebound`), the mid-air one (`xx_h_air_all_<foot>_tr_rebound`) and the wall
+(the legs buffer) and ejects as the hand lands. As AC1 (audit WALL-8), the root turns away from the wall in one frame as
+the takeoff starts (it was eased round over 0.25 s), placed so the hips stay put, the pose faded from turned with it (the
+rebound pose already faces away: the hips are 4 degrees off the takeoff's first frame). Not yet: the ladder's rebound (`xx_h_ladder_wait_<l|r>_tr_rebound`), the mid-air one (`xx_h_air_all_<foot>_tr_rebound`) and the wall
 run's one-piece ejects (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`). Wall runs and free
 running's own grabs need a wall at least 0.7 m wide (not a pole's side). Footing under a hold needs a wall within
 0.16 m behind the hold line, probed at each foot and between them (a thin pole flush with a cap is footing, one set
@@ -758,8 +759,12 @@ end onto another going on from it (within 0.45 m, 35 degrees) walks on along it.
 balancing on it, and free running carries on along or off it.
 
 ## City parkour objects
-Benches, and the ladders and poles of cities without authored ones, are found by mesh name (haystacks and hiding
-spots have components of their own, not yet read, audit GUIDE-7; they take the entity's position and facing): they are found by mesh name when a city is placed, and
+Benches, and the ladders and poles of cities without authored ones, are found by mesh name. Haystacks and hiding spots
+are found by their components (audit GUIDE-7): `BhvHayStack` (0x19F58E6A) on the hay's entity, `BhvHidingPlace`
+(0xDC3F581A) on a meshless member of the hiding spot's group. The meshes named as below give the bounds (on an entity
+with the component and no such mesh, its first mesh). Damascus has 169 (46 hay, 123 hiding places), Masyaf 21; every one
+also matches the names, and the names alone are kept for entities with neither component. The components' own fields
+(the volume) are not read; they take the entity's position and facing. All of them are found when a city is placed and
 set up against the built collision (`Level::add_city_objects`), logged as "N haystacks, N ladders, ...":
 - hay: `Hay_Bale_Charette*`, `Hay_Bale_Chariot*`, `Hay_Bale_01` (not the straw strewn on the ground, `Hay_Bale_Tile*`).
   Their meshes use a vertex format not decoded yet, so a cart's stack stands where its entity is (1.8 x 1.8 m, 1.8 m
