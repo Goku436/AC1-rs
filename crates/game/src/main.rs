@@ -874,6 +874,7 @@ fn player_input(
     scholars: Query<&Transform, (With<crowd::Scholar>, Without<Player>)>,
     mut buttons: Local<(f32, HighToggle)>,
     mut climb_latch: Local<(Vec2, f32)>,
+    // (The frame the stick is held in after a camera cut, with the stick it was held at.)
     mut stick_yaw: Local<Option<(f32, Vec2)>>,
 ) {
     // (The legs' press buffer, and the high-profile toggle.)
@@ -899,12 +900,15 @@ fn player_input(
         cam.free = if cam.free.is_some() { None } else { Some(cam.eye) };
     }
     // C centres the camera behind Altair (AC1's Center Camera).
+    let before_centre = cam.yaw;
     if keys.just_pressed(KeyCode::KeyC)
         && cam.free.is_none()
         && let Ok((_, _, tf)) = q.single()
     {
         cam.yaw = tf.rotation.to_euler(EulerRot::YXZ).0;
     }
+    // (How far C's centring turned it: a cut, by the code, not the player's turn.)
+    let centred = (cam.yaw - before_centre + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
     if grabbed {
         cam.yaw -= motion.delta.x * 0.003;
         let up = if cam.free.is_some() { 1.5 } else { 0.6 };
@@ -983,14 +987,16 @@ fn player_input(
     }
     // (After a camera cut, a jump of the camera's yaw over 30 degrees in a frame, the stick keeps the old camera's frame
     // till it moves more than 0.3: AC1's, reanalysis INPUT-8, audit INPUT-14; ours re-aimed a running Altaïr at once.)
-    let latched = matches!(*stick_yaw, Some((y, held)) if y != cam.yaw && (input - held).length() <= 0.3 && input != Vec2::ZERO);
-    let prev = stick_yaw.map_or(cam.yaw, |(y, _)| y);
-    let turned = (cam.yaw - prev + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-    let cut = !latched && turned.abs() > CAMERA_CUT && input != Vec2::ZERO;
-    let yaw = if latched || cut { prev } else { cam.yaw };
-    if !latched {
-        *stick_yaw = Some((if cut { prev } else { cam.yaw }, input));
+    // (A cut is the camera jumping by itself, C's centring; the player's own turns (the mouse, the arrows, the pad's
+    // right stick) re-aim the stick at once, as in AC1: latched on any change of the camera's yaw, a held W ran on along
+    // the camera of the moment it was pressed, and the other keys with it.)
+    if stick_yaw.is_some_and(|(_, at)| (input - at).length() > 0.3 || input == Vec2::ZERO) {
+        *stick_yaw = None;
     }
+    if stick_yaw.is_none() && centred.abs() > CAMERA_CUT && input != Vec2::ZERO {
+        *stick_yaw = Some((before_centre, input));
+    }
+    let yaw = stick_yaw.map_or(cam.yaw, |(y, _)| y);
     let fwd = Vec3::new(-yaw.sin(), 0.0, -yaw.cos());
     let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
     ctl.move_dir = fwd * input.y + right * input.x;
