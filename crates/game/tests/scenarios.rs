@@ -1125,6 +1125,25 @@ const SCENARIOS: &[Scenario] = &[
         want: &["back eject (frontleft)", "the run ends at [16.06, 0.00, 2"],
         never: &["EMBED"],
     },
+    // User report #9 (2026-10-12): off a beam's end at a Damascus balcony's handrail (its top 2.34 m over the beam, the
+    // floor behind it under the rail), the wall run pulls up onto the rail, AC1's walling probe D taking the rail's edge
+    // as a lip with room over it (class 1), and steps off it onto the balcony. Ours topped out with nothing to grab and
+    // rebounded. (The wall run starts 0.03 m from the balcony's front, the beam's end: EMBED there is not this.)
+    Scenario {
+        name: "Damascus: a wall run off a beam at a balcony's handrail pulls up onto the rail and over it (report #9)",
+        tags: &["wallrun", "beam"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "112,-33.58,-90,5.6"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-4"),
+            ("AC1_LEGS", "0-4"),
+        ],
+        secs: 5.0,
+        want: &["via xx_h_wallingfront_step1_footr_tr_hangknee_250cm_footr", "hangknee -> perch via", "at [115.8", "landed from"],
+        never: &["tops out with nothing to grab", "rebound"],
+    },
     // User reports #7 and #8: up the wall under a Damascus balcony held out on stepped corbels, each step 0.45 m further
     // out and 0.12-0.3 m up. At the wall's top the stick up jumps up onto the corbels (AC1's TryBackEject, from a raised
     // hand's pose too), the free hang climbs them hand over hand out to the balcony's front (AC1's vertical rows, an edge

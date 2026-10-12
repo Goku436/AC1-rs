@@ -639,7 +639,14 @@ in this batch, by audit id:
     split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
   - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
     the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
-- **2026-10-12, user reports (Damascus)**:
+- **2026-10-12, user reports #7-#9 (Damascus)**:
+  - #9, a balcony's handrail 2.34 m over a beam's end: the wall run's tops came from the collision only (the floor behind
+    the rail, under it, is not open), so it rebounded. Now a guidance edge in front stands in for the top when the
+    collision gives none, as AC1's walling probes A and D take edges (0xE36BD0): one 1.25-2 m (A) or 2.1-2.6 m (D) over
+    the feet whose `ClassifyLedgeCandidate` (0xE341D0) cast, 45 degrees up over its edge and in, runs 0.4 m past it
+    (class 1, a pull-up), with a beam or a floor there to kneel on [ours]. On the rail (a beam) it is the pull-up onto a
+    post, then on over it. (`xx_h_hangwall_tr_passover_handr`, 0x0109BBBD, is only compared against in the passover's
+    update 0xDE2EE0, never started by the code found: not used.)
   - #7, #8, a balcony held out on stepped corbels (edges 0.45 m further out and 0.12-0.3 m up each, out to its front):
     the climb's jump up to an overhang (TryBackEject) is tried from any climbing pose, as AC1's ChooseMove does, not only
     the level ones; ours' fallback "bring the hands level first" no longer steps down (from the raised hand it went

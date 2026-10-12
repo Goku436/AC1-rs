@@ -1898,6 +1898,51 @@ const HANG_STEP_ALONG: f32 = 0.2;
 const HANG_STEP_FACING: f32 = 0.5;
 const HANG_STEP_HELD: f32 = 0.2;
 
+/// A wall run's pull-up lips over the feet (m): AC1's probe A after the entry (0.25-1 h over the root the entry leaves
+/// 1 m up) and probe D's pull-up after the vertical step (0.5-1 h over the root `WALL_RUN_STEP_TOP` up); h = 1 m.
+const WALL_RUN_LIP_A: std::ops::RangeInclusive<f32> = (WALL_RUN_UP + 0.25)..=(WALL_RUN_UP + 1.0);
+const WALL_RUN_LIP_D: std::ops::RangeInclusive<f32> = (WALL_RUN_STEP_TOP + 0.5)..=(WALL_RUN_STEP_TOP + 1.0);
+/// A lip's room: AC1's class 1 (room to kneel) when the cast over its edge runs at least this far past it (m).
+const WALL_RUN_LIP_ROOM: f32 = 0.4;
+/// A lip is taken up to this far to the side of the line run up (m).
+const WALL_RUN_LIP_SIDE: f32 = 0.3;
+
+/// A lip a wall run pulls up onto that the top probe misses (a balcony's handrail: the floor behind it lies under the
+/// rail, not open): AC1's walling probes A and D (`FindLedgeCandidates` 0xE36BD0) take the guidance edges in front,
+/// and `ClassifyLedgeCandidate` 0xE341D0 gives one room to kneel (class 1, a pull-up) when its cast from under the edge,
+/// 45 degrees up over it and in, runs 0.4 m or more past it (Banned445's `walling.rs`). A in its band first, then D,
+/// each the highest; ours only where a beam or a floor is there to kneel on. (Its flat distance ahead, its height over
+/// the feet.)
+fn wall_run_lip(level: &Level, feet: Vec3, fwd: Vec3, reach: f32) -> Option<(f32, f32)> {
+    let side = Vec3::Y.cross(fwd).normalize_or_zero();
+    let cast = (Vec3::Y + fwd) * std::f32::consts::FRAC_1_SQRT_2;
+    level
+        .ledges
+        .iter()
+        .filter(|l| l.out.dot(-fwd) > 0.7)
+        .filter_map(|l| {
+            let along = (l.a - feet).dot(fwd);
+            let q = l.closest((feet + fwd * along).with_y((l.a.y + l.b.y) * 0.5));
+            let (d, h) = ((q - feet).dot(fwd), q.y - feet.y);
+            let band = if WALL_RUN_LIP_A.contains(&h) {
+                1
+            } else if WALL_RUN_LIP_D.contains(&h) {
+                0
+            } else {
+                return None;
+            };
+            if !(0.0..=reach).contains(&d) || (q - feet).dot(side).abs() > WALL_RUN_LIP_SIDE {
+                return None;
+            }
+            let start = q + Vec3::Y * 0.05 - fwd * 0.05 - cast * 0.5;
+            let room = level.raycast(start, cast, 2.0).map_or(2.0, |hit| (hit.point - q).with_y(0.0).length());
+            let kneel = level.perch_at(q + fwd * 0.1, 0.3).is_some() || level.ground(q + fwd * 0.3 + Vec3::Y * 0.3, 0.0, 0.5).is_some_and(|g| g.normal.y > 0.8);
+            (room >= WALL_RUN_LIP_ROOM && kneel).then_some((band, d, h))
+        })
+        .max_by(|a, b| (a.0, a.2).partial_cmp(&(b.0, b.2)).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(_, d, h)| (d, h))
+}
+
 /// How far the hands and feet move between two poses (m), for sizing crossfades.
 fn seam_gap(rig: &Rig, cr: ClimbRig, a: &Pose, b: &Pose) -> f32 {
     let (ma, mb) = (a.model(rig), b.model(rig));
@@ -3506,6 +3551,9 @@ impl WallClimb {
                 (edge.unwrap_or(hit.dist), y - root.translation.y)
             })
         });
+        // A wall run's lip the top probe misses: AC1's walling probes take the guidance edges, not the collision's tops
+        // (a balcony's handrail, the floor behind it under the rail; user report #9).
+        let top = top.or_else(|| carry.and(hit).filter(|h| h.dist < reach).and_then(|_| wall_run_lip(level, root.translation, fwd, reach)));
         // A wall run steps up the wall, so it needs one flush under the edge or the holds.
         let flush_under = |p: Vec3| level.raycast(p + normal * 0.3 - Vec3::Y * 0.9, -normal, 0.55).is_some();
         let slack = if carry.is_some() { WALL_RUN_SLACK } else { JUMP_HANG_REACH };
