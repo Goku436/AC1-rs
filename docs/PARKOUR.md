@@ -539,6 +539,8 @@ in this batch, by audit id:
   or wall rays; a top too thin to probe is climbed onto at the edge's height); gauntlet G13 (an awning over a wall's top).
   (CLIMB-E13, E14) The table moves get AC1's body boxes at the pose they end in (up and down too; the two side rays
   dropped for them) and its lean guard; gauntlet G14 (a block out of a wall between two rows).
+  (CLIMB-E16, the release) The empty hand on the wall releases into the fall near the ground too (the step down onto it
+  is the stick's).
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

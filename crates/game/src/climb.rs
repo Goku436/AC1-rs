@@ -24,9 +24,9 @@
 //! `up_<l|r>_hand`/`down_<l|r>_hand` (1.2 m or 1.8 m). `_a` winds up, `_b` carries the flight and the
 //! rest catch the holds.
 //!
-//! Letting go: from "1m" with the ground within reach, `xx_l_climb_1m_tr_h_wait_hipm_footl_a/b` steps
-//! down onto it. Otherwise `xx_h_hangwall_tr_fall_a` (push off 0.3 m) or `xx_h_hangfree_tr_fall_a`
-//! (release) plays, `_b` gives the falling pose while gravity moves the root, and
+//! Letting go (the empty hand): `xx_h_hangwall_tr_fall_a` (push off 0.3 m) or `xx_h_hangfree_tr_fall_a`
+//! (release) plays, near the ground too (stepping down onto it, `xx_l_climb_1m_tr_h_wait_hipm_footl_a/b`, is the
+//! stick held down), `_b` gives the falling pose while gravity moves the root, and
 //! `xx_h_landing_straight_<soft|hard>_footr_tr_h_wait_footr_a/b` plays on touchdown.
 //!
 //! Running jump (from the ground): AC1's takeoff and flight blends (`crate::jump`, weighted by how far and how high
@@ -5826,12 +5826,11 @@ impl WallClimb {
         true
     }
 
-    /// Let go of the wall now: step down if the ground is close, else push off (or release from a
-    /// free hang) and fall.
-    fn drop_now(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
-        if self.try_step_off(lib, level, root) {
-            return true;
-        }
+    /// Let go of the wall now: push off (or release from a free hang) and fall.
+    fn drop_now(&mut self, lib: &mut AnimLib, root: &Transform) -> bool {
+        // (Straight into the fall, near the ground too: AC1's empty hand releases into the air (StartRelease 0xDE96A0, the
+        // lost-grip fill), the step down onto the ground is the stick's (audit CLIMB-E16); ours climbed down first within
+        // 0.95 m of it.)
         // The push-off already drops the root; the fall counts from here.
         self.fall_top = root.translation.y;
         let names =
@@ -6023,14 +6022,14 @@ impl WallClimb {
             Some(m) if hang(&m.to) && hang(&self.state) => {
                 self.mv = None;
                 self.queue.clear();
-                self.drop_now(lib, level, root)
+                self.drop_now(lib, root)
             }
             Some(_) => {
                 self.want_drop = true;
                 true
             }
             None if off_wall(&self.state) => true,
-            None => self.drop_now(lib, level, root),
+            None => self.drop_now(lib, root),
         }
     }
 
@@ -7388,7 +7387,7 @@ impl WallClimb {
                     self.fade = Some((last.clone(), len, len));
                 }
             }
-            if std::mem::take(&mut self.want_drop) && self.drop_now(lib, level, root) {
+            if std::mem::take(&mut self.want_drop) && self.drop_now(lib, root) {
                 return;
             }
         }

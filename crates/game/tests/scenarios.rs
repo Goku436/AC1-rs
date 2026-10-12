@@ -438,6 +438,15 @@ const SCENARIOS: &[Scenario] = &[
         want: &[],
         never: &["into the haystack"],
     },
+    // Audit CLIMB-E16: AC1's empty hand releases into the air, near the ground too (the step down is the stick's).
+    Scenario {
+        name: "on wall A just off the ground, let go: the release into a fall, not the step down",
+        tags: &["climb"],
+        env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "wait=1.5,drop=2")],
+        secs: 6.0,
+        want: &["via xx_h_hangwall_tr_fall_a", "land -> ground"],
+        never: &["xx_l_climb_1m_tr_h_wait_hipm_footl", "EMBED"],
+    },
     Scenario {
         name: "free hang on C, drop",
         tags: &["hang"],
