@@ -1299,6 +1299,11 @@ pub fn grip_target(ledge_point: Vec3, out: Vec3) -> Vec3 {
     ledge_point + out * GRIP_OUT - Vec3::Y * GRIP_DOWN
 }
 
+/// The hold point a wrist target (`grip_target`) stands for.
+pub fn grip_hold(target: Vec3, out: Vec3) -> Vec3 {
+    target - out * GRIP_OUT + Vec3::Y * GRIP_DOWN
+}
+
 /// Nearest hold for a wrist position: (ledge, wrist target on it, distance).
 pub fn nearest_hold(level: &Level, wrist: Vec3, normal: Vec3) -> Option<(Ledge, Vec3, f32)> {
     level

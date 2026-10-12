@@ -83,6 +83,9 @@ struct Bones {
     legs: [LegBones; 2],
     arms: [Arm; 2],
     clavicles: [usize; 2],
+    /// The middle finger's knuckle (`<side>HandMiddle1`): what AC1's hand effector puts on the hold (HumanIK's hand
+    /// effectors via `IKRig__EffectorToHIK` 0x4FA910, Banned445's port; audit ANIM-11).
+    knuckles: [Option<usize>; 2],
     /// Add-on bones under Spine2 that are not part of the biped (hood): they follow the head.
     hood: Vec<usize>,
 }
@@ -99,6 +102,7 @@ impl Bones {
             legs: [leg("Left")?, leg("Right")?],
             arms: [Arm::from_rig(rig, "Left")?, Arm::from_rig(rig, "Right")?],
             clavicles: [f("LeftClavicle")?, f("RightClavicle")?],
+            knuckles: [f("LeftHandMiddle1"), f("RightHandMiddle1")],
             hood: (0..rig.len())
                 .filter(|&i| rig.parents[i] == f("Spine2") && rig.names[i].as_deref().is_some_and(|n| n.starts_with('#')))
                 .filter(|&i| rig.rest[i].pos.z.abs() + rig.rest[i].pos.x.abs() > 0.0)
@@ -2292,6 +2296,18 @@ pub fn animate(
                 if let Some((target, _)) = held {
                     let wgt = ch.wall_hand_w[i];
                     if wgt > 0.0 {
+                        // (AC1's hand effector is the middle finger's knuckle, put on the hold point itself: the wrist
+                        // goes where the knuckle, as the clip holds it this frame, lands on the hold, audit ANIM-11.
+                        // Round a corner its targets are laid between the two faces' holds, by the wall's normal as it
+                        // turns.)
+                        let target = match b.knuckles[i] {
+                            Some(k) => {
+                                let knuckle = world_from_model.transform_point3(pose.model_of(rig, k).pos);
+                                let out = ch.wall_hand_t[i].as_ref().filter(|_| grip.is_none()).map_or(n, |l| l.out);
+                                crate::climb::grip_hold(target, out) - (knuckle - wrist)
+                            }
+                            None => target,
+                        };
                         ch.debug_targets.push((target, Color::srgb(0.95, 0.75, 0.2)));
                         let elbow = pose.model_of(rig, arm.lower).pos;
                         let pole = elbow + Vec3::new(-0.3, 0.0, -0.3);

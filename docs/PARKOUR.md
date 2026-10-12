@@ -700,6 +700,12 @@ in this batch, by audit id:
     quaternions and normalised. The same for two clips; with three or more far-apart ones (the 090 / 180 turns mixed with
     a straight one) the fold follows the arc. (0x507650, which the audit pointed at, is the action's length: the items'
     durations less their blends.)
+  - ANIM-11: a climbing hand's IK puts the middle finger's knuckle (`<side>HandMiddle1`) on the hold point, as AC1's
+    HumanIK hand effector does (0xE57450 via 0x4FA910, Banned445's port): the wrist goes where the knuckle, as the clip
+    holds it that frame, lands on the hold. Ours aimed the wrist 9 cm out and 8 cm under the hold whatever the hand's
+    pose. Not done: the toe as
+    the foot's effector: AC1 puts it on a foot hold's point, ours has no foot holds (the feet go onto the wall's face,
+    the ankle 0.11 m off it); it waits for foot holds.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
