@@ -12,6 +12,7 @@
 pub mod action;
 pub mod anim;
 pub mod animset;
+pub mod cloth;
 pub mod datafile;
 pub mod graph;
 pub mod guidance;
@@ -20,7 +21,9 @@ pub mod index;
 pub mod lod;
 pub mod material;
 pub mod mesh;
+pub mod modifier;
 pub mod navmesh;
+mod read;
 pub mod shape;
 pub mod skeleton;
 pub mod texture;
