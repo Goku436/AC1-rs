@@ -1239,6 +1239,27 @@ const SCENARIOS: &[Scenario] = &[
         want: &["Ghost mode off at [-25.00, 5.00, -18.50], falling at 15.0 m/s", "landed from 5.0 m", "-> ground via"],
         never: &["EMBED", "landing_death"],
     },
+    // Collision as AC1's (docs/NOTES.md "What collides"): only the rigid bodies whose layer stops the player. The
+    // bureau's `BureauCamCol01` is a CameraBarrier, a 0.5 m block on the bureau's floor the body stood on (at 4.64 m).
+    Scenario {
+        name: "Damascus: in the bureau, standing on its floor where AC1's camera barrier block is (passed through, not stood on)",
+        tags: &["ground"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "40,0,180,6")],
+        secs: 0.5,
+        want: &["the run ends at [40.00, 4.15, 0.00]"],
+        never: &["EMBED"],
+    },
+    // The south-east gate's `CollisionHorse` is a HorseBarrier: the player walked into (and started on top of) an
+    // invisible wall there, 3 m high; walking west through it he now goes on.
+    Scenario {
+        name: "Damascus: walking west through AC1's horse barrier by the south-east gate (it stops horses, not the player)",
+        tags: &["ground"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "184,-192,90,8"), ("AC1_WALK", "3")],
+        secs: 4.0,
+        // (Past the barrier's line, x 178.4: where along depends on the walk's start, 173 to 177 m.)
+        want: &["walking toward [-1.00, 0.00] from [184.00, 0.00, -192.00]", "the run ends at [17"],
+        never: &["EMBED", "the run ends at [178.", "the run ends at [179.", "the run ends at [18"],
+    },
     Scenario {
         name: "eject from a wall run's hang with the stick back and left: off 45 degrees to the left, the stick's way (user report #10)",
         tags: &["hang", "wallrun", "eject"],
