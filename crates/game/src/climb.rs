@@ -6540,7 +6540,7 @@ impl WallClimb {
         let w = [(1.0 - v) * (1.0 - h), v * (1.0 - h), h * (1.0 - v), h * v];
         let names = (0..len).map(|i| mix_name(&[(&chains[0][i], w[0]), (&chains[1][i], w[1]), (&chains[2][i], w[2]), (&chains[3][i], w[3])])).collect();
         debug!("climb: the free hang's drop onto the wall below mixed v {v:.2} h {h:.2} ({kind})");
-        Some(Cand { names, to: to.into(), feet: Feet::Wall })
+        Some(Cand { names, to: to.into(), feet: Feet::Wall, table: None })
     }
 
     /// Leaps for an input direction, shortest first. Only from a rest state (hands level); the
