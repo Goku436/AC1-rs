@@ -49,8 +49,14 @@ fn main() -> Result<()> {
     let mut names: BTreeMap<(u8, String), usize> = BTreeMap::new();
     let mut no_body: HashMap<String, usize> = HashMap::new();
     let (mut with, mut without, mut unresolved) = (0, 0, 0);
+    // Entities with several rigid bodies: their shapes' names, in order.
+    let mut several: BTreeMap<String, usize> = BTreeMap::new();
     for (name, b) in bodies {
         let rbs = rigid_bodies(b);
+        if rbs.len() > 1 {
+            let list: Vec<String> = rbs.iter().map(|r| format!("{}:{}", index.get(&r.shape).map_or("?".into(), |o| stem(&o.name)), r.layer)).collect();
+            *several.entry(format!("{} = {}", stem(name), list.join(" + "))).or_default() += 1;
+        }
         for rb in &rbs {
             let class = index.get(&rb.shape).map(|o| o.class);
             unresolved += usize::from(class.is_none());
@@ -84,6 +90,10 @@ fn main() -> Result<()> {
     }
     for ((layer, name), n) in &names {
         println!("layer {layer:2} {n:5} {name}");
+    }
+    println!("entities with several rigid bodies (shape:layer, in order):");
+    for (k, n) in &several {
+        println!("{n:6} {k}");
     }
     println!("entities with meshes: {with} with a rigid body, {without} without; their meshes:");
     let mut v: Vec<_> = no_body.into_iter().collect();

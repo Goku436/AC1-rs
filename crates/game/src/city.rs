@@ -848,12 +848,10 @@ fn spawn_world(
         let bodies = if render_collision { vec![] } else { forge::shape::rigid_bodies(body) };
         // (Its own collision, even if none of it stops the player: its meshes do not stand in.)
         let mut has_shape = false;
-        let mut seen = vec![];
-        for rb in bodies {
-            if rb.shape == 0 || seen.contains(&rb.shape) {
-                continue;
-            }
-            seen.push(rb.shape);
+        // (Only its first: an entity with two is a breakable structure, its second body the broken state it changes to,
+        // `Kiosk_Collision_Broken`, `Scaffold_*_01b`, `Storage_01b`, with the guidance it turns on then; a city gate's
+        // second is its closed `CityGate_FAKE`. Damascus: 192 of them, Masyaf 32.)
+        for rb in bodies.into_iter().filter(|rb| rb.shape != 0).take(1) {
             let Some(so) = index.get(&rb.shape).copied() else {
                 missing_shapes += 1;
                 continue;

@@ -18,7 +18,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | City placement: entities' world transforms and meshes across a forge's data files, EntityGroup (3f742d26) members | done: Masyaf 4344 meshes placed (926 from groups; 2221 entities collide by their shapes, 5 data files of them looked up in `DataPC_Kingdom.forge`), Damascus 17581 (8851 entities from groups, 15.9 M collision triangles), shared props from `DataPC_Common.forge` |
 | Characters assembled from shared parts across data files (soldiers, crowds) | done: AC1's NPC builders (`EntityBuilder`/`BuildTable`), links into `DataPC_Common.forge` through an object index; the NPC line-up and scholars use them |
 | Move graph (`ActionKit`/`ActionBlock`) | done: 452/452 blocks parse (15463 actions, 15958 items); blend spaces used for locomotion, stops, leans, grabs, leaps |
-| Collision shapes (`MeshShape`, `BoxShape`, `BarrelShape`, `CapsuleShape`, `ListShape`) and rigid bodies (`RigidBody`, its collision layer) | done: 14889/14889 meshes (6.5 M triangles) and 2098/2098 primitives parse; cities collide as AC1: by the entities' rigid bodies where their layer stops the player (Damascus: 16000 bodies, 289 left out: camera, horse and projectile barriers, out-of-bounds walls; 3.77 M triangles), entities with none collide with nothing but terrain; F11 draws it, `AC1_COLLISION_SWEEP` measures it ("Collision shapes") |
+| Collision shapes (`MeshShape`, `BoxShape`, `BarrelShape`, `CapsuleShape`, `ListShape`) and rigid bodies (`RigidBody`, its collision layer) | done: 14889/14889 meshes (6.5 M triangles) and 2098/2098 primitives parse; cities collide as AC1: by the entities' rigid bodies where their layer stops the player (Damascus: 16000 bodies, 289 left out: camera, horse and projectile barriers, out-of-bounds walls; 3.76 M triangles; only an entity's first body, a second is a broken state), entities with none collide with nothing but terrain; F11 draws it, `AC1_COLLISION_SWEEP` measures it ("Collision shapes") |
 | Levels of detail (`LODSelector`, `forge::lod`) | done: 18807/18807 selectors parse (`examples/lodcheck`); cities draw each mesh at AC1's level for its distance |
 | World grid (`World`'s `GridLayout`, `GridPartition`) and distant stand-ins (`FakeEntities`, `forge::world`) | done: 12/13 worlds' grids read (`Map_Menu`'s layout is empty), 9/10 stand-in sets check (every span inside its submesh and on a cell with a data file; `Flashback_Paradise`: one span past its submesh); cities stream their drawn meshes by these cells |
 | Havok packfiles (`HavokChunk`), ragdolls (`RagdollNew`) | done: 72/72 ragdolls read; the dead go limp (Verlet ragdoll with AC1's bodies and limits) |
@@ -790,7 +790,12 @@ bureau's `BureauCamCol01`, a 0.5 m block on its floor), HorseBarrier 3, Projecti
 
 So a city collides with each entity's rigid bodies on a layer that stops the player, less the out-of-bounds walls
 (`OutOfBound*`, `OOB_*`: the locked districts and mission fences, left out by choice). Other shapes an entity refers to
-are not collision (a market stall's `BhvKiosk` holds a box: 174 in Damascus, all once solid here). An entity with no
+are not collision (a breakable structure's own volume, `BhvBreakableStructure`/`BhvKiosk`: a box round a scaffold's top,
+one 0.9 m in front of a stall's counter; 174 in Damascus, all once solid here). Only an entity's first rigid body counts:
+the 192 Damascus entities with two (32 in Masyaf) are breakable structures whose second is the broken state
+(`Kiosk_Collision_Broken`, `Scaffold_*_01b`, `Storage_01b`) and city gates whose second is the closed `CityGate_FAKE`.
+Checked in the running game: tp'd 0.6 m over the bureau's camera block (game 40, 0) he lands on the floor at 4.15; tp'd
+over the south-east gate's horse barrier (game 184, 192, 3.2) he drops to the ground at 0. An entity with no
 rigid body collides with nothing (Damascus 3368 entities with meshes: pigeons, tarps, ivy, bushes, grass, rugs,
 awnings, flags, spice bags, torches, NPC parts), except terrain (`city::terrain`: ground, rock, cliff, mountain
 meshes), as AC1 keeps that collision in data not loaded here (Masyaf's ground and rocks, 2.7 M triangles, in the
@@ -807,10 +812,10 @@ after (rigid bodies by layer):
 
 | City | Collision triangles | Invisible collision: walls | floors | Drawn, no collision: walls | floors |
 |---|---|---|---|---|---|
-| Damascus before | 4.29 M | 100887 m² (10.1 %) | 69162 m² (12.1 %) | 22556 m² (2.3 %) | 39303 m² (7.9 %) |
-| Damascus after | 3.77 M | 91611 m² (9.4 %) | 55764 m² (10.2 %) | 23905 m² (2.5 %) | 40893 m² (8.2 %) |
+| Damascus before (dev's meshes before the 2026-10-12 merges) | 4.29 M | 100887 m² (10.1 %) | 69162 m² (12.1 %) | 22556 m² (2.3 %) | 39303 m² (7.9 %) |
+| Damascus after | 3.76 M | 88777 m² (9.2 %) | 53772 m² (9.9 %) | 25136 m² (2.6 %) | 41317 m² (8.3 %) |
 | Masyaf before | 3.36 M | 28986 m² (25.9 %) | 20729 m² (39.9 %) | 8537 m² (9.8 %) | 1882 m² (5.1 %) |
-| Masyaf after | 2.99 M | 21541 m² (20.8 %) | 10333 m² (25.2 %) | 8626 m² (9.9 %) | 1948 m² (5.3 %) |
+| Masyaf after | 2.99 M | 21463 m² (20.8 %) | 10247 m² (25.0 %) | 8626 m² (9.9 %) | 1948 m² (5.3 %) |
 
 What is left is AC1's own: invisible, the city walls' collision standing higher than the drawn walls
 (`Rempart_Wall_12m_01a` 17598 m²), market stalls' simplified boxes (`Kiosk_Collision_*` 6962 m²), palms' and cypresses'
