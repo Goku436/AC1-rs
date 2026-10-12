@@ -7,7 +7,8 @@
 //! any run): they run on the defaults, which are the
 //! game as it was before the menu (medium detail, 512 textures, AC1's shadows as set up, MSAA 4x, fog, 5 km).
 //!
-//! Live: window mode, resolution, vsync, frame cap, shadows, anti-aliasing, fog, view distance, and the city detail's
+//! Live: window mode, resolution, vsync, frame cap, shadows, anti-aliasing, fog, view distance, the sound's volume, and
+//! the city detail's
 //! draw distance, LOD and vertex budget. On a restart (the menu's "Restart" row starts the game again where he
 //! stands): the texture size (city textures are cut down as they load) and the detail `full` (no streaming).
 
@@ -75,6 +76,8 @@ pub struct Settings {
     pub fog: bool,
     /// The camera's far plane (m); the fog closes in before it.
     pub view: u32,
+    /// Every sound's volume (percent, `VOLUMES`).
+    pub volume: u32,
     /// Online (F10): the port to host on, and the last address joined.
     pub host_port: u16,
     pub join_ip: String,
@@ -94,6 +97,7 @@ impl Default for Settings {
             aa: AntiAlias::Msaa4,
             fog: true,
             view: 5000,
+            volume: 100,
             host_port: 7777,
             join_ip: "127.0.0.1".into(),
             join_port: 7777,
@@ -105,6 +109,7 @@ pub const RESOLUTIONS: [(u32, u32); 6] = [(1280, 720), (1366, 768), (1600, 900),
 pub const FRAME_CAPS: [u32; 5] = [0, 30, 60, 120, 144];
 pub const TEXTURES: [u32; 4] = [256, 512, 1024, 2048];
 pub const VIEWS: [u32; 4] = [600, 1200, 2500, 5000];
+pub const VOLUMES: [u32; 11] = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
 impl Preset {
     pub const ALL: [Preset; 4] = [Preset::Low, Preset::Medium, Preset::High, Preset::Ultra];
@@ -157,6 +162,7 @@ impl Settings {
         put("anti_alias", word(self.aa));
         put("fog", on_off(self.fog).into());
         put("view_distance", self.view.to_string());
+        put("volume", self.volume.to_string());
         put("host_port", self.host_port.to_string());
         put("join_ip", self.join_ip.clone());
         put("join_port", self.join_port.to_string());
@@ -192,6 +198,7 @@ impl Settings {
                 "anti_alias" => s.aa = from_word(v, &[AntiAlias::Off, AntiAlias::Fxaa, AntiAlias::Msaa2, AntiAlias::Msaa4]).unwrap_or(s.aa),
                 "fog" => s.fog = v != "off",
                 "view_distance" => s.view = num(v).filter(|d| (100..=20_000).contains(d)).unwrap_or(s.view),
+                "volume" => s.volume = num(v).filter(|p| *p <= 100).unwrap_or(s.volume),
                 "host_port" => s.host_port = v.parse().ok().filter(|p| *p > 0).unwrap_or(s.host_port),
                 "join_ip" if !v.is_empty() => s.join_ip = v.to_string(),
                 "join_port" => s.join_port = v.parse().ok().filter(|p| *p > 0).unwrap_or(s.join_port),
@@ -419,6 +426,7 @@ mod tests {
         let mut s = Settings { window: WindowMode::Borderless, resolution: (1920, 1080), vsync: false, frame_cap: 144, ..Settings::default() };
         s.set_preset(Preset::Low);
         s.fog = false;
+        s.volume = 40;
         s.join_ip = "192.168.1.20".into();
         s.host_port = 40_000;
         assert_eq!(Settings::from_text(&s.to_text()), s);

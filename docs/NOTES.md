@@ -35,7 +35,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
 | Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
-| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; every distinct resource and stream with a header decodes (`bao scan`): IMA-ADPCM 38211/38211 resources and 2176/2176 streams, interleaved tracks (IMA mono or stereo, or Ogg Vorbis pages) 29/29 and 76/76, Ogg Vorbis 13743/13743 and 110/110 (6636 of those Ogg resources are a stream's start, cut); the 4169 headerless streams (speech) decode joined to their start for 3716, the other 453 have no start in any forge. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks) on the surface's sound material (cities: from `CollisionMaterial`), and the city's ambience loops (Damascus: 116 region links, 36 sets, 11 streamed loops); M mutes |
+| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; every distinct resource and stream with a header decodes (`bao scan`): IMA-ADPCM 38211/38211 resources and 2176/2176 streams, interleaved tracks (IMA mono or stereo, or Ogg Vorbis pages) 29/29 and 76/76, Ogg Vorbis 13743/13743 and 110/110 (6636 of those Ogg resources are a stream's start, cut); the 4169 headerless streams (speech) decode joined to their start for 3716, the other 453 have no start in any forge. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks, the leap of faith) on the surface's sound material (cities: from `CollisionMaterial`) and AC1's switch values (character kind, weapon sheathed, city), placed and panned with AC1's roll-off; the city's placed sounds (Damascus: 1292 trigger zones: fountains, braziers, flags, kiosks, gardens, palms), its ambience loops (116 region links, 36 sets, 11 streamed loops) and their one-off sounds at AC1's intervals; M mutes, F8 sets the volume |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); lit as AC1 lights them ("How AC1 lights its world": the level's sun, ambient cube, baked occlusion, fog and colour grade from its `WorldAmbiance`/`LayeredSky`), three shadow cascades in 120 m (the first 12 m); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
 | Level light and grade (`WorldAmbiance` 21c2d472, `LayeredSky` 24d32cf8: fog, post effects, suns, ambient cubes, sky layers) | done: 14/14 levels read (`examples/ambcheck`) |
 | Baked occlusion (`MeshInstanceData` / `CompiledMeshInstance`: a byte per vertex per placed mesh) | done: 17436/17436 Damascus entities and groups, every stream a byte per vertex of its mesh (`examples/aocheck`) |
@@ -614,22 +614,59 @@ AC1-Movement-Rewritten (MIT), which first played AC1's sounds.
   Keys are in 1/120 s.
 - In game (`crates/game/src/sound.rs`): each frame the player's clips (`animation::Playing`: the heaviest of a blend,
   a legs-only or one-shot clip over it, the climbing move) fire the keys they passed; a gait's next step carries the
-  phase over, a loop wraps, a move played again starts over. Events resolve with switch 0 = the surface's sound
-  material; switches 1 and 3 (cases 0-4 and 0-1 in the footsteps; what sets them in AC1 is not known) play their
-  default. Each resource is decoded once and played at the listener with the event's gain and pitch. M mutes,
-  `AC1_MUTE=1` starts muted, `AC1_VOLUME=dB`; headless runs have no audio plugin (no device needed).
+  phase over, a loop wraps, a move played again starts over. Each resource is decoded once and played with the
+  event's gain and pitch, placed (below). M mutes, `AC1_MUTE=1` starts muted, `AC1_VOLUME=dB` and the graphics menu's
+  (F8) volume row set the level; headless runs have no audio plugin (no device needed).
+- Switches: the engine asks the sound object's type for a variable's value (the type table at `[0x1A16DD8]`, 0xBC a
+  type, +0x10 the getter; the game's types are registered at 0xB475A0, their getter jumps to the sound manager's
+  +0x568, set at 0xAE9D70 to the code at 0xB48840, a jump table over variables 0-18). What it returns: 0 the surface
+  (the `CharacterController`'s material; 21 in the Present_Room world); 1 the character kind from the entity's kind
+  bits (+0xA8: kind 1 sub-kind 0 is 0, sub-kind 1 is 3; kind 2's sub-kinds give 1, 2, 4, 5, ...); 2 `BhvHorse` +0x200;
+  3 a `CharacterBehavior` module's bool (module 8, whose other calls are can-draw / draw, can-sheathe / sheathe: read
+  as "weapon drawn"); 4 `BhvWeapon` +0x68 (the weapon kind); 5 a count over 1; 7 the world's index (Acre 0, Arsuf 1,
+  LoadingRoom2 2, Assassination_Talal 3, Damascus 4, Jerusalem 5, Kingdom 6, Map_Menu 7, Masyaf 8, Present_Room 9); 18
+  the entity's bits 11-13 (voices). Ours: 0 the surface, 1 = 0 (the player; in the footsteps cases 0 and 1 carry
+  the gear layer, the default 2 is a townsman's, 3-5 plain), 3 = 0 (sheathed: a scabbard and gear rattle under each
+  step, case 1 drops it), 7 the city. `bao tree` shows an event's switches.
+- Placed sounds: events of type 1 and 6 hold a roll-off at +0x20 (type 6: +0x1C, after a gain at +0x18): DARE's
+  `_RollOffParam` (saturation, clamp, fade start, fade end), read as `SND_fn_fDistanceToVolumeEx` at 0x7EA920 reads it
+  (full volume to the saturation distance, then saturation / distance, a straight line to nothing from the fade start
+  to its end; -2 takes the default's, the project BAO's 0x40000000 +0x13C: 2.5, -1, 10, 20). Ours: every sound but the
+  ambience loops placed and panned from the camera (AC1's `SoundMicro::Mode` has FollowCamera, PositionToOrigin,
+  FollowEntity; which one plays is not checked), Altaïr's at his hips. Sound type 2 is layers (+0x30 a count, sound
+  ids from +0x84, all played: the palms' and awnings' rustles); a single sound's +0x38 = 1 loops it.
+- `GlobalSoundSet` ("Game Bootstrap Settings"): the sounds AC1's code plays, 64 `SoundInstance`s in the order of the
+  exe's property list (three `ProjectileSoundSet`s at 31-33); names found by CRC32 of guesses: 14 `SoundBodyFall`, 15
+  `SoundJumpStart`, 23 `SoundClimbGrab` (empty), 25 `SoundLockOn`, 26 `SoundUnlock`, 28 `SoundPrayStart`; 33-54 are
+  menu-like events (104d00xx, not named). `HumanSoundSet_Altair`'s are vocal `Ono*` (`OnoEffortLight`, `OnoGrab`,
+  `OnoDodge`, ...), combat ones.
 - Surfaces: a `MeshShape`'s triangles name `CollisionMaterial`s, whose body +0 is the sound material (0-24: Stone_Clean
   4, Marble 6, Wood_Plank 9, Grass_Short 14, Water_Shallow 19, Metal_Grill 24; `Default` 4001, none). Cities keep it per
   triangle (`Level::tri_sound`); the footsteps' switch 0 is the material under the player (`Level::sound_material_at`).
 - Not in AC1's clip data: the free jump's take-off (`xx_h_impultionstraight_*_to_jumpstraight_clear_*`,
-  `xx_h_jumpstraight_clear_*` have no keys); it plays the contact table's `ft_jump_start` (picked here).
+  `xx_h_jumpstraight_clear_*` have no keys); it plays `GlobalSoundSet`'s `SoundJumpStart` (103205b7, the event the
+  beam take-off clip and Altaïr's `ft_jump_start` name too). The haystack's straw and the leap of faith's rush of air
+  are clip keys (`xx_h_freestep_footr_to_faith_jump_*`, `xx_h_air_to_haystack`, `xx_l_haystack_hop_out`).
 - Ambience (`bao ambience <game dir> <City>`): a few grid cells' data files hold an `AssassinAmbienceRegionCellData`
   (linked from the cell's own record, class ac2bbf68), naming a `SoundAmbienceSet` (`A_Wind_Damas_City`,
-  `A_City_Poor_Area`, ...) whose first sound is the loop: a sound of type 6, a streamed file of four mono IMA tracks
-  (`_LP_4.0`: quad, folded to stereo front over back, not checked), the rest one-off sounds (not played: their timing is
-  not known). The region's area is not read (only the cells linking it, a big region's a coarse one), so the game plays
-  the wind set and the other sets linked from the finest cells over the player, fading over 2 s; the crowd murmur
-  (`walla`) sets are left out. Not checked against the running game.
+  `A_City_Poor_Area`, ...): its `SoundAmbiencePad` is the loop (a sound of type 6, a streamed file of four mono IMA
+  tracks, `_LP_4.0`: quad, folded to stereo front over back, not checked; or a looped single sound, the water sets'),
+  the `SoundAmbienceRandomFX`s the one-offs: u32 id, u32 class, f32 `MinRadius`, `MaxRadius`, `Height`, 6 bytes ?,
+  f32 `MinRepeatTime`, `MaxRepeatTime`, u32 ?, u8 ?, then the sound reference (names from the exe's reflection list by
+  CRC32; Damascus' poor quarter: 14, every 1-30 to 90-180 s, 1-9 m away). Ours plays each one-off at a random time
+  in its interval, again and again, placed that far round the listener. The region's area is not read (only the
+  cells linking it, a big region's a coarse one; the areas are probably the `RegionLayout`s `Snd_A_*`, not read), so
+  the game plays the wind set and the other sets linked from the finest cells over the player, fading over 2 s; the
+  crowd murmur (`walla`) sets are left out. Not checked against the running game.
+- Placed sounds (`bao emitters <game dir> <City>`; Damascus: 1292): entities (an `Entity`, or an `EntityGroup`'s
+  member) holding an `Ambient3dSoundComponent` (99310f0c: `TriggerComponentSettings`, then `Ambient3dSoundAudioEventSeed`s,
+  each an `AudioEvent` and its sound reference: a play and its stop, then a `TriggerZone`: u32 its entity, u32 ?, the
+  `SphereLocalCenter`, the `SphereRadius`; box and plane zones exist, not told apart). Fountains (a loop, 8-35 m),
+  braziers, torches and lamps, flags (type-6 loops), kiosks, rooftop gardens and other hiding places, awnings, palms and
+  olive trees (one-off rustles, palms within 1 m). Their sound objects are in the cells, the samples in
+  `DataPC_Common.forge` (`BAO_0x3...`, a data file each: 80 for Damascus). Ours starts an emitter's plays as the
+  player enters its zone (loops until he leaves it, faded over 0.5 s). Eagles at viewpoints, pigeons (an animation's
+  keys: `pigeon_take_off_all`) and the hay cart's deformation clip are not placed here.
 
 ## Navigation meshes
 `NavMeshManager_<cell>` (format in `crates/forge/src/navmesh.rs`): pieces, each a walkable polygon with world-space
