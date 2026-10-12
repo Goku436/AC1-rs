@@ -20,6 +20,29 @@ pub struct Recorder {
     written: bool,
     /// The last frames' time, root, bones and what was playing, for the live pop check (`AC1_POP_CHECK`).
     recent: VecDeque<(f32, Vec3, Vec<Vec3>, String)>,
+    /// A control run's recording (`AC1_RECORD=<file>` on a `run` line): every frame of the run, written when it ends.
+    run: Option<(String, Vec<String>)>,
+}
+
+impl Recorder {
+    /// Record every frame from now into `path` (a control run's `AC1_RECORD`), written by `end_run`.
+    pub fn start_run(&mut self, path: String) {
+        self.run = Some((path, Vec::new()));
+    }
+
+    /// Write the run's recording, if one was started.
+    pub fn end_run(&mut self) {
+        let Some((path, lines)) = self.run.take() else { return };
+        let mut out = String::from("# ac1-rs flight recorder: a control run, every frame (time root yaw speed | move | bone world positions | IK targets)\n");
+        for l in &lines {
+            out.push_str(l);
+            out.push('\n');
+        }
+        match std::fs::write(&path, out) {
+            Ok(()) => info!("recording written to {path} ({} frames)", lines.len()),
+            Err(e) => warn!("recording {path}: {e}"),
+        }
+    }
 }
 
 /// A pose pop has to show both ways: a bone, relative to the root, moving at least `POP_MIN` (m) in a frame and more
@@ -107,6 +130,9 @@ pub fn record(
         let bones: Vec<Vec3> = BONES.iter().filter_map(|b| ch.joint_named(b).and_then(|e| globals.get(e).ok()).map(|g| g.translation())).collect();
         let state = line.split(" | ").nth(1).unwrap_or("").to_string();
         pop_check(&mut rec, t, tf.translation, bones, state);
+    }
+    if let Some((_, lines)) = &mut rec.run {
+        lines.push(line.clone());
     }
     rec.frames.push_back((t, line));
     while rec.frames.front().is_some_and(|f| f.0 < t - SPAN) {

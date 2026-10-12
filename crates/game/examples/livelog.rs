@@ -9,7 +9,10 @@
 //! - `livelog compare <real live log> <ours recording> [--from s] [--to s] [--offset s] [--step s]`: the real game's
 //!   run and ours' of the same route side by side: both from when the root first moves (or ours shifted by `--offset`),
 //!   the gap between the roots, each one's mode and clip, then the mean / largest / final gaps and when each switch of
-//!   mode happens in each (`--from` / `--to` cut the real log, in its own seconds).
+//!   mode happens in each (`--from` / `--to` cut the real log, in its own seconds), then the poses: for each clip both
+//!   play (ours' named by their action with `--game`, as the live log names a blend by its first clip), the bones
+//!   relative to the root in the body's frame and the limbs' distance to their IK goals. Ours' side is an F9 recording
+//!   or a control run's `AC1_RECORD=<file>` (every frame of the run).
 //! - `livelog names [game dir] [out]`: the action names table for the hook (`ac1-hook.actions.tsv` in the game
 //!   folder by default; with it the hook writes clip names, without it ids, named here with `--game`).
 //!
@@ -284,7 +287,108 @@ struct Compare {
     end: f32,
 }
 
-fn compare(real: &[Row], ours: &[Row], offset: Option<f32>, step: f32, names: &Names) -> Compare {
+/// Every clip of `Game Fix`'s actions to the name the live log gives its action (the action's first clip): the live
+/// log names a blend by its first clip (`..._251cm_000cm_a` for a wall run's catch blending 251 and 430 cm), ours names
+/// the clip it plays most; set side by side, ours' are shown as their action's.
+type ClipActions = HashMap<String, String>;
+
+fn clip_actions(game: &Path) -> anyhow::Result<ClipActions> {
+    use anyhow::Context;
+    let f = forge::Forge::open(game.join("DataPC.forge"))?;
+    let e = f.entries.iter().find(|e| e.name == "Game Fix").context("no Game Fix")?;
+    let data = f.read(e)?;
+    let objs = forge::parse_objects(&data)?;
+    let names: HashMap<u32, String> = objs.iter().map(|o| (o.id, o.name.clone())).collect();
+    let mut out = ClipActions::new();
+    for o in objs.iter().filter(|o| o.class == forge::action::CLASS_ACTION_BLOCK) {
+        let Ok(b) = forge::action::parse_block(o.body) else { continue };
+        for a in b.actions.iter().filter_map(|s| s.inline()) {
+            let Some(first) = a.items.first().and_then(|i| i.clips.first()).and_then(|c| names.get(c)) else { continue };
+            for c in a.items.iter().flat_map(|i| i.clips.iter()).filter_map(|c| names.get(c)) {
+                out.entry(c.clone()).or_insert_with(|| first.clone());
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// The clip as the live log names it: ours' through its action (`clip_actions`).
+fn shown(row: &Row, names: &Names, acts: &ClipActions) -> String {
+    let c = clip(row, names);
+    if row.kv.contains_key("mode") {
+        return c;
+    }
+    acts.get(&c).cloned().unwrap_or(c)
+}
+
+const POSE_BONES: [&str; 6] = ["Hips", "Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot"];
+
+/// A world point in the body's frame (forward, up, right of the root, by its yaw: Bevy space, facing -Z at yaw 0).
+fn body(root: [f32; 3], yaw: f32, p: [f32; 3]) -> [f32; 3] {
+    let y = yaw.to_radians();
+    let d = [p[0] - root[0], p[1] - root[1], p[2] - root[2]];
+    [-d[0] * y.sin() - d[2] * y.cos(), d[1], d[0] * y.cos() - d[2] * y.sin()]
+}
+
+/// The poses side by side: for each clip (by action) both games play long enough, the mean of each bone relative to the
+/// root in the body's frame, real and ours, and how far each limb is from its IK goal where a game logs them; the
+/// clips whose bones differ most first. (Ours' recorder writes the bones a frame behind the root: taken against the
+/// frame before's.)
+fn poses(real: &[Row], ours: &[Row], names: &Names, acts: &ClipActions, min_frames: usize) -> String {
+    #[derive(Default)]
+    struct Acc {
+        n: usize,
+        b: [[f32; 3]; 6],
+        goal: [(f32, usize); 4],
+    }
+    let gather = |rows: &[Row], behind: bool| {
+        let mut m: BTreeMap<String, Acc> = BTreeMap::new();
+        for (k, r) in rows.iter().enumerate() {
+            let c = shown(r, names, acts);
+            let bones: Vec<[f32; 3]> = POSE_BONES.iter().filter_map(|n| r.bones.iter().find(|b| b.0 == *n).map(|b| b.1)).collect();
+            if c == "-" || bones.len() < 6 {
+                continue;
+            }
+            let at = if behind && k > 0 { &rows[k - 1] } else { r };
+            let e = m.entry(c).or_default();
+            e.n += 1;
+            for (i, p) in bones.iter().enumerate() {
+                let v = body(at.root, at.yaw, *p);
+                for (s, x) in e.b[i].iter_mut().zip(v) {
+                    *s += x;
+                }
+            }
+            for (i, g) in r.targets.iter().take(4).enumerate() {
+                e.goal[i].0 += dist(bones[2 + i], *g);
+                e.goal[i].1 += 1;
+            }
+        }
+        m
+    };
+    let (a, b) = (gather(real, false), gather(ours, true));
+    let mut found: Vec<(f32, String)> = Vec::new();
+    for (c, ea) in &a {
+        let Some(eb) = b.get(c).filter(|eb| eb.n >= min_frames && ea.n >= min_frames) else { continue };
+        let mean = |e: &Acc, i: usize| e.b[i].map(|v| v / e.n as f32);
+        let worst = (0..6).map(|i| dist(mean(ea, i), mean(eb, i))).fold(0.0, f32::max);
+        let mut s = format!("  {c}: real {} frames, ours {}; worst bone {worst:.2} m\n", ea.n, eb.n);
+        for (i, n) in POSE_BONES.iter().enumerate() {
+            let (p, q) = (mean(ea, i), mean(eb, i));
+            s += &format!("    {n:9} real {:+.2},{:+.2},{:+.2}  ours {:+.2},{:+.2},{:+.2}  {:.2}\n", p[0], p[1], p[2], q[0], q[1], q[2], dist(p, q));
+        }
+        let goals = |e: &Acc| e.goal.iter().map(|(s, k)| if *k > 0 { format!("{:.2}", s / *k as f32) } else { "-".into() }).collect::<Vec<_>>().join(" ");
+        s += &format!("    limbs to IK goals (hands, feet): real {}  ours {}\n", goals(ea), goals(eb));
+        found.push((worst, s));
+    }
+    found.sort_by(|x, y| y.0.total_cmp(&x.0));
+    let mut out = String::from("poses by clip (bones from the root: forward, up, right; m):\n");
+    for (_, s) in found {
+        out += &s;
+    }
+    out
+}
+
+fn compare(real: &[Row], ours: &[Row], offset: Option<f32>, step: f32, names: &Names, acts: &ClipActions) -> Compare {
     let real = from_onset(real);
     let ours: Vec<Row> = match offset {
         Some(o) => ours.iter().map(|r| Row { t: r.t - ours[0].t + o, ..r.clone() }).collect(),
@@ -304,7 +408,8 @@ fn compare(real: &[Row], ours: &[Row], offset: Option<f32>, step: f32, names: &N
             }
             last = gap;
             let p = |v: [f32; 3]| format!("{:.2},{:.2},{:.2}", v[0], v[1], v[2]);
-            table += &format!("{t:7.2} {:>26} {:>26} {gap:6.2}  {} {} | {} {}\n", p(a), p(b), mode(ra), clip(ra, names), mode(rb), clip(rb, names));
+            table +=
+                &format!("{t:7.2} {:>26} {:>26} {gap:6.2}  {} {} | {} {}\n", p(a), p(b), mode(ra), shown(ra, names, acts), mode(rb), shown(rb, names, acts));
         }
         t += step.max(0.01);
     }
@@ -320,6 +425,7 @@ fn compare(real: &[Row], ours: &[Row], offset: Option<f32>, step: f32, names: &N
     }
     let mean = if n > 0 { sum / n as f32 } else { 0.0 };
     table += &format!("gap: mean {mean:.2} m, largest {:.2} m at {:.2} s, at the end ({end:.2} s) {last:.2} m\n", max.0, max.1);
+    table += &poses(&real, &ours, names, acts, 10);
     Compare { table, mean, max, end: last }
 }
 
@@ -450,7 +556,9 @@ fn main() {
             let mut r = read_rows(Path::new(real));
             r.retain(|x| num("from").is_none_or(|f| x.t >= f) && num("to").is_none_or(|t| x.t <= t));
             let o = read_rows(Path::new(ours));
-            print!("{}", compare(&r, &o, num("offset"), num("step").unwrap_or(0.1), &names_from(&opts)).table);
+            // (With the game: ours' clips by their actions, as the live log names them.)
+            let acts = if opts.contains_key("game") { clip_actions(&game).unwrap_or_default() } else { ClipActions::new() };
+            print!("{}", compare(&r, &o, num("offset"), num("step").unwrap_or(0.1), &names_from(&opts), &acts).table);
         }
         Some("names") => {
             let dir = plain.get(1).map(PathBuf::from).unwrap_or(game);
@@ -504,7 +612,7 @@ mod tests {
         for r in ours.iter_mut().filter(|r| r.t > 0.5) {
             r.state = "climb jump clip b".into();
         }
-        let c = compare(&real, &ours, None, 0.1, &Names::new());
+        let c = compare(&real, &ours, None, 0.1, &Names::new(), &ClipActions::new());
         assert!(c.mean < 0.06, "{}", c.table);
         assert!(c.end < 0.06 && c.max.0 < 0.06, "{}", c.table);
         assert!(c.table.contains("ground -> air"), "{}", c.table);
