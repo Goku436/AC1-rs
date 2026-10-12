@@ -541,7 +541,8 @@ struct ScriptClock {
 /// `run <id> <secs> AC1_START=x,z,yaw[,y] AC1_WALK=6.2 ...` (the usual script settings) puts the player at the start
 /// (fresh: no move, no fall, full health), runs the script for `secs` from a clock at 0 and logs
 /// `control: run <id> started` and `control: run <id> done, at [x, y, z] (game (x, y, z))`; `quit` closes the game.
-/// A run is taken once (by its id).
+/// A run is taken once (by its id). `AC1_RECORD=<file>` on a run writes the flight recorder's lines for every frame of
+/// it (bones and IK targets too) to that file, to set beside the real game's live log (`livelog compare`).
 #[derive(Default)]
 struct Control {
     last: Option<String>,
@@ -561,6 +562,7 @@ fn control_runs(
     mut q: Query<(&mut Transform, &mut Controller, &mut Character), With<Player>>,
     mut exit: MessageWriter<AppExit>,
     mut state: Local<Control>,
+    mut recorder: ResMut<recorder::Recorder>,
 ) {
     static FILE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     let Some(file) = FILE.get_or_init(|| std::env::var("AC1_CONTROL").ok().map(PathBuf::from)) else { return };
@@ -586,6 +588,7 @@ fn control_runs(
             *script = Script::default();
             state.active = None;
             state.trace = None;
+            recorder.end_run();
         }
         return;
     }
@@ -647,6 +650,9 @@ fn control_runs(
                 let _ = writeln!(w, "seconds	x	y	z	yaw	state	clip");
                 (w, String::new())
             });
+            if let Some(p) = vars.get("AC1_RECORD") {
+                recorder.start_run(p.clone());
+            }
             info!("control: run {id} started");
         }
         _ => warn!("control: unknown command {line}"),

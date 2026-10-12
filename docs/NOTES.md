@@ -687,7 +687,7 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
   are to be checked live (the hook logs the classes it found them in; `livelog summary` checks the bones sit about 1 m
   from the root and the camera looks at the player). The reader is the `ac1` example `livelog`: `tail` follows the file
   (`--for secs`), `summary [--last secs]` sums one up, `compare <real> <ours recording>` lines a real run up with an
-  ac1-rs F9 recording of the same route from when each starts moving (gaps, modes, clips, when each switch happens).
+  ac1-rs F9 recording of the same route from when each starts moving (gaps, modes, clips, when each switch happens), then the poses (with `--game`: ours' clips named by their action, as the live log names a blend by its first clip; for each clip both play, every bone relative to the root in the body's frame and the limbs' distance to their IK goals). A control run (`AC1_CONTROL`) with `AC1_RECORD=<file>` writes the recorder's lines for every frame of the run, the ours side of such a comparison.
 - The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
   each, with a `combo` scenario each (`AC1_SCENARIO_TAGS=combo`, about 40 s): G1 box, two beams across a gap, a swing
   bar, down onto a low beam (AC1's beam landing); G2 free running onto a ladder, up, a beam bridge, the leap of faith

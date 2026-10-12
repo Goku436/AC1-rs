@@ -598,15 +598,17 @@ const SCENARIOS: &[Scenario] = &[
         want: &["ladder", "-> top via"],
         never: &[],
     },
-    // Audit LEDGE-3: from the wall hang on pole P's lowest cap, up to the next one 0.6 m above with no hold for the feet
-    // 1.2 m under it: AC1's hand step (one hand, then the other), not the climbing stance with the feet on the cap let go of.
+    // The standing jump goes for the highest hold in reach (AC1's chooser 0xE97720, the higher of two reports; the running
+    // game's live log on the Damascus bureau's wall, 2026-10-12): at pole P its second cap, 2.26 m up, not the lowest one at
+    // 1.66 m (which this scenario hung from before, for audit LEDGE-3's hand step up from it; that start no longer reaches
+    // it), the 250 cm jump, then up the pole's caps in the climbing stance, the lowest cap under the feet.
     Scenario {
-        name: "pole P, up from its wall hang: AC1's hand step to the cap above, one hand then the other",
-        tags: &["hang"],
+        name: "pole P: the standing jump to the higher cap in reach, as AC1's, then up the caps",
+        tags: &["hang", "jump"],
         env: &[("AC1_START", "-1.2,10.9,180"), ("AC1_HIGH", "0-1"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,up=8")],
         secs: 4.0,
-        want: &["hangwall -> hangwall_1", "_1ru_u_1m", "-> hangwall_open via xx_h_hangwall_climb_1"],
-        never: &["EMBED"],
+        want: &["-> leap via xx_h_jumpstraight_footl_to_hangwall_250cm", "hangwall -> 1m", "_1ru_u_1m"],
+        never: &["EMBED", "xx_h_jumpstraight_footl_to_hangwall_200cm"],
     },
     Scenario {
         name: "pole P to its perch",
@@ -1036,6 +1038,28 @@ const SCENARIOS: &[Scenario] = &[
         secs: 5.0,
         want: &["rebound off the wall at [46.", "via xx_h_rebound_frontleft_", "_tr_freestep_entry_footr at [46."],
         never: &["EMBED"],
+    },
+    // The live log's haystack route (2026-10-12): free running north-east onto the hay box's rim, into the hay, out over
+    // its far rim and down into the hang on the roof's edge; W and the legs still held, the running game pulled up onto
+    // the edge (AC1's pull-up first from a ledge hang, CanPullup 0xDE2270), where ours leapt to a hold 2.4 m higher.
+    Scenario {
+        name: "Damascus: up from the hang on a roof's edge with the legs held pulls up, as AC1's ledge does, not a leap",
+        tags: &["hang", "hay"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "52.0,-33.4,-31.0,13.45"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STICK", "1"),
+            ("AC1_STOP", "4.44"),
+            ("AC1_HEADINGS", "0.14,58.9"),
+            ("AC1_HIGH", "0-4.44"),
+            ("AC1_LEGS", "0-4.44"),
+            ("AC1_CLIMB", "nograb,leap-up=4.43"),
+        ],
+        secs: 4.5,
+        want: &["-> hangwall_open via xx_l_ledge_pulldown_soft_to_hangwall_straight_b", "hangwall_open -> hangknee via xx_h_hangwall_tr_hangknee_footl_a"],
+        never: &["xx_h_climbing_hangwall_tr_climb1m_up"],
     },
     Scenario {
         name: "Damascus: the side eject to the left from the bureau wall's hang onto the beam along the wall (AC1's rebound)",
