@@ -650,6 +650,15 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        // (Audit EXTRA-16: the running AC1's ledge stop broke into its standing turn toward the edge, 0.084 s in.)
+        name: "standing at block A's edge facing away, turning round toward it in high profile: the ledge stop breaks the turn",
+        tags: &["ground"],
+        env: &[("AC1_START", "0,5.1,180"), ("AC1_WALK", "4.5"), ("AC1_STEER", "180"), ("AC1_HIGH", "0-5")],
+        secs: 3.0,
+        want: &["_to_h_waitturn_", "ledge stop"],
+        never: &["_tr_h_jog_hipm_", "landed from 6"],
+    },
+    Scenario {
         name: "reversing on block A's top in high profile does not run off it",
         tags: &["ground"],
         env: &[("AC1_START", "0,6.6,0"), ("AC1_WALK", "4.5"), ("AC1_HIGH", "0-5"), ("AC1_TURN", "0.55")],

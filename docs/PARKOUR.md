@@ -535,6 +535,8 @@ in this batch, by audit id:
     turned that way). Test spot G13.
   - NARROW-14: the swing's stop (the legs let go) starts at the end of a down item (event 6's guard 0xDCCF40), the front
     stop after front_down and the back after back_down (Banned445's mapping; the reanalysis says swapped: a live check).
+  - EXTRA-16: the ledge stop breaks into a standing turn toward the edge in high profile (as the running game's 0.084 s
+    into `waitturn_left_090`).
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

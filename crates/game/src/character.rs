@@ -697,33 +697,15 @@ fn ground_move(
     // (High profile only: walking in low profile at an 8 m drop AC1 halts at the edge, no clip, and looks down, seen in the
     // running game.)
     // (Not with the empty hand just pressed: AC1's interpreter sends the pull-down before the ledge stop.)
-    if speed > 1.0 && wants && ctl.high && !ctl.free_run && ch.edge_lock.is_none() && ctl.hand_drop <= 0.0 {
-        let dir = v / speed;
-        // (A drop wider than a crack: off a Damascus roof ending in a beam over a 0.1 m crack, the next roof 0.7 m below
-        // past it, AC1 ran on onto the beam and free-stepped off it; ours stopped at the crack.)
-        // (A narrow step more than 2 m down counts as the drop: AC1 measures past stepped drops; a ledge 4 m under a
-        // Damascus roof's edge, 0.3 m wide over the street 8 m down, read as ground till ours was over the edge.)
-        // (A beam's top more than 2 m down counts as the drop too: a beam 4.5 m under that edge did not stop ours; the
-        // running game stopped.)
-        let deep = |p: Vec3| level.ground(p, 0.3, LEDGE_STOP_DROP).is_none_or(|g| p.y - g.point.y > 2.0 && level.perch_at(g.point, 0.2).is_some());
-        let drop = |d: f32| {
-            let p = tf.translation + dir * d;
-            deep(p) || (level.ground(p, 0.3, LEDGE_STOP_DROP).is_some_and(|g| p.y - g.point.y > 2.0) && deep(p + dir * 0.4))
-        };
-        // (At the edge: AC1's interpreter sends the ledge stop for a front edge within 0.15 m (0xEE8899, as Banned445's port
-        // reads it), its guard wanting the feet on the edge line; ours stopped 0.6 m short and pulled back, and the
-        // pull-down after it slid the body 0.4 m to the edge.)
-        // (Within a long frame's run too, `LEDGE_STOP_FRAME`: at a run the 0.15 m alone was stepped over and he ran off.)
-        // (And the frame actually taking longer: under load a 0.1 s frame stepped over it.)
-        let reach = LEDGE_STOP_REACH.max(speed * LEDGE_STOP_FRAME.max(dt * 1.5));
-        if let Some(d) = (1..=(reach / 0.05).ceil() as usize).map(|k| k as f32 * 0.05).find(|&d| drop(d) && drop(d + LEDGE_STOP_CRACK)) {
-            let names = vec!["xx_h_ledge_stop_start_footl".to_string(), "xx_h_ledge_stop_end_footl".into(), "xx_h_ledge_stop_end_tr_h_wait_footr".into()];
-            let at = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir), ..*tf };
-            let travel = WallClimb::travel(lib, &at, &names)?;
-            let correct = (tf.translation + dir * (d - 0.35) - (tf.translation + travel)).with_y(0.0).clamp_length_max(1.0);
-            debug!("climb: ledge stop {d:.2} m from the edge");
-            return WallClimb::ground_action(lib, &at, &names, correct, false, from()).map(|w| (w, Some(dir)));
-        }
+    if speed > 1.0
+        && wants
+        && ctl.high
+        && !ctl.free_run
+        && ch.edge_lock.is_none()
+        && ctl.hand_drop <= 0.0
+        && let Some(m) = ledge_stop(lib, level, tf, v / speed, speed, dt, from())
+    {
+        return Some(m);
     }
     // Standing, steered away from the facing: turn on the spot, a quarter or a half turn to that side (AC1's
     // `waitturn_<left|right>_<090|180>`, low or high profile), then on into the walk or jog (or, the stick let go
@@ -761,6 +743,47 @@ fn ground_move(
             names.push(crate::animation::mix_name(&[(&eq, 1.0 - w), (&eh, w)]));
         }
         return act(lib, names, Vec3::ZERO, false).map(|w| (w.steered(input, stop), None));
+    }
+    None
+}
+
+/// AC1's ledge stop (event 69): walking or running along `dir` at `speed` in high profile, the edge of a big drop within
+/// reach ahead: `xx_h_ledge_stop_start_footl`, its end and the stand, placed at the edge; with the way out to hold back
+/// from.
+fn ledge_stop(
+    lib: &mut crate::animation::AnimLib,
+    level: &Level,
+    tf: &Transform,
+    dir: Vec3,
+    speed: f32,
+    dt: f32,
+    from: Option<Pose>,
+) -> Option<(crate::climb::WallClimb, Option<Vec3>)> {
+    use crate::climb::WallClimb;
+    // (A drop wider than a crack: off a Damascus roof ending in a beam over a 0.1 m crack, the next roof 0.7 m below
+    // past it, AC1 ran on onto the beam and free-stepped off it; ours stopped at the crack.)
+    // (A narrow step more than 2 m down counts as the drop: AC1 measures past stepped drops; a ledge 4 m under a
+    // Damascus roof's edge, 0.3 m wide over the street 8 m down, read as ground till ours was over the edge.)
+    // (A beam's top more than 2 m down counts as the drop too: a beam 4.5 m under that edge did not stop ours; the
+    // running game stopped.)
+    let deep = |p: Vec3| level.ground(p, 0.3, LEDGE_STOP_DROP).is_none_or(|g| p.y - g.point.y > 2.0 && level.perch_at(g.point, 0.2).is_some());
+    let drop = |d: f32| {
+        let p = tf.translation + dir * d;
+        deep(p) || (level.ground(p, 0.3, LEDGE_STOP_DROP).is_some_and(|g| p.y - g.point.y > 2.0) && deep(p + dir * 0.4))
+    };
+    // (At the edge: AC1's interpreter sends the ledge stop for a front edge within 0.15 m (0xEE8899, as Banned445's port
+    // reads it), its guard wanting the feet on the edge line; ours stopped 0.6 m short and pulled back, and the
+    // pull-down after it slid the body 0.4 m to the edge.)
+    // (Within a long frame's run too, `LEDGE_STOP_FRAME`: at a run the 0.15 m alone was stepped over and he ran off.)
+    // (And the frame actually taking longer: under load a 0.1 s frame stepped over it.)
+    let reach = LEDGE_STOP_REACH.max(speed * LEDGE_STOP_FRAME.max(dt * 1.5));
+    if let Some(d) = (1..=(reach / 0.05).ceil() as usize).map(|k| k as f32 * 0.05).find(|&d| drop(d) && drop(d + LEDGE_STOP_CRACK)) {
+        let names = vec!["xx_h_ledge_stop_start_footl".to_string(), "xx_h_ledge_stop_end_footl".into(), "xx_h_ledge_stop_end_tr_h_wait_footr".into()];
+        let at = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir), ..*tf };
+        let travel = WallClimb::travel(lib, &at, &names)?;
+        let correct = (tf.translation + dir * (d - 0.35) - (tf.translation + travel)).with_y(0.0).clamp_length_max(1.0);
+        debug!("climb: ledge stop {d:.2} m from the edge");
+        return WallClimb::ground_action(lib, &at, &names, correct, false, from).map(|w| (w, Some(dir)));
     }
     None
 }
@@ -1242,6 +1265,25 @@ pub fn locomotion(
                         let _ = (grab_only, needs_target);
                     }
                 }
+            }
+            // (A turn on the spot toward the edge of a big drop: AC1's ledge stop breaks into it, event 69 not held back by
+            // the turn's item: the running game's stop came 0.084 s into `xx_h_wait_hipm_footl_to_h_waitturn_left_090_footl`
+            // at `roof2_run_east`, ours after the whole turn (audit EXTRA-16).)
+            let turning = ch.wall.as_ref().and_then(|w| w.clip_name()).is_some_and(|n| n.contains("_to_") && n.contains("_waitturn_"));
+            let toward = ctl.move_dir.with_y(0.0).normalize_or_zero();
+            if turning
+                && toward != Vec3::ZERO
+                && ctl.high
+                && !ctl.free_run
+                && ch.edge_lock.is_none()
+                && ctl.hand_drop <= 0.0
+                && let Some((w, lock)) = ledge_stop(lib, &level, &tf, toward, 0.0, dt, Some(ch.anim_pose.clone()))
+            {
+                if let Some(r) = w.start_facing() {
+                    tf.rotation = r;
+                }
+                ch.wall = Some(w);
+                ch.edge_lock = lock.or(ch.edge_lock);
             }
             if let Some(l) = ch.wall.as_mut().and_then(|w| w.landed.take()) {
                 ch.last_landing = Some(l);
