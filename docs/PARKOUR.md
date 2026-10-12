@@ -688,7 +688,7 @@ in this batch, by audit id:
     to the side and 2.4 m down from a wall hang stood on a porch roof went through the roof to a hold under it). The
     wall run on nothing was a scaffold's collision: skinned props with more than 24 bones were left undrawn as
     characters, and the scaffolds (69 bones) and storage racks (61) with them; an entity with collision shapes is now
-    drawn whatever its skeleton (the city's load logs how many collided entities draw nothing: 0 in Damascus).
+    drawn whatever its skeleton, as the running game draws that scaffold (checked live) (the city's load logs how many collided entities draw nothing: 0 in Damascus).
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
