@@ -1546,6 +1546,19 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     walls.cuboid(Vec3::new(-30.0, 0.0, -44.0), Vec3::new(-24.0, 3.0, -34.0));
     walls.cuboid(Vec3::new(-30.0, 3.0, -44.3), Vec3::new(-24.0, 4.4, -44.0));
     level.ledges.push(Ledge { a: Vec3::new(-29.9, 4.4, -44.36), b: Vec3::new(-24.1, 4.4, -44.36), out: Vec3::NEG_Z });
+    // A leaning wall (south, x -20 to -16, its face toward +Z, its foot at z = -58): 4 m high, leaning back 20 degrees, a
+    // wall AC1's wall run takes (up to 45 degrees; audit WALL-21).
+    {
+        let (x0, x1, lean, h, z0) = (-20.0f32, -16.0f32, 20f32, 4.0, -58.0);
+        let z1 = z0 - h * lean.to_radians().tan();
+        let back = z1 - 0.5;
+        let p = Vec3::new;
+        walls.quad(p(x0, 0.0, z0), p(x1, 0.0, z0), p(x1, h, z1), p(x0, h, z1));
+        walls.quad(p(x0, h, z1), p(x1, h, z1), p(x1, h, back), p(x0, h, back));
+        walls.quad(p(x0, 0.0, back), p(x0, h, back), p(x1, h, back), p(x1, 0.0, back));
+        walls.quad(p(x0, 0.0, z0), p(x0, h, z1), p(x0, h, back), p(x0, 0.0, back));
+        walls.quad(p(x1, 0.0, z0), p(x1, 0.0, back), p(x1, h, back), p(x1, h, z1));
+    }
     vec![
         ("Rooftops: B1 (climb its south or west face)", Vec3::new(43.0, b1 + 0.6, 33.0)),
         ("B2 (2 m gap)", Vec3::new(50.5, b2 + 0.6, 33.0)),
@@ -1558,6 +1571,7 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("Side grab (run off the ledge's end, stick toward the wall: grab it in the air)", Vec3::new(1.0, 6.8, -50.5)),
         ("Passover walls (jump over: 0.3 m, 1 m deep)", Vec3::new(-15.0, 2.2, -40.0)),
         ("Passover over a drop (into the far side's hang)", Vec3::new(-27.0, 3.6, -38.0)),
+        ("Leaning wall (20 degrees: run up it)", Vec3::new(-18.0, 4.6, -57.0)),
     ]
 }
 

@@ -105,6 +105,16 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        // (Audit WALL-21: AC1's wall run takes a wall leaning up to 45 degrees, its contact out along the lean.)
+        name: "free running at the wall leaning back 20 degrees: up it (AC1's wall run takes walls to 45 degrees)",
+        tags: &["wallrun"],
+        env: &[("AC1_START", "-18,-53,0"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
+        secs: 3.0,
+        // (The entry ends 0.17 m higher than on an upright wall, 0.47 m out along the slope from where the probe met it.)
+        want: &["wallrun via xx_h_wallingfront_entry_footl_b at [-18.00, 1.17, -58.00]"],
+        never: &["EMBED", "no wall run"],
+    },
+    Scenario {
         name: "wall W: the stick swung left along the wall (by the camera, not the body) rebounds left",
         tags: &["wallrun", "climb"],
         env: &[("AC1_START", "33,13,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-1.6"), ("AC1_JUMP", "1.75"), ("AC1_VEER", "1.6,90")],

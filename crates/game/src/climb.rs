@@ -328,10 +328,34 @@ const JUMP_HANG: [(&str, u32, &str, &str); 4] = [
 ];
 /// Where a wall run's entry ends, facing `fwd` into the wall: `WALL_RUN_OUT` out from where a probe `WALL_RUN_PROBE` over
 /// the feet meets it, `WALL_RUN_UP` over the feet (AC1's 0xE18390, its wall hit at 1.3·h).
+/// (Out along the wall's slope, `wall_slope`: on a wall leaning back the contact rises and comes in, audit WALL-21.)
 fn wall_run_contact(level: &Level, root: &Transform, fwd: Vec3) -> Option<Vec3> {
-    let hit = level.raycast(root.translation + Vec3::Y * WALL_RUN_PROBE, fwd, WALL_RUN_REACH + 0.5).filter(|h| h.normal.y.abs() < 0.3)?;
+    let hit = level.raycast(root.translation + Vec3::Y * WALL_RUN_PROBE, fwd, WALL_RUN_REACH + 0.5).filter(|h| h.normal.y.abs() < WALL_RUN_MAX_UP)?;
     let n = hit.normal.with_y(0.0).normalize_or_zero();
-    Some((hit.point + n * WALL_RUN_OUT).with_y(root.translation.y + WALL_RUN_UP))
+    let slope = wall_slope(level, hit.point, n)?;
+    Some(hit.point + slope * WALL_RUN_OUT - Vec3::Y * (hit.point.y - root.translation.y - WALL_RUN_UP))
+}
+
+/// A wall run takes walls whose face leans at most this much (the up part of its normal; about 44 degrees). Further
+/// over it is a floor (`level::WALL_MAX_UP`). The lean itself is measured by `wall_slope`.
+pub const WALL_RUN_MAX_UP: f32 = 0.7;
+
+/// The lean of the wall met at `hit` (flat outward normal `n`), as AC1's wall run measures it (`Human__WallingSlopeDir`
+/// 0xE14590 and `Human__WallingSlopeLimit` 0xE14FB0, Banned445's port, audit WALL-21): a ray from 0.75 m out and 1 m up
+/// back toward the wall, 1.5 m long; the line from the hit up to where it meets the wall leans the way the wall does
+/// (meeting nothing, the wall is upright). Leaning 45 degrees or more either way, it is no wall to run up; else the lean
+/// is held to 10 degrees over the climber, 20 degrees back. Returns the outward normal tilted by that lean.
+pub fn wall_slope(level: &Level, hit: Vec3, n: Vec3) -> Option<Vec3> {
+    let from = hit + n * 0.75 + Vec3::Y;
+    let Some(up) = level.raycast(from, -n, 1.5) else { return Some(n) };
+    let line = up.point - hit;
+    // (Positive: the face goes back from the climber as it rises.)
+    let lean = (-line.dot(n)).atan2(line.y);
+    if lean.abs() >= std::f32::consts::FRAC_PI_4 {
+        return None;
+    }
+    let lean = lean.clamp(-10f32.to_radians(), 20f32.to_radians());
+    Some(Quat::from_axis_angle(n.cross(Vec3::Y).normalize_or_zero(), lean) * n)
 }
 
 /// How far the hands of a jump up to a hold may miss it (the root is moved over the jump).
@@ -1804,8 +1828,10 @@ fn blend_hang(lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, bas
             let step_top = root.translation.y + WALL_RUN_STEP_TOP;
             let (from, to) = if probe_d { (step_top + WALL_RUN_UP, step_top + WALL_RUN_D_TOP) } else { (lo, hi) };
             // The wall run up: its face where the probe 1.3 m over the feet meets it (the overhang is measured out from it).
-            let face =
-                level.raycast(root.translation + Vec3::Y * WALL_RUN_PROBE, -normal, WALL_RUN_REACH + 0.5).filter(|h| h.normal.y.abs() < 0.3).map(|h| h.point);
+            let face = level
+                .raycast(root.translation + Vec3::Y * WALL_RUN_PROBE, -normal, WALL_RUN_REACH + 0.5)
+                .filter(|h| h.normal.y.abs() < WALL_RUN_MAX_UP)
+                .map(|h| h.point);
             let mut holds: Vec<Vec3> = level
                 .ledges
                 .iter()
@@ -3491,7 +3517,7 @@ impl WallClimb {
         from: Option<Pose>,
     ) -> Option<WallClimb> {
         let run = dir.with_y(0.0).normalize_or_zero();
-        let hit = level.raycast(root.translation + Vec3::Y, run, WALL_RUN_REACH).filter(|h| h.normal.y.abs() < 0.3)?;
+        let hit = level.raycast(root.translation + Vec3::Y, run, WALL_RUN_REACH).filter(|h| h.normal.y.abs() < WALL_RUN_MAX_UP)?;
         let n = hit.normal.with_y(0.0).normalize_or_zero();
         // Met at an angle (up to `WALL_RUN_ANGLE` off square), AC1 turns square to the wall and runs up it: the checks
         // and the grab go straight at it from here, the root turning to face it.
@@ -3502,7 +3528,12 @@ impl WallClimb {
         let fwd = -n;
         let facing = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, fwd), ..*root };
         let root = &facing;
-        let hit = level.raycast(root.translation + Vec3::Y, fwd, WALL_RUN_REACH).filter(|h| h.normal.y.abs() < 0.3)?;
+        let hit = level.raycast(root.translation + Vec3::Y, fwd, WALL_RUN_REACH).filter(|h| h.normal.y.abs() < WALL_RUN_MAX_UP)?;
+        // (Leaning up to 45 degrees either way, as AC1's wall run takes it; ours had 17.)
+        if wall_slope(level, hit.point, n).is_none() {
+            debug!("climb: no wall run: the wall leans 45 degrees or more");
+            return None;
+        }
         // Not up a pole or post under a cap or ledge sticking out over it (nothing for the feet).
         // (Over the line run up, within `WALL_RUN_CAP_SIDE` along the wall: a pilaster's top 0.28 m beside it, on a Damascus
         // street wall the running game ran up, is not over it.)

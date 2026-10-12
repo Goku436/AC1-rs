@@ -706,6 +706,14 @@ in this batch, by audit id:
     pose. Not done: the toe as
     the foot's effector: AC1 puts it on a foot hold's point, ours has no foot holds (the feet go onto the wall's face,
     the ankle 0.11 m off it); it waits for foot holds.
+  - WALL-21: the wall run takes walls leaning up to 45 degrees either way, as AC1's (`Human__WallingSlopeDir` 0xE14590,
+    `Human__WallingSlopeLimit` 0xE14FB0, read in the exe: 45 degrees refuses, the lean held to -10..+20 degrees): a ray
+    from 0.75 m out and 1 m up back toward the wall gives its lean, and the entry's contact is 0.5 m out along the
+    leaning normal, 0.3 m under the probe's hit (on a wall leaning back 20 degrees, 0.17 m higher and 0.03 m nearer than
+    on an upright one). Ours refused any face more than 17 degrees off upright. [ours] Faces over 44 degrees off upright
+    are floors to our collision; the run's body stays upright (AC1 pitches it with the slope, Banned445's port does not
+    either). The test level's leaning wall is south of the passover walls. (`wall0`'s entry, 0.10 m higher in the running
+    game than in ours, is still to explain: a lean of 11 degrees would give that height but not its 0.57 m out.)
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
