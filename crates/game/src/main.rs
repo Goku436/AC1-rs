@@ -42,7 +42,7 @@
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
 //! as dir/frame_00000.png ..., then exit; encode with ffmpeg at 30 fps),
 //! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; `-` exits then without one), AC1_BACKGROUND=1 (open
-//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1, AC1_PLAIN_LOOK=1 (Altaïr without AC1's character shader), AC1_NO_TEXT=1 (start with the text hidden, as F1),
+//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1, AC1_PLAIN_LOOK=1 (Altaïr without AC1's character shader), AC1_NO_TEXT=1 (start with the text hidden, as F1), AC1_PLAIN_CITY=1 / AC1_LINEAR_LOOK=1 / AC1_NO_GRADE=1 / AC1_NO_SKY=1 (parts of AC1's look off: `look`, `sky`),
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only. AC1_CONTROL=<file> stays open and runs
 //! the scripts written to that file (`run <id> <secs> AC1_START=.. AC1_WALK=.. ...`, `quit`; see `control_runs`): the level
 //! loads once, each run takes seconds. AC1_GROUND_LINE, AC1_HOLDS_AT and AC1_MESHES_AT log the ground along a line, the
@@ -83,6 +83,7 @@ mod recorder;
 mod replay;
 mod robe;
 mod settings;
+mod sky;
 mod sound;
 mod stream;
 mod wind;
@@ -331,6 +332,13 @@ fn main() {
     let world_look = look::Look::load(std::path::Path::new(&game_dir), level_name.as_deref()).unwrap_or_default();
     let f = world_look.world.fog_color;
     let env = world_look.world.env_cube;
+    // The level's sky dome (`sky`), read now (not headless; `AC1_NO_SKY=1` leaves it out).
+    if !headless
+        && std::env::var("AC1_NO_SKY").is_err()
+        && let Some(s) = sky::load(std::path::Path::new(&game_dir), level_name.as_deref(), &world_look)
+    {
+        app.insert_resource(s);
+    }
     let ambient = env.iter().map(|c| c.truncate()).sum::<Vec3>() / 6.0;
     app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         // The sky: AC1 draws a sky dome (`LayeredSky`'s layers, not drawn here); in its place the fog's colour halfway to
@@ -361,7 +369,8 @@ fn main() {
         })
         .insert_resource(script)
         .add_plugins((look::LookPlugin, character_material::CharacterMaterialPlugin, city_material::CityMaterialPlugin))
-        .add_systems(Startup, (level::spawn_level, setup, grab_cursor, slow_motion).chain())
+        .add_systems(Startup, (level::spawn_level, setup, sky::spawn, grab_cursor, slow_motion).chain())
+        .add_systems(PostUpdate, sky::follow.before(bevy::transform::TransformSystems::Propagate))
         .init_resource::<Eagle>()
         .init_resource::<fly::Fly>()
         .init_resource::<recorder::Recorder>()

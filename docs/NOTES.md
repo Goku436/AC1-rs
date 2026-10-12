@@ -37,7 +37,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
 | Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; IMA-ADPCM decodes for 206069/206076 resources and 2229/2243 streams (the rest: Ogg-page tracks, stereo tracks); 18698 Ogg resources and 110 Ogg streams found (played as Ogg); 4178 streams are the headerless rest of a resource (speech), not decoded. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks) on the surface's sound material (cities: from `CollisionMaterial`), and the city's ambience loops (Damascus: 116 region links, 36 sets, 11 streamed loops); M mutes |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); lit as AC1 lights them ("How AC1 lights its world": the level's sun, ambient cube, baked occlusion, fog and colour grade from its `WorldAmbiance`/`LayeredSky`), three shadow cascades in 120 m (the first 12 m); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
-| Level light and grade (`WorldAmbiance` 21c2d472, `LayeredSky` 24d32cf8: fog, post effects, suns, ambient cubes) | done: 14/14 levels read (`examples/ambcheck`) |
+| Level light and grade (`WorldAmbiance` 21c2d472, `LayeredSky` 24d32cf8: fog, post effects, suns, ambient cubes, sky layers) | done: 14/14 levels read (`examples/ambcheck`) |
 | Baked occlusion (`MeshInstanceData` / `CompiledMeshInstance`: a byte per vertex per placed mesh) | done: 17436/17436 Damascus entities and groups, every stream a byte per vertex of its mesh (`examples/aocheck`) |
 | Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); combat removed for now; scholar crowds to blend into | first version |
 | Player controller, free-running, combat, AI, crowds, missions | long-term |
@@ -1021,7 +1021,9 @@ executable (their constant tables name every input); written up here, no shader 
   characters' own sun (`UseCharacterSunLight`, `CharacterSunLightColor`/`Intensity`/`Azimuth`/`Elevation`), the sun
   flare, cloud shadows, and two `AmbientCube`s, `EnvironmentAmbient` and `CharacterAmbient` (`UseCharacterAmbient`):
   `Right`, `Left`, `Front`, `Back`, `Top`, `Down` (+X, -X, +Y, -Y, +Z, -Z), `Tint`, `Saturation`, `Scale`, `Bias`,
-  `NormalTopBendFactor`. Damascus: sun 115/45 degrees, (229, 200, 160) x 1.2; the characters' sun (255, 235, 219) x 1.
+  `NormalTopBendFactor`, then `Layers` (each a `SkyLayer`: a mesh, `LAYERED_SKY_SPHERE` in DataPC's `Game Bootstrap
+  Settings` for most levels, and a `GFX_Sky` material: its diffuse maps times `DiffColor`, unlit and unfogged). Damascus:
+  sun 115/45 degrees, (229, 200, 160) x 1.2; the characters' sun (255, 235, 219) x 1; one layer, a 1024x256 hazy sky.
 - Baked occlusion: after each `MeshInstanceData` of a placed entity, a `CompiledMeshInstance` holds a grey D3DCOLOR per
   vertex of that mesh (`forge::instance`; the `SubMeshAOData` before it are the source bytes per submesh). The vertex
   shaders read it as `TEXCOORD4` and map it by `g_AOParams` (set at run time, not found) onto the ambient only. Higher
@@ -1040,12 +1042,14 @@ executable (their constant tables name every input); written up here, no shader 
 What ours does (`look.rs`, `look.wgsl`, `city_material.rs`/`.wgsl`, `character_material.wgsl`): the same equations in
 the city's and the characters' shaders, lit in display space as AC1's D3D9 shaders work (`AC1_LINEAR_LOOK=1`: linear),
 the grade at the end of each shader instead of a pass over the frame (the same per pixel, no extra pass; the sky colour
-graded on the CPU; `AC1_NO_GRADE=1` leaves it out). The occlusion bytes of every placement sit in one storage buffer
+graded on the CPU; `AC1_NO_GRADE=1` leaves it out). The sky dome is the level's first sky layer, its texture graded once
+on the CPU and drawn unlit round the camera (`sky.rs`; `AC1_NO_SKY=1`). `GlowEffectSettings` has no fields: AC1's glow is
+its glow materials' pass (`GFX_Glow*`), none of which Altaïr or the city's walls use; not drawn. The occlusion bytes of every placement sit in one storage buffer
 (Damascus 27 MB) and each drawn part's `MeshTag` points at its first vertex's byte; the vertex shader reads its own.
 `AC1_PLAIN_CITY=1` keeps `StandardMaterial` for the city. On the roof camera the new city shader costs 2.0 ms of GPU a
 frame against 2.3 ms for `StandardMaterial`. Chosen by eye against shots of the running game (not found in the
 executable): the occlusion's mapping (a quarter of the ambient kept where closed in), the fog's density (the ramp ends
-at near + (far - near) / density), the sky (AC1 draws a sky dome; ours the fog colour halfway to white), the character
+at near + (far - near) / density), the clear colour behind the sky dome (the fog colour halfway to white), the character
 cube's `Tint` left out (multiplied in it yellows the white robe) and how `Saturation`/`Scale`/`Bias` apply.
 Materials whose template cuts out alpha (`*Alpha*`, `Plants`, `Env_Foliage*`) are alpha-tested whatever their mesh's name,
 and an assassins' bureau's outside shell (`BA_Bureau_Ext`) casts no shadow: its roof shaded the open courtyard (AC1

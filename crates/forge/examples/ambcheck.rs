@@ -32,6 +32,7 @@ fn main() -> Result<()> {
                     println!("  character sun ({}) {:?}", s.use_character_sun, s.character_sun);
                     println!("  environment {:?}", s.environment_ambient);
                     println!("  character ({}) {:?}", s.use_character_ambient, s.character_ambient);
+                    println!("  sky layers (mesh, material) {:x?}", s.layers);
                 }
                 Err(err) => println!("{} / {}: {err:#}", path.display(), e.name),
             }

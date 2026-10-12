@@ -23,8 +23,8 @@
 //!   `?` and the sun flare, the cloud shadows (not read)
 //! - u8 `UseCharacterAmbient`, then two inline `AmbientCube`s (u32 id, u32 class b3c3604c): `EnvironmentAmbient` and
 //!   `CharacterAmbient`, each `Right`, `Left`, `Front`, `Back`, `Top`, `Down` (f32 RGBA: +X, -X, +Y, -Y, +Z, -Z of the
-//!   game's Z-up world), `Tint` (f32 RGBA), f32 `Saturation`, `Scale`, `Bias`, `NormalTopBendFactor`; then the sky's
-//!   layers.
+//!   game's Z-up world), `Tint` (f32 RGBA), f32 `Saturation`, `Scale`, `Bias`, `NormalTopBendFactor`; then `Layers`:
+//!   u32 count, each an inline `SkyLayer` (u8 kind, u32 id, u32 class f82f9659, u32 `Mesh`, u32 material).
 //!
 //! How the game uses them (its DX9 shaders, in the `MaterialTemplate`s and the executable): the world's pixel shaders
 //! light a surface by the ambient cube (each face weighted by the squared normal component on its side, the normal's Z
@@ -42,6 +42,7 @@ const CLASS_WORLD_FOG: u32 = 0xacf7_3d89;
 const CLASS_COLOR: u32 = 0xa797_67ed;
 const CLASS_ICOLOR: u32 = 0xf820_6af7;
 const CLASS_AMBIENT_CUBE: u32 = 0xb3c3_604c;
+const CLASS_SKY_LAYER: u32 = 0xf82f_9659;
 const CLASS_COLOUR_CONTROL: u32 = 0x583f_4578;
 const CLASS_COLOR_BALANCE: u32 = 0xa882_0575;
 const CLASS_GLOW: u32 = 0x93dd_eac0;
@@ -186,6 +187,9 @@ pub struct Sky {
     pub use_character_ambient: bool,
     pub environment_ambient: AmbientCube,
     pub character_ambient: AmbientCube,
+    /// The sky's layers: (mesh id, material id) each, drawn round the camera (`GFX_Sky`: the material's diffuse maps
+    /// times its colour, unlit, no fog).
+    pub layers: Vec<(u32, u32)>,
 }
 
 impl Ambiance {
@@ -233,7 +237,19 @@ impl Sky {
         let c = find(b, CLASS_AMBIENT_CUBE, e + 4).context("no CharacterAmbient")?;
         // (`UseCharacterAmbient` sits before the first cube's id.)
         let flag = e.checked_sub(5).context("cube too early")?;
+        // The layers after the second cube (128 bytes): u32 count, then each u8 kind, u32 id, u32 class `SkyLayer`
+        // (f82f9659), u32 mesh, u32 material.
+        let at = c + 4 + 128;
+        let n = u32_at(b, at)? as usize;
+        ensure!(n < 64, "{n} sky layers at {at:#x}");
+        let mut layers = Vec::with_capacity(n);
+        for k in 0..n {
+            let p = at + 4 + 17 * k;
+            ensure!(u32_at(b, p + 5)? == CLASS_SKY_LAYER, "no SkyLayer at {:#x}", p + 5);
+            layers.push((u32_at(b, p + 9)?, u32_at(b, p + 13)?));
+        }
         Ok(Self {
+            layers,
             sun,
             use_character_sun: u8_at(b, 0x1C)? != 0,
             character_sun,
