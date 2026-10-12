@@ -35,6 +35,20 @@ impl Ledge {
         let t = ((p - self.a).dot(d) / d.length_squared()).clamp(0.0, 1.0);
         self.a + d * t
     }
+
+    /// Where the vertical plane through `p` along `dir` meets the ledge, clamped to its ends: AC1's grab point, `p`
+    /// projected onto the hold along the probe's direction, not across to it (audit GUIDE-8, reanalysis GUIDE-9). The
+    /// closest point when `dir` runs along the ledge.
+    pub fn project_along(&self, p: Vec3, dir: Vec3) -> Vec3 {
+        let d = self.b - self.a;
+        let n = dir.with_y(0.0).normalize_or_zero().cross(Vec3::Y);
+        let denom = d.dot(n);
+        if n == Vec3::ZERO || denom.abs() < 1e-4 * d.length() {
+            return self.closest(p);
+        }
+        let t = ((p - self.a).dot(n) / denom).clamp(0.0, 1.0);
+        self.a + d * t
+    }
 }
 
 /// Beam ends sticking out of a wall less than this are hand holds too (m).
@@ -2122,6 +2136,19 @@ fn segment_triangle(a: Vec3, b: Vec3, t: &Tri) -> (Vec3, Vec3) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hold_is_met_along_the_probe_not_across() {
+        let l = Ledge { a: Vec3::new(-5.0, 2.0, 0.0), b: Vec3::new(5.0, 2.0, 0.0), out: Vec3::Z };
+        // (From 1 m out, coming in 45 degrees off square: 1 m along it, where the closest point is straight in front.)
+        let p = Vec3::new(0.0, 2.0, 1.0);
+        let q = l.project_along(p, Vec3::new(1.0, 0.0, -1.0));
+        assert!((q - Vec3::new(1.0, 2.0, 0.0)).length() < 1e-4, "{q}");
+        assert!((l.closest(p) - Vec3::new(0.0, 2.0, 0.0)).length() < 1e-4);
+        // (Along the hold: the closest point; past its end: the end.)
+        assert!((l.project_along(p, Vec3::X) - Vec3::new(0.0, 2.0, 0.0)).length() < 1e-4);
+        assert!((l.project_along(Vec3::new(9.0, 2.0, 1.0), Vec3::NEG_Z) - l.b).length() < 1e-4);
+    }
 
     #[test]
     fn perch_lookup() {

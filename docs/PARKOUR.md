@@ -543,6 +543,22 @@ in this batch, by audit id:
   wall hang at rest eases its root to 1.1 m under its hold (AC1's `ComputeRootFromHandTargets` 0xDD6730: the lower
   hand's target - 1.1 m, 0.5 m out; ours was wherever the move into it ended, 1.02 to 1.14 m under), still 0.50 m from
   the wall's face.
+- **Jump targets** (JUMP-10): in a city the scorer's pick decides the jump: a top, a beam or post, a far edge, a hold to
+  hang from (0x40 the wall hang, flown with the surface set into `xx_h_air_surface_tr_hangwall_reception_*` even with
+  holds under it; 0x80 the free hang), a pass-over or a pole, aimed at the grab point on its chain. Ours' own hold search
+  (`jump_hold`, 1.3-2.6 m up, the nearest) is left for the test level, which has no authored holds; the edge jump goes
+  for any pick, a free hang below too.
+- **Impulsion** (JUMP-3): a jump onto a top from a standstill, or within 0.45 s of the walk or run starting or a move
+  handing back to the ground, starts with AC1's ground impulsion (`xx_h_impultionstraight_<foot>_to_ground_to_air_front_
+  down_<other>`, actions 0x04A943DE / 0x040C793D, played over 0.1 s) and the free-step takeoff, not the running one. The
+  gate is bracketed by the routes (0.30-0.32 s after a reception did, 0.59 s into a run did not), not read from the code;
+  only the front, `_down` set is used (every recorded one, a jump 1.17 m up included).
+- **Air catches** (AIR-17, GUIDE-8): AC1's searches decide the catch: a hold round the feet + 1.4 m (0.3 m on along the
+  reach, 0.4 m across, 0.3 m up or down, facing within 70 degrees) for the climbing or wall-hang catch, then one round the
+  feet + 1.95 m for the free hang (0.25 / 0.5 m on after a fall of 3 m), with no wall ray first. The grab point is the
+  probe's line along its direction meeting the hold (`Ledge::project_along`), not the nearest point across. Ours' wall
+  ray is kept only for its directional grab (a wall up to 1.2 m the stick's way) and a swing bar's fling at a wall's
+  holds (AC1's arrives by the jump target, which ours' ballistic fling lacks).
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
