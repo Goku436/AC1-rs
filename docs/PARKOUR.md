@@ -539,6 +539,10 @@ in this batch, by audit id:
     into `waitturn_left_090`).
   - HAY-7: out of a haystack over its rim, the side and the drop (1.5 m under the haystack's floor) come from its own box,
     the hang from a level hold along the rim if there is one, else from the rim itself.
+  - HAY-9: the leap of faith's search is AC1's 0xE15AA0 with vt76's limits: the top (floor + 1.6 m) under 1.2 m over the
+    feet; across 2 to 8 m, along 9 to 20 m and 40 to 70 degrees off the way from 1.5 m behind the feet, opened as the
+    top lies lower (full at 30 m down); in front of the facing; the two-segment clear way (bent at 0.66). [ours] The 3 m
+    split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

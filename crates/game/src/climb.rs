@@ -514,7 +514,10 @@ const HAY_HOP_OUT: [&str; 2] = ["xx_l_haystack_hop_out", "xx_l_haystack_hop_out_
 const FALL_POSE: &str = "xx_h_jumpstraight_clear_footall_tr_fall";
 /// A leap of faith needs this much drop to the haystack (m) and the haystack within this distance.
 const FAITH_MIN_DROP: f32 = 3.0;
-const FAITH_MAX_DIST: f32 = 8.0;
+/// AC1's haystack searches take a haystack's top as its floor plus this (m).
+const HAY_SEARCH_TOP: f32 = 1.6;
+/// At a viewpoint its hay is taken within this, whichever way he faces (m; ours).
+const FAITH_VIEWPOINT_DIST: f32 = 12.8;
 /// A drop from the top of the fall over this (m) lands with AC1's damage landing (or its roll), whatever it costs
 /// (`HumanInAir__SetupToGround_Landing` 0xE05940, Banned445's port).
 const SAFE_DROP: f32 = 3.0;
@@ -2041,6 +2044,68 @@ fn ballistic(from: Vec3, to: Vec3) -> (Vec3, f32) {
 }
 
 /// Facing along a horizontal direction.
+/// The limits of AC1's haystack search (`Human__sub_E15AA0`, its ten float arguments in order): across and along the
+/// wanted way (m) at the high end of the height band and at its low end, the band of the top's height over the feet
+/// (lowest, where the blend is full, highest), the angle off the way seen from 1.5 m behind the feet (at the band's high
+/// end, at its low end), and where along the way the two-segment clear ray bends.
+struct SupportLimits {
+    across: (f32, f32),
+    along: (f32, f32),
+    rise: (f32, f32, f32),
+    angle: (f32, f32),
+    bend: f32,
+}
+
+/// The leap of faith's search (IHuman vt76): (2, 8, 9, 20, -100, -30, 1.2, 40, 70 degrees, 0.66) (reanalysis AIR-26 /
+/// CENSUS-1, the argument use read in 0xE15AA0 here).
+const FAITH_SEARCH: SupportLimits =
+    SupportLimits { across: (2.0, 8.0), along: (9.0, 20.0), rise: (-100.0, -30.0, 1.2), angle: (40f32.to_radians(), 70f32.to_radians()), bend: 0.66 };
+
+/// AC1's haystack search (0xE15AA0): a haystack whose top (its floor + 1.6 m, as AC1 takes it) lies `rise` over the feet,
+/// in front of `facing` (flat), within the across / along box of `dir` and the angle off `dir` seen from 1.5 m behind the
+/// feet, the box and angle opened from their first values to their second as the top lies lower (b = (high - rise) /
+/// (high - blend)), and a clear way to it: from 0.4 m over the feet to `bend` of the way on (0.4 m up), then to 0.25 m over
+/// the top. The nearest that qualifies (AC1 takes the first in its entity list).
+fn support_search<'a>(level: &'a Level, feet: Vec3, dir: Vec3, facing: Vec3, l: &SupportLimits) -> Option<&'a crate::level::HayStack> {
+    let d = dir.with_y(0.0).normalize_or_zero();
+    let f = facing.with_y(0.0).normalize_or_zero();
+    if d == Vec3::ZERO {
+        return None;
+    }
+    let right = d.cross(Vec3::Y);
+    let clear = |a: Vec3, b: Vec3| {
+        let v = b - a;
+        let len = v.length();
+        len < 1e-4 || level.raycast(a, v / len, len).is_none()
+    };
+    level
+        .haystacks
+        .iter()
+        .filter(|h| {
+            let top = h.centre + Vec3::Y * HAY_SEARCH_TOP;
+            let rise = top.y - feet.y;
+            if !(l.rise.0 < rise && rise < l.rise.2) {
+                return false;
+            }
+            let b = ((l.rise.2 - rise) / (l.rise.2 - l.rise.1)).clamp(0.0, 1.0);
+            let rel = top - feet;
+            if rel.dot(right).abs() >= l.across.0 + b * (l.across.1 - l.across.0) || rel.dot(d).abs() >= l.along.0 + b * (l.along.1 - l.along.0) {
+                return false;
+            }
+            if rel.with_y(0.0).normalize_or_zero().dot(f) < 0.0 {
+                return false;
+            }
+            let from_behind = (top - (feet - d * 1.5)).with_y(0.0).normalize_or_zero();
+            if from_behind == Vec3::ZERO || from_behind.dot(d).clamp(-1.0, 1.0).acos() >= l.angle.0 + b * (l.angle.1 - l.angle.0) {
+                return false;
+            }
+            let a = feet + Vec3::Y * 0.4;
+            let mid = feet + rel.with_y(0.0) * l.bend + Vec3::Y * 0.4;
+            clear(a, mid) && clear(mid, top + Vec3::Y * 0.25)
+        })
+        .min_by(|a, b| (a.centre - feet).length().total_cmp(&(b.centre - feet).length()))
+}
+
 fn facing(dir: Vec3) -> Quat {
     Quat::from_rotation_arc(Vec3::NEG_Z, dir.with_y(0.0).normalize_or(Vec3::NEG_Z))
 }
@@ -5343,17 +5408,20 @@ impl WallClimb {
         {
             return None;
         }
-        // (At a viewpoint, its hay whichever way he faces: AC1 builds each viewpoint facing the hay below it.)
+        // (At a viewpoint, its hay whichever way he faces: AC1 builds each viewpoint facing the hay below it (its own
+        // path, the narrow object's). Elsewhere AC1's search (IHuman vt76, `support_search` with `FAITH_SEARCH`).)
         let at_viewpoint = level.viewpoints.iter().any(|v| v.distance(root.translation) < VIEWPOINT_REACH);
-        let hay = level
-            .haystacks
-            .iter()
-            .filter(|h| {
-                let d = (h.centre - root.translation).with_y(0.0);
-                let ahead = at_viewpoint || d.normalize_or_zero().dot(fwd) > 0.7;
-                d.length() < FAITH_MAX_DIST * if at_viewpoint { 1.6 } else { 1.0 } && ahead && root.translation.y - h.top() > FAITH_MIN_DROP
-            })
-            .min_by(|a, b| (a.centre - root.translation).length().total_cmp(&(b.centre - root.translation).length()))?;
+        let deep = |h: &&crate::level::HayStack| root.translation.y - h.top() > FAITH_MIN_DROP;
+        let hay = if at_viewpoint {
+            level
+                .haystacks
+                .iter()
+                .filter(|h| (h.centre - root.translation).with_y(0.0).length() < FAITH_VIEWPOINT_DIST)
+                .filter(deep)
+                .min_by(|a, b| (a.centre - root.translation).length().total_cmp(&(b.centre - root.translation).length()))?
+        } else {
+            support_search(level, p, fwd, fwd, &FAITH_SEARCH).filter(deep)?
+        };
         let drop = root.translation.y - hay.top();
         // The high dive's takeoff drops the root about 8 m with little way on: only where nothing is under that drop
         // (a minaret's balcony is); else the low one, the flight carrying it clear.
