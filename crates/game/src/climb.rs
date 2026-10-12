@@ -739,6 +739,12 @@ const JUMP_UP_MIN: f32 = 1.5;
 /// AC1's jump clips are used while the correction onto the target is at most this share of the distance.
 const JUMP_AC1_SLACK: f32 = 0.5;
 const JUMP_AC1_SHORT: f32 = 1.5;
+/// A jump from the ground this soon (s) after the walk or run starts, or a reception hands over to the ground, starts with
+/// AC1's impulsion and the free-step takeoff (audit JUMP-3). In the running game's routes: 0.0, 0.30, 0.31, 0.32 and
+/// 0.32 s did, 0.59 s and 0.9-1.1 s took the running takeoff; the exact gate is not read.
+pub const IMPULSION_WITHIN: f32 = 0.45;
+/// The impulsion plays this long (s) before the takeoff: the running game cut it 0.03-0.13 s in.
+const IMPULSION_TIME: f32 = 0.1;
 /// Topping out into the walk or the jog hands over at their speeds (m/s).
 const TOP_OUT_WALK: f32 = 1.9;
 const TOP_OUT_JOG: f32 = 3.5;
@@ -1757,6 +1763,15 @@ fn jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Opt
 thread_local! {
     /// Set while `WallClimb::edge_jump` searches: the jump query from an edge (its zones, the scorer's far side).
     static EDGE_QUERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Set by the ground for the character it moves: a jump now is on short notice (`set_short_notice`).
+    static SHORT_NOTICE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether a jump from the ground now comes on short notice: from a standstill, or within `IMPULSION_WITHIN` of the
+/// walk or run starting or a reception handing over to the ground. AC1 then takes off with the impulsion and the free-step
+/// takeoff, not the running one (audit JUMP-3). Set by the ground each frame for the character it moves.
+pub fn set_short_notice(on: bool) {
+    SHORT_NOTICE.with(|c| c.set(on));
 }
 
 /// AC1's pick for a jump (`crate::jump_query`'s scorer), as ours flies it (audit JUMP-10: the scorer's choice fixes the
@@ -2665,20 +2680,28 @@ impl WallClimb {
     #[allow(clippy::too_many_arguments)]
     fn jump_ac1(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, aim: Vec3, speed: f32, left: bool, from: Option<Pose>) -> Option<WallClimb> {
         let p = root.translation;
-        let j = crate::jump::running(to.y - p.y, ((to - p).with_y(0.0).length() - JUMP_RECEPTION_STEP).max(0.0), left, speed / JUMP_AC1_FAST_SPEED);
+        let (dz, dist) = (to.y - p.y, ((to - p).with_y(0.0).length() - JUMP_RECEPTION_STEP).max(0.0));
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
         };
+        // (On short notice, the impulsion then the free-step takeoff, straight ahead along the aim, audit JUMP-3; else the
+        // running takeoff.)
+        let impulsion = if SHORT_NOTICE.with(|c| c.get()) { mix(&crate::jump::impulsion(left)) } else { None };
+        let j = match impulsion {
+            Some(_) => crate::jump::freestep(dz, dist, 0.0, left, speed / JUMP_AC1_FAST_SPEED),
+            None => crate::jump::running(dz, dist, left, speed / JUMP_AC1_FAST_SPEED),
+        };
         let (takeoff, flight, reception) = (mix(&j.takeoff)?, mix(&j.flight)?, mix(&j.reception)?);
         let planned = Transform { rotation: facing(aim), ..*root };
         let rot = world_rot(planned.rotation);
+        let pushed = impulsion.as_ref().map_or(Vec3::ZERO, |c| root_motion_at(c, c.frames()));
         // (Where the reception's step ends, handed over to the run: see `cut` below.)
         let cut = (speed > RECEPTION_CUT_SPEED).then(|| reception_cut(&reception, speed)).flatten();
         // The reception's own step lands on the target, as AC1 aims it: in the running game the reception starts about
         // half a metre short of the edge (or beam) and its step ends there.
         let step = root_motion_at(&reception, cut.unwrap_or(reception.frames())).with_z(0.0);
-        let landed = p + rot * (root_motion_at(&takeoff, takeoff.frames()) + root_motion_at(&flight, flight.frames()) + step);
+        let landed = p + rot * (pushed + root_motion_at(&takeoff, takeoff.frames()) + root_motion_at(&flight, flight.frames()) + step);
         let correct = to - landed;
         // (The clips' own way should be most of it: a correction this big would slide through the air.)
         // (Against at least `JUMP_AC1_SHORT`: the shortest clips go 1.6 m, and the running game made a 1.1 m jump onto a
@@ -2699,7 +2722,18 @@ impl WallClimb {
         // along the beam it came down on.)
         let onto_beam = level.perch_at(to, 0.15).filter(|(i, _)| level.perches[*i].axis() != Vec3::ZERO);
         let last = if onto_beam.is_some() { PERCH } else { GROUND };
-        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), last.into()], &planned, correct, Some(1));
+        match impulsion.clone() {
+            Some(imp) => {
+                let chain = vec![imp.clone(), takeoff.clone(), flight.clone(), reception];
+                w.start_chain_carry(chain, vec![VAULT.into(), VAULT.into(), VAULT.into(), last.into()], &planned, correct, Some(2));
+                if let Some(m) = &mut w.mv {
+                    m.rate = imp.anim.duration / IMPULSION_TIME;
+                }
+            }
+            None => {
+                w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), last.into()], &planned, correct, Some(1))
+            }
+        }
         match onto_beam {
             Some((i, q)) => {
                 w.perch = Some(i);
@@ -2715,7 +2749,12 @@ impl WallClimb {
             w.cut = Some((r.clip.name.clone(), f / FPS));
         }
         w.ease_in(from, root);
-        debug!("climb: running jump aimed at {to:.2} (takeoff and flight from AC1's jump tables: {} then {})", takeoff.name, flight.name);
+        debug!(
+            "climb: running jump aimed at {to:.2} (takeoff and flight from AC1's jump tables: {}{} then {})",
+            impulsion.map_or(String::new(), |c| format!("{} and ", c.name)),
+            takeoff.name,
+            flight.name
+        );
         Some(w)
     }
 

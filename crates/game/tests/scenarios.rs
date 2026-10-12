@@ -904,6 +904,31 @@ const SCENARIOS: &[Scenario] = &[
         want: &["running jump at the wall's ledge [49.6", "_to_surface at", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c at [49.0"],
         never: &["EMBED", "wallingfront"],
     },
+    // Audit JUMP-3: free running south over the bureau's roofs (route roof1_free_south). The running game's first jump,
+    // 0.59 s into the run, took the running takeoff; its second, 0.31 s after the first reception handed over to the
+    // ground, the impulsion (`xx_h_impultionstraight_footr_to_ground_to_air_front_down_footl`, at y 14.35) and the free-step
+    // takeoff.
+    Scenario {
+        name: "Damascus: free running over the bureau's roofs, the jump soon after a reception takes off with AC1's impulsion",
+        tags: &["jump", "combo"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "53,-20.4,-180,12.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-5"),
+        ],
+        secs: 3.0,
+        want: &[
+            "via xx_h_run_front_050cm_footr_to_air at [53.00, 11.85, -18.",
+            "via xx_h_impultionstraight_",
+            "_to_ground_to_air_front_down_foot",
+            "at [53.00, 11.89, -14.",
+            "via xx_h_freestep_front_front_300cm_",
+        ],
+        never: &["EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
