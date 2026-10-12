@@ -398,6 +398,9 @@ const HANG_WALL_OUT: f32 = 0.50;
 /// A wall hang's root rests this far under its hold (m: AC1's 1.1, `ComputeRootFromHandTargets` 0xDD6730), the hold
 /// looked for this near where its hands are.
 const HANG_ROOT_DOWN: f32 = 1.1;
+/// A free hang's root rests this far under its hold (m: AC1's 2.4 under the higher hand's target, `ComputeRootFromHandTargets`
+/// 0xDD6730; its wait clips hold the wrists 2.3 m over the root).
+const FREE_ROOT_DOWN: f32 = 2.4;
 const HANG_ROOT_HOLD_REACH: f32 = 0.4;
 const HANG_SETTLE_SPEED: f32 = 0.6;
 /// The wall hang's shimmy steps (m): the first from a catch, then each one after.
@@ -1027,6 +1030,9 @@ struct Move {
     rate: f32,
     /// World rotation the root starts off by, eased out over the start of the move.
     ease_rot: Quat,
+    /// A turn about the vertical eased in over the move (onto holds on a face at an angle to this one, `face_turn`);
+    /// the wall normal turns with it at the move's end.
+    turn: Quat,
 }
 
 /// A clip waiting to play after the current move.
@@ -1035,11 +1041,12 @@ struct Queued {
     to: String,
     correct: Vec3,
     rate: f32,
+    turn: Quat,
 }
 
 impl Queued {
     fn new(clip: Arc<Clip>, to: impl Into<String>) -> Self {
-        Self { clip, to: to.into(), correct: Vec3::ZERO, rate: 1.0 }
+        Self { clip, to: to.into(), correct: Vec3::ZERO, rate: 1.0, turn: Quat::IDENTITY }
     }
 }
 
@@ -1540,6 +1547,33 @@ fn hold_in_box(level: &Level, wrist: Vec3, normal: Vec3) -> Option<Vec3> {
         .min_by(|a, b| (*a - wrist).length().total_cmp(&(*b - wrist).length()))
 }
 
+/// The least and most a move's holds may face away from the wall it starts on for the climber to turn to them (rad, 3
+/// and 60 degrees): less is the same wall; more is a corner, which turns on its own.
+const FACE_TURN_MIN: f32 = 0.05;
+const FACE_TURN_MAX: f32 = 1.05;
+
+/// The turn about the vertical from `normal` to the wall the holds at `targets` (grip points, `grip_target`) are on, the
+/// mean of the two holds' outward normals, when they face between `FACE_TURN_MIN` and `FACE_TURN_MAX` away from it.
+fn face_turn(level: &Level, targets: &[Vec3; 2], normal: Vec3) -> Option<Quat> {
+    let out = |t: Vec3| {
+        level
+            .ledges
+            .iter()
+            .filter(|l| l.out.dot(normal) > 0.5)
+            .map(|l| (l.out, grip_target(l.closest(t - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN), l.out).distance(t)))
+            .filter(|(_, d)| *d < 0.01)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(o, _)| o)
+    };
+    let to = (out(targets[0])? + out(targets[1])?).with_y(0.0).normalize_or_zero();
+    let from = normal.with_y(0.0).normalize_or_zero();
+    if to == Vec3::ZERO || from == Vec3::ZERO {
+        return None;
+    }
+    let angle = from.angle_between(to);
+    (FACE_TURN_MIN..FACE_TURN_MAX).contains(&angle).then(|| Quat::from_rotation_arc(from, to))
+}
+
 /// Both hands' holds in AC1's probe box (`hold_in_box`).
 fn holds_in_box(level: &Level, hands: &[Vec3; 2], normal: Vec3) -> Option<[Vec3; 2]> {
     Some([hold_in_box(level, hands[0], normal)?, hold_in_box(level, hands[1], normal)?])
@@ -1579,6 +1613,8 @@ fn foot_cell(level: &Level, hand: Vec3, normal: Vec3) -> bool {
 }
 /// The feet's cell is two of AC1's 0.6 m rows under the hand's; a hold within this of it (m, up or down) counts.
 const FOOT_ROWS: f32 = 1.2;
+/// A step off the wall onto the ground needs room to stand there: the body pushed no more than this out of the walls (m).
+const STEP_OFF_ROOM: f32 = 0.1;
 const FOOT_CELL_UP: f32 = 0.3;
 /// The free hang's drop onto the wall below (0xDDF390): a hold row within this across its probe point (m: AC1's probe
 /// radius is 0.3, ours' grab lines run 0.06 out from the face and the second row's probe point is 0.3 m into it), and at
@@ -6190,7 +6226,17 @@ impl WallClimb {
         self.fade = self.last.clone().map(|p| Fade::new(p, FADE));
         self.mirrored = false;
         self.turn_path = None;
-        self.mv = Some(Move { clip, t: 0.0, to, start: root.translation, start_rot: root.rotation, correct: Vec3::ZERO, rate: 1.0, ease_rot: Quat::IDENTITY });
+        self.mv = Some(Move {
+            clip,
+            t: 0.0,
+            to,
+            start: root.translation,
+            start_rot: root.rotation,
+            correct: Vec3::ZERO,
+            rate: 1.0,
+            ease_rot: Quat::IDENTITY,
+            turn: Quat::IDENTITY,
+        });
     }
 
     /// Play clips back to back, ending each in the matching state of `tos`; `correct` is spread over
@@ -6201,18 +6247,23 @@ impl WallClimb {
 
     /// `start_chain` with the correction on clip `carry` (by default the one that moves the most).
     fn start_chain_carry(&mut self, clips: Vec<Arc<Clip>>, tos: Vec<String>, root: &Transform, correct: Vec3, carry: Option<usize>) {
+        self.start_chain_turned(clips, tos, root, correct, carry, Quat::IDENTITY);
+    }
+
+    /// `start_chain_carry`, the root turning by `turn` about the vertical over the carrying clip too (`face_turn`).
+    fn start_chain_turned(&mut self, clips: Vec<Arc<Clip>>, tos: Vec<String>, root: &Transform, correct: Vec3, carry: Option<usize>, turn: Quat) {
         let reach = |c: &Arc<Clip>| root_motion_at(c, c.frames()).length();
         let carry = carry.or_else(|| (0..clips.len()).max_by(|&a, &b| reach(&clips[a]).total_cmp(&reach(&clips[b]))));
-        let mut items = clips
-            .into_iter()
-            .zip(tos)
-            .enumerate()
-            .map(|(i, (clip, to))| Queued { correct: if Some(i) == carry { correct } else { Vec3::ZERO }, ..Queued::new(clip, to) });
+        let mut items = clips.into_iter().zip(tos).enumerate().map(|(i, (clip, to))| {
+            let (correct, turn) = if Some(i) == carry { (correct, turn) } else { (Vec3::ZERO, Quat::IDENTITY) };
+            Queued { correct, turn, ..Queued::new(clip, to) }
+        });
         let Some(first) = items.next() else { return };
         self.queue = items.collect();
         self.start(first.clip, first.to, root);
         if let Some(m) = &mut self.mv {
             m.correct = first.correct;
+            m.turn = first.turn;
         }
     }
 
@@ -6475,7 +6526,10 @@ impl WallClimb {
             let (to, ground) = (0..=20).map(|k| end - self.normal * (k as f32 * 0.05)).find_map(|to| level.ground(to, 0.3, STEP_OFF_MAX).map(|g| (to, g)))?;
             let to = to - self.normal * 0.15;
             let way = (to - root.translation).with_y(0.0);
+            // (Room for the body standing there: not a tower's cornice band 0.2-0.3 m deep under the wall above it, stepped
+            // onto and fallen off at once.)
             (!level.inside_solid(ground.point + Vec3::Y * 0.5)
+                && level.capsule_push(to.with_y(ground.point.y)).length() < STEP_OFF_ROOM
                 && level.raycast(root.translation + Vec3::Y * 0.5, way.normalize_or_zero(), way.length()).is_none())
             .then_some((to, ground))
         };
@@ -7201,6 +7255,18 @@ impl WallClimb {
                 Vec3::ZERO
             };
             let err = flat + keep + normal * out - Vec3::Y * down + to_hang + step + stance;
+            // Onto holds on a face at an angle to this one (an octagonal tower's next face, a round tower's ring): the body
+            // turns about the hands to face them, as AC1 faces its climber along its holds' wall normals (`climb_pose`,
+            // Banned445's port of the climb's root from its four holds). (Corners turn on their own.)
+            let (err, turn, normal) = match face_turn(level, &targets, normal).filter(|_| !corner) {
+                Some(q) => {
+                    let hands = (targets[0] + targets[1]) * 0.5;
+                    let to = hands + q * (end.pos + err - hands);
+                    debug!("climb: {} : onto holds on a face {:.0} degrees round, turning to it", c.names[0], q.to_axis_angle().1.to_degrees());
+                    (to - end.pos, q, q * normal)
+                }
+                None => (err, Quat::IDENTITY, normal),
+            };
             // AC1's checks on a move from its tables (`ChooseMove` 0xDFDE90): the body's two boxes at the climbing pose it
             // ends in (`Human__ClimbBodyBoxesFree` 0xB2DF90, under `IsGridMoveValid`; audit CLIMB-E13), and on the long moves
             // and the short ones down, the lean guard (0xDF47E0, audit CLIMB-E14).
@@ -7232,7 +7298,7 @@ impl WallClimb {
                 }
             }
             let tos = chain_states(clips.len(), &self.state, &c.to);
-            self.start_chain(clips, tos, root, err);
+            self.start_chain_turned(clips, tos, root, err, None, turn);
             return true;
         }
         false
@@ -8131,6 +8197,9 @@ impl WallClimb {
                 let k = smoothstep(m.t / span.max(1e-3));
                 root.rotation = m.ease_rot.slerp(Quat::IDENTITY, k) * root.rotation;
             }
+            if m.turn != Quat::IDENTITY {
+                root.rotation = Quat::IDENTITY.slerp(m.turn, smoothstep(m.t / dur.max(1e-3))) * root.rotation;
+            }
             // A corner turn's root (over both of its clips), and the wall the hands look for holds on turning with it.
             if let Some(tp) = &mut self.turn_path {
                 tp.t += dt;
@@ -8169,7 +8238,7 @@ impl WallClimb {
             // Move done: the wall normal turns with the clip's own turn of the root (not with an ease still under way:
             // carried on into the next clip, it turned the normal off the wall and the hang squared up with a jump).
             let turn = done.start_rot * root_delta(root_rotation_at(&done.clip, done.clip.frames())) * done.start_rot.inverse();
-            self.normal = turn * self.normal;
+            self.normal = done.turn * turn * self.normal;
             self.state = done.to;
             // The ledge stop's start played with the stick still at the edge (within 70 degrees): back on the ground at
             // once, where the pull-down takes it (AC1 went from `xx_h_ledge_stop_start` straight into
@@ -8283,6 +8352,7 @@ impl WallClimb {
                     correct: next.correct,
                     rate: next.rate,
                     ease_rot: left,
+                    turn: next.turn,
                 });
                 return;
             }
@@ -8366,6 +8436,24 @@ impl WallClimb {
                 .min_by(|a, b| a.distance(probe).total_cmp(&b.distance(probe)))
             {
                 let err = root.translation.y - (q.y - HANG_ROOT_DOWN);
+                root.translation.y -= err.clamp(-HANG_SETTLE_SPEED * dt, HANG_SETTLE_SPEED * dt);
+            }
+        }
+        // A free hang at rest likewise sits `FREE_ROOT_DOWN` under the hold its hands are on (ours ended the moves into it 2.1 m
+        // under, the wait clip's hands 0.2-0.3 m over the hold, gripping air: user report #3).
+        if matches!(self.state.as_str(), FREE | FREE_OPEN) && self.mv.is_none() {
+            let n = self.normal.with_y(0.0).normalize_or_zero();
+            // (Probed between where the moves into it leave the hold, 2.1 m up, and where it rests: never nearer a hold above.)
+            let probe = root.translation + Vec3::Y * (FREE_ROOT_DOWN - 0.15);
+            if let Some(q) = level
+                .ledges
+                .iter()
+                .filter(|l| l.out.dot(n) > 0.7)
+                .map(|l| l.closest(probe))
+                .filter(|q| (*q - probe).with_y(0.0).length() < HANG_ROOT_HOLD_REACH + 0.2 && (q.y - probe.y).abs() < HANG_ROOT_HOLD_REACH)
+                .min_by(|a, b| a.distance(probe).total_cmp(&b.distance(probe)))
+            {
+                let err = root.translation.y - (q.y - FREE_ROOT_DOWN);
                 root.translation.y -= err.clamp(-HANG_SETTLE_SPEED * dt, HANG_SETTLE_SPEED * dt);
             }
         }
