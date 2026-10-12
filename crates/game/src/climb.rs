@@ -1293,6 +1293,11 @@ fn foot_cell(level: &Level, hand: Vec3, normal: Vec3) -> bool {
 /// The feet's cell is two of AC1's 0.6 m rows under the hand's; a hold within this of it (m, up or down) counts.
 const FOOT_ROWS: f32 = 1.2;
 const FOOT_CELL_UP: f32 = 0.3;
+/// The free hang's drop onto the wall below (0xDDF390): a hold row within this across its probe point (m: AC1's probe
+/// radius is 0.3, ours' grab lines run 0.06 out from the face and the second row's probe point is 0.3 m into it), and at
+/// least this under the hold before it (m, not the one hung from).
+const DROP_ROW_ACROSS: f32 = 0.4;
+const DROP_ROW_MIN: f32 = 0.3;
 
 /// How far under the hands (m) a hold counts as one for the feet in "1m" (they stand about 1.1 m under), how far
 /// along the wall to either side, and how far out of the wall's plane.
@@ -6156,6 +6161,71 @@ impl WallClimb {
         out
     }
 
+    /// From a free hang, down onto the wall below as AC1 does it (`HumanLedge__TryFreeHangDropToClimb` 0xDDF390): a hold
+    /// row 1.2 m under the hands and 0.65 m on, then a second 1.2 m under that and 0.3 m further for the feet: onto the
+    /// climbing holds (`xx_h_climbing_hangfree_tr_climb2m_down_*`), else into the wall hang (`_tr_hangwall_down_*`). Its
+    /// four clips `{min,max}_{200,300}` mixed as the exe weighs them (0xDDF975-0xDDFB50): v = the hands' height - 2.0 m
+    /// (1.6 into the hang) - the feet's, h = how far the new hold line is from 0.3 m ahead of the hands / 0.7 m, each 0 to
+    /// 1; [(1-v)(1-h), v(1-h), h(1-v), hv] (audit LEDGE-13, the blend: ours picked one of the four whole).
+    #[allow(clippy::too_many_arguments)]
+    fn drop_mix(&self, lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig) -> Option<Cand> {
+        let last = self.last.as_ref()?;
+        let m = last.model(rig);
+        let r = world_rot(root.rotation);
+        let hands = cr.hands.map(|b| root.translation + r * m[b].pos);
+        let n = self.normal.with_y(0.0).normalize_or_zero();
+        let fwd = -n;
+        let top = hands[0].y.max(hands[1].y);
+        let from = ((hands[0] + hands[1]) * 0.5).with_y(top);
+        // (A row: a hold within 0.3 m across of the probe point and `up` above or below it, facing out; the nearest.)
+        let row = |at: Vec3, up: f32, below: f32| {
+            level
+                .ledges
+                .iter()
+                .filter(|l| l.out.dot(n) > 0.7)
+                .map(|l| l.closest(at))
+                .filter(|q| (*q - at).with_y(0.0).length() <= DROP_ROW_ACROSS && (q.y - at.y).abs() <= up && q.y < below - DROP_ROW_MIN)
+                .min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)))
+        };
+        let Some(upper) = row(from - Vec3::Y * FOOT_ROWS + fwd * 0.65, 0.65, top) else {
+            if why() {
+                let at = from - Vec3::Y * FOOT_ROWS + fwd * 0.65;
+                let near = level
+                    .ledges
+                    .iter()
+                    .filter(|l| l.out.dot(n) > 0.7)
+                    .map(|l| l.closest(at) - at)
+                    .filter(|d| d.y + at.y < top - DROP_ROW_MIN)
+                    .min_by(|a, b| a.length().total_cmp(&b.length()));
+                debug!("climb: the free hang's drop: no hold row 1.2 m under the hands and 0.65 m on (nearest {near:.2?})");
+            }
+            return None;
+        };
+        let lower = row(upper - Vec3::Y * FOOT_ROWS + fwd * 0.3, 0.3, upper.y);
+        let (kind, to, feet_y, less) = match lower {
+            Some(l) => ("climb2m", "2m", l.y, 2.0),
+            None => {
+                // (The wall hang's feet: as far under its hands as in its wait.)
+                let rest = end_pose(&*lib.get(HANGWALL_REST)?, rig, base, cr);
+                let drop = (rest.hands[0].z + rest.hands[1].z) * 0.5 - rest.feet[0].z.min(rest.feet[1].z);
+                ("hangwall", HANGWALL_OPEN, upper.y - drop, 1.6)
+            }
+        };
+        let v = (top - less - feet_y).clamp(0.0, 1.0);
+        let h = ((from + fwd * 0.3) - upper).with_y(0.0).length() / 0.7;
+        let h = h.clamp(0.0, 1.0);
+        let stem = |k: &str, d: u32| format!("xx_h_climbing_hangfree_tr_{kind}_down_{k}_{d}");
+        let chains = [stem("min", 200), stem("min", 300), stem("max", 200), stem("max", 300)].map(|s| chain_names(lib, &s));
+        let len = chains[0].len();
+        if len == 0 || chains.iter().any(|c| c.len() != len) {
+            return None;
+        }
+        let w = [(1.0 - v) * (1.0 - h), v * (1.0 - h), h * (1.0 - v), h * v];
+        let names = (0..len).map(|i| mix_name(&[(&chains[0][i], w[0]), (&chains[1][i], w[1]), (&chains[2][i], w[2]), (&chains[3][i], w[3])])).collect();
+        debug!("climb: the free hang's drop onto the wall below mixed v {v:.2} h {h:.2} ({kind})");
+        Some(Cand { names, to: to.into(), feet: Feet::Wall })
+    }
+
     /// Leaps for an input direction, shortest first. Only from a rest state (hands level); the
     /// clips start from "1m" or the closed free hang, the crossfade covers wide hands.
     fn leap_candidates(&self, lib: &AnimLib, dir: &str, input: Vec2) -> Vec<Cand> {
@@ -6227,7 +6297,12 @@ impl WallClimb {
             let normal = (end.rot * root.rotation.inverse()) * self.normal;
             // Leaps are aimed: they steer onto a hold within reach of where the clip lands (and so are the moves off a
             // ladder sideways, its rungs not level with the wall's holds).
-            let leap = c.names.first().is_some_and(|n| n.starts_with("xx_h_climbing_") || n.starts_with("xx_h_ladder_wait_tr_"));
+            // (A mix of leaps, `mix:xx_h_climbing_...`, too: the free hang's drop.)
+            let leap = c
+                .names
+                .first()
+                .map(|n| n.strip_prefix("mix:").unwrap_or(n))
+                .is_some_and(|n| n.starts_with("xx_h_climbing_") || n.starts_with("xx_h_ladder_wait_tr_"));
             // (Corners too: where their hands land on the next face depends on how far along the wall the hands were.)
             let corner = c.names.first().is_some_and(|n| n.contains("_corner_"));
             let vertical = c.names.first().is_some_and(|n| n.starts_with("xx_l_climb_") && (n.contains("_u_") || n.contains("_d_")));
@@ -6490,7 +6565,9 @@ impl WallClimb {
         // From a free hang, down: the drop onto the wall below first, before the hand step down (AC1's
         // TryFreeHangDropToClimb 0xDDF390, Banned445's port, audit LEDGE-13).
         if dir == "d" && is_free(&self.state) {
-            let drops = self.leap_candidates(lib, dir, input);
+            // (AC1's own mix first; the four clips whole after it, should its hands miss.)
+            let mut drops: Vec<Cand> = if is_rest(&self.state) { self.drop_mix(lib, level, root, rig, base, cr).into_iter().collect() } else { vec![] };
+            drops.extend(self.leap_candidates(lib, dir, input));
             if self.take_first(lib, level, root, rig, base, cr, drops) {
                 debug!("climb: dropped from the free hang onto the wall below");
                 return true;

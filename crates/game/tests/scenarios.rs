@@ -769,6 +769,16 @@ const SCENARIOS: &[Scenario] = &[
         want: &["jump up from the climb", "via xx_h_climbing_1m_impultion"],
         never: &["EMBED"],
     },
+    // Audit LEDGE-13 (the blend): from the free hang off G12's slab, down onto the holds 1 m under it, AC1's drop mixed from
+    // its four clips by the exe's weights (TryFreeHangDropToClimb 0xDDF390).
+    Scenario {
+        name: "gauntlet G12's slab, then down: AC1's free-hang drop onto the holds below, its four clips mixed",
+        tags: &["climb", "hang"],
+        env: &[("AC1_START", "-92.6,164,-90,1"), ("AC1_CLIMB", "up=7.5,down=4")],
+        secs: 12.0,
+        want: &["drop onto the wall below mixed", "-> 2m via xx_h_climbing_hangfree_tr_climb2m_down_"],
+        never: &["EMBED"],
+    },
     Scenario {
         name: "gauntlet G7: up a wall's holds, along to its edge, the leap across the gap onto the next wall, up to its top",
         tags: &["combo", "climb", "hang"],
