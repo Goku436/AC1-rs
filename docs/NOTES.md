@@ -239,6 +239,16 @@ DirectX's green, flipped for Bevy; characters with their stored tangents, cities
 and plaster relief show. Textures are sampled in their own colour space and with their own sampler (GammaSettings,
 address and filter modes). The eyes are opaque: their diffuse alpha is the iris tint's mask (alpha-tested, it cut the
 irises out).
+Altaïr is drawn with AC1's character templates (`character_material`, an `ExtendedMaterial` over Bevy's
+`StandardMaterial`; shader and parameter use from Banned445's AC1-Movement-Rewritten, MIT): each material's template
+picks the equations (cloth, cloth inside, skin, weapon/mouth, eyes), its typed parameters and slots give the maps
+(Material -> TextureSelector -> TextureSet channel / TextureMapSpec -> TextureMap): the diffuse lit through the
+template's ramp (`TextureGradient` in DataPC's `Game Fix`) at (N.L+1)/2, Phong highlights from the specular map, cloth's
+rim, skin's tiled specular and multiply map, Fresnel on weapons and the mouth, the eyes' iris tint (the diffuse alpha
+masks `EyeColor`) and reflection cube. Cloth with an inside material (the robe, hood, flaps) is drawn twice: the
+outside back-culled, the inside front-culled with the inside material. Ours reads the colour parameters as sRGB
+(Banned445's as linear: the irises read near white). Bevy keeps the lights, shadows, ambient and fog; NPCs (other
+templates) keep `StandardMaterial`. `AC1_PLAIN_LOOK=1` draws Altaïr with `StandardMaterial` too.
 
 Test world labels: every feature has its name over it on screen (Block A-D, Tower T, Poles P and Q, Platform E,
 Hiding spots A-C, the course's P1-P4, Crowd A...).

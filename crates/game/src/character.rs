@@ -380,14 +380,31 @@ pub fn spawn_character(
     }
 
     let textures: std::collections::HashMap<u32, Handle<Image>> = data.textures.into_iter().map(|(id, img)| (id, images.add(img))).collect();
+    let tex = |t: Option<u32>| t.and_then(|t| textures.get(&t).cloned());
+    // AC1's character shader where a part's material has a character template (`character_material`).
+    let looks = crate::character_material::enabled();
+    let pending = |look: &crate::assets::Look, inside: bool| crate::character_material::PendingLook {
+        layers: crate::character_material::CharacterLayers {
+            controls: crate::character_material::controls(&look.material, look.style),
+            specular_map: tex(look.specular),
+            ramp: tex(look.ramp),
+            multiply_map: tex(look.multiply),
+            eye_cube: tex(look.cube),
+        },
+        diffuse: tex(look.diffuse),
+        normal: tex(look.normal),
+        inside,
+    };
     let mut robe = None;
     for part in data.parts {
         // Cloth is seen from inside too (AC1 gives its cloth an inside material): the robe's tails fold and swing
-        // their backs into view, which back-face culling would leave as holes.
-        let two_sided = part.alpha || part.material.contains("Cloth");
+        // their backs into view, which back-face culling would leave as holes. With the character shader the inside
+        // is a second draw of the back faces with that material.
+        let inside = part.inside.as_ref().filter(|_| looks);
+        let two_sided = (part.alpha || part.material.contains("Cloth")) && inside.is_none();
         let mat = mats.add(StandardMaterial {
-            base_color_texture: part.texture.and_then(|t| textures.get(&t).cloned()),
-            normal_map_texture: part.normal.and_then(|t| textures.get(&t).cloned()),
+            base_color_texture: tex(part.texture),
+            normal_map_texture: tex(part.normal),
             flip_normal_map_y: true,
             base_color: if part.texture.is_some() { Color::WHITE } else { Color::srgb(0.85, 0.82, 0.78) },
             alpha_mode: if part.alpha { AlphaMode::Mask(0.5) } else { AlphaMode::Opaque },
@@ -396,6 +413,19 @@ pub fn spawn_character(
             perceptual_roughness: 0.8,
             ..default()
         });
+        // The inside draw's base: the inside material's maps (the outside's where it names none).
+        let inside_mat = inside.map(|l| {
+            mats.add(StandardMaterial {
+                base_color_texture: tex(l.diffuse.or(part.texture)),
+                normal_map_texture: tex(l.normal.or(part.normal)),
+                flip_normal_map_y: true,
+                alpha_mode: if part.alpha { AlphaMode::Mask(0.5) } else { AlphaMode::Opaque },
+                perceptual_roughness: 0.8,
+                ..default()
+            })
+        });
+        let look = part.look.as_ref().filter(|_| looks).map(|l| pending(l, false));
+        let inside_look = inside.map(|l| pending(l, true));
         // The robe tails: simulated as cloth, drawn from a world-space copy (see `robe`).
         if part.name.split('#').next() == Some(crate::robe::ROBE) && std::env::var("AC1_NO_CLOTH").is_err() {
             let mut copy = part.mesh.clone();
@@ -404,27 +434,59 @@ pub fn spawn_character(
             let shown = meshes.add(copy);
             let jents: Vec<Entity> = part.joints.iter().map(|&r| joints[r]).collect();
             if let Some(r) = crate::robe::Robe::new(&part.mesh, part.inverse_binds.clone(), jents, shown.clone()) {
-                commands.spawn((Name::new("robe cloth"), Mesh3d(shown), MeshMaterial3d(mat), NoFrustumCulling, Transform::default()));
+                let mut e = commands.spawn((Name::new("robe cloth"), Mesh3d(shown.clone()), MeshMaterial3d(mat), NoFrustumCulling, Transform::default()));
+                if let Some(l) = look {
+                    e.insert(l);
+                }
+                if let (Some(m), Some(l)) = (inside_mat, inside_look) {
+                    commands.spawn((
+                        Name::new("robe cloth inside"),
+                        Mesh3d(shown),
+                        MeshMaterial3d(m),
+                        l,
+                        NoFrustumCulling,
+                        bevy::light::NotShadowCaster,
+                        Transform::default(),
+                    ));
+                }
                 robe = Some(r);
                 continue;
             }
         }
         // Faces inside hoods: the hood's shadow-map shadow turns them black; AC1 keeps them lit.
         let face = part.name.contains("Head");
+        let mesh = meshes.add(part.mesh);
+        let skin = SkinnedMesh {
+            inverse_bindposes: bindposes.add(SkinnedMeshInverseBindposes::from(part.inverse_binds)),
+            joints: part.joints.iter().map(|&r| joints[r]).collect(),
+        };
         let mut e = commands.spawn((
-            Name::new(part.name),
-            Mesh3d(meshes.add(part.mesh)),
+            Name::new(part.name.clone()),
+            Mesh3d(mesh.clone()),
             MeshMaterial3d(mat),
-            SkinnedMesh {
-                inverse_bindposes: bindposes.add(SkinnedMeshInverseBindposes::from(part.inverse_binds)),
-                joints: part.joints.iter().map(|&r| joints[r]).collect(),
-            },
+            skin.clone(),
             NoFrustumCulling,
             Transform::default(),
             ChildOf(model),
         ));
         if face {
             e.insert(bevy::light::NotShadowReceiver);
+        }
+        if let Some(l) = look {
+            e.insert(l);
+        }
+        if let (Some(m), Some(l)) = (inside_mat, inside_look) {
+            commands.spawn((
+                Name::new(format!("{} inside", part.name)),
+                Mesh3d(mesh),
+                MeshMaterial3d(m),
+                l,
+                skin,
+                NoFrustumCulling,
+                bevy::light::NotShadowCaster,
+                Transform::default(),
+                ChildOf(model),
+            ));
         }
     }
 

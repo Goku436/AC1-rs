@@ -36,7 +36,7 @@
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
 //! as dir/frame_00000.png ..., then exit; encode with ffmpeg at 30 fps),
 //! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; `-` exits then without one), AC1_BACKGROUND=1 (open
-//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1,
+//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1, AC1_PLAIN_LOOK=1 (Altaïr without AC1's character shader),
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only. AC1_CONTROL=<file> stays open and runs
 //! the scripts written to that file (`run <id> <secs> AC1_START=.. AC1_WALK=.. ...`, `quit`; see `control_runs`): the level
 //! loads once, each run takes seconds. AC1_GROUND_LINE, AC1_HOLDS_AT and AC1_MESHES_AT log the ground along a line, the
@@ -46,6 +46,7 @@ mod animation;
 mod assets;
 mod beam_pairs;
 mod character;
+mod character_material;
 mod city;
 mod climb;
 mod climb_table;
@@ -256,6 +257,7 @@ fn main() {
             edges: if (std::env::var("AC1_SHOT").is_ok() || std::env::var("AC1_FRAMES").is_ok()) && std::env::var("AC1_EDGES").is_err() { 3 } else { 0 },
         })
         .insert_resource(script)
+        .add_plugins(character_material::CharacterMaterialPlugin)
         .add_systems(Startup, (level::spawn_level, setup, grab_cursor, slow_motion).chain())
         .init_resource::<Eagle>()
         .init_resource::<recorder::Recorder>()
