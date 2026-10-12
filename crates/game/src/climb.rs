@@ -5891,7 +5891,12 @@ impl WallClimb {
     /// Walked or ran off a ledge: fall with `velocity`, landing (or catching a hold, or into hay) on the
     /// way down. `from` is the pose shown now.
     pub fn falling(lib: &mut AnimLib, root: &Transform, velocity: Vec3, from: Option<Pose>) -> Option<WallClimb> {
-        let pose = lib.get(FALL_POSE)?;
+        Self::falling_in(lib, FALL_POSE, root, velocity, from)
+    }
+
+    /// `falling`, posed by `clip` (out of the Ghost mode flight, AC1's `xx_h_jump_falling01`).
+    pub fn falling_in(lib: &mut AnimLib, clip: &str, root: &Transform, velocity: Vec3, from: Option<Pose>) -> Option<WallClimb> {
+        let pose = lib.get(clip)?;
         let mut w = WallClimb::new(FALL, root.rotation * Vec3::Z);
         w.start(pose, FALL.into(), root);
         w.fall_v = Some(velocity);

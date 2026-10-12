@@ -28,6 +28,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Navigation meshes (`NavMeshManager`) | done: 1432/1432 parse (67836 pieces, 1.13 M triangles); city routes (A*) |
 | Clip sets (`AnimSet`) | done: 81 read; soldiers and townsfolk play their own clips |
 | Flight recorder (F9), controller, scenario suite | done |
+| Ghost mode, AC1's development flight (the Human Debug context, unreachable in retail; F7) | done: no collision, action 0x0006F88B (request 7) plays `Ghost_mode01` then `Ghost_mode02` looping, out with request 33's `xx_h_jump_falling01` and a fall (from Banned445's MIT port, `debug_fly.rs`) |
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); sun 11000 lux with three shadow cascades in 120 m (the first 12 m) and a linear haze from 220 m to 1.1 km (as Banned445's repo; AC1's `WorldAmbiance`/`LayeredSky` not decoded); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
@@ -82,6 +83,15 @@ is kept outside the repo; see "Combat" below.
 - Running into scholars charges through them: Altaïr shoulders them aside (`xx_h_charge_run_shove_<left_handl|right_handr>_b`,
   upper body) and they stumble out of the way (`xx_stumble_soft_50cm_<back|front>_footl`), then walk back to their places.
 - P free camera.
+- F7 Ghost mode, AC1's developers' flight (the Human Debug context, `fly.rs`; behaviour from Banned445's MIT port, which
+  reads it from the executable): nothing collides and no ground move, climb or IK runs; the stick on the ground plane by
+  the camera and Space / Left Ctrl up / down, all × 5 m/s, × 3 in high profile (the right button), × 10 with Left Alt; the
+  body turns toward the horizontal motion (square over 0.1) unless Q (strafe) is held. In, HumanGround's action
+  0x0006F88B (request 7): `Ghost_mode01.man` (0.93 s), then `Ghost_mode02.man` (2.27 s) looping, 0.4 s and 0.3 s blends.
+  F7 again leaves with request 33's `xx_h_jump_falling01.man` into the ordinary fall, from rest, or with Shift (the
+  empty hand) held at the flight's velocity (our fall still caps its drift at 5 m/s). The four `.man` clips carry their
+  root track turned 180 degrees from every other clip's (their bones are as the rest's): their root rotation is taken
+  from their first frame. Scripts: `AC1_FLY=from-to`, `AC1_FLY_UP` / `AC1_FLY_DOWN=from-to`.
 
 Low obstacles (collide, glance, vault) are measured from the floor just in front of them, not from the feet: up
 stairs, a riser two steps up is one step, not a 0.42 m wall. A beam's end with ground going on at its height (a roof)
