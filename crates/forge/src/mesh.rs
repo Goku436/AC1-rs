@@ -23,7 +23,7 @@
 //! lands on the ground it is placed on).
 //!
 //! Stride-32 vertex: i16x4 position (w = 32767, units of 1/2048 m), u8x4 normal, u8x4 tangent,
-//! u8x4 binormal, i16x2 uv (1/2048, v down as images are stored; values run past one tile, so samplers repeat), u8x4 palette indices, u8x4 weights (sum about 255;
+//! u8x4 binormal (the tangent frame the normal maps were baked in; read as `Mesh::tangents`), i16x2 uv (1/2048, v down as images are stored; values run past one tile, so samplers repeat), u8x4 palette indices, u8x4 weights (sum about 255;
 //! normalized to 1 on load).
 
 use crate::{u16_at, u32_at};
@@ -62,6 +62,9 @@ pub struct Mesh {
     pub stride: usize,
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
+    /// The stored tangent (xyz, unit) and its handedness (w, +-1: the stored binormal's side of normal x tangent),
+    /// as Bevy's `ATTRIBUTE_TANGENT` takes them.
+    pub tangents: Vec<[f32; 4]>,
     pub uvs: Vec<[f32; 2]>,
     /// Skeleton (mesh bone table) indices, already resolved through the submesh palette.
     pub joints: Vec<[u16; 4]>,
@@ -81,6 +84,13 @@ fn unpack_normal(b: &[u8]) -> [f32; 3] {
     let n = [f(b[0]), f(b[1]), f(b[2])];
     let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-6);
     [n[0] / l, n[1] / l, n[2] / l]
+}
+
+/// A tangent with its handedness: w = -1 where the binormal is on the far side of normal x tangent.
+fn tangent_frame(n: [f32; 3], t: [f32; 3], b: [f32; 3]) -> [f32; 4] {
+    let c = [n[1] * t[2] - n[2] * t[1], n[2] * t[0] - n[0] * t[2], n[0] * t[1] - n[1] * t[0]];
+    let w = if c[0] * b[0] + c[1] * b[1] + c[2] * b[2] < 0.0 { -1.0 } else { 1.0 };
+    [t[0], t[1], t[2], w]
 }
 
 /// Offset of the bone count in a cloth mesh (type 4): the count `n` followed by `n` bone entries
@@ -164,6 +174,7 @@ pub fn parse_mesh(body: &[u8]) -> Result<Mesh> {
         stride,
         positions: Vec::with_capacity(nv),
         normals: Vec::with_capacity(nv),
+        tangents: Vec::with_capacity(nv),
         uvs: Vec::with_capacity(nv),
         joints: vec![[0; 4]; nv],
         weights: vec![[1.0, 0.0, 0.0, 0.0]; nv],
@@ -186,7 +197,9 @@ pub fn parse_mesh(body: &[u8]) -> Result<Mesh> {
         let scale = if stride == 24 { STATIC_POS_SCALE * q(6).abs().max(1.0) / 8.0 } else { POS_SCALE };
         m.positions.push([q(0) * scale, q(2) * scale, q(4) * scale]);
         if stride >= 24 {
-            m.normals.push(unpack_normal(&body[o + 8..o + 12]));
+            let n = unpack_normal(&body[o + 8..o + 12]);
+            m.normals.push(n);
+            m.tangents.push(tangent_frame(n, unpack_normal(&body[o + 12..o + 16]), unpack_normal(&body[o + 16..o + 20])));
             m.uvs.push([q(20) / UV_SCALE, q(22) / UV_SCALE]);
         }
     }

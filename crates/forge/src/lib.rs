@@ -17,10 +17,12 @@ pub mod graph;
 pub mod guidance;
 pub mod hkx;
 pub mod index;
+pub mod material;
 pub mod mesh;
 pub mod navmesh;
 pub mod shape;
 pub mod skeleton;
+pub mod texture;
 
 use anyhow::{Context, Result, bail, ensure};
 use memmap2::Mmap;
@@ -197,7 +199,6 @@ pub fn parse_objects(d: &[u8]) -> Result<Vec<Object<'_>>> {
 }
 
 pub const CLASS_TEXTURE: u32 = 0xa2b7e917;
-const TEXDATA_TAG: u32 = 0x13237fe9;
 
 /// A decoded top-level mip as RGBA8.
 pub struct Texture {
@@ -208,15 +209,19 @@ pub struct Texture {
     /// The smaller mip levels that follow in the chain, RGBA, each half the size of the one before
     /// (as many as the data holds).
     pub mips: Vec<Vec<u8>>,
+    /// Its colour space and sampler (`texture::Sampling`).
+    pub sampling: texture::Sampling,
+    /// A cube map (type 2 at +0x10): the levels above are its first face's.
+    pub cube: bool,
 }
 
-/// TextureMap body: u32 w, u32 h, u32 depth, u32 format, ... at +0x43 the data tag,
-/// +0x47 u32 data size, +0x4B pixel data (full mip chain, top mip first).
+/// TextureMap body (see `texture` for the header fields): u32 w, u32 h, u32 depth, u32 format, ... at +0x43 the data
+/// tag, +0x47 u32 data size, +0x4B pixel data (full mip chain, top mip first).
 pub fn decode_texture(body: &[u8]) -> Result<Texture> {
-    let (width, height, format) = (u32_at(body, 0), u32_at(body, 4), u32_at(body, 12));
-    ensure!(u32_at(body, 0x43) == TEXDATA_TAG, "texture data not inline");
-    let size = u32_at(body, 0x47) as usize;
-    let data = &body[0x4B..0x4B + size];
+    let w32 = |o| texture::get_u32(body, o).unwrap_or(0);
+    let (width, height, format) = (w32(0), w32(4), w32(12));
+    ensure!((1..=8192).contains(&width) && (1..=8192).contains(&height), "texture size {width}x{height} at 0x0");
+    let data = texture::pixel_data(body)?;
     let bc = match format {
         2 | 3 => Some(texpresso::Format::Bc1),
         4 => Some(texpresso::Format::Bc2),
@@ -251,7 +256,7 @@ pub fn decode_texture(body: &[u8]) -> Result<Texture> {
         mips.push(decode(&data[off..off + n], w, h));
         off += n;
     }
-    Ok(Texture { width, height, format, rgba, mips })
+    Ok(Texture { width, height, format, rgba, mips, sampling: texture::Sampling::read(body), cube: w32(0x10) == 2 })
 }
 
 pub fn write_png(path: impl AsRef<Path>, t: &Texture) -> Result<()> {

@@ -6,7 +6,8 @@ use bevy::image::{ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use forge::datafile::{CLASS_ENTITY, DataFile};
+use forge::datafile::{CLASS_ENTITY, CLASS_MATERIAL, DataFile};
+use forge::material::Style;
 use forge::mesh::{CLASS_MESH, parse_mesh};
 use forge::skeleton::{CLASS_SKELETON, parse_skeleton};
 use ik::{Rig, Xform};
@@ -27,6 +28,24 @@ pub struct Part {
     pub alpha: bool,
     /// Its material's name (what an NPC builder's texture choices apply to).
     pub material: String,
+    /// Its AC1 character material, where its template is one of the character ones (`character_material`).
+    pub look: Option<Look>,
+    /// The material its back faces show (two-sided cloth's inside), drawn as a second, front-culled part.
+    pub inside: Option<Look>,
+}
+
+/// A part's AC1 character material: its template's style, its parameters and its maps (ids in
+/// `CharacterData::textures`: TextureMaps, the ramp's TextureGradient, the eyes' cube).
+#[derive(Clone)]
+pub struct Look {
+    pub style: Style,
+    pub material: forge::material::Material,
+    pub diffuse: Option<u32>,
+    pub normal: Option<u32>,
+    pub specular: Option<u32>,
+    pub multiply: Option<u32>,
+    pub ramp: Option<u32>,
+    pub cube: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -99,10 +118,13 @@ pub fn load_character(game_dir: &Path, forge_file: &str, datafile: &str, entity:
     // Materials whose texture sets live in the game's shared bootstrap file (the throwing daggers).
     let shared_bytes = forge.entries.iter().find(|e| e.name == SHARED_DATAFILE).and_then(|e| forge.read(e).ok());
     let shared = shared_bytes.as_deref().and_then(|b| DataFile::parse(b).ok());
+    // The character shader's shared maps (the templates' ramps, the eyes' reflection cube).
+    let fix_bytes = forge.entries.iter().find(|e| e.name == SHADER_DATAFILE).and_then(|e| forge.read(e).ok());
+    let fix = fix_bytes.as_deref().and_then(|b| DataFile::parse(b).ok());
     let mut parts = vec![];
     let mut textures = HashMap::new();
     let mut seen_meshes = vec![];
-    let src = Source { df: &df, shared: shared.as_ref(), overrides: &overrides };
+    let src = Source { df: &df, shared: shared.as_ref(), fix: fix.as_ref(), overrides: &overrides };
     for (_, o) in refs.iter().filter(|(_, o)| o.class == CLASS_MESH) {
         // Skip duplicate refs and distant LODs.
         if seen_meshes.contains(&o.id) || o.name.contains("_LOD") {
@@ -177,7 +199,7 @@ pub fn load_assembled_with(
             warn!("no mesh {name} in {df}");
             continue;
         };
-        add_mesh_parts(&Source { df: d, shared: None, overrides: &HashMap::new() }, o, &rig, &by_hash, None, &mut parts, &mut textures);
+        add_mesh_parts(&Source { df: d, shared: None, fix: None, overrides: &HashMap::new() }, o, &rig, &by_hash, None, &mut parts, &mut textures);
     }
     info!("assembled {} skeletons -> {} bones, {} parts", skels.len(), rig.len(), parts.len());
     let hashes = hashes_of(rig.len(), &by_hash);
@@ -200,6 +222,8 @@ pub fn load_texture(game_dir: &Path, forge_file: &str, datafile: &str, name: &st
 /// textures shimmer as the character moves). A full chain goes down to 1x1; a partial one is dropped.
 /// Data file `"Game Bootstrap Settings"` (in DataPC.forge) holds texture sets other files' materials name.
 const SHARED_DATAFILE: &str = "Game Bootstrap Settings";
+/// Data file `"Game Fix"` (in DataPC.forge) holds the character templates' lighting ramps and the eyes' cube.
+const SHADER_DATAFILE: &str = "Game Fix";
 
 /// Weapons Altaïr carries, each on its tag bone (by name hash): the sword in its sheath (the `UCMA_Sword_Tag`
 /// skeleton's bone) and the short blade in the back sheath. The pairs are from Banned445's AC1-Movement-Rewritten.
@@ -210,6 +234,8 @@ struct Source<'s, 'a> {
     df: &'s DataFile<'a>,
     /// The shared bootstrap file, for materials whose texture sets are not in `df`.
     shared: Option<&'s DataFile<'s>>,
+    /// DataPC's "Game Fix", for the character shader's ramps and cube.
+    fix: Option<&'s DataFile<'s>>,
     /// Material overrides (placeholder -> real).
     overrides: &'s HashMap<u32, u32>,
 }
@@ -319,21 +345,26 @@ fn add_submeshes(
                 Err(e) => warn!("texture {}: {e:#}", t.name),
             }
         }
-        // The normal map (tangent space, RGB, DirectX's green), with tangents for it.
+        // The normal map (tangent space, RGB, DirectX's green; linear by its GammaSettings), with the tangent frame the
+        // game stores for it (generated where a mesh has none).
         let nrm = real.and_then(|id| df.material_map(id, "Normal").or_else(|| src.shared.and_then(|sh| df.material_map_in(sh, id, "Normal"))));
         if let Some(n) = nrm
             && !textures.contains_key(&n.id)
         {
             match forge::decode_texture(n.body) {
                 Ok(img) => {
-                    let mut image = to_image(img);
-                    image.texture_descriptor.format = TextureFormat::Rgba8Unorm;
-                    textures.insert(n.id, image);
+                    textures.insert(n.id, to_image(img));
                 }
                 Err(e) => warn!("normal map {}: {e:#}", n.name),
             }
         }
-        let nrm = nrm.filter(|_| mesh.generate_tangents().is_ok());
+        let stored = m.tangents.len() == m.positions.len();
+        if stored {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, m.tangents[range.clone()].to_vec());
+        }
+        let nrm = nrm.filter(|_| stored || mesh.generate_tangents().is_ok());
+        let look = real.and_then(|id| look_of(src, id, textures));
+        let inside = look.as_ref().and_then(|l| l.material.inside).and_then(|id| look_of(src, id, textures));
         info!("  {} sub {si}: {} verts, material {mat_name}, texture {:?}", o.name, vn, tex.map(|t| &t.name));
         parts.push(Part {
             name: format!("{}#{si}", o.name),
@@ -342,20 +373,107 @@ fn add_submeshes(
             inverse_binds: inverse_binds.clone(),
             texture: tex.map(|t| t.id),
             normal: nrm.map(|t| t.id),
-            alpha: mat_name.contains("Alpha") || mat_name.starts_with("Eye"),
+            // (Not the eyes: their diffuse alpha is the iris tint's mask, not a cut-out.)
+            alpha: mat_name.contains("Alpha"),
             material: mat_name.clone(),
+            look,
+            inside,
         });
     }
 }
 
+/// The character material `id` (an `_Empty` placeholder left without an override: the material of its name without
+/// the suffix), if its template is a character one; its maps are decoded into `textures`.
+fn look_of(src: &Source, id: u32, textures: &mut HashMap<u32, Image>) -> Option<Look> {
+    let get = |id: u32| src.df.get(id).or_else(|| src.shared.and_then(|d| d.get(id))).or_else(|| src.fix.and_then(|d| d.get(id)));
+    let mut o = get(id)?;
+    if let Some(r) = o.name.strip_suffix("_Empty").and_then(|base| src.df.by_name(CLASS_MATERIAL, base)) {
+        o = r;
+    }
+    let material = match forge::material::Material::parse(o.body) {
+        Ok(m) => m,
+        Err(e) => {
+            warn!("material {}: {e:#}", o.name);
+            return None;
+        }
+    };
+    let style = material.style()?;
+    let mut load = |t: &forge::Object| -> Option<u32> {
+        if let std::collections::hash_map::Entry::Vacant(slot) = textures.entry(t.id) {
+            let image = match t.class {
+                forge::texture::CLASS_GRADIENT => forge::texture::decode_gradient(t.body).map(gradient_image),
+                _ if is_cube(t.body) => forge::texture::decode_cube(t.body).map(|c| cube_image(c, t.body)),
+                _ => forge::decode_texture(t.body).map(to_image),
+            };
+            match image {
+                Ok(i) => {
+                    slot.insert(i);
+                }
+                Err(e) => {
+                    warn!("{} map {}: {e:#}", o.name, t.name);
+                    return None;
+                }
+            }
+        }
+        Some(t.id)
+    };
+    let mut slot = |names: &[&str]| material.slot(names).and_then(|s| material.resolve(s, get)).and_then(&mut load);
+    let diffuse = slot(&["DiffuseTexture", "DiffuseMap"]);
+    let normal = slot(&["NormalTexture", "NormalMap"]);
+    let specular = slot(&["SpecularTexture", "SpecularMap"]);
+    let multiply = slot(&["MultiplyTexture", "MultiplyMap"]);
+    let cube = slot(&["CubeMap"]);
+    let ramp = style.ramp().and_then(get).and_then(&mut load);
+    debug!("  look {}: {style:?}, ramp {ramp:?}, specular {specular:?}, multiply {multiply:?}, cube {cube:?}", o.name);
+    Some(Look { style, material, diffuse, normal, specular, multiply, ramp, cube })
+}
+
+/// A TextureMap of type 2 (six faces).
+fn is_cube(body: &[u8]) -> bool {
+    body.get(0x10..0x14) == Some(&2u32.to_le_bytes()[..])
+}
+
+/// A lighting ramp, in its colour space and with its sampler (it clamps along the lighting axis).
+fn gradient_image(g: forge::texture::Gradient) -> Image {
+    let format = if g.sampling.srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm };
+    let mut image = Image::new(
+        Extent3d { width: g.width, height: g.height, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        g.rgba,
+        format,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    image.sampler = ImageSampler::Descriptor(sampler(&g.sampling));
+    image
+}
+
+/// A cube map with its mip chain (mip-major, six faces a mip), in its colour space.
+fn cube_image(c: forge::texture::Cube, body: &[u8]) -> Image {
+    use bevy::render::render_resource::{TextureDataOrder, TextureViewDescriptor, TextureViewDimension};
+    let s = forge::texture::Sampling::read(body);
+    let format = if s.srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm };
+    let mut image =
+        Image::new_uninit(Extent3d { width: c.size, height: c.size, depth_or_array_layers: 6 }, TextureDimension::D2, format, RenderAssetUsages::RENDER_WORLD);
+    image.texture_descriptor.mip_level_count = c.mips.len() as u32;
+    image.data = Some(c.mips.concat());
+    image.data_order = TextureDataOrder::MipMajor;
+    image.texture_view_descriptor = Some(TextureViewDescriptor { dimension: Some(TextureViewDimension::Cube), ..default() });
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor::linear());
+    image
+}
+
+/// Upload with the texture's own mip chain (without mips the textures shimmer as the character moves; a full chain goes
+/// down to 1x1, a partial one is dropped), in its colour space (sRGB or linear, by its GammaSettings) and with its
+/// sampler (address and filter modes); anisotropic where it filters linearly.
 pub(crate) fn to_image(t: forge::Texture) -> Image {
     let full = 32 - t.width.max(t.height).leading_zeros();
     let levels = if t.mips.len() as u32 + 1 == full { full } else { 1 };
+    let format = if t.sampling.srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm };
     let mut image = Image::new(
         Extent3d { width: t.width, height: t.height, depth_or_array_layers: 1 },
         TextureDimension::D2,
         t.rgba,
-        TextureFormat::Rgba8UnormSrgb,
+        format,
         RenderAssetUsages::RENDER_WORLD,
     );
     if levels > 1
@@ -365,11 +483,29 @@ pub(crate) fn to_image(t: forge::Texture) -> Image {
         image.texture_descriptor.mip_level_count = levels;
     }
     debug!("texture {}x{}: {levels} mip levels", t.width, t.height);
-    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-        anisotropy_clamp: 8,
-        address_mode_u: bevy::image::ImageAddressMode::Repeat,
-        address_mode_v: bevy::image::ImageAddressMode::Repeat,
-        ..ImageSamplerDescriptor::linear()
-    });
+    image.sampler = ImageSampler::Descriptor(sampler(&t.sampling));
     image
+}
+
+/// The sampler a texture's header asks for: `AddressMode` 0 wrap, 1 mirror, 2 clamp, 3 border (clamped to the edge
+/// here), 4 mirror once (mirrored); `FilterType` 0 point, 1 linear, 2 none (point).
+pub(crate) fn sampler(s: &forge::texture::Sampling) -> ImageSamplerDescriptor {
+    use bevy::image::{ImageAddressMode as A, ImageFilterMode as F};
+    let address = |m: u32| match m {
+        1 | 4 => A::MirrorRepeat,
+        2 | 3 => A::ClampToEdge,
+        _ => A::Repeat,
+    };
+    let filter = |m: u32| if m == 1 { F::Linear } else { F::Nearest };
+    let [mag, min, mip] = s.filter.map(filter);
+    ImageSamplerDescriptor {
+        address_mode_u: address(s.address[0]),
+        address_mode_v: address(s.address[1]),
+        mag_filter: mag,
+        min_filter: min,
+        mipmap_filter: mip,
+        // (Anisotropy needs every filter linear.)
+        anisotropy_clamp: if s.filter == [1, 1, 1] { 8 } else { 1 },
+        ..ImageSamplerDescriptor::linear()
+    }
 }

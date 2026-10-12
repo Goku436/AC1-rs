@@ -10,7 +10,8 @@ install**. No game files, textures, meshes or code from the original are stored 
 | `.forge` archives (index, names, FILEDATA records) | done, all 18 archives |
 | Chunked LZO1X decompression | done: 15906/15906 data files decompress (`examples/decodecheck`); 9357 split into objects, the rest are streamed sound (6531 `*_BAO_*`: Ubisoft BAO audio, signatures 01 1b 01 00 / 02 1f 00 10 as the QuickBMS scimitar script names them, not object containers) and each forge's `GlobalMetaFile` (18: one 170-byte record, byte-identical in every forge: small ids and values and a 32-bit time of 2014-07-22, likely the build's; nothing about the world, `examples/entryhex`) |
 | Object container (class hash, name, id, body) | done |
-| TextureMap -> PNG (DXT1/3/5, BGRA8) | done, verified visually |
+| TextureMap -> PNG (DXT1/3/5, BGRA8) | done, verified visually: 32286/32286 textures decode (`examples/texcheck`); colour space (`GammaSettings`) and sampler (address, filter modes) read and used; cube maps 57/58, ramps (`TextureGradient`) 3/3 |
+| Material (85c817c3): template and typed parameter table (scalars, colours, texture slots) | 15666/15929 parse (`examples/texcheck`): every character material; the rest carry a parameter class not read yet (c52e2125, 213: glows, skies, water), a 1 at +0x29 (28 trees) or 2/4 at +0x31 (25) |
 | Mesh (class 415d9568): skinned verts, submeshes, bone palettes, materials | done, 120 skinned (incl. cloth, type 4) + 31 static of 168 in DataPC |
 | Static meshes (type 0, stride 24) | done: positions `xyz/32768 * |w|/8` m (sword, terrain tiles meeting exactly, houses on their ground); every mesh in every archive parses (43984/43984): vegetation and soft bodies (`Veg_Olivier_*`, `Herbe_Scatter_*`, `*_Softbody`: the cloth-simulation object 0x5755de7f embedded as in the robe, after `u32 0 or 1, u32 1 or 5, u8 0`; static LODs with an empty bone table) and effects meshes (type 2, laid out as the static ones) |
 | Entity (0984415e): meshes, skeletons, material overrides | done for characters |
@@ -27,7 +28,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Flight recorder (F9), controller, scenario suite | done |
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
-| City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P) | first version |
+| City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); sun 11000 lux with three shadow cascades in 120 m (the first 12 m) and a linear haze from 220 m to 1.1 km (as Banned445's repo; AC1's `WorldAmbiance`/`LayeredSky` not decoded) | first version |
 | Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); combat removed for now; scholar crowds to blend into | first version |
 | Player controller, free-running, combat, AI, crowds, missions | long-term |
 
@@ -235,7 +236,20 @@ Characters: scholars wear Rafic's head on its face rig. The shared eyes and mout
 (`Universal_Head_Obj*`) are skinned with their own bind matrices, so they sit on each head's face (rigidly placed, the
 teeth showed through the chin and the mouth hung open). Sky fill light 1500 (faces under hoods read). Characters
 and city meshes use their materials' normal maps (the texture set's "Normal" map spec: tangent-space RGB with
-DirectX's green, flipped for Bevy; tangents generated), so cloth folds and wood and plaster relief show.
+DirectX's green, flipped for Bevy; characters with their stored tangents, cities' generated), so cloth folds and wood
+and plaster relief show. Textures are sampled in their own colour space and with their own sampler (GammaSettings,
+address and filter modes). The eyes are opaque: their diffuse alpha is the iris tint's mask (alpha-tested, it cut the
+irises out).
+Altaïr is drawn with AC1's character templates (`character_material`, an `ExtendedMaterial` over Bevy's
+`StandardMaterial`; shader and parameter use from Banned445's AC1-Movement-Rewritten, MIT): each material's template
+picks the equations (cloth, cloth inside, skin, weapon/mouth, eyes), its typed parameters and slots give the maps
+(Material -> TextureSelector -> TextureSet channel / TextureMapSpec -> TextureMap): the diffuse lit through the
+template's ramp (`TextureGradient` in DataPC's `Game Fix`) at (N.L+1)/2, Phong highlights from the specular map, cloth's
+rim, skin's tiled specular and multiply map, Fresnel on weapons and the mouth, the eyes' iris tint (the diffuse alpha
+masks `EyeColor`) and reflection cube. Cloth with an inside material (the robe, hood, flaps) is drawn twice: the
+outside back-culled, the inside front-culled with the inside material. Ours reads the colour parameters as sRGB
+(Banned445's as linear: the irises read near white). Bevy keeps the lights, shadows, ambient and fog; NPCs (other
+templates) keep `StandardMaterial`. `AC1_PLAIN_LOOK=1` draws Altaïr with `StandardMaterial` too.
 
 Test world labels: every feature has its name over it on screen (Block A-D, Tower T, Poles P and Q, Platform E,
 Hiding spots A-C, the course's P1-P4, Crowd A...).
@@ -480,8 +494,23 @@ no code):
   stream 2 = objects.
 - Object table: u16 n, {u32 id, u32 size}[n]. Object: u32 class, u32 size, u32 name_len, name\0, u32 id,
   u32 class, body.
-- TextureMap body: u32 w, h, depth, format (0 BGRA8, 2/3 DXT1, 4 DXT3, 5/7 DXT5); +0x43 tag 0x13237fe9,
-  +0x47 u32 size, +0x4B full mip chain.
+- TextureMap body: u32 w, h, depth, format (0 BGRA8, 2/3 DXT1, 4 DXT3, 5/7 DXT5); +0x10 u32 type (1 2D, 2 cube);
+  +0x14 u32 `GammaSettings` (1 sRGB, 0 linear); +0x18 u32 mip count; +0x1C/+0x20 u32 `AddressMode` U/V (0 wrap,
+  1 mirror, 2 clamp, 3 border, 4 mirror once); +0x24 `?`; +0x28/+0x2C/+0x30 u32 `FilterType` mag/min/mip (0 point,
+  1 linear, 2 none); +0x43 tag 0x13237fe9, +0x47 u32 size, +0x4B full mip chain (a cube: each face's chain, face
+  after face). Field names from Banned445's AC1-Movement-Rewritten; over every texture (`examples/texcheck`) diffuse
+  maps are sRGB (14750 of 14784; the 32 linear ones are colour masks) and normal maps linear (11105), the ramps clamp
+  U. Our runtime uploads each texture in its colour space with its sampler (`assets::to_image`).
+- TextureGradient (245f5ca5, the characters' lighting ramps in DataPC's `Game Fix`): the TextureMap layout, BGRA8,
+  one mip.
+- Material body: +0 u32 template id (the shader template: Altaïr's cloth 433482562, alpha cloth 2055988768, cloth
+  inside 439116860, skin 433482821, weapon / throwing dagger / mouth 3292696482 / 661746657 / 439311561, eyes
+  326205072), +4 u32 texture set id, +0x08..+0x29 `?`, +0x29 u32 `?` (0), +0x2D u32 inside material id (0 none),
+  +0x31 u32 `?` (0/1), +0x35 u32 parameter count, then `{u32 name CRC32, u32 class, u32 type (kind in bits 16..22),
+  value}` to the body's end: kind 10 a f32, kind 13 four f32 (a colour), kind 19 class `TextureSelector` a slot
+  `{u32 ?, u32 class, u32 mode, u32 channel, u32 set, u32 map}` (mode 0 the material's set's map spec at `channel`,
+  1 set `set`'s, 2 map `map`). A TextureSet body is its map spec ids by channel; a TextureMapSpec ends with its
+  TextureMap's id (`forge::material`; layout from Banned445's repo).
 
 ## Mesh / skeleton notes
 - Mesh body: u8 1 (0 = static), 7 B, u32 bone count, bones x 0x4C {u32 id, u32 class, u32 name CRC32,
@@ -516,7 +545,9 @@ no code):
 - Textures carry the full mip chain after the top level; it is decoded and uploaded (without it they shimmer).
 - Skin weights: the four bytes sum to about 255 (254-256); they are normalized to 1 on load, otherwise skinned
   positions scale with the distance from the world origin and the mesh streaks.
-- Skinned vertex (32 B): i16x4 pos (1/2048 m), 3x u8x4 normal/tangent/binormal, i16x2 uv (1/2048, v as images are stored, repeating),
+- Skinned vertex (32 B): i16x4 pos (1/2048 m), 3x u8x4 normal/tangent/binormal (the tangent frame the normal maps were
+  baked in: the tangent follows +u, the binormal mostly -v, as Bevy's generated ones; characters use them, with the
+  handedness from the binormal's side; `examples/tangentcheck`. City meshes mix both sides of v and keep generated ones), i16x2 uv (1/2048, v as images are stored, repeating),
   u8x4 palette indices, u8x4 weights.
 - Skeleton: u32 0, u32 count, bones with parent refs (`02 id` / `03`), object-space and local
   {vec4 pos, quat xyzw}, then constraint extras. Z up, character faces +X. Mesh space is the skeleton

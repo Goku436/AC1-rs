@@ -35,7 +35,7 @@
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
 //! as dir/frame_00000.png ..., then exit; encode with ffmpeg at 30 fps),
 //! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; `-` exits then without one), AC1_BACKGROUND=1 (open
-//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1,
+//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1, AC1_PLAIN_LOOK=1 (Altaïr without AC1's character shader),
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only. AC1_CONTROL=<file> stays open and runs
 //! the scripts written to that file (`run <id> <secs> AC1_START=.. AC1_WALK=.. ...`, `quit`; see `control_runs`): the level
 //! loads once, each run takes seconds. AC1_GROUND_LINE, AC1_HOLDS_AT and AC1_MESHES_AT log the ground along a line, the
@@ -45,6 +45,7 @@ mod animation;
 mod assets;
 mod beam_pairs;
 mod character;
+mod character_material;
 mod city;
 mod climb;
 mod climb_table;
@@ -255,6 +256,7 @@ fn main() {
             edges: if (std::env::var("AC1_SHOT").is_ok() || std::env::var("AC1_FRAMES").is_ok()) && std::env::var("AC1_EDGES").is_err() { 3 } else { 0 },
         })
         .insert_resource(script)
+        .add_plugins(character_material::CharacterMaterialPlugin)
         .add_systems(Startup, (level::spawn_level, setup, grab_cursor, slow_motion).chain())
         .init_resource::<Eagle>()
         .init_resource::<recorder::Recorder>()
@@ -544,16 +546,26 @@ fn setup(
     mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     level: Res<level::Level>,
 ) {
-    commands.spawn((
-        DirectionalLight { illuminance: 9000.0, shadow_maps_enabled: true, ..default() },
+    // A city: a stronger sun with three shadow cascades kept near the player (the first 12 m, none past 120 m: the
+    // default four spread over the whole view and blur his shadow), and a linear haze from 220 m to 1.1 km, as
+    // Banned445's AC1-Movement-Rewritten stands in for AC1's WorldAmbiance / LayeredSky (not decoded).
+    let city = std::env::var("AC1_LEVEL").is_ok();
+    let mut sun = commands.spawn((
+        DirectionalLight { illuminance: if city { 11_000.0 } else { 9000.0 }, shadow_maps_enabled: true, ..default() },
         Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, 0.8, -0.9, 0.0)),
     ));
+    if city {
+        sun.insert(bevy::light::CascadeShadowConfigBuilder { num_cascades: 3, first_cascade_far_bound: 12.0, maximum_distance: 120.0, ..default() }.build());
+    }
     // (Cities are a couple of kilometres across.)
-    commands.spawn((
+    let mut camera = commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection { far: 5000.0, ..default() }),
         Transform::from_xyz(0.0, 2.0, 4.0).looking_at(Vec3::Y, Vec3::Y),
     ));
+    if city {
+        camera.insert(DistanceFog { color: Color::srgb(0.80, 0.78, 0.70), falloff: FogFalloff::Linear { start: 220.0, end: 1100.0 }, ..default() });
+    }
     // Eagle Vision's dimming.
     commands.spawn((
         EagleTint,
