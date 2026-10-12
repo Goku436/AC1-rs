@@ -539,9 +539,13 @@ in this batch, by audit id:
   Banned445's port reads them: 1.2 m in toward the wall from 1 m under the hands, 0.5 m out, 0.1 m to either side): the
   wall hang into the free one (`xx_h_hangwall_tr_hangfree_<side>`) unless both rays meet the wall, the free hang into
   the wall one (`xx_h_hangfree_tr_hangwall_<side>`) if either does; after the climbing holds beside, before the
-  shimmy. (No scenario: the test level has no ledge running on past its wall without holds beside it.)
-Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
-down from the hold in the two recordings; likely measured from the wall face).
+  shimmy. (No scenario: the test level has no ledge running on past its wall without holds beside it.) (LEDGE-8) The
+  wall hang at rest eases its root to 1.1 m under its hold (AC1's `ComputeRootFromHandTargets` 0xDD6730: the lower
+  hand's target - 1.1 m, 0.5 m out; ours was wherever the move into it ended, 1.02 to 1.14 m under), still 0.50 m from
+  the wall's face.
+Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
+the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
+`wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
 
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the

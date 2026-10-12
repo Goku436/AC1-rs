@@ -391,6 +391,10 @@ const CLIMB_ROOT_OUT: f32 = 0.5;
 const PULL_DOWN_HANG: (f32, f32) = (HANG_OUT - 0.122, HANG_DOWN - 0.027);
 /// A wall hang's root rests this far out from the wall's face at its own height (m), eased there this fast (m/s).
 const HANG_WALL_OUT: f32 = 0.50;
+/// A wall hang's root rests this far under its hold (m: AC1's 1.1, `ComputeRootFromHandTargets` 0xDD6730), the hold
+/// looked for this near where its hands are.
+const HANG_ROOT_DOWN: f32 = 1.1;
+const HANG_ROOT_HOLD_REACH: f32 = 0.4;
 const HANG_SETTLE_SPEED: f32 = 0.6;
 /// The wall hang's shimmy steps (m): the first from a catch, then each one after.
 const SHIMMY_FIRST: f32 = 0.23;
@@ -7505,12 +7509,25 @@ impl WallClimb {
         }
         // A wall hang at rest sits AC1's way out from the wall: its root 0.50 m from the face at its own height (the running
         // game's hangs on `wall1` and `hay70`, 0.49 and 0.52 m, where ours sat 0.68 and 0.47 m out: audits LEDGE-8,
-        // WALL-20), eased there.
+        // WALL-20), and `HANG_ROOT_DOWN` under the hold its hands are on (AC1's `ComputeRootFromHandTargets` 0xDD6730: the
+        // lower hand's target - 1.1 m; ours was wherever the move into the hang ended, 1.02 to 1.14 m under it), eased there.
         if matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.mv.is_none() {
             let n = self.normal.with_y(0.0).normalize_or_zero();
             if let Some(h) = level.raycast(root.translation, -n, HANG_WALL_OUT + 0.5).filter(|h| h.normal.y.abs() < 0.5) {
                 let err = h.dist - HANG_WALL_OUT;
                 root.translation -= n * err.clamp(-HANG_SETTLE_SPEED * dt, HANG_SETTLE_SPEED * dt);
+            }
+            let probe = root.translation + Vec3::Y * HANGWALL_HOLD_UP - n * HANGWALL_HOLD_IN;
+            if let Some(q) = level
+                .ledges
+                .iter()
+                .filter(|l| l.out.dot(n) > 0.7)
+                .map(|l| l.closest(probe))
+                .filter(|q| q.distance(probe) < HANG_ROOT_HOLD_REACH)
+                .min_by(|a, b| a.distance(probe).total_cmp(&b.distance(probe)))
+            {
+                let err = root.translation.y - (q.y - HANG_ROOT_DOWN);
+                root.translation.y -= err.clamp(-HANG_SETTLE_SPEED * dt, HANG_SETTLE_SPEED * dt);
             }
         }
         // In the climbing stance at rest, the root 0.5 m out from its holds' plane (AC1's `ComputeRootFromMove` 0xDEC6E0:
