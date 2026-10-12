@@ -572,6 +572,41 @@ impl VaultPath {
     }
 }
 
+/// The wall hang's turn round a corner (`hang_corner`): AC1's root interpolator (`TryTurnCorner` 0xDD3BB0 starts it over
+/// the corner action, 0x710C20 / 0x7113F0: the root rotation slerped from the hang's to the new face's at a steady rate,
+/// the clips' own root motion not used). The root is placed from the hands: they go along the holds through the corner
+/// (`hands`: from, the corner, to) while the body turns about them, the hang's offset under them turned with the root.
+/// (AC1's position runs on a straight line from root to root, its hand IK holding the hands on the corner point; on
+/// that line the clips' hands went 0.25 m into the block at an outside corner, where ours has no hand target to hold.)
+#[derive(Clone, Copy, Debug)]
+struct TurnPath {
+    hands: [Vec3; 3],
+    /// The wrists' targets on the new hold (left, right), where they held at the start, and the hand that leads round
+    /// (AC1 puts both hand targets on the corner's hold point; ours takes the leading hand there over the first clip,
+    /// the other over the second, each lifted over on the way as the strafe clips reach).
+    grips: [Vec3; 2],
+    starts: [Option<Vec3>; 2],
+    lead: usize,
+    from: Quat,
+    to: Quat,
+    dur: f32,
+    t: f32,
+}
+
+impl TurnPath {
+    /// The root and its rotation `t` seconds in.
+    fn at(&self, t: f32) -> (Vec3, Quat) {
+        let k = (t / self.dur.max(1e-3)).clamp(0.0, 1.0);
+        let rot = self.from.slerp(self.to, k);
+        let [a, c, b] = self.hands;
+        let (l1, l2) = (a.distance(c), c.distance(b));
+        let s = k * (l1 + l2);
+        let hands = if s <= l1 { a.lerp(c, if l1 > 1e-4 { s / l1 } else { 1.0 }) } else { c.lerp(b, if l2 > 1e-4 { (s - l1) / l2 } else { 1.0 }) };
+        let fwd = (rot * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        (hands - fwd * HANG_CORNER_IN - Vec3::Y * HANG_CORNER_UP, rot)
+    }
+}
+
 /// Pseudo-states: a clip chain on the ground (stops, turns, ledge stops, rolls), and leaning on a wall.
 const GROUND_ACT: &str = "ground_act";
 const LEAN: &str = "lean";
@@ -1210,6 +1245,8 @@ pub struct WallClimb {
     pub landed: Option<(f32, f32)>,
     /// A vault's root path, followed instead of its clips' root motion (see `VaultPath`).
     vault_path: Option<VaultPath>,
+    /// The wall hang's corner turn, followed instead of its clips' root motion (see `TurnPath`); dropped by the next move.
+    turn_path: Option<TurnPath>,
     /// Ground velocity to hand back to locomotion when finished (running landings).
     pub exit_velocity: Vec3,
     /// Wanted world direction of travel (set by the caller; length 0..1), and sprinting.
@@ -2552,6 +2589,7 @@ impl WallClimb {
             lean_mix: 1.0,
             landed: None,
             vault_path: None,
+            turn_path: None,
             exit_velocity: Vec3::ZERO,
             move_dir: Vec3::ZERO,
             sprint: false,
@@ -3853,7 +3891,8 @@ impl WallClimb {
     /// (`xx_h_hangwall_strafe_<side>_050cm_open`, then `_close`), the body turned onto the new face and its hang there,
     /// the hang kept (a wall under the new hold for the feet, or no corner). Inside corners first, then outside (Banned445's
     /// `TryTurnCorner` 0xDD3BB0, audit LEDGE-4: ours played the climbing stance's corner clips).
-    fn hang_corner(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, right: bool, outer: bool) -> bool {
+    #[allow(clippy::too_many_arguments)]
+    fn hang_corner(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, cr: ClimbRig, right: bool, outer: bool) -> bool {
         let n = self.normal.with_y(0.0).normalize_or_zero();
         if n == Vec3::ZERO || self.mv.is_some() {
             return false;
@@ -3889,14 +3928,39 @@ impl WallClimb {
             let Some(clips) = ["open", "close"].iter().map(|k| lib.get(&format!("xx_h_hangwall_strafe_{side_n}_050cm_{k}"))).collect::<Option<Vec<_>>>() else {
                 return false;
             };
-            let turned = Transform { rotation: facing(-n2), ..*root };
-            let travel: Vec3 = clips.iter().map(|c| world_rot(turned.rotation) * root_motion_at(c, c.frames())).sum();
-            self.normal = n2;
-            self.start_chain(clips, vec![HANGWALL_OPEN.into(), HANGWALL.into()], &turned, to - (root.translation + travel));
-            if let Some(m) = &mut self.mv {
-                m.ease_rot = root.rotation * turned.rotation.inverse();
-            }
-            debug!("climb: round the {} corner from the wall hang onto {q:.2}", if inner { "inside" } else { "outside" });
+            // The root turns about the hands as AC1's interpolator turns it, over the action (0xDD3BB0 → 0x711130), from
+            // facing the wall to facing the new one: not turned at the start in 0.25 s and slid on by the clips' own
+            // sideways root motion (each strafe clip goes 0.5 m along the face it starts on).
+            let dur: f32 = clips.iter().map(|c| c.anim.duration).sum();
+            let start_fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(fwd);
+            let from = root.translation + start_fwd * HANG_CORNER_IN + Vec3::Y * HANG_CORNER_UP;
+            // (The hands go along the holds through the corner: where the old ledge's line meets the new one.)
+            let along = (l.b - l.a).with_y(0.0).normalize_or_zero();
+            let denom = side.x * along.z - side.z * along.x;
+            let corner = (denom.abs() > 0.1)
+                .then(|| {
+                    let d = q - from;
+                    let s = (d.x * along.z - d.z * along.x) / denom;
+                    (from + side * s).with_y(from.y.max(q.y))
+                })
+                .filter(|c| c.distance(from) < 1.0 && c.distance(q) < 1.0)
+                .unwrap_or((from + q) * 0.5);
+            // (The wall's normal turns with the root, onto `n2` by the end: set at once, the feet looked for the wall
+            // along the new face's normal for a frame and one jumped 0.14 m.)
+            self.start_chain(clips, vec![HANGWALL_OPEN.into(), HANGWALL.into()], root, Vec3::ZERO);
+            // (The hands side by side on the new hold, as in the hang's closed wait: 7 cm apart.)
+            let right2 = (-n2).cross(Vec3::Y);
+            let grips = [grip_target(l.closest(q - right2 * 0.035), n2), grip_target(l.closest(q + right2 * 0.035), n2)];
+            // (Where the hands hold now: the other hand stays there while the leading one goes round.)
+            let starts = [0, 1].map(|i| {
+                self.last.as_ref().and_then(|p| {
+                    let wrist = root.translation + world_rot(root.rotation) * p.model_of(rig, cr.hands[i]).pos;
+                    nearest_hold(level, wrist, n).filter(|h| h.2 < 0.2).map(|h| h.1)
+                })
+            });
+            self.turn_path =
+                Some(TurnPath { hands: [from, corner, q], grips, starts, lead: right as usize, from: root.rotation, to: facing(-n2), dur, t: 0.0 });
+            debug!("climb: round the {} corner from the wall hang onto {q:.2}, about {corner:.2}", if inner { "inside" } else { "outside" });
             return true;
         }
         false
@@ -6125,6 +6189,7 @@ impl WallClimb {
         debug!("climb: {} -> {to} via {} at {:.2} yaw {:.0}", self.state, clip.name, root.translation, root.rotation.to_euler(EulerRot::YXZ).0.to_degrees());
         self.fade = self.last.clone().map(|p| Fade::new(p, FADE));
         self.mirrored = false;
+        self.turn_path = None;
         self.mv = Some(Move { clip, t: 0.0, to, start: root.translation, start_rot: root.rotation, correct: Vec3::ZERO, rate: 1.0, ease_rot: Quat::IDENTITY });
     }
 
@@ -7292,7 +7357,7 @@ impl WallClimb {
         }
         // (The wall hang's inside corner here, its outside one after the reaches: AC1 jumps on to a ledge further along
         // before it turns an outside corner, audit LEDGE-5.)
-        if !vertical && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.hang_corner(lib, level, root, dir == "r", false) {
+        if !vertical && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.hang_corner(lib, level, root, rig, cr, dir == "r", false) {
             return true;
         }
         if is_rest(&self.state) || leap {
@@ -7305,7 +7370,7 @@ impl WallClimb {
         if self.take_first(lib, level, root, rig, base, cr, corners_out) {
             return true;
         }
-        if !vertical && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.hang_corner(lib, level, root, dir == "r", true) {
+        if !vertical && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.hang_corner(lib, level, root, rig, cr, dir == "r", true) {
             return true;
         }
         if !is_rest(&self.state) && leap && dir != "u" {
@@ -8066,6 +8131,15 @@ impl WallClimb {
                 let k = smoothstep(m.t / span.max(1e-3));
                 root.rotation = m.ease_rot.slerp(Quat::IDENTITY, k) * root.rotation;
             }
+            // A corner turn's root (over both of its clips), and the wall the hands look for holds on turning with it.
+            if let Some(tp) = &mut self.turn_path {
+                tp.t += dt;
+                (root.translation, root.rotation) = tp.at(tp.t);
+                let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+                if fwd != Vec3::ZERO {
+                    self.normal = -fwd;
+                }
+            }
             match m.to.as_str() {
                 // Pushing off near the ground: don't sink into it.
                 DROP => {
@@ -8088,6 +8162,9 @@ impl WallClimb {
                 return;
             }
             let done = self.mv.take().expect("move in progress");
+            if self.queue.is_empty() {
+                self.turn_path = None;
+            }
             self.last_clip = Some(done.clip.name.clone());
             // Move done: the wall normal turns with the clip's own turn of the root (not with an ease still under way:
             // carried on into the next clip, it turned the normal off the wall and the hang squared up with a jump).
@@ -8504,6 +8581,21 @@ impl WallClimb {
     /// leaping or leaving the wall, where the clip alone is right).
     pub fn hands_on_wall(&self) -> bool {
         !off_wall(&self.state) && !self.mv.as_ref().is_some_and(|m| off_wall(&m.to) || m.clip.name.contains("corner"))
+    }
+
+    /// Turning a corner in the wall hang: where hand `i` (0 left, 1 right) goes on the new hold, for the hand IK in place
+    /// of the nearest hold (the leading hand over the first clip, both over the second; see `TurnPath`).
+    pub fn corner_grip(&self, i: usize) -> Option<Vec3> {
+        let (tp, m) = (self.turn_path.as_ref()?, self.mv.as_ref()?);
+        let i = i.min(1);
+        let start = tp.starts[i]?;
+        let first = !self.queue.is_empty();
+        if first != (i == tp.lead) {
+            // (Not this hand's turn: where it holds, the old hold before, the new one after.)
+            return Some(if first { start } else { tp.grips[i] });
+        }
+        let s = smoothstep(m.t / m.clip.anim.duration.max(1e-3));
+        Some(start.lerp(tp.grips[i], s) + Vec3::Y * 0.1 * (s * std::f32::consts::PI).sin())
     }
 
     /// AC1's limb contacts now (`forge::anim::contact` bits), from the clip shown (its left and right swapped when it

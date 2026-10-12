@@ -279,6 +279,27 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "via xx_l_climb_1m_r_2m at [4"],
     },
     Scenario {
+        // (The user's "turning corners in a crouch hang is weird": the root turned 90 degrees in place in 0.25 s, then slid
+        // 0.85 m. AC1's interpolator turns it over both strafe clips; ours about the hands, which stay on the holds.)
+        name: "wall hang on the beam block's south face, right round its west corner and back: the turn about the hands",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_START", "64.35,30.6,0,6"),
+            ("AC1_WALK", "1.5"),
+            ("AC1_STOP", "1.2-30"),
+            ("AC1_HAND", "2.0"),
+            ("AC1_CLIMB", "nograb,wait=4.5,right=1.0,wait=2.5,left=1.0"),
+        ],
+        secs: 10.0,
+        want: &[
+            "-> hangwall_open via xx_l_ledge_pulldown_soft_to_hangwall_straight_b",
+            "round the outside corner from the wall hang onto [63.9",
+            "round the outside corner from the wall hang onto [64.2",
+            "via xx_h_hangwall_strafe_left_050cm_close",
+        ],
+        never: &["EMBED", "hangfree"],
+    },
+    Scenario {
         name: "climbing A with the stick up and right: AC1's diagonal moves (1m_ur_2ru, 2ru_ur_1m)",
         tags: &["climb"],
         env: &[("AC1_START", "1.0,4.0,180"), ("AC1_CLIMB", "upright=4")],
