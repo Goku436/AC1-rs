@@ -2469,6 +2469,28 @@ fn facing(dir: Vec3) -> Quat {
     Quat::from_rotation_arc(Vec3::NEG_Z, dir.with_y(0.0).normalize_or(Vec3::NEG_Z))
 }
 
+/// The way an eject off a wall goes, `away` the wall's way out and `input` the stick in the wall's frame (x to the right
+/// facing the wall, y up it): AC1's `jump_off_wall_dir` (Banned445's port, audit WALL-13): straight out with no stick,
+/// else the stick's way, turned in to 89 degrees off straight out when it points further round, none past 135 (into the
+/// wall).
+fn eject_way(away: Vec3, input: Vec2) -> Option<Vec3> {
+    let right = (-away).cross(Vec3::Y);
+    let stick = right * input.x - away * input.y;
+    if stick.length() < EJECT_STICK_DEAD {
+        return Some(away);
+    }
+    let d = stick.normalize();
+    let angle = d.angle_between(away);
+    if angle > EJECT_REFUSE {
+        return None;
+    }
+    if angle > EJECT_MAX_TURN {
+        let side = (d - away * d.dot(away)).normalize_or_zero();
+        return Some((away * EJECT_MAX_TURN.cos() + side * EJECT_MAX_TURN.sin()).normalize());
+    }
+    Some(d)
+}
+
 fn is_free(state: &str) -> bool {
     state.starts_with("free_")
 }
@@ -3670,27 +3692,7 @@ impl WallClimb {
     #[allow(clippy::too_many_arguments)]
     fn rebound_jump(lib: &mut AnimLib, level: &Level, root: &Transform, normal: Vec3, input: Vec2, left: bool, from: Option<Pose>) -> Option<WallClimb> {
         let away = normal.with_y(0.0).normalize_or_zero();
-        // (The stick's right as he faces the wall.)
-        let right = (-away).cross(Vec3::Y);
-        // The stick's own way (AC1's `jump_off_wall_dir`, Banned445's port, audit WALL-13): straight out with none, turned
-        // in to 89 degrees off straight out when it points further round, none past 135 (ours snapped to out, left or
-        // right).
-        let stick = right * input.x - away * input.y;
-        let way = if stick.length() < EJECT_STICK_DEAD {
-            away
-        } else {
-            let d = stick.normalize();
-            let angle = d.angle_between(away);
-            if angle > EJECT_REFUSE {
-                return None;
-            }
-            if angle > EJECT_MAX_TURN {
-                let side = (d - away * d.dot(away)).normalize_or_zero();
-                (away * EJECT_MAX_TURN.cos() + side * EJECT_MAX_TURN.sin()).normalize()
-            } else {
-                d
-            }
-        };
+        let way = eject_way(away, input)?;
         let p = root.translation;
         let top = jump_target_within(level, p, way, None, EJECT_REACH, false);
         // A hold to hang from that way (a beam's end, a ledge), as near as the top and higher: AC1's scorer takes the hang
@@ -3777,16 +3779,26 @@ impl WallClimb {
         Some(w)
     }
 
-    /// An eject with nothing to land on (`xx_h_rebound_<frontleft|frontright>_front_300cm_footl_to_air`): turned away
-    /// from the wall, toward the stick's side, pushing off into the air at AC1's free-jump target and catching what
-    /// comes (AC1's jump off a hang or climb always jumps, audit WALL-12; ours did nothing unless the stick was back).
-    fn back_eject(&mut self, lib: &mut AnimLib, root: &Transform, side: f32) -> bool {
-        let way = if side > 0.3 { "frontright" } else { "frontleft" };
-        let (Some(push), Some(air)) = (lib.get(&format!("xx_h_rebound_{way}_front_300cm_footl_to_air")), lib.get(JUMP_AIR)) else { return false };
+    /// An eject with nothing to land on: turned away from the wall, pushing off into the air at AC1's free-jump target
+    /// the stick's way (`eject_way`) and catching what comes (AC1's jump off a hang or climb always jumps, audit WALL-12;
+    /// ours did nothing unless the stick was back). The takeoff is AC1's rebound for that way (its groups as `crate::jump::rebound`
+    /// has them: the `frontleft` / `frontright` group straight away, the `left` / `right` one, a quarter turn, along the wall, blended
+    /// by the angle), the root turned away from the wall and the takeoff turning it on. (It was always 45 degrees off
+    /// straight away to the stick's side, whatever the stick said: user report, 2026-10-12.) `input` is the stick in the
+    /// wall's frame (`eject_input`); `false` with it pointing into the wall, as AC1 refuses.
+    fn back_eject(&mut self, lib: &mut AnimLib, root: &Transform, input: Vec2, left: bool) -> bool {
         let away = self.normal.with_y(0.0).normalize_or_zero();
-        let across = away.cross(Vec3::Y) * side.clamp(-1.0, 1.0);
-        let dir = (away + across).normalize_or(away);
-        let turned = Transform { rotation: facing(dir), ..*root };
+        let Some(dir) = eject_way(away, input) else { return false };
+        // (Its angle off straight away, positive to the right of the body turned away, as `rebound_jump` measures it.)
+        let angle = dir.dot(away.cross(Vec3::Y)).atan2(dir.dot(away));
+        // (Its takeoff the front 300 cm slot, as before: a push off into the air, the flight's speed set below.)
+        let q = (angle.abs() / std::f32::consts::FRAC_PI_2).min(1.0);
+        let (front, side) = if angle > 0.0 { ("frontright", "right") } else { ("frontleft", "left") };
+        let foot = if left { "footl" } else { "footr" };
+        let names = [front, side].map(|g| format!("xx_h_rebound_{g}_front_300cm_{foot}_to_air"));
+        let parts: Vec<(&str, f32)> = [(names[0].as_str(), 1.0 - q), (names[1].as_str(), q)].into_iter().filter(|(_, w)| *w > 0.01).collect();
+        let (Some(push), Some(air)) = (lib.get(&mix_name(&parts)), lib.get(JUMP_AIR)) else { return false };
+        let turned = Transform { rotation: facing(away), ..*root };
         // The flight time to come down `EJECT_FREE_DOWN` under the takeoff leaving at `EJECT_UP`, and the speed along
         // that covers `EJECT_FREE_ALONG` in it.
         let t = (EJECT_UP + (EJECT_UP * EJECT_UP + 2.0 * GRAVITY * EJECT_FREE_DOWN).sqrt()) / GRAVITY;
@@ -3799,8 +3811,22 @@ impl WallClimb {
             m.ease_rot = root.rotation * turned.rotation.inverse();
         }
         self.snap_turn = true;
-        debug!("climb: back eject ({way})");
+        debug!("climb: back eject, {:.0} degrees off straight away ({})", angle.to_degrees(), mix_name(&parts));
         true
+    }
+
+    /// The stick an eject goes by, in the wall's frame (x to the right facing the wall, y up it: away from it is -y): the
+    /// stick as the camera sees it (`move_dir`; AC1's jump off a wall reads the interpreter's camera-relative direction,
+    /// +0x1250, not the climbing stick in the character's frame, Banned445's port `jump_off_wall_dir`), else the climbing
+    /// stick `climb` (scripted runs hold only that).
+    fn eject_input(&self, climb: Vec2) -> Vec2 {
+        let stick = self.move_dir.with_y(0.0);
+        if stick.length() < EJECT_STICK_DEAD {
+            return climb;
+        }
+        let away = self.normal.with_y(0.0).normalize_or_zero();
+        let right = (-away).cross(Vec3::Y);
+        Vec2::new(stick.dot(right), -stick.dot(away))
     }
 
     /// Low profile at a bench: turn and sit on it (`xx_rest_sit_<left|right>_<000|090|180>_to_sitting` by how
@@ -6571,14 +6597,19 @@ impl WallClimb {
         }
         if on_wall && idle && self.high && input.y < 0.5 {
             self.eject_wait = None;
+            // (The way off by the stick as the camera sees it, not the climbing stick: see `eject_input`.)
+            let input = self.eject_input(input);
             // (Off the left foot, but to the left off the right: as the running game did.)
             let left = input.x > -0.5;
             // From a wall hang, AC1's rebound pose first, 0.2 s against the wall (`xx_h_hangwall_tr_rebound_<foot>`, the
             // takeoff on the same foot 0.22 s after it, in all four of the running game's ejects); the eject when it ends.
             // (From a climb too: the running game played it ejecting off the bureau wall's climb.)
             let pose = lib.get(&format!("xx_h_hangwall_tr_rebound_{}", if left { "footl" } else { "footr" }));
+            // (With nothing to land on too: AC1's event 2 plays the pose before any jump off; ours went straight from the hang
+            // into the push off, and the hands jumped 0.47 m on its first frame.)
             if let Some(pose) = pose
-                && Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()).is_some()
+                && (Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()).is_some()
+                    || eject_way(self.normal.with_y(0.0).normalize_or_zero(), input).is_some())
             {
                 let state = if catching { HANGWALL_OPEN.to_string() } else { self.state.clone() };
                 self.queue.clear();
@@ -6590,9 +6621,7 @@ impl WallClimb {
                 *self = w;
                 return true;
             }
-            // (The climbing stick's x is facing the wall; `back_eject`'s side is facing away from it: A, the left on the
-            // wall, is the right once turned away. Passed as it was, A ejected to the right and D to the left.)
-            return self.back_eject(lib, root, -input.x);
+            return self.back_eject(lib, root, input, left);
         }
         if self.state == BENCH {
             self.get_up = true;
@@ -8195,11 +8224,15 @@ impl WallClimb {
                 return;
             }
             // (The rebound pose played: the eject asked for.)
-            if let Some((input, left)) = self.eject_after.take()
-                && let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone())
-            {
-                *self = w;
-                return;
+            if let Some((input, left)) = self.eject_after.take() {
+                if let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()) {
+                    *self = w;
+                    return;
+                }
+                // (Nothing to land on that way: the push off into the air, after the same rebound pose.)
+                if self.back_eject(lib, root, input, left) {
+                    return;
+                }
             }
             // Topping a wall run with nothing to grab: AC1 kicks off it backwards
             // (`xx_h_wallingfront_step1_footr_tr_rebound_footr_a/b`, then `xx_h_rebound_footr_tr_fall`, seen in the

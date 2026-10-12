@@ -1092,7 +1092,9 @@ const SCENARIOS: &[Scenario] = &[
     },
     // The eject with nothing to land on (`back_eject`), from a wall run's catch at the hang on the test level's wall: the
     // stick to the left of the wall goes left (toward -Z here), to the right right. (The climbing stick is read facing the
-    // wall; passed unturned into the facing-away side, A ejected right and D left: user report, 2026-10-12.)
+    // wall; passed unturned into the facing-away side, A ejected right and D left: user report, 2026-10-12.) It goes the
+    // stick's way, AC1's `jump_off_wall_dir`: straight to the side is turned in to 89 degrees off straight away (it was
+    // always 45 degrees: user report #10, 2026-10-12).
     Scenario {
         name: "eject from a wall run's hang with the stick left: off to the left (the facing-away side turned)",
         tags: &["hang", "wallrun"],
@@ -1106,7 +1108,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject (frontright)", "the run ends at [16.06, 0.00, 9."],
+        want: &["back eject, 89 degrees off straight away", "the run ends at [21.37, 0.00, 7."],
         never: &["EMBED"],
     },
     Scenario {
@@ -1122,7 +1124,43 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,right=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject (frontleft)", "the run ends at [16.06, 0.00, 2"],
+        want: &["back eject, -89 degrees off straight away", "the run ends at [21.37, 0.00, 23."],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "eject from a wall run's hang with the stick back and left: off 45 degrees to the left, the stick's way (user report #10)",
+        tags: &["hang", "wallrun", "eject"],
+        env: &[
+            ("AC1_START", "19.5,15.3,-90"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_JUMP", "2.6"),
+            ("AC1_CLIMB", "nograb,wait=2.4,downleft=1.2"),
+        ],
+        secs: 4.5,
+        want: &["via xx_h_hangwall_tr_rebound_footr", "back eject, 45 degrees off straight away", "the run ends at [16.33, 0.00, 10."],
+        never: &["EMBED"],
+    },
+    // The eject goes by the stick as the camera sees it, not the climbing stick in the character's frame (AC1's jump off a
+    // wall reads the interpreter's camera-relative direction): the climbing stick straight down, the camera's stick back
+    // and to the left, 45 degrees off the wall (user report #10, 2026-10-12).
+    Scenario {
+        name: "eject from a wall run's hang goes the camera's stick's way: back and left with the climbing stick straight down",
+        tags: &["hang", "wallrun", "eject"],
+        env: &[
+            ("AC1_START", "19.5,15.3,-90"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0-2.5"),
+            ("AC1_VEER", "2.4,135"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_JUMP", "2.6"),
+            ("AC1_CLIMB", "nograb,wait=2.4,down=1.2"),
+        ],
+        secs: 4.5,
+        want: &["back eject, 45 degrees off straight away", "-> land via xx_h_landing_damage_footl_roll at [16.33, 0.00, 10."],
         never: &["EMBED"],
     },
     // User report #1 (2026-10-12): stuck in a Damascus rooftop hiding place. The hop out's room was tested along a ray

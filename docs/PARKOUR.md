@@ -657,6 +657,14 @@ in this batch, by audit id:
     (EXTRA-1's rule held only for standing on its line). A side entry onto a beam
     (`xx_h_freestep_entry_<foot>_tr_crouch<walk|jog>_*`) ends on the beam, its clip's own way corrected onto the line:
     played from where it met the parapet it walked 1.4 m off into the air, then the perch pulled him back.
+  - #10, ejects: the eject with nothing to land on (`back_eject`) goes the stick's way by AC1's `jump_off_wall_dir`
+    (straight away with no stick, at most 89 degrees off it, none past 135: into the wall) at the free-jump target, its
+    takeoff the rebound groups' front 300 cm clips blended by the angle (`frontleft`/`frontright` straight away,
+    `left`/`right` along the wall), after the rebound pose (`xx_h_hangwall_tr_rebound_<foot>`) as an eject at a target
+    has; it was always 45 degrees off to the stick's side. Every eject, at a target too (`rebound_jump`, which searches
+    along that way), reads the stick as the camera sees it (`move_dir`: AC1's jump off a wall reads the interpreter's
+    camera-relative +0x1250, Banned445's port), not the climbing stick in the character's frame; scripted runs that hold
+    only the climbing stick fall back on it.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
