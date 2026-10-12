@@ -1412,9 +1412,10 @@ fn blocked(level: &Level, root: Vec3, slide: Vec3) -> bool {
     [0.5, 1.2].iter().any(|&h| level.raycast(root + Vec3::Y * h, dir, slide.length() + 0.35).is_some_and(|hit| hit.normal.y.abs() < 0.5))
 }
 
-/// Clips that pull up from the waist rise first and go over the edge at the end (`xx_h_hangwaist_*`): their
-/// correction is applied late, so the body does not cut into the edge on the way up.
-fn late_correction(name: &str) -> bool {
+/// Clips that pull up from the waist (`xx_h_hangwaist_*`): a wall run's end onto a top carries its correction on
+/// that clip. (Spread linearly like every move's, as AC1's root interpolator does (`RootInterp__Advance` 0x7113F0);
+/// it was put on late, cubically, an invented rule, audit ANIM-16.)
+fn pulls_up_from_waist(name: &str) -> bool {
     name.starts_with("xx_h_hangwaist")
 }
 
@@ -3096,7 +3097,7 @@ impl WallClimb {
                 m.correct = warp;
             }
             if end_fix != Vec3::ZERO {
-                let over = w.queue.iter().position(|q| late_correction(&q.clip.name)).unwrap_or(w.queue.len().saturating_sub(1));
+                let over = w.queue.iter().position(|q| pulls_up_from_waist(&q.clip.name)).unwrap_or(w.queue.len().saturating_sub(1));
                 match w.queue.get_mut(over) {
                     Some(last) => last.correct += end_fix,
                     None => {
@@ -7195,10 +7196,9 @@ impl WallClimb {
             }
             let dur = m.clip.anim.duration;
             let frame = m.t.min(dur) * FPS;
-            let late = late_correction(&m.clip.name);
             let at = |m: &Move| {
                 let k = (m.t / dur.max(1e-3)).min(1.0);
-                m.start + world_rot(m.start_rot) * root_motion_at(&m.clip, frame) + m.correct * if late { k * k * k } else { k }
+                m.start + world_rot(m.start_rot) * root_motion_at(&m.clip, frame) + m.correct * k
             };
             let mut next = at(m);
             if matches!(m.to.as_str(), JUMP | LAND | GROUND | GROUND_ACT | HAY_OUT) {

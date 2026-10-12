@@ -541,6 +541,9 @@ in this batch, by audit id:
   onto its hold or the wall only while its bit is set, its weight rising 4/s and falling 5/s; the hold search only picks
   where it lands. Clips without the track keep the pull by distance (6/s). Not yet: the travel from the old hold to the
   new along the clip's own delta, and the grab predicted 0.2 s before a contact.
+- **Root path** (ANIM-16): the pull-ups from the waist (`xx_h_hangwaist_*`) spread their correction linearly over the
+  clip, as every other move and AC1's root interpolator do; the cubic, late correction was ours. (No scenario reaches
+  a waist pull-up: the free hang's top-out and the 2.5 m wall run onto a top want a look.)
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 
