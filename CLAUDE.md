@@ -12,7 +12,7 @@ Full format notes and status table are in `docs/NOTES.md` (the README is the sho
   a clip is for (the `passover` clips looked like a vault and are a ledge move).
 
 ## Layout
-- `crates/forge`: `.forge` archives, LZO1X, object container, textures, meshes, skeletons, animation (and clip mixing), action blocks (`action.rs`) and the move graph over them (`graph.rs`; example `graph_next`), collision shapes (`shape.rs`), Havok packfiles and ragdolls (`hkx.rs`), the object index (`index.rs`). Bins: `forge`, `catalog`, `findobj`, `animinfo` (clip duration, root motion and yaw by name), `objects` (one data file's objects, hex, or `dump` to files), `world` (a city's entities and meshes), `actions`, `shapes`, `ragdolls`, `idx`. Animation notes live in the header of `src/anim.rs`.
+- `crates/forge`: `.forge` archives, LZO1X, object container, textures, meshes, skeletons, animation (and clip mixing), action blocks (`action.rs`) and the move graph over them (`graph.rs`; example `graph_next`), collision shapes (`shape.rs`), Havok packfiles and ragdolls (`hkx.rs`), the object index (`index.rs`), sound (`sound.rs`: BAO sounds, the event graph, IMA-ADPCM, contact tables). Bins: `forge`, `catalog`, `findobj`, `animinfo` (clip duration, root motion and yaw by name), `objects` (one data file's objects, hex, or `dump` to files), `world` (a city's entities and meshes), `actions`, `shapes`, `ragdolls`, `idx`, `bao` (sound: `scan`, `wav` to out/, `clip` events). Animation notes live in the header of `src/anim.rs`.
 - `crates/ik`: pure math, unit-tested: IK, the Verlet ragdoll (`ragdoll.rs`) and cloth (`cloth.rs`). No Bevy, no game data.
 - `crates/game`: Bevy runtime, run with `-p ac1`. Controls and test hooks are in the header of `src/main.rs`.
 
@@ -22,8 +22,9 @@ Full format notes and status table are in `docs/NOTES.md` (the README is the sho
 - `dev`: day-to-day work. Commit and push here; merge into `main` (`git checkout main && git merge --no-ff dev`) when a
   batch is tested (full suite green, the user happy with a play-test), then tag it.
 - `fix/<name>`: one line of fixes (an audit area, a feature), each in its own worktree (`git worktree add ../ac1-wt/<name> -b fix/<name> dev`, its own `CARGO_TARGET_DIR`) so several can be worked on at once; merged into `dev` (`--no-ff`) once its tagged scenarios pass, then deleted.
-- `feature/<name>`: bigger separate lines of work off `dev`, merged back when ready: `feature/multiplayer` (the p2p UDP
-  test, `AC1_HOST=port` / `AC1_JOIN=ip:port`, from before v0.1.0: rebase onto `dev` before resuming it).
+- `feature/<name>`: bigger separate lines of work off `dev`, merged back when ready. (`feature/multiplayer`, the p2p UDP
+  test, was folded in by `fix/menus` on 2026-10-12: the F10 online menu, `net.rs` / `replay.rs`, `AC1_HOST=port` /
+  `AC1_JOIN=ip:port`.)
 - Tags `vMAJOR.MINOR.PATCH` (annotated) mark snapshots on `main` to go back to: `git checkout v0.1.0` to look,
   `git switch -c fix/<name> v0.1.0` to work from one. v0.1.0 = movement on AC1's tables, every clip and mesh parsing.
 
@@ -49,5 +50,5 @@ Driving which move plays from the move graph itself (`forge::graph::MoveGraph` i
 the code's action requests are found: 2035 action ids used in code, see docs/NOTES.md "What the executable's code asks for";
 every movement context now picks by AC1's tables or action ids, docs/PARKOUR.md "How far ours follows AC1's tables"; open: its 4 questions), the robe from AC1's own `DynamicMesh`/`ClothActionSettings`, combat (removed 2026-10-05; rebuild it
 on `HumanGround_Fight*` once movement is right), real hold data for climbing,
-Acre/Jerusalem/Kingdom checks, the streamed BAO audio (not object containers),
+Acre/Jerusalem/Kingdom checks, sound for Ogg-page tracks and the speech streams,
 the 64-bit quats of present-day Lucy's clips. Details are in the docs/NOTES.md status table and its Research section.

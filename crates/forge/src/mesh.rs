@@ -11,7 +11,7 @@
 //! - ... trailer: u32 submesh count, u32 material id per submesh, 5 bytes.
 //!
 //! Cloth meshes (first byte 4, e.g. `UCMA_Altair_Cloth`, the long robe): u32 4, u32 1, u8 0, an embedded
-//! cloth-simulation object (class 0x5755de7f, not decoded: `?`), then the usual u32 bone count, bone table
+//! cloth-simulation object (class 0x5755de7f, `SubMesh`: read by `cloth::soft_mesh`), then the usual u32 bone count, bone table
 //! and compiled mesh. The bone table is found by walking back from the compiled-mesh tag to a count that
 //! matches; the cloth is drawn as a plain skinned mesh.
 //!
@@ -31,7 +31,7 @@ use anyhow::{Result, bail, ensure};
 
 pub const CLASS_MESH: u32 = 0x415d9568;
 const CLASS_COMPILED: u32 = 0xfc9e1595;
-/// The cloth-simulation object embedded in cloth, vegetation and soft-body meshes (not decoded).
+/// The cloth-simulation object (`SubMesh`) embedded in cloth, vegetation and soft-body meshes (`cloth::soft_mesh`).
 const CLASS_CLOTH_SIM: u32 = 0x5755de7f;
 pub const POS_SCALE: f32 = 1.0 / 2048.0;
 /// Static (stride-24) vertex positions: i16 fractions of `|w| / 8` metres, `w` the position's fourth

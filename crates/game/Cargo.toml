@@ -8,3 +8,8 @@ anyhow = "1.0.104"
 bevy = "0.19.1"
 forge = { version = "0.1.0", path = "../forge" }
 ik = { version = "0.1.0", path = "../ik" }
+
+# The live log reader (ac1-hook): its tests run with the crate's.
+[[example]]
+name = "livelog"
+test = true

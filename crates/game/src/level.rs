@@ -186,8 +186,10 @@ pub struct Kiosk {
 /// 21,312 Damascus holds AC1 keeps).
 const AUTHORED_MAX_SLOPE: f32 = 0.643;
 /// AC1's hold grid shortens a guidance edge this much at its ends (m; `BuildHoldGrid` 0xDF6A40, docs/PARKOUR.md
-/// section 4): a lone piece 0.2 m long or less holds nothing.
+/// section 4)...
 const AUTHORED_TRIM: f32 = 0.1;
+/// ...and a piece shorter than that holds at its middle: kept this long there (m).
+const AUTHORED_POINT: f32 = 0.01;
 /// A top behind a hold this deep or less (m), with a drop past it, is a narrow wall top to balance on, not to stand:
 /// a beam's width. (At 0.6 m Damascus had 10,557, its parapets among them, and running along a roof switched in and
 /// out of balancing at every one; AC1 runs on those as ground, its beams found by `GuidanceBeamDetectorAccurate`.)
@@ -264,7 +266,13 @@ pub struct Level {
     pub beam_tops: Vec<Line>,
     /// Names shown over the test world's buildings and features (for finding things while testing).
     pub labels: Vec<(String, Vec3)>,
+    /// Per triangle of `tris` (cities): its surface's sound material (AC1's `CollisionMaterial`, see
+    /// `sound_material_at`), `NO_SOUND` where not known; shorter than `tris` when the last ones have none.
+    pub tri_sound: Vec<u8>,
 }
+
+/// `Level::tri_sound` of a triangle whose surface has no sound material.
+pub const NO_SOUND: u8 = u8::MAX;
 
 /// Test level holds: strips this deep (m) out from their wall, the grab line 6 cm out (where the hands hold; the strip's
 /// outer edge, beyond it, is outlined as well: see `draw_edges`).
@@ -728,14 +736,20 @@ impl Level {
             let len = e.a.distance(e.b);
             match e.kind {
                 SubType::LedgeGrab => {
-                    // (Shortened at its free ends, as AC1's hold grid takes an edge: the lone 8-12 cm window-frame
-                    // pieces leave nothing, where leaping to one hung him from the air. Not where it goes on into
-                    // another piece: a sill in three pieces of 0.15-0.23 m is one 0.87 m hold.)
+                    // (Shortened at its free ends, as AC1's hold grid takes an edge; not where it goes on into another
+                    // piece: a sill in three pieces of 0.15-0.23 m is one 0.87 m hold. A piece too short for that holds at
+                    // its middle, as AC1's probes take one (`sub_116D3C0`: shortened 0.1 m at both ends, the midpoint
+                    // when it is 0.2 m or less; audit GUIDE-2): a railing's knob, a lone window-frame piece.)
                     let free = |p: Vec3| if ends.get(&key(p)).copied().unwrap_or(0) <= 1 { AUTHORED_TRIM } else { 0.0 };
                     let (ta, tb) = (free(e.a), free(e.b));
-                    if len > ta + tb + 0.01 && (e.b.y - e.a.y).abs() / len <= AUTHORED_MAX_SLOPE && e.out != Vec3::ZERO {
+                    if len > 1e-4 && (e.b.y - e.a.y).abs() / len <= AUTHORED_MAX_SLOPE && e.out != Vec3::ZERO {
                         let d = (e.b - e.a) / len;
-                        ledges.push(Ledge { a: e.a + d * ta, b: e.b - d * tb, out: e.out });
+                        if len > ta + tb + AUTHORED_POINT {
+                            ledges.push(Ledge { a: e.a + d * ta, b: e.b - d * tb, out: e.out });
+                        } else {
+                            let mid = (e.a + e.b) * 0.5;
+                            ledges.push(Ledge { a: mid - d * AUTHORED_POINT * 0.5, b: mid + d * AUTHORED_POINT * 0.5, out: e.out });
+                        }
                     }
                 }
                 SubType::Ladder => {
@@ -857,6 +871,24 @@ impl Level {
     /// Ground under `p`, searching from `up` above it down to `down` below.
     pub fn ground(&self, p: Vec3, up: f32, down: f32) -> Option<Hit> {
         self.raycast(p + Vec3::Y * up, Vec3::NEG_Y, up + down)
+    }
+
+    /// The sound material of the ground under `p` (the footstep events' switch 0, see `sound`): the nearest triangle a
+    /// ray down from 0.5 m over it meets within 1.5 m. `None` where that surface has none (the test level).
+    pub fn sound_material_at(&self, p: Vec3) -> Option<u32> {
+        if self.tri_sound.is_empty() {
+            return None;
+        }
+        let origin = p + Vec3::Y * 0.5;
+        let mut best: Option<(f32, u32)> = None;
+        for i in self.tris_near(p - Vec3::new(0.01, 1.0, 0.01), origin + Vec3::new(0.01, 0.0, 0.01)) {
+            if let Some((h, _)) = self.raycast_tris(std::iter::once(&self.tris[i as usize]), origin, Vec3::NEG_Y, 1.5)
+                && best.is_none_or(|b| h.dist < b.0)
+            {
+                best = Some((h.dist, i));
+            }
+        }
+        best.and_then(|(_, i)| self.tri_sound.get(i as usize)).filter(|&&m| m != NO_SOUND).map(|&m| m as u32)
     }
 
     /// The triangles that may touch the box `lo`..`hi` (each once).
@@ -1029,14 +1061,10 @@ impl Level {
             // (Past it a drop: not the step up to a roof. Along all of it, every `PAIR_BEAM_STEP`, the top kept only where
             // it drops past: tested at the middle alone, a roof edge's strip over a drop for half its length was a top to
             // balance on its whole length, the roof flush past the rest; the running game stepped off it there.)
-            // (And a drop in front of the hold too: a roof's parapet, its floor 0.24 m under the top behind it, is ground to
-            // AC1, not a beam. Taken from the hold facing the roof, the drop to the street past the top made it one, and
-            // standing at the roof's edge with the stick along it he got onto it and balanced there, Damascus at
-            // (192, 8, -11.46): user report, 2026-10-12.)
-            let drops = |s: f32| {
-                let p = l.a.lerp(l.b, s);
-                [p - l.out * (depth + 0.1), p + l.out * PAIR_BEAM_OUT].iter().all(|q| self.ground(*q + Vec3::Y * 0.3, 0.0, 0.8).is_none())
-            };
+            // (A roof's parapet, the roof just under it on one side, stays a top: the running game jumps onto one as a
+            // free-step target off the bureau's roof, audit JUMP-3; walking or standing by it never gets onto it as a beam
+            // (`locomotion`'s ground-to-perch rule), user report #12.)
+            let drops = |s: f32| self.ground(l.a.lerp(l.b, s) - l.out * (depth + 0.1) + Vec3::Y * 0.3, 0.0, 0.8).is_none();
             let n = (len / PAIR_BEAM_STEP).ceil().max(1.0) as usize;
             let shift = -l.out * (depth * 0.5);
             let mut out = vec![];
