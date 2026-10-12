@@ -476,7 +476,7 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   **[B]**
 
 ## 10. Limb IK
-- Limb weights rise at 4/s with a contact (0.25 s fade in) and fall at 5/s when released (0.2 s) (`LimbIK` 0xE57570).
+- Limb weights rise at 4/s with a contact (0.25 s fade in) and fall at 5/s when released (0.2 s) (`LimbIK` 0xE57570); ours reads the contacts from the clips' hash 2 track (`forge::anim::contact`, `WallClimb::contacts`).
   HumanIK's chest pull, shoulder correction and twist are off for humans; reaches stay in the limb. **[B]**
 
 ## 11. Cities: what makes Damascus different (ours)
@@ -587,6 +587,28 @@ in this batch, by audit id:
   box beside it is clear (the revolve, `xx_h_ladder_turn_<l|r>_a` / `_b_tr_h_wait_<l|r>`, guard 0xE262B0); against a
   wall the box is in the wall. Gauntlet G16 (a free-standing ladder). Not done: the back-approach turn (TURN
   0x0A64400C/D, when the attach box is blocked) and the leaning ladder's forced revolve.
+- **Blends** (ANIM-4 to 6): every step takes AC1's whole `ActionBlend` from the move graph, looked up as the game does
+  (`MoveGraph::blend_into`): item to item, the next item's blend; out of an item, its way's blend A into the connector
+  (or the destination when it has none), B from the connector into the destination; an action the code starts, the
+  playing item's way to it, the playing action's out-transition, the new one's in-transition, the default ASTOPBROLL
+  0.2 s (a cut for an action flagged to have none). The item's own blend no longer overrides a transition's on the
+  move's first frame. Kind NONE is a cut (86% of item blends, 221 of 243 ways in the movement blocks), AROLLB* keep A
+  playing under the blend, *BSTOP* hold B on its first pose, the weight is linear (eased only where the flags say, two
+  blends), a clamped blend lasts at most what is left of A. Ours: a cut is kept only where the two poses line up within
+  5 cm (hands and feet); where our chain does not line up as AC1's (a move begun mid-clip, a step turned onto a hold),
+  the cut would pop, and our crossfade by the gap is used. No movement block uses a B start position other than
+  FROMSTART. Our own fades (steps the graph does not have) stay smoothstep.
+- **Turns** (ANIM-8; ANIM-9 was GROUND-4): while the playing item has TURNS_BODY (the turn on the spot, the run
+  turn-around) the stick no longer bends its facing and a high-profile turn is no longer broken off into the run near
+  its end: the clip's own turn (090 and 180 mixed by the angle) ends it, and it leaves through its own ways.
+- **Limb contacts** (ANIM-10): the climbing IK reads the clip's limb-contact track (hash 2: bits 2/3 the left/right
+  toe, 4/5 the left/right hand; a mix takes its heaviest clip's, a mirrored clip swaps them): a hand or foot is pulled
+  onto its hold or the wall only while its bit is set, its weight rising 4/s and falling 5/s; the hold search only picks
+  where it lands. Clips without the track keep the pull by distance (6/s). Not yet: the travel from the old hold to the
+  new along the clip's own delta, and the grab predicted 0.2 s before a contact.
+- **Root path** (ANIM-16): the pull-ups from the waist (`xx_h_hangwaist_*`) spread their correction linearly over the
+  clip, as every other move and AC1's root interpolator do; the cubic, late correction was ours. (No scenario reaches
+  a waist pull-up: the free hang's top-out and the 2.5 m wall run onto a top want a look.)
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.

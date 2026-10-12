@@ -136,6 +136,7 @@ use crate::animation::{AnimLib, Clip, mix_name, root_motion_at, root_rotation_at
 use crate::character::model_to_bevy;
 use crate::level::{Hit, Ladder, Ledge, Level, Line};
 use bevy::prelude::*;
+use forge::action::Blend;
 use forge::anim::FPS;
 use ik::{Pose, Rig};
 use std::sync::Arc;
@@ -978,6 +979,57 @@ struct Cycle {
     intro: Option<(Arc<Clip>, f32, f32)>,
 }
 
+/// A clip as shown: where it was, how fast it ran, whether it loops or played mirrored, and whether a fade was
+/// running over it.
+#[derive(Clone)]
+struct Shown {
+    clip: Arc<Clip>,
+    t: f32,
+    rate: f32,
+    looping: bool,
+    mirrored: bool,
+    fading: bool,
+}
+
+impl Shown {
+    fn pose(&self, base: &Pose, cr: ClimbRig, rig: &Rig, mirror: &ik::mirror::Mirror) -> Pose {
+        let mut pose = base.clone();
+        sample(&self.clip, self.t.min(self.clip.anim.duration) * FPS, &mut pose, cr.reference);
+        if self.mirrored { mirror.apply(rig, &pose) } else { pose }
+    }
+}
+
+/// A crossfade from what was shown (A) into the move now playing (B).
+struct Fade {
+    /// A's pose, frozen as it was last shown.
+    from: Pose,
+    /// Time left (s) and the whole length.
+    t: f32,
+    len: f32,
+    /// AC1's blend, when its move graph gives the step (its weight curve, whether A plays on and B holds, audit
+    /// ANIM-4 to 6); `None`: our own smoothstep crossfade, for steps AC1's graph does not have.
+    blend: Option<Blend>,
+    /// A playing on under the blend (AROLLB*), sampled each frame instead of `from`.
+    roll: Option<Shown>,
+}
+
+impl Fade {
+    fn new(from: Pose, len: f32) -> Self {
+        Fade { from, t: len, len, blend: None, roll: None }
+    }
+
+    /// B's weight now.
+    fn weight(&self) -> f32 {
+        let k = 1.0 - self.t / self.len.max(1e-4);
+        self.blend.map_or_else(|| smoothstep(k), |b| b.weight(k))
+    }
+
+    /// B is held on its first pose while this runs (AC1's *BSTOP* blends).
+    fn holds_b(&self) -> bool {
+        self.blend.is_some_and(|b| b.stops_b())
+    }
+}
+
 pub struct WallClimb {
     pub state: String,
     /// Out of the wall, horizontal.
@@ -991,8 +1043,11 @@ pub struct WallClimb {
     wait_t: f32,
     /// Looking round on the wall that way (`look_around`): "up", "down", "left" or "right".
     looking: Option<&'static str>,
-    /// Pose we are fading from, the fade time left and its length.
-    fade: Option<(Pose, f32, f32)>,
+    /// The crossfade from what was shown into the move playing.
+    fade: Option<Fade>,
+    /// The clip shown last frame and the one shown before it (A of a blend the code starts, `update`).
+    shown: Option<Shown>,
+    prev_shown: Option<Shown>,
     last: Option<Pose>,
     /// Last vertical choice, so up/down alternates hands.
     last_hand_up: usize,
@@ -1506,15 +1561,39 @@ fn blocked(level: &Level, root: Vec3, slide: Vec3) -> bool {
     [0.5, 1.2].iter().any(|&h| level.raycast(root + Vec3::Y * h, dir, slide.length() + 0.35).is_some_and(|hit| hit.normal.y.abs() < 0.5))
 }
 
-/// Clips that pull up from the waist rise first and go over the edge at the end (`xx_h_hangwaist_*`): their
-/// correction is applied late, so the body does not cut into the edge on the way up.
-fn late_correction(name: &str) -> bool {
+/// Clips that pull up from the waist (`xx_h_hangwaist_*`): a wall run's end onto a top carries its correction on
+/// that clip. (Spread linearly like every move's, as AC1's root interpolator does (`RootInterp__Advance` 0x7113F0);
+/// it was put on late, cubically, an invented rule, audit ANIM-16.)
+fn pulls_up_from_waist(name: &str) -> bool {
     name.starts_with("xx_h_hangwaist")
 }
 
 /// A collide clip mixed by height: `{h}` as `050` and `070`, weight `mix` on the 70 cm one.
 fn collide_name(pattern: &str, mix: f32) -> String {
     mix_name(&[(&pattern.replace("{h}", "050"), 1.0 - mix), (&pattern.replace("{h}", "070"), mix)])
+}
+
+/// A cut (AC1's blend of kind NONE) is kept where the poses on either side are this close (m, the farthest hand or
+/// foot apart): AC1's chains line up there. Ours do not always (a move begun mid-clip, a fade still running at the
+/// seam, a step played mirrored or turned onto a hold): there the cut would pop, and our crossfade by the gap is used.
+const CUT_GAP: f32 = 0.05;
+
+/// A fade from `from` with AC1's blend `b` (`None` for a cut). `a`: the clip shown before, rolling on under the blend
+/// for AROLLB* kinds (unless a fade ran over it: then it is frozen, as Banned445's port does), and bounding the
+/// blend's length by what is left of it for clamped blends. `gap`: how far the move's first pose is from `from`
+/// (`seam_gap`), asked for a cut only (see `CUT_GAP`); a cut that does not line up fades over `ours(gap)` instead.
+fn graph_fade(from: Pose, b: Blend, a: Option<Shown>, gap: impl FnOnce(&Pose) -> f32, ours: impl FnOnce(f32) -> f32) -> Option<Fade> {
+    if b.is_cut() {
+        let gap = gap(&from);
+        return (gap > CUT_GAP).then(|| Fade::new(from, ours(gap)));
+    }
+    let mut len = b.time();
+    if b.clamps()
+        && let Some(a) = a.as_ref().filter(|a| !a.looping)
+    {
+        len = len.min((a.clip.anim.duration - a.t).max(0.0) / a.rate.max(1e-3));
+    }
+    (len > 0.01).then(|| Fade { from, t: len, len, blend: Some(b), roll: a.filter(|a| b.rolls_a() && !a.fading) })
 }
 
 fn smoothstep(t: f32) -> f32 {
@@ -2288,6 +2367,8 @@ impl WallClimb {
             wait_t: 0.0,
             looking: None,
             fade: None,
+            shown: None,
+            prev_shown: None,
             last: None,
             last_hand_up: 0,
             want_drop: false,
@@ -3322,7 +3403,7 @@ impl WallClimb {
                 m.correct = warp;
             }
             if end_fix != Vec3::ZERO {
-                let over = w.queue.iter().position(|q| late_correction(&q.clip.name)).unwrap_or(w.queue.len().saturating_sub(1));
+                let over = w.queue.iter().position(|q| pulls_up_from_waist(&q.clip.name)).unwrap_or(w.queue.len().saturating_sub(1));
                 match w.queue.get_mut(over) {
                     Some(last) => last.correct += end_fix,
                     None => {
@@ -3345,7 +3426,7 @@ impl WallClimb {
         let n = clips.len();
         let tos = (0..n).map(|i| if i + 1 == n { GROUND } else { GROUND_ACT }.to_string()).collect();
         w.start_chain(clips, tos, root, correct);
-        w.fade = from.map(|p| (p, ENTER_FADE, ENTER_FADE));
+        w.fade = from.map(|p| Fade::new(p, ENTER_FADE));
         w.cancel = cancel;
         Some(w)
     }
@@ -3521,7 +3602,7 @@ impl WallClimb {
         let n = clips.len();
         let tos = (0..n).map(|i| if i + 1 == n { BENCH } else { BENCH_SIT }.to_string()).collect();
         w.start_chain(clips, tos, root, (seat + facing * BENCH_SEAT_OUT - (p + travel)).with_y(0.0));
-        w.fade = from.map(|p| (p, ENTER_FADE, ENTER_FADE));
+        w.fade = from.map(|p| Fade::new(p, ENTER_FADE));
         debug!("climb: sit on the bench ({side} {how})");
         Some(w)
     }
@@ -4326,7 +4407,7 @@ impl WallClimb {
         w.wait = Some(wait);
         w.sprint = sprint;
         let arrive_from = from.clone();
-        w.fade = from.map(|p| (p, ENTER_FADE, ENTER_FADE));
+        w.fade = from.map(|p| Fade::new(p, ENTER_FADE));
         debug!("climb: onto perch {i} at {:.2}", root.translation);
         if let Some(clip) = beam_side_entry(lib, &line, root, stick, sprint, lead_left) {
             debug!("climb: side entry onto the beam via {}", clip.name);
@@ -4334,7 +4415,7 @@ impl WallClimb {
             let r = Transform { translation: line.closest(root.translation), ..*root };
             w.start_chain(vec![clip], vec![PERCH.to_string()], &r, Vec3::ZERO);
             if w.fade.is_none() {
-                w.fade = arrive_from.map(|p| (p, ENTER_FADE, ENTER_FADE));
+                w.fade = arrive_from.map(|p| Fade::new(p, ENTER_FADE));
             }
             return Some(w);
         }
@@ -4369,7 +4450,7 @@ impl WallClimb {
         }
         // (From the pose shown: `start` fades from the climb's own last pose, which a new one has none of.)
         if w.mv.is_some() && w.fade.is_none() {
-            w.fade = arrive_from.map(|p| (p, ENTER_FADE, ENTER_FADE));
+            w.fade = arrive_from.map(|p| Fade::new(p, ENTER_FADE));
         }
         Some(w)
     }
@@ -4533,7 +4614,7 @@ impl WallClimb {
         // (AC1's beam speed model: up at 2 m/s², down at 3, Banned445's reanalysis NARROW-1).)
         let v = if self.sprint { BEAM_SPRINT_START.min(speed) } else { speed };
         self.cycle = Some(Cycle { clips: [a, b], foot, phase: 0.0, dir, speed, v, intro: intro.map(|(_, c, v)| (c, 0.0, v)) });
-        self.fade = self.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
+        self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
     }
 
     /// Walking along a beam: follow its top line; at its end step onto ground that carries on, else
@@ -4574,7 +4655,7 @@ impl WallClimb {
             w.wait = lib.get(BEAM_WAIT[foot]).or(w.wait.take());
             w.wait_hold = false;
             w.wait_t = 0.0;
-            w.fade = w.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
+            w.fade = w.last.clone().map(|p| Fade::new(p, ENTER_FADE));
         };
         if self.move_dir.with_y(0.0).normalize_or_zero().dot(cy.dir) < BEAM_WALK_COS {
             // Jogging, let go: AC1's jog stop on the foot it was on (0x3466339D / 9E), into the crouch on it.
@@ -4978,7 +5059,7 @@ impl WallClimb {
             m.correct = target - p - moved;
             m.ease_rot = root.rotation * rot.inverse();
         }
-        self.fade = self.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
+        self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
         debug!("climb: caught bar {i} at {q:.2}");
         true
     }
@@ -4999,7 +5080,7 @@ impl WallClimb {
             self.mv = None;
             self.queue.clear();
             self.wait = lib.get("xx_h_hangfree_waitclose");
-            self.fade = self.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
+            self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
             return true;
         }
         self.swung = true;
@@ -5009,7 +5090,7 @@ impl WallClimb {
                 debug!("climb: the swing comes to rest ({side})");
                 self.start_chain(clips, vec![SWING.into(), SWING.into(), SWING.into(), FREE.into()], root, Vec3::ZERO);
                 // (Faded in: the stop's first pose is 7 cm off the swing's last at the feet.)
-                self.fade = self.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
+                self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
                 return true;
             }
         }
@@ -5786,7 +5867,9 @@ impl WallClimb {
             return;
         }
         let Some(r) = cr.reference.filter(|&r| rig.parents[r].is_none()) else { return };
-        let Some((from, a, b)) = self.fade.clone() else { return };
+        let Some(fade) = &self.fade else { return };
+        // (A rolling on under the blend (AROLLB*) is frozen as last shown: the snap comes as the fade starts.)
+        let Some(from) = (if fade.roll.is_some() { self.last.clone() } else { Some(fade.from.clone()) }) else { return };
         // (The hips: the Reference bone's first child.)
         let hips = (0..rig.parents.len()).find(|&i| rig.parents[i] == Some(r)).unwrap_or(r);
         let mut first = base.clone();
@@ -5808,13 +5891,20 @@ impl WallClimb {
         // (How far the hips turn over the fade: the poses' own difference.)
         let gap = from.model_of(rig, hips).rot.angle_between(first.model_of(rig, hips).rot).to_degrees();
         debug!("climb: the takeoff turned away at once, the root {across:.2} m across, the hips {gap:.0} degrees off the pose before");
-        self.fade = Some((from, a, b));
+        if let Some(f) = &mut self.fade {
+            f.from = from;
+            f.roll = None;
+        }
+        // (Its fade stays ours, eased in, not AC1's linear blend for the step: ours keeps the hips where they were where
+        // AC1 moves the root 0.34 m out, and the hang's pose, turned with a root the clip goes on turning 11 degrees a
+        // frame, swung a hand 0.46 m in the blend's second frame at once.)
+        self.blended_for = Some(m.clip.name.clone());
     }
 
     /// Blend in from the ground: crossfade from the pose shown and move the root from where it stood
     /// (`was`) into the first move's planned start over that move.
     fn ease_in(&mut self, from: Option<Pose>, was: &Transform) {
-        self.fade = from.map(|p| (p, ENTER_FADE, ENTER_FADE));
+        self.fade = from.map(|p| Fade::new(p, ENTER_FADE));
         if let Some(m) = &mut self.mv {
             m.correct += m.start - was.translation;
             m.start = was.translation;
@@ -5824,7 +5914,7 @@ impl WallClimb {
 
     fn start(&mut self, clip: Arc<Clip>, to: String, root: &Transform) {
         debug!("climb: {} -> {to} via {} at {:.2} yaw {:.0}", self.state, clip.name, root.translation, root.rotation.to_euler(EulerRot::YXZ).0.to_degrees());
-        self.fade = self.last.clone().map(|p| (p, FADE, FADE));
+        self.fade = self.last.clone().map(|p| Fade::new(p, FADE));
         self.mirrored = false;
         self.mv = Some(Move { clip, t: 0.0, to, start: root.translation, start_rot: root.rotation, correct: Vec3::ZERO, rate: 1.0, ease_rot: Quat::IDENTITY });
     }
@@ -5867,7 +5957,7 @@ impl WallClimb {
                     from.rotate_model(rig, r, model_to_bevy().inverse() * square.inverse() * root.rotation * model_to_bevy());
                 }
                 root.rotation = square;
-                self.fade = Some((from, WAIT_FADE, WAIT_FADE));
+                self.fade = Some(Fade::new(from, WAIT_FADE));
             }
         }
         let pair = match self.state.as_str() {
@@ -7399,7 +7489,7 @@ impl WallClimb {
             && let Some(fall_loop) = lib.get(FALL_LOOP)
         {
             self.start(fall_loop, FALL.into(), root);
-            self.fade = self.last.clone().map(|p| (p, ENTER_FADE, ENTER_FADE));
+            self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
         }
         if v.y < 0.0 && self.try_hay(lib, level, root, step.y) {
             return;
@@ -7587,8 +7677,14 @@ impl WallClimb {
         // A steered move (a turn round) follows the stick: the facing it will end on is bent toward where the stick
         // points now, at up to `STEER_RATE` on top of the clips' own turn, so the camera and the stick stay free
         // through it. (The move's start is swung round the root too, so the root does not slide.)
+        // (Not while the item playing turns the body itself, AC1's TURNS_BODY bit (the turn on the spot, the run
+        // turn-around): there the game's heading is not applied (`HumanGround__UpdateHeading` 0xD95290), the clip's own
+        // turn, its 090 and 180 variants mixed by the angle, ends on the stick; and the item is locked, so it plays out
+        // and leaves through its own ways, not broken off into the run near its end (audit ANIM-8).)
+        let turns_body = self.mv.as_ref().is_some_and(|m| lib.graph.gate(&m.clip.name).is_some_and(|g| g.has(forge::action::gate::TURNS_BODY)));
         if self.steer.is_some()
             && self.move_dir.length() > 0.1
+            && !turns_body
             && let Some(m) = &mut self.mv
         {
             let end = root_rotation_at(&m.clip, m.clip.frames());
@@ -7607,15 +7703,17 @@ impl WallClimb {
             }
             self.steer = Some(want);
             // Running (high profile) and nearly round: break off into the run now, AC1's turn going straight into its
-            // jog, run or sprint (the rest of the turn is the gait's to finish).
+            // jog, run or sprint (the rest of the turn is the gait's to finish). (Only out of an item whose gate lets it
+            // be left for moving: the turn's exit, not the locked turn, audit ANIM-8.)
             let left = root_delta(end) * root_delta(root_rotation_at(&m.clip, m.t * FPS)).inverse();
             if self.high
                 && self.queue.is_empty()
                 && m.clip.name.contains("_waitturn_")
+                && lib.graph.gate(&m.clip.name).is_none_or(|g| g.may_leave(true, true))
                 && (err - step).abs() < TURN_BREAK
                 && left.to_euler(EulerRot::YXZ).0.abs() < TURN_BREAK
             {
-                debug!("climb: turn broken off into the run");
+                debug!("climb: turn broken off into the run (out of {})", m.clip.name);
                 self.last_clip = Some(m.clip.name.clone());
                 self.mv = None;
                 self.steer = None;
@@ -7663,22 +7761,49 @@ impl WallClimb {
             self.finished = true;
             return;
         }
-        // A move starting: fade into it over its item's blend time in AC1's move graph, where it gives one.
+        // A move the code starts (not a step of a chain, which took its blend at the seam): fade into it with the blend
+        // AC1's code would use (`MoveGraph::blend_into`: the step the graph lists from what was shown, else the playing
+        // action's way out, the new one's way in, the default), not its item's own, which is for the step from the item
+        // before it (audit ANIM-4, ANIM-5). A cut shows it at once.
         if let Some(m) = &self.mv
             && self.blended_for.as_deref() != Some(m.clip.name.as_str())
         {
             self.blended_for = Some(m.clip.name.clone());
-            if let (Some(b), Some(f)) = (lib.graph.blend_in(&m.clip.name).filter(|b| *b > 0.0), &mut self.fade) {
-                f.1 = b;
-                f.2 = b;
+            let a = match &self.shown {
+                Some(s) if s.clip.name != m.clip.name => Some(s.clone()),
+                _ => self.prev_shown.clone().filter(|s| s.clip.name != m.clip.name),
+            };
+            if self.fade.is_some()
+                && let Some(b) = lib.graph.blend_into(a.as_ref().map(|a| a.clip.name.as_str()), &m.clip.name)
+            {
+                let mut first = base.clone();
+                sample(&m.clip, m.t.min(m.clip.anim.duration) * FPS, &mut first, cr.reference);
+                // (A cut that does not line up keeps the fade the code asked for.)
+                self.fade = self.fade.take().and_then(|f| {
+                    let len = f.len;
+                    graph_fade(f.from, b, a, |from| seam_gap(rig, cr, from, &first), |_| len)
+                });
+                debug!(
+                    "climb: blend into {}: kind {} {:.2} s -> {:?}",
+                    m.clip.name,
+                    b.kind,
+                    b.time(),
+                    self.fade.as_ref().map(|f| (f.len, f.blend.is_some(), f.roll.is_some()))
+                );
             }
         }
-        if let Some((_, t, _)) = &mut self.fade {
-            *t -= dt;
-            if *t <= 0.0 {
+        if let Some(f) = &mut self.fade {
+            f.t -= dt;
+            if let Some(r) = &mut f.roll {
+                let dur = r.clip.anim.duration.max(1e-3);
+                r.t += dt * r.rate;
+                r.t = if r.looping { r.t % dur } else { r.t.min(dur) };
+            }
+            if f.t <= 0.0 {
                 self.fade = None;
             }
         }
+        let hold_b = self.fade.as_ref().is_some_and(Fade::holds_b);
         if self.fall_v.is_some() {
             self.fall(lib, level, root, rig, base, cr, dt);
             return;
@@ -7688,13 +7813,15 @@ impl WallClimb {
             return;
         }
         if let Some(m) = &mut self.mv {
-            m.t += dt * m.rate;
+            // (Held on its first pose under an ASTOPBSTOP blend.)
+            if !hold_b {
+                m.t += dt * m.rate;
+            }
             let dur = m.clip.anim.duration;
             let frame = m.t.min(dur) * FPS;
-            let late = late_correction(&m.clip.name);
             let at = |m: &Move| {
                 let k = (m.t / dur.max(1e-3)).min(1.0);
-                m.start + world_rot(m.start_rot) * root_motion_at(&m.clip, frame) + m.correct * if late { k * k * k } else { k }
+                m.start + world_rot(m.start_rot) * root_motion_at(&m.clip, frame) + m.correct * k
             };
             let mut next = at(m);
             if matches!(m.to.as_str(), JUMP | LAND | GROUND | GROUND_ACT | HAY_OUT) {
@@ -7833,18 +7960,24 @@ impl WallClimb {
                     self.state = FALL.into();
                 }
                 debug!("climb: {} -> {} via {} at {:.2}", self.state, next.to, next.clip.name, root.translation);
-                // Crossfade the seam over the blend AC1's move graph gives that way (the transition's own time), else by how
-                // far the hands and feet jump (AC1 chains do not all line up).
+                // The seam takes the blend AC1's move graph gives that way (`MoveGraph::blend_into`: the next item's blend,
+                // a way's blend A into its connector, B out of it, the code's transition into an action it starts; a cut
+                // where the blend's kind is NONE, as most item blends are, audit ANIM-4, ANIM-5), else, for steps the
+                // graph does not have, a crossfade by how far the hands and feet jump (AC1 chains do not all line up).
+                // (A has played to its end: it does not roll on, and a blend clamped to what is left of A is a cut.)
+                self.blended_for = Some(next.clip.name.clone());
                 if let Some(last) = &self.last {
-                    let len = match lib.graph.transition_blend(&done.clip.name, &next.clip.name).filter(|t| *t > 0.0) {
-                        Some(t) => t,
-                        None => {
-                            let mut next_pose = base.clone();
-                            sample(&next.clip, 0.0, &mut next_pose, cr.reference);
-                            (seam_gap(rig, cr, last, &next_pose) * 0.3).clamp(0.05, 0.25)
-                        }
+                    let listed = !lib.graph.places(&done.clip.name).is_empty() && !lib.graph.places(&next.clip.name).is_empty();
+                    let mut next_pose = base.clone();
+                    sample(&next.clip, 0.0, &mut next_pose, cr.reference);
+                    let gap = |from: &Pose| seam_gap(rig, cr, from, &next_pose);
+                    let ours = |gap: f32| (gap * 0.3).clamp(0.05, 0.25);
+                    self.fade = match lib.graph.blend_into(Some(&done.clip.name), &next.clip.name).filter(|_| listed) {
+                        Some(b) if b.clamps() => graph_fade(last.clone(), Blend::default(), None, gap, ours),
+                        Some(b) => graph_fade(last.clone(), b, None, gap, ours),
+                        None => Some(Fade::new(last.clone(), ours(gap(last)))),
                     };
-                    self.fade = Some((last.clone(), len, len));
+                    debug!("climb: seam blend {} -> {}: {:?}", done.clip.name, next.clip.name, self.fade.as_ref().map(|f| (f.len, f.blend.map(|b| b.kind))));
                 }
                 // (A turn still easing in carries on into the next clip: cut at a short clip's end, a catch turned him
                 // 90 degrees in four frames.)
@@ -7885,16 +8018,16 @@ impl WallClimb {
             // (A fade into the move just done, still under way (a blend longer than its clip: the wall run's ladder entry),
             // goes on from the pose shown, which has it in, toward the wait: kept as it was, its pose faded from stayed
             // while the target jumped from the move's end to the wait's start, a hand 0.46 m in a frame.)
-            if let (Some((_, t, _)), Some(last)) = (&self.fade, &self.last) {
-                let len = t.max(FADE);
-                self.fade = Some((last.clone(), len, len));
+            if let (Some(f), Some(last)) = (&self.fade, &self.last) {
+                let len = f.t.max(FADE);
+                self.fade = Some(Fade::new(last.clone(), len));
             }
             // Balancing on a post, leaning, hiding: their loops start in another pose than the move
             // ends in (a one-hand pull-up ends stepping up), so crossfade into them.
             if matches!(self.state.as_str(), PERCH | LEAN | COLLIDE | HAY | BENCH)
                 && let Some(last) = &self.last
             {
-                self.fade = Some((last.clone(), WAIT_FADE, WAIT_FADE));
+                self.fade = Some(Fade::new(last.clone(), WAIT_FADE));
             }
             self.settle_hang(lib, level, root, rig, base, cr);
             self.set_wait(lib, done.clip);
@@ -7907,7 +8040,7 @@ impl WallClimb {
                 let gap = seam_gap(rig, cr, last, &first);
                 if gap > 0.03 {
                     let len = (gap * 0.4).clamp(0.08, 0.3);
-                    self.fade = Some((last.clone(), len, len));
+                    self.fade = Some(Fade::new(last.clone(), len));
                 }
             }
             if std::mem::take(&mut self.want_drop) && self.drop_now(lib, root) {
@@ -7978,7 +8111,7 @@ impl WallClimb {
                 if let (Some(last), Some(r)) = (self.last.clone(), cr.reference) {
                     let mut from = last;
                     from.rotate_model(rig, r, model_to_bevy().inverse() * to.inverse() * root.rotation * model_to_bevy());
-                    self.fade = Some((from, WAIT_FADE, WAIT_FADE));
+                    self.fade = Some(Fade::new(from, WAIT_FADE));
                 }
                 root.rotation = to;
             }
@@ -8087,18 +8220,20 @@ impl WallClimb {
             None => self.set_wait(lib, now),
         }
         debug!("climb: looking {}", side.unwrap_or("back"));
-        self.fade = Some((last, LOOK_FADE, LOOK_FADE));
+        self.fade = Some(Fade::new(last, LOOK_FADE));
         self.looking = side;
     }
 
     /// Body pose for this frame (before IK).
     pub fn pose(&mut self, base: &Pose, cr: ClimbRig, rig: &Rig, mirror: &ik::mirror::Mirror) -> Pose {
         let mut pose = base.clone();
-        if let Some(cy) = &self.cycle {
+        let fading = self.fade.is_some();
+        let shown = if let Some(cy) = &self.cycle {
             match &cy.intro {
                 Some((c, t, _)) => sample(c, t * FPS, &mut pose, cr.reference),
                 None => sample(&cy.clips[cy.foot], cy.phase * cy.clips[cy.foot].frames(), &mut pose, cr.reference),
             }
+            None
         } else {
             match (&self.mv, &self.wait) {
                 (Some(m), _) => {
@@ -8106,13 +8241,25 @@ impl WallClimb {
                     if self.mirrored {
                         pose = mirror.apply(rig, &pose);
                     }
+                    Some(Shown { clip: m.clip.clone(), t: m.t, rate: m.rate, looping: false, mirrored: self.mirrored, fading })
                 }
-                (None, Some(w)) => sample(w, self.wait_t * FPS, &mut pose, cr.reference),
-                _ => {}
+                (None, Some(w)) => {
+                    sample(w, self.wait_t * FPS, &mut pose, cr.reference);
+                    Some(Shown { clip: w.clone(), t: self.wait_t, rate: 1.0, looping: !self.wait_hold, mirrored: false, fading })
+                }
+                _ => None,
             }
+        };
+        if shown.as_ref().map(|s| &s.clip.name) != self.shown.as_ref().map(|s| &s.clip.name) {
+            self.prev_shown = self.shown.take();
         }
-        if let Some((from, t, len)) = &self.fade {
-            let w = smoothstep(1.0 - t / len);
+        self.shown = shown;
+        if let Some(f) = &self.fade {
+            let w = f.weight();
+            let from = match &f.roll {
+                Some(r) => &r.pose(base, cr, rig, mirror),
+                None => &f.from,
+            };
             let mut faded = from.clone();
             faded.blend(&pose, w);
             // The root bone turns the body in some clips (a turn round's): blended the shortest way, it switched round
@@ -8137,6 +8284,16 @@ impl WallClimb {
     /// leaping or leaving the wall, where the clip alone is right).
     pub fn hands_on_wall(&self) -> bool {
         !off_wall(&self.state) && !self.mv.as_ref().is_some_and(|m| off_wall(&m.to) || m.clip.name.contains("corner"))
+    }
+
+    /// AC1's limb contacts now (`forge::anim::contact` bits), from the clip shown (its left and right swapped when it
+    /// plays mirrored); `None` when that clip has no contact track.
+    pub fn contacts(&self) -> Option<u8> {
+        use forge::anim::contact::{LEFT_HAND, LEFT_TOE, RIGHT_HAND, RIGHT_TOE};
+        let s = self.shown.as_ref()?;
+        let bits = s.clip.anim.contacts_at(s.t.min(s.clip.anim.duration) * FPS)?;
+        let (left, right) = (bits & (LEFT_HAND | LEFT_TOE), bits & (RIGHT_HAND | RIGHT_TOE));
+        Some(if s.mirrored { (bits & !(left | right)) | (left << 1) | (right >> 1) } else { bits })
     }
 
     /// Last pose shown, to fade from when the climb ends.

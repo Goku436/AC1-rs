@@ -45,7 +45,8 @@ const SCENARIOS: &[Scenario] = &[
         env: &[("AC1_START", "-5,-5,0"), ("AC1_WALK", "4.5"), ("AC1_STEER", "180"), ("AC1_HIGH", "0-5")],
         secs: 3.0,
         want: &["waitturn_right_180", "_tr_h_jog_hipm_"],
-        never: &[],
+        // (The turn turns the body itself and is locked: played out, not broken off; only its exit may be, audit ANIM-8.)
+        never: &["off into the run (out of xx_h_wait_hipm_"],
     },
     Scenario {
         name: "sprint stop on the course ramp stays on it (the stop follows the slope)",
@@ -999,6 +1000,17 @@ const SCENARIOS: &[Scenario] = &[
             "at [53.00, 11.89, -14.",
             "via xx_h_freestep_front_front_300cm_",
         ],
+        never: &["EMBED"],
+    },
+    // Audit ANIM-4 to 6: blends as AC1's move graph gives them. The running jump's takeoff is started by the code: it
+    // blends in over its action's in-transition (AROLLBROLL 0.1 s); the swing cycle's items follow one another by cuts
+    // where they line up.
+    Scenario {
+        name: "blends from AC1's move graph: the takeoff's in-transition, the swing's cuts (audit ANIM-4 to 6)",
+        tags: &["bars", "jump"],
+        env: &[("AC1_START", "50.3,0,-90"), ("AC1_WALK", "6"), ("AC1_HIGH", "0-10"), ("AC1_LEGS", "0-10")],
+        secs: 3.0,
+        want: &["blend into xx_h_run_front_300cm_footr_to_air: kind 1 0.10 s", "blend into xx_h_swing_cycle_back_down: kind 0 0.00 s -> None"],
         never: &["EMBED"],
     },
 ];

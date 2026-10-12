@@ -635,7 +635,10 @@ its action or the first item of a connector or destination. Actions no transitio
 code (keys such as `0x44` are its requests; a post jump's push off, `beam_impultionstraight_to_jumpstraight`, comes from
 the crouch that way), and an item that ends its action with no ways out hands back to the code (the wall run's
 `entry_a` and `entry_b` are separate actions the code steps through, its `WallingEntryA/B`); the graph judges neither.
-It is used for: each move's fade-in (its item's blend time, where it gives one), and a check on every step from one
+It is used for: each move's blend (`MoveGraph::blend_into`: the next item's blend, a way's blend A into its connector and B
+out of it, else, for an action the code starts, the playing action's out-transition, the new one's in-transition or the
+default ASTOPBROLL 0.2 s; a NONE kind is a cut, AROLLB* kinds keep A playing, *BSTOP* hold B, the weight linear unless
+eased; audit ANIM-4 to 6), and a check on every step from one
 clip to the next of a chain (debug log "graph: a -> b is not in AC1's move graph", listed by the scenario suite).
 The check found: the post jump skipped its push off (now crouch, push off, flight); free running into a low obstacle
 went collide straight into the step-up, where the graph steps up only after stopping against it (now free running
