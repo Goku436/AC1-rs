@@ -769,6 +769,15 @@ const SCENARIOS: &[Scenario] = &[
         want: &["jump up from the climb", "via xx_h_climbing_1m_impultion"],
         never: &["EMBED"],
     },
+    // Audit CLIMB-E6: AC1's room test over the edge is three empty boxes (0xB2E240), the first 1 m out and 1.8 m up.
+    Scenario {
+        name: "gauntlet G13: up a wall's holds to its top under an awning 1.5 m over it: no climbing out (AC1's room boxes)",
+        tags: &["climb"],
+        env: &[("AC1_START", "-92.6,174,-90,1"), ("AC1_CLIMB", "up=8")],
+        secs: 9.0,
+        want: &["no room over the edge"],
+        never: &["hangknee", "EMBED"],
+    },
     Scenario {
         name: "gauntlet G7: up a wall's holds, along to its edge, the leap across the gap onto the next wall, up to its top",
         tags: &["combo", "climb", "hang"],

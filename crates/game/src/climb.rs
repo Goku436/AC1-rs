@@ -134,7 +134,7 @@
 
 use crate::animation::{AnimLib, Clip, mix_name, root_motion_at, root_rotation_at, sample};
 use crate::character::model_to_bevy;
-use crate::level::{Ledge, Level, Line};
+use crate::level::{Hit, Ledge, Level, Line};
 use bevy::prelude::*;
 use forge::anim::FPS;
 use ik::{Pose, Rig};
@@ -815,8 +815,9 @@ const LADDER_STEP: f32 = 0.5;
 const LADDER_SIDE_REACH: f32 = 0.45;
 /// Running, a turn on the spot hands over to the run once it and the stick are within this (rad) of each other.
 const TURN_BREAK: f32 = 0.5;
-/// A top-out needs room to stand: this high over the spot (m), that spot this far in from the edge.
-const TOP_OUT_HEADROOM: f32 = 1.7;
+/// The hold a top-out climbs over: within this (m) of where the pull-up's first frame puts the wrists.
+const TOP_OUT_EDGE_REACH: f32 = 0.5;
+/// Where a top-out stands, this far in from the edge (m: the inside-a-solid check).
 const TOP_OUT_STAND_IN: f32 = 0.5;
 /// A steered move bends toward the stick at up to this (rad/s) on top of its clips' own turn.
 const STEER_RATE: f32 = 4.0;
@@ -1227,6 +1228,21 @@ fn clip_state_names(lib: &AnimLib, from: &str, dir: &str) -> Vec<(String, String
         .filter_map(|n| n.strip_prefix(&prefix).map(|to| (n.clone(), to.to_string())))
         .filter(|(_, to)| to.len() <= 3 && !to.contains('_'))
         .collect()
+}
+
+/// Room to climb out over the edge at `edge` of a wall facing `out` (AC1's 0xB2E240, as TryReachLedgeAbove 0xDF1730 and
+/// the knee catch call it; the boxes' axes: along the edge, `d` into the top, up): nothing in a box 0.6 m wide from 1 m
+/// out in front of the edge to 0.3 m in over it, 0.35 to 1.8 m above it (where the body comes up); nor in a column
+/// 0.2 m square over the edge itself from 0.1 to 1.8 m; nor in a slab (0.2 by 0.2 by 1 m) tilted 30 degrees in from
+/// the vertical, its centre 0.35 m out and 0.2 m up from the edge (where the chest goes over). No floor is tested.
+pub(crate) fn climb_out_room(level: &Level, edge: Vec3, out: Vec3) -> bool {
+    let d = -out.with_y(0.0).normalize_or(Vec3::NEG_Z);
+    let side = d.cross(Vec3::Y);
+    let (s, c) = 30f32.to_radians().sin_cos();
+    let (tilt_d, tilt_up) = (d * c - Vec3::Y * s, d * s + Vec3::Y * c);
+    level.box_free(edge - d * 0.35 + Vec3::Y * 1.075, [side, d, Vec3::Y], Vec3::new(0.3, 0.65, 0.725))
+        && level.box_free(edge + Vec3::Y * 0.95, [side, d, Vec3::Y], Vec3::new(0.1, 0.1, 0.85))
+        && level.box_free(edge - tilt_d * 0.4, [side, tilt_d, tilt_up], Vec3::new(0.1, 0.1, 0.5))
 }
 
 /// The hold for a wrist at `wrist` in AC1's climbing probe box (`BuildHoldGrid` 0xDF6A40, docs/PARKOUR.md section 4):
@@ -5584,13 +5600,15 @@ impl WallClimb {
         sample(&clips[0], 0.0, &mut pose, cr.reference);
         let m = pose.model(rig);
         let wrist = root.translation + world_rot(root.rotation) * ((m[cr.hands[0]].pos + m[cr.hands[1]].pos) * 0.5);
+        // The edge the hands hold: the hold's line (from the clip's first frame the wrists may be off it: the hands-together
+        // wall hang holds 0.15 m lower), else in from the wrists and over them.
+        let line = wrist - self.normal * GRIP_OUT + Vec3::Y * GRIP_DOWN;
+        let edge = nearest_hold(level, wrist, self.normal).filter(|h| h.2 < TOP_OUT_EDGE_REACH).map_or(line, |(l, _, _)| l.closest(line));
         // Top surface just behind the holds, level with them (nearer in on a thin top: a haystack's rim, round hay that is
-        // not solid; the running game pulled up onto it).
-        let probe = wrist - self.normal * 0.45 + Vec3::Y * 0.5;
-        let Some(top) = [0.45, 0.25, 0.12].iter().find_map(|d| level.ground(wrist - self.normal * *d + Vec3::Y * 0.5, 0.0, 0.8)) else {
-            debug!("climb: no top-out: no top behind the hold (probed at {probe:.2})");
-            return false;
-        };
+        // not solid; the running game pulled up onto it). None found: the edge itself, a top too thin to probe (AC1 tests
+        // no floor, only room, below; audit CLIMB-E6).
+        let found = [0.45, 0.25, 0.12].iter().find_map(|d| level.ground(wrist - self.normal * *d + Vec3::Y * 0.5, 0.0, 0.8));
+        let top = found.unwrap_or(Hit { point: edge, normal: Vec3::Y, dist: 0.0 });
         // (The hands-together wall hang holds 0.15 m lower than the first frame of the pull-up puts them.) A top lower than
         // the grip, down to `TOP_OUT_LIP`, is a floor behind a lip the hands hold (a parapet's, in Damascus: the floor
         // 0.21 m under the edge refused every pull-up there); the pull-up comes down onto it.
@@ -5599,21 +5617,15 @@ impl WallClimb {
             debug!("climb: no top-out: top at {:.2}, grip at {:.2}, slope {:.2}", top.point.y, wrist.y + GRIP_DOWN, top.normal.y);
             return false;
         }
-        // Room to stand on it: headroom over where the body comes up, and no wall just past the edge (a window
-        // sill's top is a floor behind a hold, with the window's opening or the room's wall right behind it; AC1 does
-        // not climb in through those).
-        // (The open probe starts in front of the wall: from behind the hold it may start inside the wall, when the top
-        // found is a beam's or a ledge piece's stuck into a building, and see nothing.)
+        // Room to climb out: AC1's three empty boxes over the edge (`climb_out_room`, 0xB2E240; a window sill with the
+        // window's lintel or the room's wall just behind it fails them).
         let stand = top.point - self.normal * TOP_OUT_STAND_IN;
-        let headroom = level.raycast(stand + Vec3::Y * 0.1, Vec3::Y, TOP_OUT_HEADROOM).is_none();
-        let front = Vec3::new(wrist.x, top.point.y, wrist.z) + self.normal * 0.3;
-        let reach = (top.point - front).with_y(0.0).length() + TOP_OUT_STAND_IN + 0.3;
-        // (A haystack's rim: the hay heaped past it is in the way of the probes, not of the climb into it.)
+        // (A haystack's rim: the hay heaped past it is in the way of the boxes, not of the climb into it.)
         let hay = level.haystacks.iter().find(|h| (h.centre - top.point).with_y(0.0).length() < h.half + 0.3 && (top.point.y - h.top()).abs() < 0.3).copied();
-        let open = hay.is_some() || [0.5, 1.2].iter().all(|h| level.raycast(front + Vec3::Y * *h, -self.normal, reach).is_none());
-        if !headroom || !open || (hay.is_none() && level.inside_solid(stand + Vec3::Y * 0.5)) {
-            let wall = [0.5, 1.2].map(|h| level.raycast(front + Vec3::Y * h, -self.normal, 3.0).map(|w| w.dist - 0.3));
-            debug!("climb: no top-out: no room to stand at {stand:.2} (headroom {headroom}, open {open}: a wall {wall:.2?} m past the edge)");
+        let open = hay.is_some() || climb_out_room(level, edge, self.normal);
+        // (Ours: the top found is a beam's or a ledge piece's stuck into a building, inside it.)
+        if !open || (hay.is_none() && found.is_some() && level.inside_solid(stand + Vec3::Y * 0.5)) {
+            debug!("climb: no top-out: no room over the edge at {edge:.2} (boxes clear {open})");
             return false;
         }
         // Nothing to stand on beside the hands (a post, the end of a wall): pull up with one hand.

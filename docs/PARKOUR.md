@@ -245,6 +245,12 @@ The climbing is a grid, not free placement:
   holds or a ladder across a gap (0xDF0050, 0xDEF3A0); corner climbs (0xDF29E0); the jump up from the climb
   (`TryBackEject` 0xDF2F50: search 2.25 m over the root, 0.8 m out). **[B]**
 - Climb → ground below: `xx_l_climb_{1m,2m}_tr_h_wait_hipm_footl_a/b` (0xDF1D20). **[B, ours]**
+- Climb out over the top (`TryReachLedgeAbove` 0xDF1730: dirs 0, 1, 6, 7 from a level pose): the edge is the middle of
+  the two hand holds, the way in the negated sum of their normals (else a guidance edge round the root + 0.8 m up,
+  0.5 m in). Room is three empty boxes (0xB2E240, the knee catch's test too; axes along the edge, in, up): 0.6 m wide
+  from 1 m out to 0.3 m in, 0.35-1.8 m over the edge; a 0.2 m column over the edge, 0.1-1.8 m; a 0.2 × 0.2 × 1 m slab
+  tilted 30° in, centred 0.35 m out and 0.2 m up. No floor is tested. **[V]** Ours tests the same boxes
+  (`climb_out_room`), the edge from the hold the wrists are at.
 - Lost grip (a hold's object gone, 0xE55A10) → InAir with action 0x1120E17B, blend 0.2. **[B]**
 
 Ours: in the six climbing poses the move comes from AC1's tables (`climb_table.rs`, the entries and action ids
@@ -522,6 +528,8 @@ in this batch, by audit id:
   Banned445's decode) in place of ours' mesh-name beams and single-hold tops; not the default yet (31 of 41 routes
   against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
   beam the running game lands on).
+- **2026-10-11, climbing and ladders** (CLIMB-E6): the climb-out's room is AC1's three boxes over the edge (no headroom
+  or wall rays; a top too thin to probe is climbed onto at the edge's height); gauntlet G13 (an awning over a wall's top).
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 
