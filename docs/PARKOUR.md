@@ -530,7 +530,11 @@ in this batch, by audit id:
   clips' own 1.8 m rise, Banned445's reading), its `_050cm` clips mixed in by the lip's overhang. (LEDGE-13) The free
   hang's drop onto the wall below mixes its four clips `{min,max}_{200,300}` by the exe's weights (0xDDF390: by the
   drop, hands - 2 m (1.6 into the wall hang) - feet, and by how far the new hold line is, / 0.7 m), the holds a row
-  1.2 m under the hands and 0.65 m on (the four clips whole after it, for holds out of that reach).
+  1.2 m under the hands and 0.65 m on (the four clips whole after it, for holds out of that reach). (LEDGE-3) Up or
+  down from the wall hang, into the climbing stance only with a hold for each foot 1.2 m under its new hand (AC1's
+  TryTransitionToClimb), else the hand step to the ledge there, one hand then the other
+  (`xx_h_hangwall_climb_1m_<u|d>_1<l|r>u`, then `_1<l|r>u_<u|d>_1m`); ours climbed into the stance with the feet on the
+  ledge just let go of, 0.6 m under the hands.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face).
 
@@ -544,7 +548,7 @@ the input interpreter sends them). Checked by mapping every action id Banned445'
 clips (`forge` example `action_clips`) against the clips our code plays: left unplayed are combat's (hurt
 falls, stumbles), other characters' (`cmaa_*`), the leap of faith's code-driven fall (`xx_h_faith_jump_fall`; ours
 stretches the dive over the whole fall), and much of `HumanLedge` (audit LEDGE-15): the hang-type switches
-(`hangwall_tr_hangfree*`, `hangfree_tr_hangwall*`), the wall hang's hand steps (`hangwall_climb_*`), the swing back
+(`hangwall_tr_hangfree*`, `hangfree_tr_hangwall*`), the swing back
 (`hangwall_to_swingback_*`), the wall-free hang (`hangwallfree_*`), `hangfree_strafe_*_000cm_*`.
 
 ## Open questions

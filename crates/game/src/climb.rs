@@ -184,7 +184,8 @@ const HANG_DOWN: f32 = 0.05;
 
 /// Where a move ending in `to` puts the root, on top of lining the hands up: the ledge hang's offset.
 fn hang_offset(to: &str, normal: Vec3) -> Vec3 {
-    if to == HANGWALL || to == HANGWALL_OPEN { normal * HANG_OUT - Vec3::Y * HANG_DOWN } else { Vec3::ZERO }
+    // (Its hand step's halfway states, `hangwall_1lu` / `_1ru`, too.)
+    if to.starts_with(HANGWALL) { normal * HANG_OUT - Vec3::Y * HANG_DOWN } else { Vec3::ZERO }
 }
 const TOP_OUT_HANGWALL: [&str; 3] = ["xx_h_hangwall_tr_hangknee_footl_a", "xx_h_hangwall_tr_hangknee_footl_b", STAND_UP];
 const FREE_OPEN: &str = "free_open";
@@ -6103,10 +6104,25 @@ impl WallClimb {
             }
             return out;
         }
+        // Halfway through the wall hang's hand step (one hand on the next ledge): the other hand after it, or back.
+        if let Some(h @ ("1lu" | "1ru")) = self.state.strip_prefix("hangwall_") {
+            if vertical {
+                out.push(Cand::new(format!("xx_h_hangwall_climb_{h}_{dir}_1m"), HANGWALL_OPEN, Feet::Wall));
+            }
+            return out;
+        }
         if self.state == HANGWALL || self.state == HANGWALL_OPEN {
             if vertical {
-                // Onto the wall's holds, up or down.
+                // Onto the wall's holds, up or down (only with a hold for each foot under its hand, `take_first`), else the
+                // hand step to a ledge above or below, one hand then the other (`xx_h_hangwall_climb_1m_<u|d>_1<l|r>u`, AC1's
+                // StartHandStep 0xDDE0C0 after TryTransitionToClimb, Banned445's port; audit LEDGE-3: ours went into the
+                // climbing stance, the feet on the ledge just let go of).
                 out.push(Cand::new(format!("xx_h_hangwall_{dir}_climb_1m"), "1m", Feet::Wall));
+                let mut hands = ["lu", "ru"];
+                hands.sort_by_key(|h| *h != prefer);
+                for h in hands {
+                    out.push(Cand::new(format!("xx_h_hangwall_climb_1m_{dir}_1{h}"), format!("hangwall_1{h}"), Feet::Wall));
+                }
             } else {
                 // Sideways in AC1's order (as the free hang's above): onto the holds lower down, level, the shimmy, up.
                 let (strafe, to) = if self.state == HANGWALL { ("open", HANGWALL_OPEN) } else { ("close", HANGWALL) };
@@ -6284,7 +6300,7 @@ impl WallClimb {
     /// Take the first candidate whose end pose has both hands on holds and the feet as it needs.
     #[allow(clippy::too_many_arguments)]
     fn take_first(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, cands: Vec<Cand>) -> bool {
-        let to_hangwall: Vec<bool> = cands.iter().map(|c| c.to == HANGWALL || c.to == HANGWALL_OPEN).collect();
+        let to_hangwall: Vec<bool> = cands.iter().map(|c| c.to.starts_with(HANGWALL)).collect();
         for (k, c) in cands.into_iter().enumerate() {
             let Some(clips) = c.names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else {
                 if why() {
@@ -6416,7 +6432,10 @@ impl WallClimb {
             let mut to_hang = Vec3::ZERO;
             // (AC1's `IsGridMoveValid` 0xDECD70: each side's foot cell, two rows under its hand, must hold too; the one-hand
             // stances are turned down without, the level ones end in the hang.)
-            let feet_held = targets.iter().all(|t| footholds(level, *t, normal));
+            // (From the wall hang into the climb, AC1's TryTransitionToClimb: a hold for each foot 1.2 m under its hand, not
+            // the ledge let go of 0.6 m under; else the hand step, audit LEDGE-3.)
+            let from_hang = c.names.first().is_some_and(|n| n == "xx_h_hangwall_u_climb_1m" || n == "xx_h_hangwall_d_climb_1m");
+            let feet_held = targets.iter().all(|t| if from_hang { foot_cell(level, *t, normal) } else { footholds(level, *t, normal) });
             if !feet_held && c.to != "1m" && c.to != "2m" && (c.to.starts_with('1') || c.to.starts_with('2')) {
                 if why() {
                     debug!("climb: {} : no hold for a foot under its hand", c.names[0]);
