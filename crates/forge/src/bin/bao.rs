@@ -1,9 +1,11 @@
 //! bao: the install's sound (see `forge::sound`).
 //! - `bao scan <game dir>`: every `SoundBao` object of every forge and every streamed BAO file: how many parse, their
-//!   kinds and codecs, how many IMA resources and streams decode; the failures by message.
+//!   kinds; per codec, how many distinct resources and streams decode, and decode to their end (headerless streams
+//!   joined to their start); the failures by message.
 //! - `bao list <forge file> <data file>`: the data file's BAOs (id, kind, type or codec, bytes).
 //! - `bao wav <game dir> <bao id hex>...`: write a resource, a stream, or what an event plays, as WAV files to
 //!   `out/sound/` (git-ignored).
+//! - `bao raw <game dir> <bao id>...`: a resource's or stream's object bytes, to `out/sound/<id>.bin`.
 //! - `bao clip <game dir> <clip name substring>`: the event keys of the matching clips in "Game Fix", and what Altaïr's
 //!   contact table and the sound bank play for each.
 //! - `bao tree <game dir> <event id>...`: an event's graph (switches and their cases, multis, plays, random
@@ -14,7 +16,7 @@
 //! `wav`, `clip` and `tree` load `DataPC.forge`'s player sounds; `BAO_EXTRA="<forge file>:<data file>,..."` adds more.
 use anyhow::{Context, Result, bail};
 use forge::sound::{self, Bank, Codec, Kind};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 fn forges(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -29,35 +31,70 @@ fn short(e: &anyhow::Error) -> String {
     s.split(" at 0x").next().unwrap_or(&s).chars().take(60).collect()
 }
 
+/// The scan's counts: per (kind, codec) the distinct resources and streams, how many decode and decode to their end;
+/// the failures by message (count, an example); the seconds decoded.
+#[derive(Default)]
+struct Tally {
+    codecs: BTreeMap<(Kind, Codec), (usize, usize, usize)>,
+    errs: BTreeMap<String, (usize, String)>,
+    seconds: f64,
+}
+
+impl Tally {
+    fn fail(&mut self, what: &str, e: &anyhow::Error, name: &str) {
+        self.errs.entry(format!("{what}: {}", short(e))).or_insert((0, name.to_string())).0 += 1;
+    }
+    fn count(&mut self, kind: Kind, object: &[u8], name: &str) {
+        let c = sound::codec(object);
+        self.codecs.entry((kind, c)).or_default().0 += 1;
+        if c == Codec::Raw {
+            return;
+        }
+        match sound::decode(object) {
+            Ok((ch, pcm)) => self.decoded(kind, c, object, ch, pcm.len()),
+            Err(err) => self.fail(&format!("{kind:?} {c:?}"), &err, name),
+        }
+    }
+    fn decoded(&mut self, kind: Kind, c: Codec, object: &[u8], ch: u16, samples: usize) {
+        let frames = samples / ch.max(1) as usize;
+        self.seconds += frames as f64 / sound::data_rate(object).unwrap_or(24000) as f64;
+        let e = self.codecs.entry((kind, c)).or_default();
+        e.1 += 1;
+        if sound::complete(object, frames) {
+            e.2 += 1;
+        }
+    }
+}
+
 fn scan(dir: &Path) -> Result<()> {
     let (mut objects, mut objects_ok) = (0, 0);
     let mut kinds: BTreeMap<Kind, usize> = BTreeMap::new();
-    let mut codecs: BTreeMap<(Kind, Codec), usize> = BTreeMap::new();
-    let (mut ima, mut ima_ok) = (0, 0);
-    let (mut streams, mut streams_ok, mut stream_ima, mut stream_ima_ok) = (0, 0, 0, 0);
-    let mut errs: BTreeMap<String, (usize, String)> = BTreeMap::new();
-    let mut fail = |what: &str, e: &anyhow::Error, name: &str| errs.entry(format!("{what}: {}", short(e))).or_insert((0, name.to_string())).0 += 1;
-    let mut seconds = 0.0f64;
-    for path in forges(dir)? {
-        let f = forge::Forge::open(&path)?;
-        for e in &f.entries {
+    let (mut streams, mut streams_ok) = (0, 0);
+    let mut t = Tally::default();
+    // Every resource or stream once (cities repeat the shared ones).
+    let mut seen: HashSet<(u32, usize)> = HashSet::new();
+    // The streamed files first: the headerless ones are joined to their start below.
+    let mut paths = forges(dir)?;
+    paths.sort_by_key(|p| !p.to_string_lossy().contains("Streamed"));
+    let mut rest: HashMap<u32, (usize, usize)> = HashMap::new();
+    let mut opened = Vec::new();
+    for (fi, path) in paths.iter().enumerate() {
+        let f = forge::Forge::open(path)?;
+        for (ei, e) in f.entries.iter().enumerate() {
             if e.name.contains("_BAO_0x") {
                 streams += 1;
                 let d = f.read(e)?;
                 match sound::parse_bao(&d) {
                     Ok(b) => {
                         streams_ok += 1;
-                        let c = sound::codec(b.object);
-                        *codecs.entry((b.kind, c)).or_default() += 1;
-                        if matches!(c, Codec::Ima | Codec::Tracks) {
-                            stream_ima += 1;
-                            match sound::decode(b.object) {
-                                Ok(_) => stream_ima_ok += 1,
-                                Err(err) => fail("stream", &err, &e.name),
-                            }
+                        t.count(b.kind, b.object, &e.name);
+                        if sound::codec(b.object) == Codec::Raw
+                            && let Some(id) = e.name.rsplit("_BAO_0x").next().and_then(|h| u32::from_str_radix(h, 16).ok())
+                        {
+                            rest.insert(id & 0x0fff_ffff, (fi, ei));
                         }
                     }
-                    Err(err) => fail("stream header", &err, &e.name),
+                    Err(err) => t.fail("stream header", &err, &e.name),
                 }
                 continue;
             }
@@ -68,37 +105,61 @@ fn scan(dir: &Path) -> Result<()> {
                 let s = match sound::parse_sound_bao(o.body) {
                     Ok(s) => s,
                     Err(err) => {
-                        fail("SoundBao", &err, &o.name);
+                        t.fail("SoundBao", &err, &o.name);
                         continue;
                     }
                 };
                 objects_ok += 1;
-                for (_, b) in &s.variants {
+                for (vi, (_, b)) in s.variants.iter().enumerate() {
                     *kinds.entry(b.kind).or_default() += 1;
-                    if matches!(b.kind, Kind::Resource | Kind::Stream) {
-                        *codecs.entry((b.kind, sound::codec(b.object))).or_default() += 1;
+                    if matches!(b.kind, Kind::Resource | Kind::Stream) && seen.insert((s.id, vi)) {
+                        t.count(b.kind, b.object, &o.name);
                     }
-                    if b.kind == Kind::Resource && matches!(sound::codec(b.object), Codec::Ima | Codec::Tracks) {
-                        ima += 1;
-                        match sound::decode(b.object) {
-                            Ok((ch, pcm)) => {
-                                ima_ok += 1;
-                                seconds += pcm.len() as f64 / ch as f64 / 24000.0;
+                }
+                // A headerless stream's start: the variant (language) it continues decodes joined to it.
+                if s.id >> 28 == 3
+                    && let Some((sf, se)) = rest.remove(&(s.id & 0x0fff_ffff))
+                {
+                    let Some(sf) = opened.get(sf) else { continue };
+                    let sf: &forge::Forge = sf;
+                    let d = sf.read(&sf.entries[se])?;
+                    let stream = sound::parse_bao(&d)?.object;
+                    let mut err = None;
+                    let mut ok = false;
+                    for (_, b) in &s.variants {
+                        let joined = sound::join_stream(b.object, stream);
+                        match sound::decode(&joined) {
+                            Ok((ch, pcm)) if sound::complete(&joined, pcm.len() / ch.max(1) as usize) => {
+                                t.decoded(Kind::Stream, Codec::Raw, &joined, ch, pcm.len());
+                                ok = true;
+                                break;
                             }
-                            Err(err) => fail("IMA", &err, &o.name),
+                            Ok(_) => err = Some(anyhow::anyhow!("joined: not decoded to the end")),
+                            Err(x) => err = Some(x),
                         }
+                    }
+                    if !ok && let Some(x) = err {
+                        t.fail("Stream Raw (joined)", &x, &sf.entries[se].name);
                     }
                 }
             }
         }
         eprintln!("{}: {objects} SoundBaos so far", path.display());
+        opened.push(f);
     }
-    println!("SoundBao objects: {objects_ok}/{objects} parse");
-    println!("BAOs by kind: {kinds:?}");
-    println!("resources and streams by codec: {codecs:x?}");
-    println!("IMA resources: {ima_ok}/{ima} decode (about {:.0} s at 24 kHz)", seconds);
-    println!("streamed BAO files: {streams_ok}/{streams} parse; IMA ones {stream_ima_ok}/{stream_ima} decode");
-    for (k, (n, ex)) in errs {
+    println!("SoundBao objects: {objects_ok}/{objects} parse; BAOs by kind: {kinds:?}");
+    println!("streamed BAO files: {streams_ok}/{streams} parse");
+    println!("distinct resources and streams by codec: count, decode, decode to the end (Raw streams: joined to their start)");
+    for ((k, c), (n, ok, end)) in &t.codecs {
+        println!("  {k:?} {c:?}: {n} {ok} {end}");
+    }
+    println!("about {:.0} h of sound", t.seconds / 3600.0);
+    if !rest.is_empty() {
+        let mut v: Vec<String> = rest.values().take(5).map(|&(f, e)| opened[f].entries[e].name.clone()).collect();
+        v.sort();
+        println!("{} headerless streams whose start (the resource with the same low bits) is in no forge, e.g. {v:?}", rest.len());
+    }
+    for (k, (n, ex)) in t.errs {
         println!("{n:>6} {k}  e.g. {ex}");
     }
     Ok(())
@@ -201,6 +262,32 @@ fn wav(dir: &Path, ids: &[String]) -> Result<()> {
             }
             _ => bail!("{id:08x}: give an event (1...), a resource (3...) or a stream (5...)"),
         }
+    }
+    Ok(())
+}
+
+/// `bao raw <game dir> <bao id>...`: a resource's or a stream's object bytes to `out/sound/<id>.bin`.
+fn raw(dir: &Path, ids: &[String]) -> Result<()> {
+    let (bank, _) = load_bank(dir)?;
+    std::fs::create_dir_all("out/sound")?;
+    for id in ids {
+        let id = u32::from_str_radix(id.trim_start_matches("0x"), 16)?;
+        let bytes = match bank.object(id) {
+            Some(o) => o.to_vec(),
+            None => {
+                let mut found = None;
+                for p in forges(dir)?.iter().filter(|p| p.to_string_lossy().contains("Streamed")) {
+                    let f = forge::Forge::open(p)?;
+                    if let Some(e) = f.entries.iter().find(|e| e.name.ends_with(&format!("_BAO_{id:#010x}"))) {
+                        found = Some(sound::parse_bao(&f.read(e)?)?.object.to_vec());
+                    }
+                }
+                found.with_context(|| format!("no BAO {id:08x}"))?
+            }
+        };
+        let p = Path::new("out/sound").join(format!("{id:08x}.bin"));
+        std::fs::write(&p, &bytes)?;
+        println!("{}: {} bytes", p.display(), bytes.len());
     }
     Ok(())
 }
@@ -330,6 +417,7 @@ fn main() -> Result<()> {
         Some("scan") if a.len() == 3 => scan(Path::new(&a[2])),
         Some("list") if a.len() == 4 => list(Path::new(&a[2]), &a[3]),
         Some("wav") if a.len() >= 4 => wav(Path::new(&a[2]), &a[3..]),
+        Some("raw") if a.len() >= 4 => raw(Path::new(&a[2]), &a[3..]),
         Some("clip") if a.len() == 4 => clip(Path::new(&a[2]), &a[3]),
         Some("ambience") if a.len() == 4 => ambience(Path::new(&a[2]), &a[3]),
         Some("tree") if a.len() >= 4 => {
@@ -340,7 +428,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         _ => bail!(
-            "usage: bao scan <game dir> | list <forge file> <data file> | wav <game dir> <bao id>... | clip <game dir> <clip name> | tree <game dir> <event id>... | ambience <game dir> <City>"
+            "usage: bao scan <game dir> | list <forge file> <data file> | wav <game dir> <bao id>... | raw <game dir> <bao id>... | clip <game dir> <clip name> | tree <game dir> <event id>... | ambience <game dir> <City>"
         ),
     }
 }

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 crc32fast = "1.5.2"
+lewton = "0.10.2"
 lzokay-native = "0.1.0"
 memmap2 = "0.9.11"
 png = "0.18.1"

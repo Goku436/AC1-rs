@@ -30,8 +30,9 @@
 //! and the sets hold sound references (u32 class bb8e3eec, u32 event BAO id, u32 `SoundBao` object id): the loop and
 //! the one-off sounds (gusts, birds) played now and then.
 //! - 3 resource and 5 stream: +0 u32 ?, then the data, told apart by its first bytes (`codec`): an IMA-ADPCM header
-//!   (`decode_ima`), an Ogg Vorbis file, a header of interleaved IMA tracks (`decode_tracks`), or none: the rest of a
-//!   stream whose start is the resource 0x3... with the same low bits (not decoded).
+//!   (`decode_ima`), an Ogg Vorbis file (`decode_ogg`, lewton), a header of interleaved tracks (`decode_tracks`: IMA
+//!   or Ogg Vorbis, mono or stereo), or none: the rest of a stream whose start is the resource 0x3... with the same
+//!   low bits (`join_stream`; speech, of the variant in the stream's language).
 //! - 4: one object (type 0x80), not read.
 
 use anyhow::{Context, Result, bail, ensure};
@@ -187,10 +188,19 @@ pub enum Codec {
 pub fn codec(object: &[u8]) -> Codec {
     match object.get(4..8) {
         Some(b"OggS") => Codec::Ogg,
-        Some([5, 0, _, 0]) => Codec::Ima,
         Some([8, 0, 4, 0]) => Codec::Tracks,
+        // Version 5, then (some files) a time; the stereo flag, the step indexes and the last-sample flag in range.
+        Some([5, ..]) if object.len() >= 4 + IMA_HEADER && object[16] <= 1 && object[22] <= 88 && object[26] <= 88 && object[28] <= 1 => Codec::Ima,
         _ => Codec::Raw,
     }
+}
+
+/// A stream whose start is a resource (`Codec::Raw` streams: the resource 0x3... with the same low bits holds the
+/// start, the stream file the rest, from the byte after): the two objects' data joined into one object to decode.
+pub fn join_stream(resource: &[u8], stream: &[u8]) -> Vec<u8> {
+    let mut v = resource.to_vec();
+    v.extend_from_slice(stream.get(4..).unwrap_or(&[]));
+    v
 }
 
 /// The Ogg Vorbis file in an Ogg resource or stream.
@@ -198,12 +208,66 @@ pub fn ogg_bytes(object: &[u8]) -> Option<&[u8]> {
     (codec(object) == Codec::Ogg).then(|| &object[4..])
 }
 
-/// An IMA resource or stream, either layout, decoded to interleaved samples (all the data holds).
+/// A resource or stream, any codec but `Raw`, decoded to interleaved samples (all the data holds).
 pub fn decode(object: &[u8]) -> Result<(u16, Vec<i16>)> {
     match codec(object) {
         Codec::Tracks => decode_tracks(object),
-        _ => decode_ima(object, None),
+        Codec::Ogg => decode_ogg(&object[4..]).map(|(ch, _, pcm)| (ch, pcm)),
+        Codec::Ima => decode_ima(object, None),
+        Codec::Raw => bail!("no header: the rest of a stream"),
     }
+}
+
+/// The sample rate the data gives, where it does: an Ogg file's or the first Ogg track's Vorbis header. (IMA data
+/// does not hold it: its sound object does.)
+pub fn data_rate(object: &[u8]) -> Option<u32> {
+    let ogg = match codec(object) {
+        Codec::Ogg => &object[4..],
+        Codec::Tracks if u32_at(object, 0x20) == Some(OGG_TRACK_HEADER as u32) => {
+            let tracks = u32_at(object, 0xc)? as usize;
+            object.get(0x20 + 4 * tracks..)?
+        }
+        _ => return None,
+    };
+    // The first page holds the identification packet: 1 "vorbis", u32 version, u8 channels, u32 rate.
+    let k = ogg.windows(7).take(256).position(|w| w == b"\x01vorbis")?;
+    u32_at(ogg, k + 12).filter(|r| (4000..=192000).contains(r))
+}
+
+/// Whether `frames` decoded frames are all the data holds: for Ogg data, as many as the last page header's granule
+/// position says (within a block of 4096: the decoder's trimming of the last packet); IMA data always is.
+pub fn complete(object: &[u8], frames: usize) -> bool {
+    if !matches!(codec(object), Codec::Ogg | Codec::Tracks) {
+        return true;
+    }
+    let Some(k) = object.windows(4).rposition(|w| w == b"OggS") else { return true };
+    match object.get(k + 6..k + 14).map(|g| i64::from_le_bytes(g.try_into().unwrap_or([0; 8]))) {
+        Some(g) if g > 0 => (frames as i64 - g).abs() <= 4096,
+        _ => true,
+    }
+}
+
+/// An Ogg Vorbis file decoded (lewton): channels, rate, interleaved samples. A stream that breaks off keeps what
+/// decoded before.
+pub fn decode_ogg(file: &[u8]) -> Result<(u16, u32, Vec<i16>)> {
+    // (lewton is not known to panic on bad data, but a parser must not: a panic is an error here.)
+    std::panic::catch_unwind(|| -> Result<(u16, u32, Vec<i16>)> {
+        let mut r = lewton::inside_ogg::OggStreamReader::new(std::io::Cursor::new(file)).map_err(|e| anyhow::anyhow!("Ogg Vorbis headers: {e}"))?;
+        let ch = r.ident_hdr.audio_channels as u16;
+        let rate = r.ident_hdr.audio_sample_rate;
+        ensure!((1..=8).contains(&ch), "{ch} channels");
+        let mut out = Vec::new();
+        loop {
+            match r.read_dec_packet_itl() {
+                Ok(Some(p)) => out.extend(p),
+                Ok(None) => break,
+                Err(_) if !out.is_empty() => break,
+                Err(e) => bail!("Ogg Vorbis: {e}"),
+            }
+        }
+        Ok((ch, rate, out))
+    })
+    .unwrap_or_else(|_| Err(anyhow::anyhow!("Ogg Vorbis decoder panicked")))
 }
 
 const IMA_INDEX: [i32; 16] = [-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8];
@@ -295,13 +359,20 @@ pub fn decode_ima(object: &[u8], frames: Option<usize>) -> Result<(u16, Vec<i16>
     Ok((ch as u16, out))
 }
 
-/// Interleaved IMA tracks (`Codec::Tracks`), decoded: one mono track per channel. Layout from object +4: u16 8, u16 4,
-/// u32 ?, u32 track count, u32 block count, u32 block header size (8 + 4 a track), u32 ?, u32 largest block, a u32
-/// header size per track (28), the tracks' IMA headers; then the blocks: u32 ?, u32 block size (header included; 0 in
-/// the last block), a u32 data size per track, then each track's data (its first block opens with its PCM frames).
-/// Not read: tracks of Ogg pages (track header size 0x1400) and stereo tracks (15 files).
+/// A track header of this size is the start of a mono Ogg Vorbis stream (its header pages, cut at that size), not an
+/// IMA header.
+const OGG_TRACK_HEADER: usize = 0x1400;
+
+/// Interleaved tracks (`Codec::Tracks`), decoded: the tracks' channels side by side. Layout from object +4: u16 8, u16
+/// 4, u32 ?, u32 track count, u32 block count, u32 block header size (8 + 4 a track), u32 ?, u32 largest block, a u32
+/// header size per track, the tracks' headers; then the blocks: u32 ?, u32 block size (header included; 0 in the last
+/// block), a u32 data size per track, then each track's data.
+/// - Header size 28: an IMA header (mono, or stereo: one byte a frame, high nibble left); a track's first block opens
+///   with its PCM frames.
+/// - Header size 0x1400: each track is a mono Ogg Vorbis stream, its first 0x1400 bytes in the header, the rest of its
+///   pages split over the blocks (music, 48 kHz).
 pub fn decode_tracks(object: &[u8]) -> Result<(u16, Vec<i16>)> {
-    ensure!(codec(object) == Codec::Tracks, "not interleaved IMA tracks");
+    ensure!(codec(object) == Codec::Tracks, "not interleaved tracks");
     let mut r = Cursor { b: object, at: 4 };
     r.u32()?;
     r.u32()?;
@@ -312,18 +383,22 @@ pub fn decode_tracks(object: &[u8]) -> Result<(u16, Vec<i16>)> {
     ensure!(block_header == 8 + 4 * tracks, "block header of {block_header} bytes at 0x14 for {tracks} tracks");
     r.u32()?;
     r.u32()?;
-    for _ in 0..tracks {
-        r.expect(IMA_HEADER as u32, "track header size")?;
+    let at = r.at;
+    let head_size = r.u32()? as usize;
+    for _ in 1..tracks {
+        r.expect(head_size as u32, "track header size")?;
     }
+    let ogg = match head_size {
+        IMA_HEADER => false,
+        OGG_TRACK_HEADER => true,
+        n => bail!("track header size {n:#x} at {at:#x}"),
+    };
+    // Each track's bytes: its header, then its data block by block.
     let mut heads = Vec::with_capacity(tracks);
     for _ in 0..tracks {
-        let at = r.at;
-        let h = ima_header(r.take(IMA_HEADER)?).with_context(|| format!("track header at {at:#x}"))?;
-        ensure!(!h.stereo, "stereo track at {at:#x}");
-        heads.push(h);
+        heads.push(r.take(head_size)?);
     }
-    let mut state: Vec<Ima> = heads.iter().map(|h| h.state[0]).collect();
-    let mut chans: Vec<Vec<i16>> = vec![Vec::new(); tracks];
+    let mut data: Vec<Vec<u8>> = vec![Vec::new(); tracks];
     for b in 0..blocks {
         if r.at == object.len() {
             break;
@@ -340,27 +415,65 @@ pub fn decode_tracks(object: &[u8]) -> Result<(u16, Vec<i16>)> {
             break;
         }
         for (t, &n) in sizes.iter().enumerate() {
-            let mut d = r.take(n).with_context(|| format!("block {b} at {start:#x}"))?;
-            if b == 0 {
-                let raw = heads[t].pcm_frames * 2;
-                ensure!(raw <= d.len(), "track {t}'s PCM frames past block 0");
-                chans[t].extend(d[..raw].chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])));
-                d = &d[raw..];
-            }
-            for &c in d {
-                chans[t].push(state[t].step(c >> 4));
-                chans[t].push(state[t].step(c & 15));
-            }
+            data[t].extend_from_slice(r.take(n).with_context(|| format!("block {b} at {start:#x}"))?);
         }
         r.at = start + size.max(block_header);
         ensure!(r.at <= object.len(), "block {b} at {start:#x} of {size} bytes runs past the end");
     }
+    let mut chans: Vec<Vec<i16>> = Vec::new();
+    for (t, (head, d)) in heads.iter().zip(&data).enumerate() {
+        if ogg {
+            let mut file = ogg_pages(head).to_vec();
+            file.extend_from_slice(d);
+            let (ch, _, pcm) = decode_ogg(&file).with_context(|| format!("track {t}"))?;
+            let ch = ch as usize;
+            chans.extend((0..ch).map(|c| pcm.iter().skip(c).step_by(ch).copied().collect()));
+            continue;
+        }
+        let h = ima_header(head).with_context(|| format!("track {t}'s header"))?;
+        let ch = if h.stereo { 2 } else { 1 };
+        let raw = h.pcm_frames * 2 * ch;
+        ensure!(raw <= d.len(), "track {t}'s PCM frames past its data");
+        let mut out = vec![Vec::new(); ch];
+        for (k, c) in d[..raw].chunks_exact(2).enumerate() {
+            out[k % ch].push(i16::from_le_bytes([c[0], c[1]]));
+        }
+        let mut s = h.state;
+        for &c in &d[raw..] {
+            if ch == 1 {
+                out[0].push(s[0].step(c >> 4));
+                out[0].push(s[0].step(c & 15));
+            } else {
+                out[0].push(s[0].step(c >> 4));
+                out[1].push(s[1].step(c & 15));
+            }
+        }
+        chans.extend(out);
+    }
+    let n = chans.len();
+    ensure!((1..=16).contains(&n), "{n} channels");
     let frames = chans.iter().map(Vec::len).min().unwrap_or(0);
-    let mut out = Vec::with_capacity(frames * tracks);
+    let mut out = Vec::with_capacity(frames * n);
     for f in 0..frames {
         out.extend(chans.iter().map(|c| c[f]));
     }
-    Ok((tracks as u16, out))
+    Ok((n as u16, out))
+}
+
+/// An Ogg track's header bytes as far as they are pages: the whole ones, and the cut one the blocks carry on (the
+/// padding after the last page left out).
+fn ogg_pages(b: &[u8]) -> &[u8] {
+    let mut at = 0;
+    while b.get(at..at + 4) == Some(b"OggS") {
+        let Some(&segs) = b.get(at + 26) else { return b };
+        let Some(table) = b.get(at + 27..at + 27 + segs as usize) else { return b };
+        let len = 27 + segs as usize + table.iter().map(|&x| x as usize).sum::<usize>();
+        if at + len > b.len() {
+            return b;
+        }
+        at += len;
+    }
+    &b[..at]
 }
 
 /// One sound an event starts.
@@ -524,9 +637,15 @@ impl Bank {
         }
     }
 
-    /// A voice's samples, interleaved (IMA resources; `None` for the other codecs).
+    /// A voice's samples, interleaved, its frame count long at most (`None`: a `Raw` resource, or data that does not
+    /// decode to the sound's channels).
     pub fn decode(&self, v: &Voice) -> Option<Vec<i16>> {
-        let (ch, pcm) = decode_ima(self.object(v.resource)?, Some(v.frames as usize)).ok()?;
+        let o = self.object(v.resource)?;
+        let (ch, mut pcm) = match codec(o) {
+            Codec::Ima => decode_ima(o, Some(v.frames as usize)).ok()?,
+            _ => decode(o).ok()?,
+        };
+        pcm.truncate(v.frames as usize * ch as usize);
         (ch == v.channels).then_some(pcm)
     }
 
@@ -864,6 +983,61 @@ mod tests {
         assert_eq!(&pcm[..6], &[1, 2, 13, 13, 15, 15]);
         assert_eq!(decode_tracks(&o[..o.len() - 1]).unwrap().1.len(), 2 * 3, "a cut last block is left out");
         assert!(decode_tracks(&o[..o.len() - 12]).is_err(), "a cut first block is an error");
+    }
+
+    #[test]
+    fn stereo_tracks_and_ogg_track_headers() {
+        // one stereo IMA track: a PCM frame, then a byte a frame (high nibble left)
+        let mut o = vec![0; 4];
+        for v in [0x0004_0008u32, 0x25, 1, 1, 12, 0x80, 0x200, 28] {
+            o.extend(v.to_le_bytes());
+        }
+        let mut h = [0u8; IMA_HEADER];
+        h[0] = 5;
+        h[1..8].copy_from_slice(&[0xdb, 0x74, 0x11, 0x6c, 0x5e, 0x44, 0x47]);
+        h[12] = 1;
+        h[14] = 1;
+        o.extend(h);
+        for v in [3u32, 0, 4 + 1] {
+            o.extend(v.to_le_bytes());
+        }
+        o.extend([1, 0, 2, 0, 0x77]);
+        assert_eq!(decode_tracks(&o).unwrap(), (2, vec![1, 2, 13, 13]), "code 7 from each header predictor (0)");
+        // (an IMA header with a time in it is still IMA)
+        assert_eq!(codec(&ima_object(true, &[1, 2], None, &[0x77])), Codec::Ima);
+        let mut t = ima_object(false, &[0], None, &[]);
+        t[5..8].copy_from_slice(&[0xdb, 0x74, 0x11]);
+        assert_eq!(codec(&t), Codec::Ima);
+        t[22] = 89;
+        assert_eq!(codec(&t), Codec::Raw, "a step index past the table is not a header");
+
+        // an Ogg track header: whole pages kept, a cut page kept for the blocks to finish, padding dropped
+        let page = |body: usize| {
+            let mut p = b"OggS".to_vec();
+            p.resize(26, 0);
+            p.push(1);
+            p.push(body as u8);
+            p.resize(28 + body, 7);
+            p
+        };
+        let mut head = page(10);
+        head.extend(page(20));
+        let whole = head.len();
+        head.resize(whole + 9, 0);
+        assert_eq!(ogg_pages(&head).len(), whole);
+        let mut cut = page(10);
+        cut.extend(&page(200)[..40]);
+        assert_eq!(ogg_pages(&cut).len(), cut.len());
+        assert!(decode_ogg(&head).is_err(), "not Vorbis");
+        assert!(!complete(
+            &{
+                let mut x = vec![0; 4];
+                x.extend(b"OggS  ");
+                x.extend(100_000i64.to_le_bytes());
+                x
+            },
+            10
+        ));
     }
 
     #[test]
