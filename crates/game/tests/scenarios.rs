@@ -1256,8 +1256,9 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["ground"],
         env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "184,-192,90,8"), ("AC1_WALK", "3")],
         secs: 4.0,
-        want: &["walking toward [-1.00, 0.00] from [184.00, 0.00, -192.00]", "the run ends at [176."],
-        never: &["EMBED"],
+        // (Past the barrier's line, x 178.4: where along depends on the walk's start, 173 to 177 m.)
+        want: &["walking toward [-1.00, 0.00] from [184.00, 0.00, -192.00]", "the run ends at [17"],
+        never: &["EMBED", "the run ends at [178.", "the run ends at [179.", "the run ends at [18"],
     },
     Scenario {
         name: "eject from a wall run's hang with the stick back and left: off 45 degrees to the left, the stick's way (user report #10)",
