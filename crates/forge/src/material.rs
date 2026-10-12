@@ -4,7 +4,13 @@
 //! Body layout (from Banned445's AC1-Movement-Rewritten, MIT; checked over every material, `examples/texcheck`):
 //! - +0x00 u32 template id: the shader template (which equations the material uses, see `Style`)
 //! - +0x04 u32 texture set id (the TextureSet a slot in mode 0 reads)
-//! - +0x08..+0x29 `?`
+//! - +0x08 the `Mask` field (an inline object: u32 id 0, u32 class `Mask` df5d6c0e, then its body to +0x17 `?`)
+//! - +0x17..+0x29 the render flags, a byte each in the order of Material's reflected property list (the exe's class
+//!   descriptor; names by CRC32 of the exe's strings, checked against the materials named for them over every material,
+//!   `examples/matflags`): +0x17 `BlendMode` (0 everywhere), +0x18 `AlphaDisplayMode`, +0x19 `InvertAlpha`,
+//!   +0x1A `AlphaTestValue` (the alpha test's reference, 0..255), +0x20 `InvertCulling`, +0x25 `AlphaTestEnabled`,
+//!   +0x26 `TwoSided`; the rest `?` (bools). Leaves, hay, trellises and tarps test alpha; the value alone is not enough
+//!   (windows carry one with the test off).
 //! - +0x29 u32 `?` (0 in every material read here; the parse requires it)
 //! - +0x2D u32 the inside material's id (0 for none): what the back faces of two-sided cloth show
 //! - +0x31 u32 `?` (0 or 1)
@@ -47,7 +53,16 @@ pub struct Material {
     pub inside: Option<u32>,
     /// (name CRC32, value), in the body's order.
     pub params: Vec<(u32, Param)>,
+    /// The alpha test's reference (0..1) when the material tests alpha (`AlphaTestEnabled`, `AlphaTestValue`).
+    pub alpha_test: Option<f32>,
+    /// Drawn from both sides (`TwoSided`).
+    pub two_sided: bool,
 }
+
+/// The offsets of the render flags read (see the module docs).
+const ALPHA_TEST_VALUE: usize = 0x1A;
+const ALPHA_TEST_ENABLED: usize = 0x25;
+const TWO_SIDED: usize = 0x26;
 
 /// CRC32 of a parameter name (what the table is keyed by).
 pub fn param_id(name: &str) -> u32 {
@@ -102,6 +117,8 @@ impl Material {
         ensure!(w(0x29)? == 0, "material: {:#x} at 0x29 (not 0)", w(0x29)?);
         ensure!(w(0x31)? <= 1, "material: {:#x} at 0x31 (not 0 or 1)", w(0x31)?);
         let inside = Some(w(0x2D)?).filter(|&id| id != 0);
+        let alpha_test = (body[ALPHA_TEST_ENABLED] != 0).then(|| body[ALPHA_TEST_VALUE] as f32 / 255.0);
+        let two_sided = body[TWO_SIDED] != 0;
         let count = w(0x35)? as usize;
         ensure!(count <= 64, "material: {count} parameters at 0x35");
         let mut at = PARAMS_AT;
@@ -129,7 +146,7 @@ impl Material {
             at += size;
         }
         ensure!(at == body.len(), "material: {} bytes after the parameters at {at:#x}", body.len().saturating_sub(at));
-        Ok(Self { template, texture_set, inside, params })
+        Ok(Self { template, texture_set, inside, params, alpha_test, two_sided })
     }
 
     pub fn param(&self, id: u32) -> Option<Param> {
@@ -209,6 +226,24 @@ mod tests {
         assert_eq!(m.style(), Some(Style::Cloth));
         assert_eq!(m.slot(&["SpecularMap", "SpecularTexture"]), Some(Param::Map { mode: 2, channel: 0, set: 0, map: 1234 }));
         assert_eq!(m.inside, None);
+    }
+
+    #[test]
+    fn render_flags_are_read() {
+        let mut p = material();
+        assert_eq!(Material::parse(&p).unwrap().alpha_test, None);
+        // (A value with the test off, as the windows have: no test.)
+        p[ALPHA_TEST_VALUE] = 0x80;
+        assert_eq!(Material::parse(&p).unwrap().alpha_test, None);
+        p[ALPHA_TEST_ENABLED] = 1;
+        p[TWO_SIDED] = 1;
+        let m = Material::parse(&p).unwrap();
+        assert_eq!(m.alpha_test, Some(128.0 / 255.0));
+        assert!(m.two_sided);
+        // (The names, by the CRC32s in the exe's property list of Material.)
+        for (name, crc) in [("AlphaTestValue", 0x892e_2ecb), ("AlphaTestEnabled", 0x7abb_06a6), ("TwoSided", 0x4035_25b2)] {
+            assert_eq!(crc32fast::hash(name.as_bytes()), crc, "{name}");
+        }
     }
 
     #[test]

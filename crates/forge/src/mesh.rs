@@ -108,6 +108,36 @@ fn cloth_bone_table(body: &[u8]) -> Result<usize> {
         .ok_or_else(|| anyhow::anyhow!("cloth mesh: no bone table before {h:#x}"))
 }
 
+/// What kind of mesh a body holds, from its header (no vertices read): see the module docs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum MeshKind {
+    /// Type 0 or 1 with no bones.
+    Static,
+    /// Type 0 or 1 with bones: skinned to a skeleton (characters, and props the game's physics or animations move:
+    /// haystacks, stalls, pigeons).
+    Skinned,
+    /// Type 0 or 1 with an embedded soft body (`Veg_Olivier_*`, `Herbe_Scatter_*`, `*_Softbody`).
+    Simulated,
+    /// Type 2: effects (`FX_*`).
+    Effects,
+    /// Type 4: cloth (the robe, awnings, flags).
+    Cloth,
+    /// Any other first byte.
+    Unknown,
+}
+
+pub fn mesh_kind(body: &[u8]) -> MeshKind {
+    let simulated = body.len() > 17 && body[8] == 0 && u32_at(body, 13) == CLASS_CLOTH_SIM;
+    match body.first() {
+        Some(0 | 1) if simulated => MeshKind::Simulated,
+        Some(0 | 1) if body.len() >= 12 && u32_at(body, 8) > 0 => MeshKind::Skinned,
+        Some(0 | 1) => MeshKind::Static,
+        Some(2) => MeshKind::Effects,
+        Some(4) => MeshKind::Cloth,
+        _ => MeshKind::Unknown,
+    }
+}
+
 pub fn parse_mesh(body: &[u8]) -> Result<Mesh> {
     ensure!(body.len() > 12, "mesh body too short ({} bytes)", body.len());
     // (The cloth-simulation object embedded after `u32 type, u32 1 or 5, u8 0`: on the robe (type 4), and on vegetation and
