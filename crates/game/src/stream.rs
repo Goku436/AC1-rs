@@ -259,6 +259,19 @@ impl CityRender {
         }
     }
 
+    /// A new detail (the graphics menu): its draw distance, LOD and vertex budget from the next plan on. Its texture
+    /// size and `full` (no stand-ins) stay as loaded: they take a restart.
+    pub fn set_detail(&mut self, d: Detail) {
+        if self.detail.full || d.full {
+            return;
+        }
+        let d = Detail { max_texture: self.detail.max_texture, ..d };
+        if (d.view_box, d.lod_scale, d.vertex_budget) != (self.detail.view_box, self.detail.lod_scale, self.detail.vertex_budget) {
+            self.detail = d;
+            self.timer = 0.0;
+        }
+    }
+
     /// Which level each instance wants with the camera at `eye`: see the module docs.
     fn plan(&mut self, eye: Vec3) {
         let p = Vec2::new(eye.x, -eye.z);
@@ -419,7 +432,7 @@ pub fn stream_city(
     }
 }
 
-/// How much a city draws (`AC1_DETAIL=low|medium|high|full`, default medium): how far round the camera its cells are
+/// How much a city draws (`AC1_DETAIL=low|medium|high|ultra|full`, else the graphics menu's, default medium): how far round the camera its cells are
 /// drawn, how soon its meshes go to coarser levels, the vertex budget, and how big its textures are.
 #[derive(Clone, Copy, Debug)]
 pub struct Detail {
@@ -440,14 +453,22 @@ impl Detail {
     pub const LOW: Self = Self { name: "low", view_box: 64.0, lod_scale: 1.5, vertex_budget: 1_500_000, max_texture: 256, full: false };
     pub const MEDIUM: Self = Self { name: "medium", view_box: 128.0, lod_scale: 1.0, vertex_budget: 4_000_000, max_texture: 512, full: false };
     pub const HIGH: Self = Self { name: "high", view_box: 256.0, lod_scale: 0.75, vertex_budget: 12_000_000, max_texture: 1024, full: false };
+    pub const ULTRA: Self = Self { name: "ultra", view_box: 384.0, lod_scale: 0.5, vertex_budget: 20_000_000, max_texture: 2048, full: false };
     pub const FULL: Self = Self { name: "full", view_box: f32::INFINITY, lod_scale: 0.0, vertex_budget: usize::MAX, max_texture: 512, full: true };
 
+    /// The detail to load a city with: `AC1_DETAIL`, else the player's settings (`settings`, the graphics menu).
     pub fn from_env() -> Self {
-        match std::env::var("AC1_DETAIL").map(|v| v.to_lowercase()).as_deref() {
-            Ok("low") => Self::LOW,
-            Ok("high") => Self::HIGH,
-            Ok("full") => Self::FULL,
-            _ => Self::MEDIUM,
-        }
+        crate::settings::started().city_detail()
+    }
+
+    pub fn named(name: &str) -> Option<Self> {
+        Some(match name.trim().to_lowercase().as_str() {
+            "low" => Self::LOW,
+            "medium" => Self::MEDIUM,
+            "high" => Self::HIGH,
+            "ultra" => Self::ULTRA,
+            "full" => Self::FULL,
+            _ => return None,
+        })
     }
 }

@@ -22,8 +22,9 @@ Full format notes and status table are in `docs/NOTES.md` (the README is the sho
 - `dev`: day-to-day work. Commit and push here; merge into `main` (`git checkout main && git merge --no-ff dev`) when a
   batch is tested (full suite green, the user happy with a play-test), then tag it.
 - `fix/<name>`: one line of fixes (an audit area, a feature), each in its own worktree (`git worktree add ../ac1-wt/<name> -b fix/<name> dev`, its own `CARGO_TARGET_DIR`) so several can be worked on at once; merged into `dev` (`--no-ff`) once its tagged scenarios pass, then deleted.
-- `feature/<name>`: bigger separate lines of work off `dev`, merged back when ready: `feature/multiplayer` (the p2p UDP
-  test, `AC1_HOST=port` / `AC1_JOIN=ip:port`, from before v0.1.0: rebase onto `dev` before resuming it).
+- `feature/<name>`: bigger separate lines of work off `dev`, merged back when ready. (`feature/multiplayer`, the p2p UDP
+  test, was folded in by `fix/menus` on 2026-10-12: the F10 online menu, `net.rs` / `replay.rs`, `AC1_HOST=port` /
+  `AC1_JOIN=ip:port`.)
 - Tags `vMAJOR.MINOR.PATCH` (annotated) mark snapshots on `main` to go back to: `git checkout v0.1.0` to look,
   `git switch -c fix/<name> v0.1.0` to work from one. v0.1.0 = movement on AC1's tables, every clip and mesh parsing.
 
