@@ -83,6 +83,9 @@ struct Bones {
     legs: [LegBones; 2],
     arms: [Arm; 2],
     clavicles: [usize; 2],
+    /// The middle finger's knuckle (`<side>HandMiddle1`): what AC1's hand effector puts on the hold (HumanIK's hand
+    /// effectors via `IKRig__EffectorToHIK` 0x4FA910, Banned445's port; audit ANIM-11).
+    knuckles: [Option<usize>; 2],
 }
 
 impl Bones {
@@ -97,6 +100,7 @@ impl Bones {
             legs: [leg("Left")?, leg("Right")?],
             arms: [Arm::from_rig(rig, "Left")?, Arm::from_rig(rig, "Right")?],
             clavicles: [f("LeftClavicle")?, f("RightClavicle")?],
+            knuckles: [f("LeftHandMiddle1"), f("RightHandMiddle1")],
         })
     }
 }
@@ -1097,7 +1101,9 @@ pub fn locomotion(
             let dir = ctl.move_dir.with_y(0.0).normalize_or_zero();
             if v.length() > 0.5
                 && dir != Vec3::ZERO
-                && level.raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, dir, FREE_RUN_REACH).is_some_and(|h| h.normal.y.abs() < 0.3)
+                && level
+                    .raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, dir, FREE_RUN_REACH)
+                    .is_some_and(|h| h.normal.y.abs() < crate::climb::WALL_RUN_MAX_UP)
             {
                 ctl.toggle_climb = true;
                 ctl.grab_only = true;
@@ -1190,7 +1196,9 @@ pub fn locomotion(
             if legs_press && ctl.high && v.length() > STOP_SPEED && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(facing) >= std::f32::consts::FRAC_1_SQRT_2
             {
                 // (AC1's wall test from the legs: 1.5 m out at 1.3 m up, audit WALL-3.)
-                let wall = level.raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, way, FREE_RUN_REACH).is_some_and(|h| h.normal.y.abs() < 0.3);
+                let wall = level
+                    .raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, way, FREE_RUN_REACH)
+                    .is_some_and(|h| h.normal.y.abs() < crate::climb::WALL_RUN_MAX_UP);
                 if wall {
                     w = WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, way * v.length().max(1.0), pose());
                 }
@@ -1300,7 +1308,9 @@ pub fn locomotion(
                 let run = ch.wall.as_ref().and_then(|w| w.beam_walk()).filter(|(d, _)| ctl.high && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(*d) >= 0.5);
                 let pose = Some(ch.anim_pose.clone());
                 if let Some((d, v)) = run
-                    && level.raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, d, FREE_RUN_REACH).is_some_and(|h| h.normal.y.abs() < 0.3)
+                    && level
+                        .raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, d, FREE_RUN_REACH)
+                        .is_some_and(|h| h.normal.y.abs() < crate::climb::WALL_RUN_MAX_UP)
                     && let Some(w) = crate::climb::WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d * v.max(1.0), pose)
                 {
                     ch.wall = Some(w);
@@ -1325,7 +1335,9 @@ pub fn locomotion(
                         use crate::climb::WallClimb;
                         let v = ch.velocity.with_y(0.0);
                         let pose = || Some(ch.anim_pose.clone());
-                        let wall_ahead = |dir: Vec3, reach: f32| level.raycast(tf.translation + Vec3::Y, dir, reach).is_some_and(|h| h.normal.y.abs() < 0.3);
+                        let wall_ahead = |dir: Vec3, reach: f32| {
+                            level.raycast(tf.translation + Vec3::Y, dir, reach).is_some_and(|h| h.normal.y.abs() < crate::climb::WALL_RUN_MAX_UP)
+                        };
                         // At a high edge over a haystack: leap of faith. Sprinting at a wall: run up it. Else
                         // climb on from the ground, else a running jump (unless a wall is right ahead), else a
                         // standing jump up to a ledge, else straight up.
@@ -2302,6 +2314,18 @@ pub fn animate(
                 if let Some((target, _)) = held {
                     let wgt = ch.wall_hand_w[i];
                     if wgt > 0.0 {
+                        // (AC1's hand effector is the middle finger's knuckle, put on the hold point itself: the wrist
+                        // goes where the knuckle, as the clip holds it this frame, lands on the hold, audit ANIM-11.
+                        // Round a corner its targets are laid between the two faces' holds, by the wall's normal as it
+                        // turns.)
+                        let target = match b.knuckles[i] {
+                            Some(k) => {
+                                let knuckle = world_from_model.transform_point3(pose.model_of(rig, k).pos);
+                                let out = ch.wall_hand_t[i].as_ref().filter(|_| grip.is_none()).map_or(n, |l| l.out);
+                                crate::climb::grip_hold(target, out) - (knuckle - wrist)
+                            }
+                            None => target,
+                        };
                         ch.debug_targets.push((target, Color::srgb(0.95, 0.75, 0.2)));
                         let elbow = pose.model_of(rig, arm.lower).pos;
                         let pole = elbow + Vec3::new(-0.3, 0.0, -0.3);
