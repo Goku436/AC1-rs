@@ -12,9 +12,9 @@
 //! the forge, and to `(placeholder, real)` material pairs. So the whole forge is read and indexed by
 //! object id; every entity placing static meshes shows its full-detail ones (vegetation clutter and
 //! skinned meshes, such as dead bodies, are left out), with diffuse textures found through
-//! material -> texture set -> diffuse map spec -> texture across data files. Solid meshes (not
-//! foliage, cloth or distant backdrops) also become collision triangles. Masyaf: about 2300
-//! entities placing 480 distinct static meshes, 4.3 million collision triangles.
+//! material -> texture set -> diffuse map spec -> texture across data files. Collision is AC1's: each entity's rigid
+//! bodies, by their collision layer (see the collision part of `spawn_world`, docs/NOTES.md "What collides"); entities
+//! with none collide with nothing but terrain.
 //!
 //! Props every city shares (bushes, palms, souk windows, beams, lanterns, ladders, hiding spots,
 //! columns) live in `DataPC_Common.forge`, referred to by id from the city's entities: the data files
@@ -436,7 +436,15 @@ fn beam(name: &str) -> bool {
 /// instead of a solid one) or the camera's own barriers (`*CameraBarrier*`).
 fn blocks_player(name: &str) -> bool {
     let n = name.to_lowercase();
-    !["outofbound", "camerabarrier", "camcollide"].iter().any(|k| n.contains(k))
+    !["outofbound", "oob_", "camerabarrier", "camcollide"].iter().any(|k| n.contains(k))
+}
+
+/// Terrain, rocks and cliffs: with no rigid body of their own their meshes still collide. AC1 keeps their collision
+/// in data not loaded here (Masyaf's ground, rocks and cliffs, 3.1 M triangles, in the Kingdom's world; Damascus'
+/// outskirt mountains), and nothing else would hold the player up there.
+fn terrain(name: &str) -> bool {
+    let n = name.to_lowercase();
+    ["terrain", "ground", "rock", "cliff", "roche", "mountain"].iter().any(|k| n.contains(k))
 }
 
 /// Water surfaces (AC1 draws them with its own water shader; here translucent, not solid).
@@ -445,12 +453,13 @@ fn water(name: &str) -> bool {
     ["water", "lake", "puddle"].iter().any(|k| n.contains(k))
 }
 
-/// Vegetation, cloth and backdrops: drawn, not collided with.
+/// Vegetation, cloth and backdrops: drawn, not collided with (nor holds found on). Grass (`*Herbe*`), plants, ivy
+/// (`Liere_*`) and hiding places' tarps have no rigid body in AC1 either.
 fn solid(name: &str) -> bool {
     let n = name.to_lowercase();
     ![
         "veg", "forest", "fake", "banner", "carpet", "matte", "cloth", "dust", "rope", "grass", "leaf", "tree", "olivier", "cedre", "cypres", "palm", "flag",
-        "water", "lake", "puddle",
+        "water", "lake", "puddle", "herbe", "plant", "liere", "tarp",
     ]
     .iter()
     .any(|k| n.contains(k))
@@ -764,10 +773,17 @@ fn spawn_world(
             }
         }
     }
-    // Collision: AC1's own shapes (`MeshShape`) where an entity has one, else the solid render meshes
-    // (`AC1_COLLISION=render`: always the render meshes).
+    // Collision: AC1's own, the entities' rigid bodies by their layer (below; `AC1_COLLISION=render`: the solid render
+    // meshes instead, `fallback`: the rigid bodies and, for entities with none, the solid render meshes).
     let render_collision = std::env::var("AC1_COLLISION").is_ok_and(|v| v == "render");
+    let fallback_collision = std::env::var("AC1_COLLISION").is_ok_and(|v| v == "fallback");
+    // (Rigid bodies whose shape is in no loaded data file; bodies left out by their layer, by layer.)
+    let mut missing_shapes = 0usize;
+    let mut passed_layers: std::collections::BTreeMap<u8, usize> = std::collections::BTreeMap::new();
     let show_collision = std::env::var("AC1_SHOW_COLLISION").is_ok();
+    // `AC1_COLLISION_SWEEP`: what is drawn against what collides (`sweep`).
+    let sweep = std::env::var("AC1_COLLISION_SWEEP").is_ok() && picks.is_none();
+    let (mut sweep_drawn, mut sweep_solid) = (crate::sweep::Set::default(), crate::sweep::Set::default());
     let collision_mat = mats.add(StandardMaterial {
         base_color: Color::srgba(1.0, 0.1, 0.1, 0.35),
         alpha_mode: AlphaMode::Blend,
@@ -818,87 +834,72 @@ fn spawn_world(
         if (0..body.len().saturating_sub(3)).any(|k| u32_at(body, k) == CLASS_REACH_HIGH_POINT) {
             level.viewpoints.push(world.w_axis.truncate());
         }
+        // AC1's collision (`Level::tris`): the entity's rigid bodies (`forge::shape::rigid_bodies`), each linking a shape
+        // in the entity's frame, kept where the body's layer stops the player (`stops_player`: not the camera, horse,
+        // projectile barriers a hiding place's box or a haystack is on) and not an out-of-bounds wall. An entity with no
+        // rigid body collides with nothing in AC1 (foliage, tarps, awnings, cloth, clutter; Damascus: 3368 entities
+        // with meshes), and its meshes do not stand in, but for terrain (`terrain`; `AC1_COLLISION=fallback` lets every
+        // solid-named one, as before).
+        let bodies = if render_collision { vec![] } else { forge::shape::rigid_bodies(body) };
+        // (Its own collision, even if none of it stops the player: its meshes do not stand in.)
         let mut has_shape = false;
-        if !render_collision {
-            let mut seen = vec![];
-            for (_, so) in refs_of(CLASS_MESH_SHAPE) {
-                if seen.contains(&so.id) {
-                    continue;
-                }
-                // (Skipped, and its render meshes not standing in for it.)
-                if !blocks_player(&so.name) {
-                    debug!("city: left out shape {} at {:.1}", so.name, world.w_axis.truncate());
-                    has_shape = true;
-                    skipped_bounds += 1;
-                    seen.push(so.id);
-                    continue;
-                }
-                seen.push(so.id);
-                let tris = shapes.entry(so.id).or_insert_with(|| match parse_mesh_shape(so.body) {
-                    Ok(sh) => Some(sh.triangles.iter().map(|t| t.map(|i| Vec3::from(sh.vertices[i as usize]))).collect()),
-                    Err(e) => {
-                        warn!("city: collision shape {}: {e:#}", so.name);
-                        None
-                    }
-                });
-                let Some(tris) = tris else { continue };
-                has_shape = true;
-                shape_tris += tris.len();
-                level.tris.extend(tris.iter().map(|t| {
-                    let [a, b, c] = t.map(|v| world.transform_point3(v));
-                    Tri { a, b, c }
-                }));
-                if show_collision {
-                    let pos: Vec<Vec3> = tris.iter().flatten().copied().collect();
-                    let mut cm = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
-                    cm.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
-                    cm.compute_flat_normals();
-                    commands.spawn((Mesh3d(meshes.add(cm)), MeshMaterial3d(collision_mat.clone()), Transform::from_matrix(world)));
-                }
+        let mut seen = vec![];
+        for rb in bodies {
+            if rb.shape == 0 || seen.contains(&rb.shape) {
+                continue;
             }
-            // Boxes, convex hulls, capsules and lists of them.
-            for (_, so) in [CLASS_BOX_SHAPE, CLASS_BARREL_SHAPE, CLASS_CAPSULE_SHAPE, CLASS_LIST_SHAPE].iter().flat_map(|&c| refs_of(c)) {
-                if seen.contains(&so.id) {
-                    continue;
-                }
-                if !blocks_player(&so.name) {
-                    debug!("city: left out shape {} at {:.1}", so.name, world.w_axis.truncate());
-                    has_shape = true;
-                    skipped_bounds += 1;
-                    seen.push(so.id);
-                    continue;
-                }
-                seen.push(so.id);
-                let tris = shapes.entry(so.id).or_insert_with(|| match parse_primitive(so.class, so.body) {
-                    Ok(p) => Some(primitive_tris(&p)),
-                    Err(e) => {
-                        warn!("city: collision shape {}: {e:#}", so.name);
-                        None
-                    }
-                });
-                let Some(tris) = tris else { continue };
-                has_shape = true;
+            seen.push(rb.shape);
+            let Some(so) = index.get(&rb.shape).copied() else {
+                missing_shapes += 1;
+                continue;
+            };
+            has_shape = true;
+            if !forge::shape::stops_player(rb.layer) || !blocks_player(&so.name) {
+                debug!(
+                    "city: left out shape {} ({}) at {:.1}",
+                    so.name,
+                    forge::shape::LAYER_NAMES.get(rb.layer as usize).unwrap_or(&"?"),
+                    world.w_axis.truncate()
+                );
+                *passed_layers.entry(rb.layer).or_default() += 1;
+                skipped_bounds += 1;
+                continue;
+            }
+            let tris = shapes.entry(so.id).or_insert_with(|| {
+                let parsed = if so.class == CLASS_MESH_SHAPE {
+                    parse_mesh_shape(so.body).map(|sh| sh.triangles.iter().map(|t| t.map(|i| Vec3::from(sh.vertices[i as usize]))).collect())
+                } else {
+                    parse_primitive(so.class, so.body).map(|p| primitive_tris(&p))
+                };
+                parsed.map_err(|e| warn!("city: collision shape {}: {e:#}", so.name)).ok()
+            });
+            let Some(tris) = tris else { continue };
+            if so.class != CLASS_MESH_SHAPE {
                 prims += 1;
-                if prims % 300 == 1 {
-                    debug!("city: primitive collision {} at {:.1}", so.name, world.w_axis.truncate());
-                }
-                shape_tris += tris.len();
-                level.tris.extend(tris.iter().map(|t| {
-                    let [a, b, c] = t.map(|v| world.transform_point3(v));
-                    Tri { a, b, c }
-                }));
-                if show_collision {
-                    let pos: Vec<Vec3> = tris.iter().flatten().copied().collect();
-                    let mut cm = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
-                    cm.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
-                    cm.compute_flat_normals();
-                    commands.spawn((Mesh3d(meshes.add(cm)), MeshMaterial3d(collision_mat.clone()), Transform::from_matrix(world)));
-                }
             }
-            if has_shape {
-                shaped += 1;
+            shape_tris += tris.len();
+            level.tris.extend(tris.iter().map(|t| {
+                let [a, b, c] = t.map(|v| world.transform_point3(v));
+                Tri { a, b, c }
+            }));
+            if sweep {
+                let name = format!("{} [{}]", so.name, forge::shape::LAYER_NAMES.get(rb.layer as usize).unwrap_or(&"?"));
+                sweep_solid.push(&name, level.tris[level.tris.len() - tris.len()..].iter().copied());
+            }
+            if show_collision {
+                let pos: Vec<Vec3> = tris.iter().flatten().copied().collect();
+                let mut cm = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+                cm.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+                cm.compute_flat_normals();
+                commands.spawn((Mesh3d(meshes.add(cm)), MeshMaterial3d(collision_mat.clone()), Transform::from_matrix(world)));
             }
         }
+        if has_shape {
+            shaped += 1;
+        }
+        // (No rigid body, or none loaded: its solid-named meshes collide as `AC1_COLLISION=render` / `fallback`, and its
+        // terrain everywhere: `terrain`.)
+        let stand_in = |name: &str| render_collision || (!has_shape && (fallback_collision || terrain(name)));
         let mut shown: Vec<u32> = vec![];
         let ent_meshes: Vec<&Object> = refs_of(CLASS_MESH)
             .into_iter()
@@ -1099,11 +1100,23 @@ fn spawn_world(
                     level.city_objects.push((kind, lo, hi, Transform::from_matrix(world)));
                 }
             }
-            if solid(&mesh.name) && !has_shape {
+            if solid(&mesh.name) && stand_in(&mesh.name) {
                 level.tris.extend(tris.iter().map(|t| {
                     let [a, b, c] = t.map(|v| world.transform_point3(v));
                     Tri { a, b, c }
                 }));
+                if sweep {
+                    sweep_solid.push(&format!("{} (drawn)", mesh.name), level.tris[level.tris.len() - tris.len()..].iter().copied());
+                }
+            }
+            if sweep && !is_water && solid(&mesh.name) {
+                sweep_drawn.push(
+                    &mesh.name,
+                    tris.iter().map(|t| {
+                        let [a, b, c] = t.map(|v| world.transform_point3(v));
+                        Tri { a, b, c }
+                    }),
+                );
             }
             placed += 1;
             if mesh.name.starts_with("House") {
@@ -1188,7 +1201,7 @@ fn spawn_world(
     }
     info!("city {forge_file}: render: {parts} parts of {drawn_verts} vertices at full detail");
     info!(
-        "city {forge_file}: {placed} meshes placed ({grouped} entities from groups, {shared_files} shared data files; {parts} parts, {} unique meshes, {} materials), {} collision triangles ({shape_tris} from {shaped} entities' collision shapes, {prims} of them primitives; {skipped_bounds} out-of-bounds or camera-only shapes left out), {} ledges, {} viewpoints, {:.1}s",
+        "city {forge_file}: {placed} meshes placed ({grouped} entities from groups, {shared_files} shared data files; {parts} parts, {} unique meshes, {} materials), {} collision triangles ({shape_tris} from {shaped} entities' collision shapes, {prims} of them primitives; {skipped_bounds} left out: out-of-bounds or on layers the player passes through {passed_layers:?}; {missing_shapes} shapes not loaded), {} ledges, {} viewpoints, {:.1}s",
         parsed.values().filter(|p| p.is_some()).count(),
         bank.textured,
         level.tris.len(),
@@ -1196,6 +1209,10 @@ fn spawn_world(
         level.viewpoints.len(),
         t0.elapsed().as_secs_f32()
     );
+    if sweep {
+        let (lo, hi) = houses.iter().fold((Vec2::splat(f32::MAX), Vec2::splat(f32::MIN)), |(a, b), h| (a.min(h.xz()), b.max(h.xz())));
+        crate::sweep::run(&sweep_drawn, &sweep_solid, (lo - Vec2::splat(10.0), hi + Vec2::splat(10.0)));
+    }
     // The middle of the city: the median house.
     let median = |mut v: Vec<f32>| {
         v.sort_by(f32::total_cmp);

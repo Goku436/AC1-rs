@@ -837,7 +837,7 @@ impl Level {
     }
 
     /// The triangles that may touch the box `lo`..`hi` (each once).
-    fn tris_near(&self, lo: Vec3, hi: Vec3) -> Vec<u32> {
+    pub(crate) fn tris_near(&self, lo: Vec3, hi: Vec3) -> Vec<u32> {
         if self.grid.is_empty() {
             return (0..self.tris.len() as u32).collect();
         }

@@ -24,11 +24,12 @@
 //! haystack dives in (platform E and its haystacks, north of block D).
 //! F1 hides the text (the HUD and the labels), F2 the map menu (1 the test level, 2 Masyaf, 3 Damascus: the game starts
 //! again in it), F4 toggle IK, F5 skeleton,
-//! F3 IK targets, F6 pause the pose gallery and NPC line-up (they only move near the camera anyway), F12 screenshot,
+//! F3 IK targets, F6 pause the pose gallery and NPC line-up (they only move near the camera anyway), F8 the collision
+//! round the player drawn (`collision_view`: walls orange, floors green, the near faces outlined), F12 screenshot,
 //! [ / ] step through every AC1 clip in the library (Backspace returns to locomotion).
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
-//! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
+//! AC1_COLLISION=render|fallback / AC1_SHOW_COLLISION / AC1_COLLISION_VIEW / AC1_COLLISION_SWEEP (cities: collide with the render meshes, or with them where an entity has no rigid body / draw every collision shape / start with F8's view on / log how the collision lines up with what is drawn, `sweep`), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
 //! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_FLY=from-to (the Ghost mode flight then, AC1_WALK its stick; AC1_FLY_UP / AC1_FLY_DOWN=from-to up / down held), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_HEADLESS=1 (no window, no GPU: the frames run back to back, for the scenarios), AC1_STEP=hz (every frame 1/hz s of game time however long it takes; 60 when headless), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
@@ -52,6 +53,7 @@ mod character_material;
 mod city;
 mod climb;
 mod climb_table;
+mod collision_view;
 mod crowd;
 mod fly;
 mod gait;
@@ -68,6 +70,7 @@ mod ragdoll;
 mod recorder;
 mod robe;
 mod stream;
+mod sweep;
 
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::light::GlobalAmbientLight;
@@ -294,6 +297,8 @@ fn main() {
         .add_systems(Startup, (level::spawn_level, setup, grab_cursor, slow_motion).chain())
         .init_resource::<Eagle>()
         .init_resource::<fly::Fly>()
+        .init_resource::<collision_view::CollisionView>()
+        .add_systems(Update, collision_view::collision_view)
         .init_resource::<recorder::Recorder>()
         .init_resource::<pad::PadStick>()
         .add_systems(Update, place_background_window.run_if(|| std::env::var("AC1_BACKGROUND").is_ok() && std::env::var("AC1_WINDOW_AT").is_err()))
@@ -1781,7 +1786,7 @@ fn hud(
         "ground (procedural)".to_string()
     };
     t.0 = format!(
-        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F4)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | F7 fly (Ghost mode) | G outlines (both, grab, edge, none) | E eagle | C centre camera | [ ] clips, F1 hide text, F2 maps, F5 skeleton, F3 IK targets, F6 gallery, F12 shot\n{details}",
+        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F4)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | F7 fly (Ghost mode) | F8 collision | G outlines (both, grab, edge, none) | E eagle | C centre camera | [ ] clips, F1 hide text, F2 maps, F5 skeleton, F3 IK targets, F6 gallery, F12 shot\n{details}",
         if ch.health <= 0.0 {
             "DESYNCHRONISED".to_string()
         } else {

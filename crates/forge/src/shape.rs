@@ -90,6 +90,114 @@ pub fn parse_mesh_shape(body: &[u8]) -> Result<MeshShape> {
     Ok(MeshShape { vertices, triangles, triangle_materials, materials, min, max })
 }
 
+/// `RigidBody` (CRC32 of the name): inline in an entity's `InertComponent` (static bodies) or `RigidBodyComponent`
+/// (props the game's physics moves).
+pub const CLASS_RIGID_BODY: u32 = 0x228f402a;
+
+/// An entity's rigid body, read inline from its body. From the `RigidBody` class word at `p`: u32 id before it, then
+/// +4 u32 filter id (0), +8 `CollisionFilterInfo` class, +12 u32 filter word (bits 0-5 the collision layer, 6-9 body
+/// part, 10-15 subsystem group, 16-31 system group: Banned445's AC1-Movement-Rewritten reads it so, MIT), +16 u32 `?`
+/// (0), +20 u32 shape id, +24 f32 `?` (10 on static bodies: the mass), +28 f32, +32 f32 `?` (0.1, 0.1: friction,
+/// restitution?), +36 u32 `?` flags (1, 256, 257), +40 a 4x4: identity on every static body, on the moving props a
+/// diagonal (the inertia tensor) and the centre of mass, not a placement (Damascus: 14330 identity, 1670 props).
+/// The shape sits in the entity's frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RigidBody {
+    /// The collision layer (`LAYER_NAMES`).
+    pub layer: u8,
+    /// The `CollisionFilterInfo` word.
+    pub filter: u32,
+    /// The shape's object id (0: none).
+    pub shape: u32,
+}
+
+/// The rigid bodies held in an entity's body (each `RigidBody` followed by its `CollisionFilterInfo`).
+pub fn rigid_bodies(body: &[u8]) -> Vec<RigidBody> {
+    let u32_at = |k: usize| body.get(k..k + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    (0..body.len().saturating_sub(3))
+        .filter(|&p| u32_at(p) == Some(CLASS_RIGID_BODY) && u32_at(p + 8) == Some(CLASS_FILTER_INFO))
+        .filter_map(|p| {
+            let filter = u32_at(p + 12)?;
+            Some(RigidBody { layer: (filter & 0x3f) as u8, filter, shape: u32_at(p + 20)? })
+        })
+        .collect()
+}
+
+/// AC1's collision layers (`CollisionFilterInfo` layer), by number: names as Banned445's AC1-Movement-Rewritten (MIT)
+/// reads them from the executable.
+pub const LAYER_NAMES: [&str; 50] = [
+    "LayerNone",
+    "Static",
+    "Dynamic",
+    "Debris",
+    "DetectionZone",
+    "Character",
+    "Ragdoll",
+    "Raycast",
+    "NoCharacterCollision",
+    "RaycastOnlyCharacters",
+    "Nothing",
+    "Interactive",
+    "CharacterNoInteractive",
+    "OnlyStatic",
+    "RaycastNoCharacters",
+    "Horse",
+    "HorseBarrier",
+    "Camera",
+    "CameraBarrier",
+    "StaticNoCamera",
+    "CharacterNoStatic",
+    "MainCharacter",
+    "MainCharacterNoInteractive",
+    "MainCharacterNoStatic",
+    "FuzzyZone",
+    "FuzzyZoneNoCamera",
+    "FuzzyZoneAllCharacter",
+    "OnlyStaticAndCameraRaycast",
+    "HollywoodMode",
+    "StaticNoLOS",
+    "StaticNoCameraNoLOS",
+    "StaticNoHorse",
+    "OnlyLOS",
+    "FuzzyZoneAllCharacterNoCamera",
+    "NPCBarrier",
+    "OcclusionHeightTest",
+    "CameraBarrierPlusLOS",
+    "Projectile",
+    "ProjectileBarrier",
+    "ProjectileCameraBarrier",
+    "OnlyLOSAndFuzzy",
+    "FuzzyZoneNoCameraAllowAssassination",
+    "HorseNoMainCharacterCollision",
+    "RaycastNoCharactersFuzzyZone",
+    "OnlyDynamic",
+    "OnlyFuzzy",
+    "NPCSpawning",
+    "RaycastFuzzyZone",
+    "NoHorseCollision",
+    "RagdollPenetrationSolver",
+];
+
+/// The layer of the player's body: `Human__CharacterLayer` (0xB0EAA0) turns the player's Character (5) into
+/// MainCharacter (21).
+pub const LAYER_MAIN_CHARACTER: u8 = 21;
+
+/// The layers the player's body passes through: every pair the physics world's filter set-up (0x4DC8A0) turns off
+/// with MainCharacter (21): ragdolls, no-character and nothing layers, camera, horse, NPC, line-of-sight, projectile
+/// and fuzzy-only barriers. Everything else (the static world, props, interactive objects, fuzzy zones) stops it.
+const PLAYER_PASSES: [u8; 22] = [6, 8, 10, 13, 14, 16, 17, 18, 27, 28, 32, 34, 35, 36, 38, 39, 40, 42, 43, 44, 45, 49];
+
+/// Does a body on `layer` stop the player's body (AC1's filter for MainCharacter)? Layers past the table do not.
+pub fn stops_player(layer: u8) -> bool {
+    (layer as usize) < LAYER_NAMES.len() && !PLAYER_PASSES.contains(&layer)
+}
+
+/// The fuzzy-zone layers (24, 25, 26, 33, 41): they stop the body, but a hit on one is no wall to climb or run up and
+/// no support (Banned445's port, `sub_E1C1F0`).
+pub fn fuzzy(layer: u8) -> bool {
+    matches!(layer, 24 | 25 | 26 | 33 | 41)
+}
+
 pub const CLASS_BOX_SHAPE: u32 = 0x4ec68e98;
 pub const CLASS_CAPSULE_SHAPE: u32 = 0xb8599052;
 /// Convex hulls (named "barrels" in the engine).
@@ -196,6 +304,28 @@ mod tests {
         assert_eq!(s.materials, vec![0xabcd]);
         assert_eq!(s.max, [1.0, 1.0, 0.0]);
         assert!(parse_mesh_shape(&d[..d.len() - 1]).is_err());
+    }
+
+    #[test]
+    fn reads_rigid_bodies_and_their_layers() {
+        let mut d = vec![0u8; 3];
+        d.extend(7u32.to_le_bytes());
+        d.extend(CLASS_RIGID_BODY.to_le_bytes());
+        d.extend(0u32.to_le_bytes());
+        d.extend(CLASS_FILTER_INFO.to_le_bytes());
+        d.extend((0x0001_0000u32 | 39).to_le_bytes());
+        d.extend(0u32.to_le_bytes());
+        d.extend(0x1234u32.to_le_bytes());
+        d.extend([0u8; 84]);
+        // (A stray RigidBody word with no filter after it is not one.)
+        d.extend(CLASS_RIGID_BODY.to_le_bytes());
+        d.extend([0u8; 30]);
+        let b = rigid_bodies(&d);
+        assert_eq!(b, vec![RigidBody { layer: 39, filter: 0x0001_0027, shape: 0x1234 }]);
+        assert!(!stops_player(b[0].layer), "a hiding place's ProjectileCameraBarrier");
+        assert!(stops_player(1) && stops_player(2) && stops_player(11) && stops_player(24));
+        assert!(!stops_player(16) && !stops_player(18) && !stops_player(60));
+        assert!(rigid_bodies(&d[..20]).is_empty(), "cut before its filter word");
     }
 
     #[test]

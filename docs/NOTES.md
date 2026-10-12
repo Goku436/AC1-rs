@@ -18,7 +18,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | City placement: entities' world transforms and meshes across a forge's data files, EntityGroup (3f742d26) members | done: Masyaf 4344 meshes placed (926 from groups; 2221 entities collide by their shapes, 5 data files of them looked up in `DataPC_Kingdom.forge`), Damascus 17581 (8851 entities from groups, 15.9 M collision triangles), shared props from `DataPC_Common.forge` |
 | Characters assembled from shared parts across data files (soldiers, crowds) | done: AC1's NPC builders (`EntityBuilder`/`BuildTable`), links into `DataPC_Common.forge` through an object index; the NPC line-up and scholars use them |
 | Move graph (`ActionKit`/`ActionBlock`) | done: 452/452 blocks parse (15463 actions, 15958 items); blend spaces used for locomotion, stops, leans, grabs, leaps |
-| Collision shapes (`MeshShape`, `BoxShape`, `BarrelShape`, `CapsuleShape`, `ListShape`) | done: 14889/14889 meshes (6.5 M triangles) and 2098/2098 primitives parse; cities collide with them where an entity has one (Damascus: 15744 entities, 2121 by primitives), except AC1's out-of-bounds walls (`OutOfBound_*`: locked districts, mission areas) and camera-only barriers (Damascus: 231 left out) |
+| Collision shapes (`MeshShape`, `BoxShape`, `BarrelShape`, `CapsuleShape`, `ListShape`) and rigid bodies (`RigidBody`, its collision layer) | done: 14889/14889 meshes (6.5 M triangles) and 2098/2098 primitives parse; cities collide as AC1: by the entities' rigid bodies where their layer stops the player (Damascus: 16000 bodies, 289 left out: camera, horse and projectile barriers, out-of-bounds walls; 3.77 M triangles), entities with none collide with nothing but terrain; F8 draws it, `AC1_COLLISION_SWEEP` measures it ("Collision shapes") |
 | Levels of detail (`LODSelector`, `forge::lod`) | done: 18807/18807 selectors parse (`examples/lodcheck`); cities draw each mesh at AC1's level for its distance |
 | World grid (`World`'s `GridLayout`, `GridPartition`) and distant stand-ins (`FakeEntities`, `forge::world`) | done: 12/13 worlds' grids read (`Map_Menu`'s layout is empty), 9/10 stand-in sets check (every span inside its submesh and on a cell with a data file; `Flashback_Paradise`: one span past its submesh); cities stream their drawn meshes by these cells |
 | Havok packfiles (`HavokChunk`), ragdolls (`RagdollNew`) | done: 72/72 ragdolls read; the dead go limp (Verlet ragdoll with AC1's bodies and limits) |
@@ -727,12 +727,57 @@ half the 200 cm one; a wall run there 0.36 of the 131 cm entry, 0.64 of the 200 
 3 m variants toward the hold when that lands nearer. Test blocks `Jump 1.75 m (blend)` and `Jump 2.25 m (blend)`.
 
 ## Collision shapes (`MeshShape`)
-Entities with an `InertComponent` and a `RigidBody` link a shape, placed by the entity's world transform. `MeshShape`
+Entities with an `InertComponent` (static) or a `RigidBodyComponent` (props the physics moves) hold a `RigidBody` inline
+that links a shape, placed by the entity's world transform. `MeshShape`
 (format in `crates/forge/src/shape.rs`): vertices, a Havok MOPP tree, triangles, per-triangle materials, collision
-materials, filter info, bounds. The `shapes` tool parses all 14889 (6.5 M triangles). A city's collision now comes
-from these where an entity has one (Damascus: 3.6 M of its 4.6 M triangles, from 13797 entities; they line up with
-the buildings, `AC1_SHOW_COLLISION` draws them); other solid meshes still collide by their render triangles
-(`AC1_COLLISION=render` for the old behaviour). Masyaf's village collision is in the Kingdom forge (not loaded).
+materials, filter info, bounds. The `shapes` tool parses all 14889 (6.5 M triangles).
+
+### What collides (as AC1, 2026-10-12)
+The `RigidBody` (0x228f402a, `forge::shape::rigid_bodies`): +8 `CollisionFilterInfo`, +12 its filter word (bits 0-5 the
+collision layer), +20 the shape, +40 a 4x4 that is identity on every static body and on moving props the inertia tensor
+and centre of mass (not a placement: Damascus 14330 identity, 1670 props). The player's body is on MainCharacter (21:
+`Human__CharacterLayer` 0xB0EAA0 turns the player's Character 5 into 21), and the physics world's filter set-up
+(0x4DC8A0) turns 22 layer pairs with it off: Ragdoll, NoCharacterCollision, Nothing, OnlyStatic, RaycastNoCharacters,
+HorseBarrier, Camera, CameraBarrier, OnlyStaticAndCameraRaycast, HollywoodMode, OnlyLOS, NPCBarrier,
+OcclusionHeightTest, CameraBarrierPlusLOS, ProjectileBarrier, ProjectileCameraBarrier, OnlyLOSAndFuzzy,
+HorseNoMainCharacterCollision, RaycastNoCharactersFuzzyZone, OnlyDynamic, OnlyFuzzy, RagdollPenetrationSolver (layer
+names as Banned445's AC1-Movement-Rewritten, MIT, reads them; the pairs checked in Ghidra). Damascus' rigid bodies
+(`bodies` tool) by layer: Static 13302, Dynamic 1924 (boxes, hulls: props), Interactive 333 (ladders, gardens), fuzzy
+zones 189 (out-of-bounds walls, the outskirts' `Damas_OS_Colmap`, tents, big olive trees: they stop the body),
+StaticNoHorse 47, StaticNoCamera 21; passed through: ProjectileCameraBarrier 123 (every rooftop hiding place's box,
+`Hiding_Spot_CameraBarrier_01a`), CameraBarrier 55 (the haystacks' capsules, the river's `*_CAM` surfaces, the
+bureau's `BureauCamCol01`, a 0.5 m block on its floor), HorseBarrier 3, ProjectileBarrier 3.
+
+So a city collides with each entity's rigid bodies on a layer that stops the player, less the out-of-bounds walls
+(`OutOfBound*`, `OOB_*`: the locked districts and mission fences, left out by choice). Other shapes an entity refers to
+are not collision (a market stall's `BhvKiosk` holds a box: 174 in Damascus, all once solid here). An entity with no
+rigid body collides with nothing (Damascus 3368 entities with meshes: pigeons, tarps, ivy, bushes, grass, rugs,
+awnings, flags, spice bags, torches, NPC parts), except terrain (`city::terrain`: ground, rock, cliff, mountain
+meshes), as AC1 keeps that collision in data not loaded here (Masyaf's ground and rocks, 2.7 M triangles, in the
+Kingdom's world). `AC1_COLLISION=render` collides with the solid render meshes instead, `fallback` adds them for every
+entity with no rigid body (the behaviour before). F8 draws the collision round the player (`collision_view`: walls
+orange, floors green, faces looking down blue, the near ones outlined); `AC1_SHOW_COLLISION` draws every shape
+at load.
+
+`AC1_COLLISION_SWEEP=1` measures it (`sweep`): points spread over every face (one per 0.25 m²) inside the city (the
+houses' bounds and 10 m round), a drawn point with no collision face within 0.3 m is drawn surface the body goes
+through, a collision point with no drawn face within 0.3 m an invisible surface. Drawn: the solid-named meshes (not
+foliage, cloth, water or backdrops). Before (every shape an entity refers to, render meshes for entities without) and
+after (rigid bodies by layer):
+
+| City | Collision triangles | Invisible collision: walls | floors | Drawn, no collision: walls | floors |
+|---|---|---|---|---|---|
+| Damascus before | 4.29 M | 100887 m² (10.1 %) | 69162 m² (12.1 %) | 22556 m² (2.3 %) | 39303 m² (7.9 %) |
+| Damascus after | 3.77 M | 91611 m² (9.4 %) | 55764 m² (10.2 %) | 23905 m² (2.5 %) | 40893 m² (8.2 %) |
+| Masyaf before | 3.36 M | 28986 m² (25.9 %) | 20729 m² (39.9 %) | 8537 m² (9.8 %) | 1882 m² (5.1 %) |
+| Masyaf after | 2.99 M | 21541 m² (20.8 %) | 10333 m² (25.2 %) | 8626 m² (9.9 %) | 1948 m² (5.3 %) |
+
+What is left is AC1's own: invisible, the city walls' collision standing higher than the drawn walls
+(`Rempart_Wall_12m_01a` 17598 m²), market stalls' simplified boxes (`Kiosk_Collision_*` 6962 m²), palms' and cypresses'
+trunks round the drawn fronds, houses' and stairs' shapes simpler than the drawn ones; drawn without collision, the
+ground outside the gates (`Ground_Rich_*Gate*` 33146 m²), big rocks, skinned market stalls, Masyaf's tower and cliffs
+(their collision in the Kingdom's world), and props with no rigid body (+1349 m² of walls and +1590 m² of floors in
+Damascus against before: barrels, spice stacks, awnings).
 
 Primitive shapes (`shape.rs`): a box (half extents and convex radius, a local transform, a material), a convex
 hull ("barrel": a local transform, face planes, vertices), a capsule (two ends, a radius), a list of inline shapes.
