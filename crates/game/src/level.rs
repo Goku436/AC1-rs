@@ -159,6 +159,17 @@ pub struct Authored {
     pub a: Vec3,
     pub b: Vec3,
     pub out: Vec3,
+    /// The placing entity's own +Y axis in the world (flat): a kiosk's way along its counter.
+    pub axis: Vec3,
+}
+
+/// A kiosk (a market stall, `HumanKiosk`): one of its counter's `Kiosk` guidance pieces (the front and the two sides) and
+/// the stall entity's own +Y, along its front: the entry side is taken against it (0xE08679 reads the entity's second
+/// matrix row through 0x4C2F90).
+#[derive(Clone, Copy, Debug)]
+pub struct Kiosk {
+    pub edge: Ledge,
+    pub axis: Vec3,
 }
 
 /// An authored ledge edge steeper than this (rise over length, sin 40 degrees) is a stair or roof slope, not a hold: AC1
@@ -227,8 +238,8 @@ pub struct Level {
     /// Horizontal bars to swing on (drawn, not part of the collision geometry).
     pub bars: Vec<Line>,
     pub ladders: Vec<Ladder>,
-    /// Overhead frames to cross hand over hand (a kiosk's roof frame), along the line at its height.
-    pub monkey: Vec<Line>,
+    /// Kiosks' counters, jumped onto (see `Kiosk`).
+    pub kiosks: Vec<Kiosk>,
     /// Triangles by `GRID` cell (x, z) they overlap, for raycasts in big levels (empty: test them all).
     pub(crate) grid: FastMap<(i32, i32), Vec<u32>>,
     /// Triangles too big for the grid (the ground plane around the test area), tested by every raycast.
@@ -711,6 +722,9 @@ impl Level {
                         ladders += 1;
                     }
                 }
+                SubType::Kiosk if e.out != Vec3::ZERO && len > 0.01 => {
+                    self.kiosks.push(Kiosk { edge: Ledge { a: e.a, b: e.b, out: e.out }, axis: e.axis });
+                }
                 SubType::Pole if (e.b.y - e.a.y).abs() < 0.3 * len.max(0.01) => {
                     let mid = (e.a + e.b) * 0.5;
                     if !self.bars.iter().any(|b| b.closest(mid).distance(mid) < 0.2) {
@@ -725,6 +739,11 @@ impl Level {
         self.ledges = ledges;
         self.authored_ladders = ladders > 0;
         Some((holds, ladders, bars))
+    }
+
+    /// The kiosk piece `p` lies on, within `within` (m).
+    pub fn kiosk_at(&self, p: Vec3, within: f32) -> Option<Kiosk> {
+        self.kiosks.iter().find(|k| k.edge.closest(p).distance(p) <= within).copied()
     }
 
     /// Leave out the authored holds that can't be reached from in front: AC1's markup has edges of shapes buried in a
@@ -1352,6 +1371,14 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     // the other (AC1's revolve; audit LADDER-7).
     level.ladders.push(Ladder { base: Vec3::new(-90.0, 0.0, 204.0), top: 4.5, out: Vec3::NEG_X });
 
+    // G17: a beam run up to a wall with holds up it: standing on the beam, the empty hand climbs onto the wall (AC1's
+    // climb from a beam, event 16).
+    let z = 214.0;
+    walls.cuboid(Vec3::new(-92.0, 0.0, z - 2.0), Vec3::new(-88.0, top(6.0), z + 2.0));
+    hold_rows(strips, level, Vec3::new(-92.0, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &[top(0.0), top(1.0), top(2.0), top(3.0), top(4.0), top(5.0)]);
+    platform(walls, -99.0, -96.0, z, 2.0);
+    beam(walls, level, -96.0, -92.0, z, 2.0);
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -1368,6 +1395,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G13: no climbing out under an awning", Vec3::new(-95.0, 4.0, 174.0)),
         ("G14: a block in the way up the wall", Vec3::new(-95.0, 4.0, 184.0)),
         ("G16: a free-standing ladder", Vec3::new(-92.0, 4.0, 204.0)),
+        ("G17: a beam to a wall, climbed from", Vec3::new(-95.0, 4.0, 214.0)),
     ]
 }
 
@@ -1547,7 +1575,7 @@ pub fn spawn_level(
         // AC1's own holds, ladders and poles where the city has them; else the edges found in its geometry.
         let authored = level.use_authored();
         if let Some((holds, ladders, bars)) = authored {
-            info!("authored guidance: {holds} holds, {ladders} ladders, {bars} swing bars");
+            info!("authored guidance: {holds} holds, {ladders} ladders, {bars} swing bars, {} kiosk pieces", level.kiosks.len());
         }
         level.build_grid();
         if authored.is_some() {
@@ -1606,6 +1634,12 @@ pub fn spawn_level(
                 let d = l.closest(p).distance(p);
                 if d < v[3] {
                     info!("perch {i}: {:.2} to {:.2}, {d:.2} m away", l.a, l.b);
+                }
+            }
+            for (i, k) in level.kiosks.iter().enumerate() {
+                let d = k.edge.closest(p).distance(p);
+                if d < v[3] {
+                    info!("kiosk piece {i}: {:.2} to {:.2}, out {:.2}, axis {:.2}, {d:.2} m away", k.edge.a, k.edge.b, k.edge.out, k.axis);
                 }
             }
             // (And the ladders, swing bars and haystacks, flat distance: to find one to send the running game to.)
@@ -1869,17 +1903,20 @@ pub fn spawn_level(
         }
         level.bars.push(Line { a: Vec3::new(x, bar_y, -1.6), b: Vec3::new(x, bar_y, 1.6) });
     }
-    // Block L (5 m) south of the course with a ladder up its north face at x = 23.5, and a kiosk frame
-    // (overhead bars at 2.1 m, 7 m long) east of it to cross hand over hand.
+    // Block L (5 m) south of the course with a ladder up its north face at x = 23.5, and kiosk K south-east of it: a
+    // market stall's counter as AC1's (`Kiosk_*`: 3.7 m along its front, 2.2 m deep, its top 0.74 m up), its front facing
+    // south (-Z) and its kiosk pieces along the front and the two sides, as the cities' stalls carry them.
     c.cuboid(Vec3::new(22.0, 0.0, -9.0), Vec3::new(25.0, 5.0, -6.0));
     level.ladders.push(Ladder { base: Vec3::new(23.5, 0.0, -5.92), top: 5.0, out: Vec3::Z });
-    let kiosk = (27.0, 34.0, -7.5, 2.1);
-    for x in [kiosk.0, kiosk.1] {
-        for z in [kiosk.2 - 0.7, kiosk.2 + 0.7] {
-            c.cuboid(Vec3::new(x - 0.08, 0.0, z - 0.08), Vec3::new(x + 0.08, kiosk.3 + 0.1, z + 0.08));
-        }
+    let (kx0, kx1, kz_front, kz_back, kh) = (28.0, 31.7, -10.2, -8.0, 0.74);
+    c.cuboid(Vec3::new(kx0, 0.0, kz_front), Vec3::new(kx1, kh, kz_back));
+    for (a, b, out) in [
+        (Vec3::new(kx0, kh, kz_front), Vec3::new(kx1, kh, kz_front), Vec3::NEG_Z),
+        (Vec3::new(kx0, kh, kz_front), Vec3::new(kx0, kh, kz_back - 0.1), Vec3::NEG_X),
+        (Vec3::new(kx1, kh, kz_front), Vec3::new(kx1, kh, kz_back - 0.1), Vec3::X),
+    ] {
+        level.kiosks.push(Kiosk { edge: Ledge { a, b, out }, axis: Vec3::X });
     }
-    level.monkey.push(Line { a: Vec3::new(kiosk.0, kiosk.3, kiosk.2), b: Vec3::new(kiosk.1, kiosk.3, kiosk.2) });
     add(c, Color::srgb(0.7, 0.66, 0.6), &mut level, &mut commands);
     // A bench by the scholars' walk (sit on it to hide), and viewpoint tower V east of platform E: holds up its
     // west face to the top (15.6 m), a beam sticking out of its north side at the top to synchronize from,
@@ -1944,7 +1981,7 @@ pub fn spawn_level(
         ));
     }
 
-    // Ladders and kiosk frames are drawn, not collided with.
+    // Ladders are drawn, not collided with.
     let wood = mats.add(StandardMaterial { base_color: Color::srgb(0.42, 0.3, 0.18), perceptual_roughness: 0.85, ..default() });
     for l in &level.ladders {
         let side = l.out.cross(Vec3::Y).normalize();
@@ -1964,26 +2001,6 @@ pub fn spawn_level(
                 Transform::from_translation(l.base + Vec3::Y * y).with_rotation(Quat::from_rotation_arc(Vec3::Y, side)),
             ));
             y += 0.25;
-        }
-    }
-    for m in &level.monkey {
-        let (axis, len) = (m.axis(), (m.b - m.a).length());
-        let side = axis.cross(Vec3::Y).normalize();
-        for s in [-0.7, 0.7] {
-            commands.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.04, len))),
-                MeshMaterial3d(wood.clone()),
-                Transform::from_translation((m.a + m.b) * 0.5 + side * s + Vec3::Y * 0.05).with_rotation(Quat::from_rotation_arc(Vec3::Y, axis)),
-            ));
-        }
-        let mut t = 0.3;
-        while t < len {
-            commands.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.035, 1.4))),
-                MeshMaterial3d(wood.clone()),
-                Transform::from_translation(m.a + axis * t + Vec3::Y * 0.05).with_rotation(Quat::from_rotation_arc(Vec3::Y, side)),
-            ));
-            t += 0.55;
         }
     }
 
@@ -2021,7 +2038,7 @@ pub fn spawn_level(
         ("Swing bars", [56.7, 4.9, 0.0]),
         ("P4", [63.0, 1.5, 0.0]),
         ("Block L (ladder)", [23.5, 5.5, -7.5]),
-        ("Kiosk (monkey bars)", [30.5, 2.6, -7.5]),
+        ("Kiosk K (market stall)", [29.85, 1.6, -9.1]),
         ("Start", [0.0, 0.3, 0.0]),
         ("Flow lane start (free-run along +X)", [-20.0, 1.0, -24.5]),
         ("Flow: step up 0.6", [-13.4, 1.1, -24.5]),

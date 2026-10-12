@@ -446,7 +446,7 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - **Swing bars** **[V, ours]**: AC1 swings on while high profile and the legs are held, and stops when they are let
   go (the interpreter's ledge events 5 / 6, Banned445's port and reanalysis), not by the stick. Caught with them let go
   (route ladder68_free), it hung still from the bar 0.25 s into the first upswing, no stop chain; ours settles into
-  `xx_h_hangfree_waitclose` after that upswing. Let go mid-swing: AC1's stop (`xx_h_swing_stop_<front|back>_a..d`, the
+  `xx_h_hangfree_waitclose` after that upswing. Let go mid-swing: at the end of the down item (event 6's guard 0xDCCF40), AC1's stop (`xx_h_swing_stop_<front|back>_a..d`, the
   last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`. Which stop is front and which back is to be
   checked live (the reanalysis says the port's are swapped). The stick forward swings him up again
   (`xx_h_swing_momentum_front_up`). The hay's hop out
@@ -609,6 +609,29 @@ in this batch, by audit id:
 - **Root path** (ANIM-16): the pull-ups from the waist (`xx_h_hangwaist_*`) spread their correction linearly over the
   clip, as every other move and AC1's root interpolator do; the cubic, late correction was ours. (No scenario reaches
   a waist pull-up: the free hang's top-out and the 2.5 m wall run onto a top want a look.)
+- **Narrow objects, ground, hay, input** (NARROW-11, 14, 16; EXTRA-16; HAY-7, 9; INPUT-10):
+  - NARROW-16: kiosks are AC1's market-stall counters, read from the cities' `Kiosk_*` entity groups (Damascus: 112
+    stalls), not overhead bars: a jump target (type 0x400, its piece's middle, in the jump's own zone only), the entry
+    side taken against the stall entity's +Y (0x4C2F90's second matrix row). Across the front: the entry, one run along
+    the counter and `_tr_fall` off its end; along it, the side free step (ended where it leaves the counter) and a
+    free-step jump on out. [ours] The stall's own collision is left out of the kiosk's room and clear-way tests and the
+    way over: in Damascus it stands in the way (ours places it about 0.9 m out in front of the counter, a placement still
+    to check) where AC1 comes onto the counter. The ground-entered overhead monkey bars are gone.
+  - NARROW-11: on a beam, the empty hand with nothing to pull down onto climbs onto a wall ahead, else to its right or
+    left (event 16 after the pull-down, holds probed 0.95 m ahead or 0.8 m to a side; ours: the ground's climb start
+    turned that way). Gauntlet G17.
+  - NARROW-14: the swing's stop (the legs let go) starts at the end of a down item (event 6's guard 0xDCCF40), the front
+    stop after front_down and the back after back_down (Banned445's mapping; the reanalysis says swapped: a live check).
+  - EXTRA-16: the ledge stop breaks into a standing turn toward the edge in high profile (as the running game's 0.084 s
+    into `waitturn_left_090`).
+  - HAY-7: out of a haystack over its rim, the side and the drop (1.5 m under the haystack's floor) come from its own box,
+    the hang from a level hold along the rim if there is one, else from the rim itself.
+  - HAY-9: the leap of faith's search is AC1's 0xE15AA0 with vt76's limits: the top (floor + 1.6 m) under 1.2 m over the
+    feet; across 2 to 8 m, along 9 to 20 m and 40 to 70 degrees off the way from 1.5 m behind the feet, opened as the
+    top lies lower (full at 30 m down); in front of the facing; the two-segment clear way (bent at 0.66). [ours] The 3 m
+    split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
+  - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
+    the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
