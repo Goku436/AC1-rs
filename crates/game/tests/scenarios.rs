@@ -547,6 +547,16 @@ const SCENARIOS: &[Scenario] = &[
         want: &["ladder", "-> top via"],
         never: &[],
     },
+    // Audit LEDGE-3: from the wall hang on pole P's lowest cap, up to the next one 0.6 m above with no hold for the feet
+    // 1.2 m under it: AC1's hand step (one hand, then the other), not the climbing stance with the feet on the cap let go of.
+    Scenario {
+        name: "pole P, up from its wall hang: AC1's hand step to the cap above, one hand then the other",
+        tags: &["hang"],
+        env: &[("AC1_START", "-1.2,10.9,180"), ("AC1_HIGH", "0-1"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,up=8")],
+        secs: 4.0,
+        want: &["hangwall -> hangwall_1", "_1ru_u_1m", "-> hangwall_open via xx_h_hangwall_climb_1"],
+        never: &["EMBED"],
+    },
     Scenario {
         name: "pole P to its perch",
         tags: &["beam", "hang"],
@@ -767,6 +777,16 @@ const SCENARIOS: &[Scenario] = &[
         env: &[("AC1_START", "-92.6,164,-90,1"), ("AC1_CLIMB", "up=8")],
         secs: 9.0,
         want: &["jump up from the climb", "via xx_h_climbing_1m_impultion"],
+        never: &["EMBED"],
+    },
+    // Audit LEDGE-13 (the blend): from the free hang off G12's slab, down onto the holds 1 m under it, AC1's drop mixed from
+    // its four clips by the exe's weights (TryFreeHangDropToClimb 0xDDF390).
+    Scenario {
+        name: "gauntlet G12's slab, then down: AC1's free-hang drop onto the holds below, its four clips mixed",
+        tags: &["climb", "hang"],
+        env: &[("AC1_START", "-92.6,164,-90,1"), ("AC1_CLIMB", "up=7.5,down=4")],
+        secs: 12.0,
+        want: &["drop onto the wall below mixed", "-> 2m via xx_h_climbing_hangfree_tr_climb2m_down_"],
         never: &["EMBED"],
     },
     Scenario {

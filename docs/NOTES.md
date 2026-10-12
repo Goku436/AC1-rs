@@ -212,8 +212,9 @@ reach (was 4.6 m). An eject's targets start 0.5 m off (running jumps' at 1 m): A
 of the wall 0.95 m off, and so does ours now (route `wall1_eject_right` 3.34 -> 0.45 m). As AC1's interpreter checks
 the jump off before any move (Banned445's port, verified live), high profile + legs ejects in the middle of a move from
 hold to hold too (a hand step, a reach, a shimmy), cutting it; pressed during a leap between holds it is kept 0.3 s
-(the legs buffer) and ejects as the hand lands. Still to do (audit WALL-8): AC1 turns the root away from the wall in one
-frame at the takeoff; ours eases it (cut in after the rebound pose, the takeoff's first frame jumped 1 m). Not yet: the ladder's rebound (`xx_h_ladder_wait_<l|r>_tr_rebound`), the mid-air one (`xx_h_air_all_<foot>_tr_rebound`) and the wall
+(the legs buffer) and ejects as the hand lands. As AC1 (audit WALL-8), the root turns away from the wall in one frame as
+the takeoff starts (it was eased round over 0.25 s), placed so the hips stay put, the pose faded from turned with it (the
+rebound pose already faces away: the hips are 4 degrees off the takeoff's first frame). Not yet: the ladder's rebound (`xx_h_ladder_wait_<l|r>_tr_rebound`), the mid-air one (`xx_h_air_all_<foot>_tr_rebound`) and the wall
 run's one-piece ejects (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`). Wall runs and free
 running's own grabs need a wall at least 0.7 m wide (not a pole's side). Footing under a hold needs a wall within
 0.16 m behind the hold line, probed at each foot and between them (a thin pole flush with a cap is footing, one set

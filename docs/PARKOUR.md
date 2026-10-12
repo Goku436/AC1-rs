@@ -446,8 +446,10 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   0.50 m out and 1.00 m up at the entry's end, ours within 0.03 m now (it was 0.08-0.2 m off when the whole way to the
   hold went into the entry). The rebound's fall, `xx_h_rebound_footr_tr_fall`, carries 0.8 m back and 3 m down in 0.47 s:
   AC1 falls the 2 m at a steady 7 m/s; ours starts the fall at that clip's 6.4 m/s down. **[B, ours, measured]**
-  The catch after the vertical step (probe D) takes the edge nearest out from the wall first, then the lowest (FindLedge's
-  order: distance ahead + 0.01 × height); it asks nothing of the wall under the edge (ours checks the feet's footing
+  The catch after the vertical step (probe D) takes the highest edge 1 to 2.8 m over the root first (FindLedge 0xE36BD0
+  sorts by height, highest first for probe D: its comparator 0xE33AF0), and mixes its four clips as action 0x106CFC5's
+  weights (0xE38FE8): by height, (edge - root - h) / 1.5·h (the 251 cm clip to the 430 cm one), by the lip's overhang
+  out from the face run up, up to 0.75 m (the `_000cm` clips to the `_050cm` ones); it asks nothing of the wall under the edge (ours checks the feet's footing
   where they go). A cap stops the run only straight over its line (within 0.2 m along the wall). On a Damascus street
   wall the running game ran up past a pilaster's top 0.28 m to the side and caught an edge 0.1 m proud of the wall over a
   window, 3.8 m up; ours now does the same (route `street_free_east` 2.54 -> 0.38 m). **[B, ours, measured]**
@@ -522,8 +524,28 @@ in this batch, by audit id:
   Banned445's decode) in place of ours' mesh-name beams and single-hold tops; not the default yet (31 of 41 routes
   against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
   beam the running game lands on).
-Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
-down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
+- **Fourth batch** (WALL-8): an eject's takeoff turns the root away from the wall in one frame, as AC1's does (it was
+  eased round over the takeoff), the hips kept where the rebound pose left them. (WALL-16 to 18) The wall run's catch
+  into the wall hang (probe D) as the exe has it: the highest edge first, its height blend over 1.5 m (ours had the
+  clips' own 1.8 m rise, Banned445's reading), its `_050cm` clips mixed in by the lip's overhang. (LEDGE-13) The free
+  hang's drop onto the wall below mixes its four clips `{min,max}_{200,300}` by the exe's weights (0xDDF390: by the
+  drop, hands - 2 m (1.6 into the wall hang) - feet, and by how far the new hold line is, / 0.7 m), the holds a row
+  1.2 m under the hands and 0.65 m on (the four clips whole after it, for holds out of that reach). (LEDGE-3) Up or
+  down from the wall hang, into the climbing stance only with a hold for each foot 1.2 m under its new hand (AC1's
+  TryTransitionToClimb), else the hand step to the ledge there, one hand then the other
+  (`xx_h_hangwall_climb_1m_<u|d>_1<l|r>u`, then `_1<l|r>u_<u|d>_1m`); ours climbed into the stance with the feet on the
+  ledge just let go of, 0.6 m under the hands. (LEDGE-2) Sideways, the hang switches its type in place of the step
+  where the stretch ahead needs the other one (AC1's TrySwitchHangType 0xDE1060 before StartHandStep, its foot rays as
+  Banned445's port reads them: 1.2 m in toward the wall from 1 m under the hands, 0.5 m out, 0.1 m to either side): the
+  wall hang into the free one (`xx_h_hangwall_tr_hangfree_<side>`) unless both rays meet the wall, the free hang into
+  the wall one (`xx_h_hangfree_tr_hangwall_<side>`) if either does; after the climbing holds beside, before the
+  shimmy. (No scenario: the test level has no ledge running on past its wall without holds beside it.) (LEDGE-8) The
+  wall hang at rest eases its root to 1.1 m under its hold (AC1's `ComputeRootFromHandTargets` 0xDD6730: the lower
+  hand's target - 1.1 m, 0.5 m out; ours was wherever the move into it ended, 1.02 to 1.14 m under), still 0.50 m from
+  the wall's face.
+Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
+the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
+`wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
 
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
@@ -535,7 +557,7 @@ the input interpreter sends them). Checked by mapping every action id Banned445'
 clips (`forge` example `action_clips`) against the clips our code plays: left unplayed are combat's (hurt
 falls, stumbles), other characters' (`cmaa_*`), the leap of faith's code-driven fall (`xx_h_faith_jump_fall`; ours
 stretches the dive over the whole fall), and much of `HumanLedge` (audit LEDGE-15): the hang-type switches
-(`hangwall_tr_hangfree*`, `hangfree_tr_hangwall*`), the wall hang's hand steps (`hangwall_climb_*`), the swing back
+in place and up or down (`hangwall_tr_hangfree`, `_up_*`, `_down_*`; the sideways ones are played), the swing back
 (`hangwall_to_swingback_*`), the wall-free hang (`hangwallfree_*`), `hangfree_strafe_*_000cm_*`.
 
 ## Open questions
