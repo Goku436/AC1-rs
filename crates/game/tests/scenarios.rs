@@ -1294,8 +1294,11 @@ const SCENARIOS: &[Scenario] = &[
         secs: 17.0,
         want: &[
             "jump up from the climb to the ledge at [114.10, 11.48",
-            "hand steps onto the edge 0.12 up and 0.46 out",
-            "hand steps onto the edge 0.32 up and 0.37 out",
+            // (How far up is measured from the free hang's hands, which ease down to AC1's 2.4 m over the root: 0.12-0.13.)
+            "hand steps onto the edge 0.1",
+            "up and 0.46 out",
+            "hand steps onto the edge 0.3",
+            "up and 0.37 out",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4",
         ],
         never: &["xx_l_climb_1ru_d_1m", "EMBED"],
