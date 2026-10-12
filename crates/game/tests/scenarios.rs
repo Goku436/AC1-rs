@@ -879,6 +879,25 @@ const SCENARIOS: &[Scenario] = &[
         want: &["via xx_l_ladder_climb_up_"],
         never: &["round ladder", "EMBED"],
     },
+    // The user's report (2026-10-11): onto E's ladder from its top, a step up, the stick to the right: E's wall stands
+    // behind it, no revolve (it took him through the wall), but off it onto E's holds on its right.
+    Scenario {
+        name: "E's ladder from its top, a step up, the stick to the right: no room to go round it (the wall), onto the holds there",
+        tags: &["ladder"],
+        env: &[("AC1_START", "10,15.5,180,6"), ("AC1_WALK", "1.5"), ("AC1_CLIMB", "nograb,wait=3,up=0.4,wait=1,right=0.6")],
+        secs: 7.0,
+        want: &["_tr_ladder_pulldown", "_ladder_climb_up_", "off ladder 0 onto the wall, right"],
+        never: &["round ladder", "EMBED"],
+    },
+    // (The same entry's frame: facing the rungs on the ladder's front, its top exit is there, not taken for its back.)
+    Scenario {
+        name: "E's ladder from its top, down a step, back up: off its top again (the entry's frame is the ladder's front)",
+        tags: &["ladder"],
+        env: &[("AC1_START", "10,15.5,180,6"), ("AC1_WALK", "1.5"), ("AC1_CLIMB", "nograb,wait=3,down=0.4,wait=0.6,up=3")],
+        secs: 8.0,
+        want: &["_tr_ladder_pulldown", "_ladder_climb_down_", "-> top via"],
+        never: &["round ladder", "EMBED"],
+    },
     Scenario {
         name: "gauntlet G7: up a wall's holds, along to its edge, the leap across the gap onto the next wall, up to its top",
         tags: &["combo", "climb", "hang"],

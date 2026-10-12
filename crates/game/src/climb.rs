@@ -5585,6 +5585,11 @@ impl WallClimb {
             let end_y = p.y + (world_rot(out_rot) * end.motion).y;
             let at = Transform { translation: start.with_y(p.y + Self::rung_snap(l, end_y) - end_y), rotation: out_rot, ..*root };
             w.start_chain(clips, vec![LADDER_R.into(), LADDER_R.into(), LADDER_R.into()], &at, Vec3::ZERO);
+            // (The pull-down starts facing out and turns round onto the rungs; the normal turns with each clip's own turn
+            // when it ends (see `update`), so it starts turned back by the whole chain's turn and ends as `out`. Given as
+            // `out`, it ended pointing into the wall: the revolve's room box was tested out in the open, behind him, and
+            // took him round into E's wall, and the exit off the top took him for being on the ladder's back.)
+            w.normal = (out_rot * root_delta(end.turn) * out_rot.inverse()).inverse() * out;
         }
         w.ease_in(from, root);
         debug!("climb: onto ladder {i}");
