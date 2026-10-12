@@ -1274,6 +1274,19 @@ fn lean_angle(a: Vec3, b: Vec3, fwd: Vec3) -> f32 {
     if Vec3::Y.cross(d).dot(side) < 0.0 { -angle } else { angle }
 }
 
+/// AC1's overhang test (`HumanClimb__TryTransitionToLedgeHang` 0xDF4BA0; Banned445's port, the lean read from the exe):
+/// with the hands on `hands` and the feet on `feet` after a move, the body's line (the higher foot to the lower hand)
+/// leaning out more than 30 degrees past the hands' line (that one taken as 0-45 degrees). Some((the left hand is the
+/// higher, by how much past)) when it does.
+fn overhangs(hands: [Vec3; 2], feet: [Vec3; 2], fwd: Vec3) -> Option<(bool, f32)> {
+    let higher_foot = if feet[0].y <= feet[1].y { feet[1] } else { feet[0] };
+    let left_higher = hands[0].y > hands[1].y;
+    let lower_hand = if left_higher { hands[1] } else { hands[0] };
+    let body = lean_angle(higher_foot, lower_hand, fwd);
+    let line = lean_angle(hands[0], hands[1], fwd).clamp(0.0, std::f32::consts::FRAC_PI_4);
+    (line - body < -std::f32::consts::FRAC_PI_6).then_some((left_higher, body - line))
+}
+
 /// AC1's lean guard on a climbing move (0xDF47E0, read from the exe; ChooseMove asks it of a long move, and of a short
 /// one down): into a pose with one side a row higher, going up, refused when the hands' line now leans out more than
 /// 30 degrees past where the new hands' does (that one taken as 0-45 degrees); going down, the same of the feet, the
@@ -6298,6 +6311,15 @@ impl WallClimb {
                     continue;
                 }
             }
+            // A short move up from a level pose onto holds sticking out over the feet: into a free hang from them instead
+            // (AC1's TryTransitionToLedgeHang 0xDF4BA0, audit CLIMB-E12).
+            if let Some(m) = c.table
+                && !m.long
+                && matches!(self.state.as_str(), "1m" | "2m")
+                && self.overhang(lib, level, root, rig, base, cr, &m, targets, normal)
+            {
+                return true;
+            }
             if !feet_fit_at(level, &end.feet.map(|f| f + land), normal, c.feet, Some((targets[0] + targets[1]) * 0.5)) {
                 if corner || why() {
                     // (What is there: each foot's wall, how far in from the foot and how far behind the hold line.)
@@ -6440,6 +6462,43 @@ impl WallClimb {
             return true;
         }
         false
+    }
+
+    /// AC1's transition from the climbing stance into a free hang (`HumanClimb__TryTransitionToLedgeHang` 0xDF4BA0, after a
+    /// short move up from a level pose was found; Banned445's port, the lean read from the exe): with the hands on
+    /// `to_hands` after the move and each foot on the hold two rows under its hand, the body's line (the higher foot to the
+    /// lower hand) leaning out more than 30 degrees past the hands' line (that one taken as 0-45 degrees, `lean_angle`):
+    /// the holds stick out over the feet. Then `xx_h_climb_1m_u_overhangfree_<1lu|1ru>` (by the higher hand) into the
+    /// free hang with a hand a row up.
+    #[allow(clippy::too_many_arguments)]
+    fn overhang(
+        &mut self,
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        rig: &Rig,
+        base: &Pose,
+        cr: ClimbRig,
+        m: &crate::climb_table::Move,
+        to_hands: [Vec3; 2],
+        normal: Vec3,
+    ) -> bool {
+        if !matches!(m.dir, 0 | 1 | 6 | 7) {
+            return false;
+        }
+        let fwd = -normal.with_y(0.0).normalize_or(Vec3::NEG_Z);
+        let feet = to_hands.map(|h| hold_in_box(level, h - Vec3::Y * 1.2, normal).unwrap_or(h - Vec3::Y * 1.2));
+        let Some((left_higher, past)) = overhangs(to_hands, feet, fwd) else { return false };
+        let up = if left_higher { "1lu" } else { "1ru" };
+        let Some(clip) = lib.get(&format!("xx_h_climb_1m_u_overhangfree_{up}")) else { return false };
+        let end = end_pose(&clip, rig, base, cr);
+        let r = world_rot(root.rotation);
+        let pos = root.translation + r * end.motion;
+        let landed = end.hands.map(|h| pos + world_rot(root.rotation * root_delta(end.turn)) * h);
+        let err = (to_hands[0] - landed[0] + to_hands[1] - landed[1]) * 0.5;
+        debug!("climb: the holds stick out over the feet ({:.0} degrees past the hands' line): into the free hang (AC1's overhang)", past.to_degrees());
+        self.start_chain(vec![clip], vec![format!("free_{up}")], root, err);
+        true
     }
 
     /// The mix of leap `c` with its other-length variant (`_2` and `_3`) that lands its hands nearest
@@ -7629,6 +7688,21 @@ mod tests {
         let down = Move { dir: 2, ..long_up };
         assert!(lean_refused(&down, flat, flat, flat, leaning, fwd));
         assert!(!lean_refused(&down, flat, flat, leaning, flat, fwd));
+    }
+
+    #[test]
+    fn overhang_when_the_hands_stick_out_over_the_feet() {
+        // The wall at -Z, out is +Z. The left hand moved up a row; both hands 0.5 m out from the feet's wall (40 degrees
+        // from the higher foot to the lower hand, the hands' line upright): the overhang, the left hand higher.
+        let fwd = Vec3::NEG_Z;
+        let hands = [Vec3::new(-0.3, 1.8, 0.5), Vec3::new(0.3, 1.2, 0.5)];
+        let feet = [Vec3::new(-0.3, 0.6, 0.0), Vec3::new(0.3, 0.0, 0.0)];
+        assert!(overhangs(hands, feet, fwd).is_some_and(|(left, past)| left && past > 0.6));
+        // Only 0.3 m out (27 degrees): not.
+        let near = hands.map(|h| h.with_z(0.3));
+        assert!(overhangs(near, feet, fwd).is_none());
+        // All on one flat wall: not.
+        assert!(overhangs(hands.map(|h| h.with_z(0.0)), feet, fwd).is_none());
     }
 
     #[test]

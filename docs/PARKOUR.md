@@ -541,6 +541,10 @@ in this batch, by audit id:
   dropped for them) and its lean guard; gauntlet G14 (a block out of a wall between two rows).
   (CLIMB-E16, the release) The empty hand on the wall releases into the fall near the ground too (the step down onto it
   is the stick's).
+  (CLIMB-E12, the overhang) A short table move up from a level pose whose holds stick out over the feet (the higher foot
+  to the lower hand leaning out 30° past the hands' line) turns into the free hang,
+  `xx_h_climb_1m_u_overhangfree_<1lu|1ru>` (TryTransitionToLedgeHang 0xDF4BA0). Not shown by a scenario: ours' feet rule
+  (a wall at most `RECESS_MAX` 0.32 m behind the hold) refuses the stance on such holds before it, going into a hang.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 
