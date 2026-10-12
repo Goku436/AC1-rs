@@ -420,6 +420,16 @@ const SCENARIOS: &[Scenario] = &[
         never: &["damage 0.2", "EMBED"],
     },
     Scenario {
+        // (Audit JUMP-6: AC1's running jump keeps the takeoff facing as its clips' frame and turns the facing toward the
+        // target linearly over the takeoff, at most 0.4 s.)
+        name: "rooftops: B1 to B2 and down to B3 run 12 degrees off the roofs' line: the jump down turns toward its target over the takeoff",
+        tags: &["jump"],
+        env: &[("AC1_START", "41,33,-90,8"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-4.6"), ("AC1_LEGS", "0-4.6"), ("AC1_STEER", "12")],
+        secs: 3.2,
+        want: &["4.49, 30.53] (takeoff and flight from AC1's jump tables", "the running jump turns 11 degrees toward its target over 0.20 s"],
+        never: &["damage 0.2", "EMBED"],
+    },
+    Scenario {
         name: "rooftops: B3 back up to B2 (1.5 m higher) catches its edge (a lone ledge: AC1's reception into the wall hang)",
         tags: &["jump", "hang"],
         env: &[("AC1_START", "60,33,90,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],

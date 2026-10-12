@@ -686,6 +686,14 @@ in this batch, by audit id:
     angle; the guard 0xD9D6C0): a hold at the feet within 0.75 m, facing out within 90 degrees of his facing, the one
     facing most his way, more than 2 m over what lies 0.3 m past it. Ours walked 0.9 m along the facing to where the
     floor ended and took a hold within 0.45 m of there facing within 45 degrees.
+  - JUMP-6: the running jump (AC1's kind 0) plays its takeoff and flight in the takeoff facing, the correction carrying
+    it onto the target (across the ground spread over both; the height's on the flight, [ours]: the takeoff's feet are
+    on the roof), and turns the facing toward the target linearly over the takeoff, at most 0.4 s (0xB20200 keeps the
+    body's matrix as the jump frame, 0xE0EF30 slerps the facing, Banned445's port). Ours ran the clips along the aim from
+    the first frame, the facing eased round over 0.25 s. Measured on B1 to B3 run 12 degrees off the roofs' line: the 11
+    degree turn now done by the flight's start (the running game: 14 degrees at 1.5 per frame over a 0.15 s takeoff),
+    the path within 0.04 m of before, the landing the same; every other jump of the jump / combo scenarios starts
+    facing its target (no turn) and is unchanged.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.

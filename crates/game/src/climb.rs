@@ -853,6 +853,8 @@ const JUMP_UP_MIN: f32 = 1.5;
 /// A jump up onto a top crosses its edge with the feet this far over it (m).
 /// AC1's jump clips are used while the correction onto the target is at most this share of the distance.
 const JUMP_AC1_SLACK: f32 = 0.5;
+/// A running jump turns its facing toward the target over its takeoff, at most this long (s; 0xE0EF30).
+const JUMP_TURN_MAX: f32 = 0.4;
 const JUMP_AC1_SHORT: f32 = 1.5;
 /// A jump from the ground this soon (s) after the walk or run starts, or a reception hands over to the ground, starts with
 /// AC1's impulsion and the free-step takeoff (audit JUMP-3). In the running game's routes: 0.0, 0.30, 0.31, 0.32 and
@@ -1026,6 +1028,24 @@ struct Move {
     rate: f32,
     /// World rotation the root starts off by, eased out over the start of the move.
     ease_rot: Quat,
+    /// World rotation the facing turns by over `turn_span` seconds (linearly), on top of the root motion's frame, which
+    /// stays where it was: a running jump's turn toward its target (audit JUMP-6). Carried on through the jump's
+    /// flight; the reception takes the turned facing as its frame.
+    turn: Quat,
+    turn_span: f32,
+}
+
+impl Move {
+    /// How far `turn` has turned the facing by now.
+    fn turned(&self) -> Quat {
+        turned_by(self.turn, self.t, self.turn_span)
+    }
+}
+
+/// A move's `turn` part done at `t` over `span` (linear; all of it with no span).
+fn turned_by(turn: Quat, t: f32, span: f32) -> Quat {
+    let k = if span > 0.0 { (t / span).min(1.0) } else { 1.0 };
+    Quat::IDENTITY.slerp(turn, k)
 }
 
 /// A clip waiting to play after the current move.
@@ -3191,21 +3211,31 @@ impl WallClimb {
             None => crate::jump::running(dz, dist, left, speed / JUMP_AC1_FAST_SPEED),
         };
         let (takeoff, flight, reception) = (mix(&j.takeoff)?, mix(&j.flight)?, mix(&j.reception)?);
-        let planned = Transform { rotation: facing(aim), ..*root };
-        let rot = world_rot(planned.rotation);
+        // (The running jump, AC1's kind 0, keeps the takeoff facing as the frame its takeoff and flight move in, the
+        // correction carrying it onto the target, and turns the facing toward the target linearly over the takeoff, at
+        // most 0.4 s (0xB20200 keeps the body's own matrix as the jump frame, 0xE0EF30 slerps the facing; Banned445's
+        // port; the running game turned 14 degrees at 1.5 per frame over a 0.15 s takeoff, audit JUMP-6). The impulsion's
+        // free-step takeoff runs along the aim.)
+        let aimed = facing(aim);
+        let frame = match impulsion {
+            Some(_) => aimed,
+            None => facing((root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(aim)),
+        };
+        let planned = Transform { rotation: frame, ..*root };
+        let rot = world_rot(aimed);
         let pushed = impulsion.as_ref().map_or(Vec3::ZERO, |c| root_motion_at(c, c.frames()));
         // (Where the reception's step ends, handed over to the run: see `cut` below.)
         let cut = (speed > RECEPTION_CUT_SPEED).then(|| reception_cut(&reception, speed)).flatten();
         // The reception's own step lands on the target, as AC1 aims it: in the running game the reception starts about
         // half a metre short of the edge (or beam) and its step ends there.
         let step = root_motion_at(&reception, cut.unwrap_or(reception.frames())).with_z(0.0);
-        let landed = p + rot * (pushed + root_motion_at(&takeoff, takeoff.frames()) + root_motion_at(&flight, flight.frames()) + step);
-        let correct = to - landed;
+        let air = pushed + root_motion_at(&takeoff, takeoff.frames()) + root_motion_at(&flight, flight.frames());
+        let landed = p + rot * (air + step);
         // (The clips' own way should be most of it: a correction this big would slide through the air.)
         // (Against at least `JUMP_AC1_SHORT`: the shortest clips go 1.6 m, and the running game made a 1.1 m jump onto a
         // beam crossing its way with them, off the Damascus bureau's roof.)
-        if correct.with_y(0.0).length() > JUMP_AC1_SLACK * (to - p).with_y(0.0).length().max(JUMP_AC1_SHORT) {
-            debug!("climb: AC1's jump clips land {:.2} m off; the planned arc instead", correct.length());
+        if (to - landed).with_y(0.0).length() > JUMP_AC1_SLACK * (to - p).with_y(0.0).length().max(JUMP_AC1_SHORT) {
+            debug!("climb: AC1's jump clips land {:.2} m off; the planned arc instead", (to - landed).length());
             return None;
         }
         // The way over must be clear above the higher of the two (the clips do not climb over what is in between; from
@@ -3215,6 +3245,8 @@ impl WallClimb {
             debug!("climb: AC1's jump clips: the way over is not clear");
             return None;
         }
+        // (In the takeoff's frame up to the reception, which steps on along the aim.)
+        let correct = to - (p + world_rot(frame) * air + rot * step);
         let mut w = WallClimb::new(VAULT, -aim);
         // (Onto a beam: down on it in AC1's narrow-object stance, balancing, not run on from: the running game walked
         // along the beam it came down on.)
@@ -3229,7 +3261,32 @@ impl WallClimb {
                 }
             }
             None => {
-                w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![VAULT.into(), VAULT.into(), last.into()], &planned, correct, Some(1))
+                w.start_chain_carry(
+                    vec![takeoff.clone(), flight.clone(), reception],
+                    vec![VAULT.into(), VAULT.into(), last.into()],
+                    &planned,
+                    correct,
+                    Some(1),
+                );
+                // (The correction across the ground spread over the takeoff and the flight together, as AC1's linear one
+                // is: on the flight alone, the takeoff ran off the target's line first, 0.24 m on an 11 degree turn. [ours]
+                // The height's stays on the flight: the takeoff's feet are on the ground, and down 1.5 m it sank them
+                // 0.47 m into the roof.)
+                let share = takeoff.anim.duration / (takeoff.anim.duration + flight.anim.duration).max(1e-3);
+                let across = correct.with_y(0.0) * share;
+                if let Some(q) = w.queue.first_mut() {
+                    q.correct = correct - across;
+                }
+                if let Some(m) = &mut w.mv {
+                    m.correct = across;
+                    m.turn = aimed * frame.inverse();
+                    m.turn_span = takeoff.anim.duration.min(JUMP_TURN_MAX);
+                    debug!(
+                        "climb: the running jump turns {:.0} degrees toward its target over {:.2} s",
+                        m.turn.angle_between(Quat::IDENTITY).to_degrees(),
+                        m.turn_span
+                    );
+                }
             }
         }
         match onto_beam {
@@ -6294,7 +6351,18 @@ impl WallClimb {
         self.fade = self.last.clone().map(|p| Fade::new(p, FADE));
         self.mirrored = false;
         self.turn_path = None;
-        self.mv = Some(Move { clip, t: 0.0, to, start: root.translation, start_rot: root.rotation, correct: Vec3::ZERO, rate: 1.0, ease_rot: Quat::IDENTITY });
+        self.mv = Some(Move {
+            clip,
+            t: 0.0,
+            to,
+            start: root.translation,
+            start_rot: root.rotation,
+            correct: Vec3::ZERO,
+            rate: 1.0,
+            ease_rot: Quat::IDENTITY,
+            turn: Quat::IDENTITY,
+            turn_span: 0.0,
+        });
     }
 
     /// Play clips back to back, ending each in the matching state of `tos`; `correct` is spread over
@@ -8294,6 +8362,9 @@ impl WallClimb {
                 let k = smoothstep(m.t / span.max(1e-3));
                 root.rotation = m.ease_rot.slerp(Quat::IDENTITY, k) * root.rotation;
             }
+            if m.turn != Quat::IDENTITY {
+                root.rotation = m.turned() * root.rotation;
+            }
             // A corner turn's root (over both of its clips), and the wall the hands look for holds on turning with it.
             if let Some(tp) = &mut self.turn_path {
                 tp.t += dt;
@@ -8441,15 +8512,19 @@ impl WallClimb {
                 // (A turn still easing in carries on into the next clip: cut at a short clip's end, a catch turned him
                 // 90 degrees in four frames.)
                 let left = if done.ease_rot != Quat::IDENTITY { done.ease_rot.slerp(Quat::IDENTITY, smoothstep(done.t / EASE_TURN)) } else { Quat::IDENTITY };
+                // (A jump's turn toward its target carries on through its flight, the clips' frame left as it was.)
+                let turned = if done.turn != Quat::IDENTITY && next.to == VAULT { turned_by(done.turn, done.t, done.turn_span) } else { Quat::IDENTITY };
                 self.mv = Some(Move {
                     clip: next.clip,
                     t: 0.0,
                     to: next.to,
                     start: root.translation,
-                    start_rot: left.inverse() * root.rotation,
+                    start_rot: left.inverse() * turned.inverse() * root.rotation,
                     correct: next.correct,
                     rate: next.rate,
                     ease_rot: left,
+                    turn: turned,
+                    turn_span: 0.0,
                 });
                 return;
             }
