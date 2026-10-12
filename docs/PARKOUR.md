@@ -639,6 +639,15 @@ in this batch, by audit id:
     split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
   - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
     the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
+  - User reports #11, #6, #13 (Damascus, "thin air", 2026-10-12): [ours] the running jump into the wall hang
+    (`jump_hangwall`) put each hand on whichever hold was nearest where the clips ended, within 3 m: by a market stall one
+    took a house's roof edge 8 m up and the other the stall's awning 5 m up, and he hung from the air between them. The
+    hands now land on the hold aimed at (their middle on its grab point, each then on a hold within 0.35 m), as AC1 flies
+    the jump at its target's grab point. A climbing leap's way, chest to chest up or down with it, must be clear (a leap
+    to the side and 2.4 m down from a wall hang stood on a porch roof went through the roof to a hold under it). The
+    wall run on nothing was a scaffold's collision: skinned props with more than 24 bones were left undrawn as
+    characters, and the scaffolds (69 bones) and storage racks (61) with them; an entity with collision shapes is now
+    drawn whatever its skeleton (the city's load logs how many collided entities draw nothing: 0 in Damascus).
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.

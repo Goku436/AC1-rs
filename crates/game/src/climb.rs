@@ -904,6 +904,9 @@ const SHIMMY_ROOM: f32 = 0.25;
 /// A climb start from the ground reaches a wall this far in front of the root (m), running; standing, a little further.
 const CLIMB_START_REACH: f32 = 1.0;
 const CLIMB_START_STILL: f32 = 1.5;
+/// A running jump into the wall hang: each hand, once their middle is on the hold aimed at, takes a hold this near it (m),
+/// else stays on the aimed line.
+const JUMP_HANG_HAND_SLACK: f32 = 0.35;
 /// A hold jumped at is at least this long (m).
 const JUMP_HOLD_SHORT: f32 = 0.15;
 const JUMP_HOLD_HANG: f32 = 0.9;
@@ -3066,7 +3069,13 @@ impl WallClimb {
         let planned = Transform { rotation: facing(-out), ..*root };
         let clips: Vec<Arc<Clip>> = [takeoff, flight].into_iter().chain(reception).collect();
         let end = chain_end(&clips, rig, base, cr)?.world(&planned);
-        let targets = holds_within(level, &end.hands, out, 3.0)?;
+        // The hands land on the hold aimed at, as AC1 flies its jump at the target's grab point: their middle onto it, each
+        // hand then onto the hold under it there (not each hand onto whatever hold is nearest where the clips end: by a
+        // Damascus market stall one hand took the house's roof edge 8 m up and the other the stall's awning 5 m up, and he
+        // hung from the air between them, user report #11).
+        let mid = (end.hands[0] + end.hands[1]) * 0.5;
+        let on = end.hands.map(|h| h + (grip_target(hold, out) - mid));
+        let targets = [0, 1].map(|k| nearest_hold(level, on[k], out).filter(|t| t.2 < JUMP_HANG_HAND_SLACK).map_or(on[k], |t| t.1));
         let err = (targets[0] - end.hands[0] + targets[1] - end.hands[1]) * 0.5;
         if err.with_y(0.0).length() > JUMP_AC1_SLACK * way.length().max(1.0) + 0.5 {
             debug!("climb: AC1's jump to the wall lands {:.2} m off", err.length());
@@ -7079,6 +7088,16 @@ impl WallClimb {
                 let way = (to - from).with_y(0.0);
                 if let Some(h) = level.raycast(from, way.normalize_or_zero(), way.length() + SHIMMY_ROOM).filter(|h| h.normal.dot(normal) < 0.7) {
                     debug!("climb: {} : something in the way {:.2} m along", c.names[0], h.dist);
+                    continue;
+                }
+            }
+            // A leap's way from the chest where it starts to where it ends, up or down with it: clear (a leap to the side
+            // and 2.4 m down from a wall hang stood on a Damascus porch's roof went through the roof to a hold under it,
+            // user report #6). [ours: AC1's own test on a leap's way is not read yet.]
+            if leap {
+                let (from, to) = (root.translation + Vec3::Y * SHIMMY_CHEST, end.pos + land + Vec3::Y * SHIMMY_CHEST);
+                if let Some(h) = level.raycast(from, (to - from).normalize_or_zero(), (to - from).length()).filter(|h| h.normal.dot(normal) < 0.7) {
+                    debug!("climb: {} : the leap's way goes through something {:.2} m along (normal {:.2})", c.names[0], h.dist, h.normal);
                     continue;
                 }
             }
