@@ -17,12 +17,14 @@ pub mod graph;
 pub mod guidance;
 pub mod hkx;
 pub mod index;
+pub mod lod;
 pub mod material;
 pub mod mesh;
 pub mod navmesh;
 pub mod shape;
 pub mod skeleton;
 pub mod texture;
+pub mod world;
 
 use anyhow::{Context, Result, bail, ensure};
 use memmap2::Mmap;

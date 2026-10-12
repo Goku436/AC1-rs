@@ -13,12 +13,14 @@ install**. No game files, textures, meshes or code from the original are stored 
 | TextureMap -> PNG (DXT1/3/5, BGRA8) | done, verified visually: 32286/32286 textures decode (`examples/texcheck`); colour space (`GammaSettings`) and sampler (address, filter modes) read and used; cube maps 57/58, ramps (`TextureGradient`) 3/3. Stored levels as they are (`texture_levels`): 32251 block-compressed (27620 DXT1, 1878 DXT3, 2753 DXT5), every one in whole 4x4 blocks at its top level, 30640 with the full mip chain; city textures go to the GPU that way |
 | Material (85c817c3): template and typed parameter table (scalars, colours, texture slots) | 15666/15929 parse (`examples/texcheck`): every character material; the rest carry a parameter class not read yet (c52e2125, 213: glows, skies, water), a 1 at +0x29 (28 trees) or 2/4 at +0x31 (25) |
 | Mesh (class 415d9568): skinned verts, submeshes, bone palettes, materials | done, 120 skinned (incl. cloth, type 4) + 31 static of 168 in DataPC |
-| Static meshes (type 0, stride 24) | done: positions `xyz/32768 * |w|/8` m (sword, terrain tiles meeting exactly, houses on their ground); every mesh in every archive parses (43984/43984): vegetation and soft bodies (`Veg_Olivier_*`, `Herbe_Scatter_*`, `*_Softbody`: the cloth-simulation object 0x5755de7f embedded as in the robe, after `u32 0 or 1, u32 1 or 5, u8 0`; static LODs with an empty bone table) and effects meshes (type 2, laid out as the static ones) |
+| Static meshes (type 0, stride 24) | done: positions `xyz/32768 * |w|/8` m (sword, terrain tiles meeting exactly, houses on their ground); every mesh in every archive parses (43984/43984): vegetation and soft bodies (`Veg_Olivier_*`, `Herbe_Scatter_*`, `*_Softbody`: the cloth-simulation object 0x5755de7f embedded as in the robe, after `u32 0 or 1, u32 1 or 5, u8 0`; static LODs with an empty bone table) and effects meshes (type 2, laid out as the static ones); over 65535 vertices the indices are u32 (6 meshes, all the distant city's merged stand-ins, `Damascus_FakeMesh_26` ...) |
 | Entity (0984415e): meshes, skeletons, material overrides | done for characters |
 | City placement: entities' world transforms and meshes across a forge's data files, EntityGroup (3f742d26) members | done: Masyaf 4344 meshes placed (926 from groups; 2221 entities collide by their shapes, 5 data files of them looked up in `DataPC_Kingdom.forge`), Damascus 17581 (8851 entities from groups, 15.9 M collision triangles), shared props from `DataPC_Common.forge` |
 | Characters assembled from shared parts across data files (soldiers, crowds) | done: AC1's NPC builders (`EntityBuilder`/`BuildTable`), links into `DataPC_Common.forge` through an object index; the NPC line-up and scholars use them |
 | Move graph (`ActionKit`/`ActionBlock`) | done: 452/452 blocks parse (15463 actions, 15958 items); blend spaces used for locomotion, stops, leans, grabs, leaps |
 | Collision shapes (`MeshShape`, `BoxShape`, `BarrelShape`, `CapsuleShape`, `ListShape`) | done: 14889/14889 meshes (6.5 M triangles) and 2098/2098 primitives parse; cities collide with them where an entity has one (Damascus: 15744 entities, 2121 by primitives), except AC1's out-of-bounds walls (`OutOfBound_*`: locked districts, mission areas) and camera-only barriers (Damascus: 231 left out) |
+| Levels of detail (`LODSelector`, `forge::lod`) | done: 18807/18807 selectors parse (`examples/lodcheck`); cities draw each mesh at AC1's level for its distance |
+| World grid (`World`'s `GridLayout`, `GridPartition`) and distant stand-ins (`FakeEntities`, `forge::world`) | done: 12/13 worlds' grids read (`Map_Menu`'s layout is empty), 9/10 stand-in sets check (every span inside its submesh and on a cell with a data file; `Flashback_Paradise`: one span past its submesh); cities stream their drawn meshes by these cells |
 | Havok packfiles (`HavokChunk`), ragdolls (`RagdollNew`) | done: 72/72 ragdolls read; the dead go limp (Verlet ragdoll with AC1's bodies and limits) |
 | Cloth (`ClothComponent`, Altaïr's robe tails) | done: simulated over the skinned mesh, colliding with the legs |
 | Viewpoints (`ReachHighPoint_*` groups, entities named `*ReachHighPoint*`) | done: Damascus 12, each with a leap of faith into its hay; Masyaf 1 (the tutorial tower, its hay not found: 19.8 m to the nearest) |
@@ -559,7 +561,7 @@ no code):
 A class id is the CRC32 of the engine's class name (Mesh `415d9568`, Entity, Skeleton, Animation, Material,
 TextureSet, TextureMapSpec, CompiledMesh all check). The `catalog` tool reads the names at run time from the game's
 own executable (its RTTI descriptors, `.?AV<name>@scimitar@@`, and identifier strings) and labels every class: all
-183 classes in the install get a name. Not parsed yet: `GridPartition`/`GridCellDataBlock` (the world's cell grid),
+183 classes in the install get a name. Not parsed yet: `GridCellDataBlock` (a grid cell's own record; the grid itself is read, see "City rendering cost and streaming"),
 `ContactTable` (per-material contact sounds and effects; there is no audio yet), `BodyPartMapping`.
 
 ## Navigation meshes
@@ -865,6 +867,34 @@ GPU Process Memory counter).
 | baseline | Masyaf | 7.0-7.6 s (6.9 s) | 165 / 165 (over) | 1.8 GB (2.0 GB) | 757-762 MB | 8735, 4.36 M | 182 MB |
 | textures uploaded block-compressed (BC1/BC2/BC3 as stored, mips kept) | Damascus | 28.4-30.7 s (27.3 s) | 134 / 60 / 85 (unsteady: the window behind another game) | 1.95 GB (2.8 GB) | 501 MB | 64970, 21.3 M | 31 MB |
 | textures block-compressed | Masyaf | 6.6 s (6.5 s) | 164 / 64 | 1.5 GB (1.8 GB) | 564 MB | 8735, 4.36 M | 26 MB |
+| levels of detail, cells round the camera (128 m box), stand-ins beyond; meshes built when first drawn | Damascus | 28.7-29.4 s (27.2 s) | 60 / 60 / 60 (the window behind, on a 60 Hz screen: capped) | 1.7 GB (2.8 GB) | 565 MB | instances player 8163 (3.47 M vertices) / roof 8055 (2.91 M) / far 205 (0.03 M) | 34 MB |
+| same | Masyaf | 6.4 s (5.3 s) | 60 / 60 | 1.45 GB (1.8 GB) | 548-566 MB | player 1828 (1.08 M) / over 1068 (0.32 M) | |
+
+### Levels of detail, the grid and the stand-ins (formats: `forge::lod`, `forge::world`, `examples/lodcheck`)
+- `LODSelector` (51dc6b80): u32 `?` (0), five inline `LODDescriptor`s (a360319a; 21 bytes: u32 id, u32 class, u32 mesh (0:
+  empty), f32 distance, f32 fade width, u8 `?`: 1 on the fourth descriptor of 7850 of the 18807), u8 flags (bit 0 keeps
+  empty slots), u8 flags (bit 1 no cross-fade). Only the first four count; a kept slot draws up to its distance, the last
+  from there on; an empty slot before the last mesh pushes the one before it out to its own distance. Commonest tables:
+  10/20/beyond (4938, helmets and props), 20/80/beyond (3467, houses), 20/beyond (1598), 40/160/beyond (1465); bushes
+  keep an empty slot and draw nothing past 50 m (594). Rules as Banned445's AC1-Movement-Rewritten (MIT) read them.
+- `World` holds an inline `GridLayout` (7db083ed): u8 95 (the loading radius outside the grid), i32 cell size (32 m; 64 in
+  the Kingdom), i32 origin x, y, i32 `?` (0; 0x029100ad in Masyaf), i32 cells across the finest level. Damascus: from
+  (-480, -512), 32 wide, 6 levels (1365 cells); Masyaf: from (-1024, -1024), 64 wide, 7 levels (5461). `GridPartition`
+  starts u32 levels, u32 cells; cell k (finest level first, each level half as wide) keeps its objects in
+  `Cell<k>_DataBlock` (big objects in coarse cells). The cells' own records are not read.
+- `FakeEntities` (c69a7f31, `<City>_Fakes`): u32 `?`, u32 64, then a `FakeEntity` per block (8 x 8 blocks of the finest
+  grid, Z-order). A block with a stand-in has an inline entity (its transform) whose `Visual` draws `<City>_FakeMesh_<k>`
+  (the block merged at low detail: Damascus 24 blocks), then per submesh a `SubMeshFakeIndexSpans`: per finest cell of
+  the block (Z-order), the index span that is that cell's buildings (Damascus 1047 spans, all on cells with a data file).
+
+### How a city is drawn (`stream.rs`)
+Collision, holds, beams, hay, kiosks, guidance and jump targets are built from every mesh at full detail as before;
+only what is drawn streams. Each placed mesh draws at its selector's level for the camera's distance to its box. A cell
+is drawn while it overlaps a square box round the camera (128 m half-side), every level of the grid (so walls and
+terrain in coarse cells stay); the other cells' buildings are drawn by their stand-in spans, each hidden once its cell's
+own meshes are all drawn. Past a vertex budget (nearest first) the rest draw at their coarsest level. Meshes are kept as
+their compact bodies (Damascus 51 MB) and built for the GPU when first drawn. Headless runs draw nothing: no city meshes,
+materials or textures are made.
 
 Most of Damascus' 28 s is gameplay set-up after the city's 10 s load (holds, beams, ladders, hay against the built
 collision); streaming only what is drawn leaves that as it is.

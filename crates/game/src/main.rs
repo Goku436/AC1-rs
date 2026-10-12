@@ -63,6 +63,7 @@ mod probe;
 mod ragdoll;
 mod recorder;
 mod robe;
+mod stream;
 
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::light::GlobalAmbientLight;
@@ -239,6 +240,9 @@ fn main() {
     if let Some(hz) = step.filter(|hz| *hz > 0.0) {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / hz)));
     }
+    if std::env::var("AC1_FPS").is_ok() && !headless {
+        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    }
     app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.82)))
         // (Bright sky fill: faces under hoods and walls in shade read as in AC1, not black.)
@@ -297,6 +301,8 @@ fn main() {
         .add_systems(Update, control_runs.before(run_script))
         .init_resource::<character::StatuePlay>()
         .add_systems(Update, pause_statues)
+        // (What a city draws follows the camera.)
+        .add_systems(Update, stream::stream_city.after(camera_follow))
         // The robe needs the bones' world transforms of this frame.
         .add_systems(PostUpdate, robe::robe_cloth.after(bevy::transform::TransformSystems::Propagate))
         .run();
@@ -521,7 +527,7 @@ fn pause_statues(keys: Res<ButtonInput<KeyCode>>, mut play: ResMut<character::St
 }
 
 /// `AC1_FPS=1`: log the time from launch to the first frame, then the frame rate every two seconds.
-fn fps_log(time: Res<Time>, mut acc: Local<(f32, u32)>, mut first: Local<bool>) {
+fn fps_log(time: Res<Time>, mut acc: Local<(f32, u32)>, mut first: Local<bool>, diag: Res<bevy::diagnostic::DiagnosticsStore>) {
     if std::env::var("AC1_FPS").is_err() {
         return;
     }
@@ -531,7 +537,17 @@ fn fps_log(time: Res<Time>, mut acc: Local<(f32, u32)>, mut first: Local<bool>) 
     acc.0 += time.delta_secs();
     acc.1 += 1;
     if acc.0 >= 2.0 {
-        info!("fps {:.0}", acc.1 as f32 / acc.0);
+        // (With the render diagnostics: the GPU's time a frame, its top-level passes summed, which the display's refresh
+        // does not cap.)
+        let gpu: f64 = diag
+            .iter()
+            .filter(|d| d.path().as_str().ends_with("/elapsed_gpu") && d.path().as_str().matches('/').count() == 2)
+            .filter_map(|d| d.average())
+            .sum();
+        for d in diag.iter().filter(|d| d.path().as_str().ends_with("elapsed_gpu")) {
+            debug!("{} {:?}", d.path().as_str(), d.average());
+        }
+        info!("fps {:.0}, GPU {gpu:.2} ms a frame", acc.1 as f32 / acc.0);
         *acc = (0.0, 0);
     }
 }

@@ -1565,9 +1565,11 @@ pub fn spawn_level(
     let mut level = Level::default();
     // City textures stay block-compressed on the GPU where it takes them (every desktop GPU does).
     let bc = formats.is_some_and(|f| f.0.contains(bevy::image::CompressedImageFormats::BC));
+    // (Headless runs draw nothing: no city meshes or textures are made.)
+    let opts = crate::city::RenderOpts { bc, render: std::env::var("AC1_HEADLESS").is_err() };
     if let Ok(city) = std::env::var("AC1_LEVEL") {
         let forge = crate::city::forge_of(&city);
-        let centre = match crate::city::spawn_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut level, &dir.0, &forge, bc) {
+        let centre = match crate::city::spawn_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut level, &dir.0, &forge, opts) {
             Ok(c) => c,
             Err(e) => {
                 warn!("no city {city}: {e:#}");
@@ -2078,7 +2080,8 @@ pub fn spawn_level(
             PropPick { name: "Crate_1m_01A_203", at: at(7.2, 0.5), yaw: 0.1, on: Some(6) },
             PropPick { name: "Basket_Group_01a_080", at: at(1.5, 3.5), yaw: 0.0, on: None },
         ];
-        if let Err(e) = crate::city::spawn_props(&mut commands, &mut meshes, &mut mats, &mut images, &mut level, &dir.0, "DataPC_Damascus.forge", &picks, bc) {
+        if let Err(e) = crate::city::spawn_props(&mut commands, &mut meshes, &mut mats, &mut images, &mut level, &dir.0, "DataPC_Damascus.forge", &picks, opts)
+        {
             warn!("no prop zone: {e:#}");
         }
         level.labels.push(("Props (AC1 collision shapes)".to_string(), PROPS + Vec3::Y * 2.2));
