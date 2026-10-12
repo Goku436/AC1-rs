@@ -1125,6 +1125,42 @@ const SCENARIOS: &[Scenario] = &[
         want: &["back eject (frontleft)", "the run ends at [16.06, 0.00, 2"],
         never: &["EMBED"],
     },
+    Scenario {
+        // (AC1's Ghost mode, the Human Debug context: no collision, `Ghost_mode01` then the loop; out, request 33's
+        // `xx_h_jump_falling01` and a fall from rest. Banned445's port.)
+        name: "Ghost mode: up 2.5 m, through block L and out its far side, then the fall out of the flight to the ground",
+        tags: &["misc"],
+        env: &[("AC1_START", "14,-7.5,-90"), ("AC1_WALK", "1"), ("AC1_STOP", "2.9"), ("AC1_FLY", "0.3-3.0"), ("AC1_FLY_UP", "0.3-0.8")],
+        secs: 4.5,
+        want: &[
+            "fly: Ghost mode on",
+            "fly: through a surface at [22.",
+            "fly: through a surface at [25.",
+            "fall via xx_h_jump_falling01.man",
+            "Ghost mode off at [27.",
+            "falling at 0.0 m/s",
+            "landed from 2.5 m",
+            "-> ground via",
+        ],
+        never: &["EMBED", "landing_death"],
+    },
+    Scenario {
+        // (Leaving with the empty hand held: the fall keeps the flight's velocity, here × 3 in high profile.)
+        name: "Ghost mode: up 5 m, forward in high profile (x 3), thrown out of the flight with the empty hand held",
+        tags: &["misc"],
+        env: &[
+            ("AC1_START", "-25,-8,0"),
+            ("AC1_WALK", "1"),
+            ("AC1_STOP", "0-1.3"),
+            ("AC1_FLY", "0.3-2.0"),
+            ("AC1_FLY_UP", "0.3-1.3"),
+            ("AC1_HIGH", "1.3-2.1"),
+            ("AC1_GRASP", "1.9-2.1"),
+        ],
+        secs: 4.0,
+        want: &["Ghost mode off at [-25.00, 5.00, -18.50], falling at 15.0 m/s", "landed from 5.0 m", "-> ground via"],
+        never: &["EMBED", "landing_death"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {

@@ -216,6 +216,8 @@ pub struct Character {
     /// How much ground foot placement applies now (0..1, faded: see the IK).
     pub foot_ik_w: f32,
     pub limp: bool,
+    /// In AC1's Ghost mode flight (`fly`): no ground, collision or IK; the flight moves the root.
+    pub flying: bool,
     /// Model-space height of the soles in the idle pose.
     floor: f32,
     ankle_height: f32,
@@ -521,6 +523,7 @@ pub fn spawn_character(
         ragdoll: None,
         ragdoll_def: None,
         limp: false,
+        flying: false,
         gait: Default::default(),
         wall_feet: [None; 2],
         wall_hand_w: [0.0; 2],
@@ -1007,6 +1010,10 @@ pub fn locomotion(
     let dt = time.delta_secs().min(0.05);
     for (mut tf, mut ch, mut ctl) in &mut q {
         let ch = &mut *ch;
+        // Flying (AC1's Ghost mode): the flight moves the root, nothing here (`fly`).
+        if ch.flying {
+            continue;
+        }
         // (A jump on short notice: from a standstill, or soon after the walk or run starts or a move hands back to the
         // ground, audit JUMP-3.)
         if ch.wall.is_some() {
@@ -2174,7 +2181,8 @@ pub fn animate(
             pose = limp_pose;
             ch.debug_targets.extend(r.pos.iter().map(|p| (*p, Color::srgb(0.9, 0.2, 0.9))));
         }
-        let ik_on = ch.ik_enabled && ch.ragdoll.is_none();
+        // (Not flying: AC1's Debug context places nothing.)
+        let ik_on = ch.ik_enabled && ch.ragdoll.is_none() && !ch.flying;
         let world_from_model = ch.world_from_model(root);
         let model_from_world = world_from_model.inverse();
         let to_model = |p: Vec3| model_from_world.transform_point3(p);
