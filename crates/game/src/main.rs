@@ -43,7 +43,7 @@
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only. AC1_CONTROL=<file> stays open and runs
 //! the scripts written to that file (`run <id> <secs> AC1_START=.. AC1_WALK=.. ...`, `quit`; see `control_runs`): the level
 //! loads once, each run takes seconds. AC1_GROUND_LINE, AC1_HOLDS_AT and AC1_MESHES_AT log the ground along a line, the
-//! holds and the city meshes near a point.
+//! holds and the city meshes near a point; AC1_GRAB_AUDIT=file.tsv writes the authored guidance against ours' holds (`grab_audit`).
 
 mod animation;
 mod assets;
@@ -57,6 +57,7 @@ mod crowd;
 mod fly;
 mod gait;
 mod gallery;
+mod grab_audit;
 mod jump;
 mod jump_query;
 mod level;
