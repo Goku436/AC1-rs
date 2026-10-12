@@ -21,6 +21,13 @@
 //! every mesh uses the full i16 range whatever its size (Altaïr's sword: |w| = 8, 0.95 m long; a
 //! Masyaf terrain tile: |w| = 3976, the tiles meeting exactly and spanning the map's 1 km; a house
 //! lands on the ground it is placed on).
+//! A static vertex is i16x4 position, u8x4 normal, u8x4 tangent, the vertex colour (a D3DCOLOR: bytes B, G, R, A), i16x2
+//! uv: there is no binormal. The world's vertex shaders (`GEN_Standard`, `Env_MultiBlender2`, `GFX_Water_Puddle` in the
+//! data's `MaterialTemplate`s) take the binormal as normal x tangent times the sign of the position's w, the colour as a
+//! multiplier on the diffuse (and its alpha on the output's), and the normal's and tangent's fourth bytes (/ 255) as the
+//! layered materials' blend weights (`COLOR1`). Over Damascus's 8.26 M static vertices (`examples/vtxw`): 7.39 M white,
+//! 0.44 M grey, 0.43 M coloured (the stand-ins' baked tints, the map markers), 0.20 M with alpha under 250 (the puddles'
+//! and rivers' faded edges), 3.05 M with a layer weight.
 //!
 //! Stride-32 vertex: i16x4 position (w = 32767, units of 1/2048 m), u8x4 normal, u8x4 tangent,
 //! u8x4 binormal (the tangent frame the normal maps were baked in; read as `Mesh::tangents`), i16x2 uv (1/2048, v down as images are stored; values run past one tile, so samplers repeat), u8x4 palette indices, u8x4 weights (sum about 255;
@@ -73,6 +80,11 @@ pub struct Mesh {
     pub submeshes: Vec<Submesh>,
     /// Material object id per submesh (often an `_Empty` placeholder the entity overrides).
     pub materials: Vec<u32>,
+    /// Static meshes: the vertex colour, RGBA (empty for other strides).
+    pub colors: Vec<[u8; 4]>,
+    /// Static meshes: the layered materials' blend weights, the normal's and the tangent's fourth bytes (empty for other
+    /// strides).
+    pub layers: Vec<[u8; 2]>,
 }
 
 fn f32_at(d: &[u8], o: usize) -> f32 {
@@ -219,6 +231,8 @@ pub fn parse_mesh(body: &[u8]) -> Result<Mesh> {
         },
         submeshes,
         materials: Vec::new(),
+        colors: Vec::new(),
+        layers: Vec::new(),
     };
     // Trailer: u32 n, n material ids, 5 bytes.
     let n = m.submeshes.len();
@@ -237,7 +251,15 @@ pub fn parse_mesh(body: &[u8]) -> Result<Mesh> {
         if stride >= 24 {
             let n = unpack_normal(&body[o + 8..o + 12]);
             m.normals.push(n);
-            m.tangents.push(tangent_frame(n, unpack_normal(&body[o + 12..o + 16]), unpack_normal(&body[o + 16..o + 20])));
+            let t = unpack_normal(&body[o + 12..o + 16]);
+            if stride == 24 {
+                // (No binormal: normal x tangent on the position w's side; bytes 16..20 are the colour.)
+                m.tangents.push([t[0], t[1], t[2], if q(6) < 0.0 { -1.0 } else { 1.0 }]);
+                m.colors.push([body[o + 18], body[o + 17], body[o + 16], body[o + 19]]);
+                m.layers.push([body[o + 11], body[o + 15]]);
+            } else {
+                m.tangents.push(tangent_frame(n, t, unpack_normal(&body[o + 16..o + 20])));
+            }
             m.uvs.push([q(20) / UV_SCALE, q(22) / UV_SCALE]);
         }
     }
