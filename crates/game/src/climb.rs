@@ -643,7 +643,13 @@ fn reception_cut(clip: &Clip, speed: f32) -> Option<f32> {
 
 /// A wall run's catch is a hold at least this high over the floor it started from (m): the feet 1.6 m up at the end of
 /// its vertical step (the running game, Damascus) and AC1's 1 m (`H`) over them.
-const WALL_RUN_CATCH_MIN: f32 = 2.6;
+const WALL_RUN_STEP_TOP: f32 = 1.6;
+const WALL_RUN_CATCH_MIN: f32 = WALL_RUN_STEP_TOP + WALL_RUN_UP;
+/// AC1's probe D for the wall hang (0xE37590): edges up to 2.7·h + 0.1 over the root where the vertical step ends, its
+/// height blend over 1.5·h past h, its overhang blend over 0.75 m (m; h = 1 m, read off the exe's constants).
+const WALL_RUN_D_TOP: f32 = 2.8;
+const WALL_RUN_D_SPAN: f32 = 1.5;
+const WALL_RUN_D_OVERHANG: f32 = 0.75;
 
 /// Walked off a beam's end, the next beam within this of it (m) and along it within 35 degrees is walked on.
 const BEAM_CHAIN_GAP: f32 = 0.45;
@@ -1418,8 +1424,8 @@ fn hang_hands(lib: &mut AnimLib, root: &Transform, rig: &Rig, base: &Pose, cr: C
     Some(cr.hands.map(|b| end.pos + r * m[b].pos))
 }
 
-/// The wall hang options of the same move at two heights (the wall run's 251 and 430 cm catches) blended for the
-/// lowest hold on the wall ahead between their reaches that a wall run catches (`WALL_RUN_CATCH_MIN` over the floor).
+/// The hang options of the same move at two heights (the wall run's 251 and 430 cm catches into the wall hang, AC1's
+/// probe D; its free-hang catches) blended for each hold on the wall ahead that a wall run catches, in the order tried.
 #[allow(clippy::too_many_arguments)]
 fn blend_hang(lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, normal: Vec3, opts: &[GrabOpt]) -> Vec<GrabOpt> {
     let shape = |n: &String| n.chars().filter(|c| !c.is_ascii_digit()).collect::<String>();
@@ -1435,24 +1441,60 @@ fn blend_hang(lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, bas
             let (ya, yb) = ((ha[0].y + ha[1].y) * 0.5, (hb[0].y + hb[1].y) * 0.5);
             let (lo, hi, low, high) = if ya < yb { (ya, yb, a, b) } else { (yb, ya, b, a) };
             let mid = (ha[0] + ha[1] + hb[0] + hb[1]) * 0.25;
-            // The hold on this wall in front between the two reaches that AC1's probe D takes first: the nearest out from the
-            // wall, then the lowest (`HumanWalling`'s FindLedge order, its distance ahead + 0.01 × its height, as Banned445's
-            // port reads it). (On a Damascus street wall the running game caught an edge 0.1 m proud of the wall 3.8 m up,
-            // over the wall's own edge 3.1 m up.)
+            // AC1's probe D (`UpdateWallingSubState` 0xE37590, after the vertical step) for the wall hang: its edges from 1 to
+            // 2.8 m over the root where that step ends, highest first (FindLedge 0xE36BD0 sorts its candidates by height, the
+            // probe asking for the highest first; Banned445's port had the nearest, audit WALL-18). (On a Damascus street
+            // wall the running game caught an edge 0.1 m proud of the wall 3.8 m up, over the wall's own edge 3.1 m up.)
+            // The free hang's pairs (probes B and C) keep their blend by the clips' own hand heights.
             // (Each in that order: one the grab turns down leaves the next.)
-            let key = |q: &Vec3| (*q - root.translation).dot(-normal) + 0.01 * q.y;
+            let probe_d = matches!(low.end, GrabEnd::Hang(HANGWALL | HANGWALL_OPEN, _));
+            let step_top = root.translation.y + WALL_RUN_STEP_TOP;
+            let (from, to) = if probe_d { (step_top + WALL_RUN_UP, step_top + WALL_RUN_D_TOP) } else { (lo, hi) };
+            // The wall run up: its face where the probe 1.3 m over the feet meets it (the overhang is measured out from it).
+            let face =
+                level.raycast(root.translation + Vec3::Y * WALL_RUN_PROBE, -normal, WALL_RUN_REACH + 0.5).filter(|h| h.normal.y.abs() < 0.3).map(|h| h.point);
             let mut holds: Vec<Vec3> = level
                 .ledges
                 .iter()
                 .filter(|l| l.out.dot(normal) > 0.8)
                 .map(|l| l.closest(mid.with_y((l.a.y + l.b.y) * 0.5)))
-                .filter(|q| (*q - mid).with_y(0.0).length() < 0.6 && q.y - root.translation.y >= WALL_RUN_CATCH_MIN && (lo..=hi).contains(&q.y))
+                .filter(|q| (*q - mid).with_y(0.0).length() < 0.6 && q.y - root.translation.y >= WALL_RUN_CATCH_MIN && (from..=to).contains(&q.y))
                 .collect();
-            holds.sort_by(|a, b| key(a).total_cmp(&key(b)));
-            for y in holds.iter().map(|q| q.y) {
-                let w = (y - lo) / (hi - lo);
-                let names = low.names.iter().zip(&high.names).map(|(x, z)| if x == z { x.clone() } else { mix_name(&[(x, 1.0 - w), (z, w)]) }).collect();
-                out.push(GrabOpt { names, catch: low.catch, end: if w < 0.5 { low.end } else { high.end }, after: vec![] });
+            if probe_d {
+                holds.sort_by(|a, b| b.y.total_cmp(&a.y));
+            } else {
+                // (The free hang's: the nearest out from the wall, then the lowest, FindLedge's order as Banned445's port reads it.)
+                let key = |q: &Vec3| (*q - root.translation).dot(-normal) + 0.01 * q.y;
+                holds.sort_by(|a, b| key(a).total_cmp(&key(b)));
+            }
+            for q in holds {
+                let names = if probe_d {
+                    // AC1's weights for action 0x106CFC5 (0xE38FE8-0xE39161): by height, hb = (edge - root - h) / 1.5·h up to
+                    // 1 (the 251 cm clip to the 430 cm one; the port's 1.8 m was the clips' own rise, audit WALL-17); by the
+                    // lip's overhang, out from the face run up, up to 0.75 m (the `_000cm` clips to the `_050cm` ones, audit
+                    // WALL-16): [(1-hb)(1-ov), hb(1-ov), (1-hb)ov, hb·ov].
+                    let hb = ((q.y - step_top - WALL_RUN_UP) / WALL_RUN_D_SPAN).clamp(0.0, 1.0);
+                    let ov = face.map_or(0.0, |f| ((q - f).with_y(0.0).dot(normal) / WALL_RUN_D_OVERHANG).clamp(0.0, 1.0));
+                    let lean = |n: &String| n.replace("_000cm_", "_050cm_");
+                    low.names
+                        .iter()
+                        .zip(&high.names)
+                        .map(|(x, z)| {
+                            if x == z {
+                                x.clone()
+                            } else if lib.get(&lean(x)).is_some() && lib.get(&lean(z)).is_some() {
+                                let (lx, lz) = (lean(x), lean(z));
+                                mix_name(&[(x, (1.0 - hb) * (1.0 - ov)), (z, hb * (1.0 - ov)), (&lx, (1.0 - hb) * ov), (&lz, hb * ov)])
+                            } else {
+                                mix_name(&[(x, 1.0 - hb), (z, hb)])
+                            }
+                        })
+                        .collect()
+                } else {
+                    let w = (q.y - lo) / (hi - lo);
+                    low.names.iter().zip(&high.names).map(|(x, z)| if x == z { x.clone() } else { mix_name(&[(x, 1.0 - w), (z, w)]) }).collect()
+                };
+                out.push(GrabOpt { names, catch: low.catch, end: low.end, after: vec![] });
             }
         }
     }
@@ -2878,8 +2920,9 @@ impl WallClimb {
         let flush_under = |p: Vec3| level.raycast(p + normal * 0.3 - Vec3::Y * 0.9, -normal, 0.55).is_some();
         let slack = if carry.is_some() { WALL_RUN_SLACK } else { JUMP_HANG_REACH };
         let mut blended = top.map_or(vec![], |(_, h)| blend_onto(opts, h));
-        // A wall run's catch into the wall hang blends its 251 and 430 cm clips by the hold's height (AC1's probe D, as
-        // Banned445's port reads it): any hold between the two is caught, not only those near one clip's reach.
+        // A wall run's catch into the wall hang blends its 251 and 430 cm clips by the hold's height and their `_050cm`
+        // variants by the lip's overhang (AC1's probe D, `blend_hang`): any hold between the two is caught, not only those
+        // near one clip's reach.
         if carry.is_some() {
             blended.extend(blend_hang(lib, level, root, rig, base, cr, normal, opts));
         }

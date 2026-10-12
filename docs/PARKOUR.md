@@ -446,8 +446,10 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   0.50 m out and 1.00 m up at the entry's end, ours within 0.03 m now (it was 0.08-0.2 m off when the whole way to the
   hold went into the entry). The rebound's fall, `xx_h_rebound_footr_tr_fall`, carries 0.8 m back and 3 m down in 0.47 s:
   AC1 falls the 2 m at a steady 7 m/s; ours starts the fall at that clip's 6.4 m/s down. **[B, ours, measured]**
-  The catch after the vertical step (probe D) takes the edge nearest out from the wall first, then the lowest (FindLedge's
-  order: distance ahead + 0.01 × height); it asks nothing of the wall under the edge (ours checks the feet's footing
+  The catch after the vertical step (probe D) takes the highest edge 1 to 2.8 m over the root first (FindLedge 0xE36BD0
+  sorts by height, highest first for probe D: its comparator 0xE33AF0), and mixes its four clips as action 0x106CFC5's
+  weights (0xE38FE8): by height, (edge - root - h) / 1.5·h (the 251 cm clip to the 430 cm one), by the lip's overhang
+  out from the face run up, up to 0.75 m (the `_000cm` clips to the `_050cm` ones); it asks nothing of the wall under the edge (ours checks the feet's footing
   where they go). A cap stops the run only straight over its line (within 0.2 m along the wall). On a Damascus street
   wall the running game ran up past a pilaster's top 0.28 m to the side and caught an edge 0.1 m proud of the wall over a
   window, 3.8 m up; ours now does the same (route `street_free_east` 2.54 -> 0.38 m). **[B, ours, measured]**
@@ -523,7 +525,9 @@ in this batch, by audit id:
   against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
   beam the running game lands on).
 - **Fourth batch** (WALL-8): an eject's takeoff turns the root away from the wall in one frame, as AC1's does (it was
-  eased round over the takeoff), the hips kept where the rebound pose left them.
+  eased round over the takeoff), the hips kept where the rebound pose left them. (WALL-16 to 18) The wall run's catch
+  into the wall hang (probe D) as the exe has it: the highest edge first, its height blend over 1.5 m (ours had the
+  clips' own 1.8 m rise, Banned445's reading), its `_050cm` clips mixed in by the lip's overhang.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face).
 
