@@ -633,8 +633,10 @@ const HAY_OVER_IN: f32 = 0.1;
 /// Leaning, the stick within this of straight into the wall (cos 72 degrees) keeps pushing; further off it leaves.
 const LEAN_PUSH_COS: f32 = 0.3;
 const LEAN_CLIMB_IN: [f32; 4] = [0.3, 0.2, 0.12, 0.06];
-/// Pulling down onto a ledge: the edge within this far ahead of the feet (m), dropping at least this much.
-const PULL_DOWN_REACH: f32 = 0.9;
+/// Pulling down onto a ledge: the hold within this far of the feet (m), its outward side within 90 degrees of the facing,
+/// the one nearest the facing (AC1's interpreter takes the edge report vt136 0xB17EF0 picks within 0.75 m at any angle,
+/// the one whose normal is closest to the facing; the guard 0xD9D6C0 wants normal·facing > 0; audit EXTRA-17).
+const PULL_DOWN_REACH: f32 = 0.75;
 /// (AC1's pull-down guard, 0xD9D6C0: more than 2 m under the edge.)
 const PULL_DOWN_DROP: f32 = 2.0;
 const PERCH_WAIT: &str = "xx_h_beam_pilotis_wait";
@@ -4601,21 +4603,20 @@ impl WallClimb {
     ) -> Option<WallClimb> {
         let p = root.translation;
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
-        let edge_d =
-            (1..=18).map(|k| k as f32 * 0.05).take_while(|&d| d <= PULL_DOWN_REACH).find(|&d| level.ground(p + fwd * d, 0.3, PULL_DOWN_DROP).is_none())?;
-        let edge = p + fwd * edge_d;
-        // (A wall ahead, not an edge: the floor stops there because the wall begins.)
-        if level.raycast(p + Vec3::Y * 0.5, fwd, edge_d + 0.3).is_some() {
-            return None;
-        }
-        let ledge = level
-            .ledges
-            .iter()
-            .filter(|l| l.out.dot(fwd) > 0.7 && (l.a.y - p.y).abs() < 0.2)
-            .min_by(|a, b| (a.closest(edge) - edge).with_y(0.0).length().total_cmp(&(b.closest(edge) - edge).with_y(0.0).length()))?;
-        if (ledge.closest(edge) - edge).with_y(0.0).length() > 0.45 {
-            return None;
-        }
+        // (AC1's edge report: a hold at the feet within 0.75 m, facing out within 90 degrees of the way he faces, more than
+        // 2 m over what is under it; of those, the one facing most his way. Ours also wants no wall between him and it:
+        // the floor stopping where a wall begins is no edge.)
+        let ok = |l: &&Ledge| {
+            let c = l.closest(p);
+            let d = (c - p).with_y(0.0);
+            l.out.dot(fwd) > 0.0
+                && (l.a.y - p.y).abs() < 0.2
+                && d.length() <= PULL_DOWN_REACH
+                && level.ground(c + l.out * 0.3, 0.3, PULL_DOWN_DROP).is_none()
+                && (d.length() < 0.05 || level.raycast(p + Vec3::Y * 0.5, d.normalize(), d.length() + 0.3).is_none())
+        };
+        let ledge = level.ledges.iter().filter(ok).max_by(|a, b| a.out.dot(fwd).total_cmp(&b.out.dot(fwd)))?;
+        let edge = ledge.closest(p);
         // The root faces the wall throughout; the body starts turned round, facing the drop, and comes
         // round as it steps back over the edge (`*_pulldown_front_orientation`, from looking down or from
         // standing), then lowers (`xx_l_ledge_pulldown_soft_front`) onto the hang.

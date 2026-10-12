@@ -114,7 +114,8 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 - **Edges**: the ledge stop (event 69, only for a drop over 5 m), the low-profile halt within 0.16 m (normal within
   70°), look down (event 119: latched by the low-profile halt held 0.25 s, the edge within 0.16 m, more than 2 m of drop;
 mixed front / left / right by the edge's side), the pull-down
-  (event 70: an edge within 0.8 m ahead, normal along the facing, more than 2 m of drop). **[B]**
+  (event 70: the edge report within 0.75 m of the feet whose normal is nearest the facing, that normal within 90° of
+  it, more than 2 m of drop). **[B]**
   Seen in the running game (Damascus, the route library): running in high profile to a roof's end that is a beam over a
   0.1 m crack, the next roof 0.74 m below, AC1 ran over the beam and stepped off it 1.07 m on in 0.27 s (`roof2_run_south`);
   at the same kind of beam over 8 m it made the ledge stop. Ours since 2026-10-10: a beam ending the floor is run over
@@ -680,6 +681,11 @@ in this batch, by audit id:
     0xDD8F70, Banned445's `vertical_rows`), 0.1-0.8 m up, up to 0.5 m in or out and 0.2 m along, the highest; both hands
     step onto it in turn (the second following on, `ContinuePendingVerticalStep`), the body carried under it. Then the
     free hang's top-out onto the balcony.
+- **2026-10-12, the last findings**:
+  - EXTRA-17: the pull-down's hold is AC1's edge report (the interpreter's vt136 pick, 0xB17EF0, with 0.75 m and any
+    angle; the guard 0xD9D6C0): a hold at the feet within 0.75 m, facing out within 90 degrees of his facing, the one
+    facing most his way, more than 2 m over what lies 0.3 m past it. Ours walked 0.9 m along the facing to where the
+    floor ended and took a hold within 0.45 m of there facing within 45 degrees.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
