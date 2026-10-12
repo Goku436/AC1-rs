@@ -38,7 +38,9 @@
 //! (hold high profile / the legs), AC1_HAND=secs[,..] (the empty hand),
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
 //! as dir/frame_00000.png ..., then exit; encode with ffmpeg at 30 fps),
-//! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; `-` exits then without one), AC1_BACKGROUND=1 (open
+//! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; `-` exits then without one), AC1_SHOTS=file (a list
+//! of fixed cameras, `name eye_x,y,z target_x,y,z` a line, Bevy space: a shot of each, `name.png` beside the file, the first after
+//! AC1_SHOT_SECS, the next every AC1_SHOTS_EVERY s, default 3, then exit; no HUD), AC1_BACKGROUND=1 (open
 //! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1, AC1_PLAIN_LOOK=1 (Altaïr without AC1's character shader),
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only. AC1_CONTROL=<file> stays open and runs
 //! the scripts written to that file (`run <id> <secs> AC1_START=.. AC1_WALK=.. ...`, `quit`; see `control_runs`): the level
@@ -1570,6 +1572,12 @@ fn camera_follow(
         cam.eye = eye;
         return;
     }
+    // Test hook: a list of fixed cameras, one shot each (`AC1_SHOTS`).
+    if let Some(s) = shot_list().get(SHOT_AT.load(std::sync::atomic::Ordering::Relaxed)) {
+        *tf = Transform::from_translation(s.eye).looking_at(s.at, Vec3::Y);
+        cam.eye = tf.translation;
+        return;
+    }
     // Test hook: a fixed camera (eye, then the point it looks at), for comparable shots.
     if let Some(v) = env_f32s("AC1_LOOK").filter(|v| v.len() >= 6) {
         *tf = Transform::from_xyz(v[0], v[1], v[2]).looking_at(Vec3::new(v[3], v[4], v[5]), Vec3::Y);
@@ -1723,7 +1731,7 @@ fn hud(
     let (Ok((ch, ctl, tf)), Ok((mut t, mut vis))) = (chars.single(), text.single_mut()) else { return };
     // (Recording a video: no HUD in the frames.)
     // (F1: hidden.)
-    if std::env::var("AC1_FRAMES").is_ok() || overlay.hidden {
+    if std::env::var("AC1_FRAMES").is_ok() || std::env::var("AC1_SHOTS").is_ok() || overlay.hidden {
         vis.set_if_neq(Visibility::Hidden);
         return;
     }
@@ -1800,6 +1808,39 @@ fn hud(
     );
 }
 
+/// One camera of `AC1_SHOTS`: where the shot is saved, the eye and the point it looks at (Bevy space).
+struct ShotSpot {
+    path: PathBuf,
+    eye: Vec3,
+    at: Vec3,
+}
+
+/// The shot list taken now (an index into `shot_list`).
+static SHOT_AT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// `AC1_SHOTS=file`: lines `name ex,ey,ez tx,ty,tz` (Bevy space; `#` comments), each saved as `name.png` next to the file.
+fn shot_list() -> &'static [ShotSpot] {
+    static LIST: std::sync::OnceLock<Vec<ShotSpot>> = std::sync::OnceLock::new();
+    LIST.get_or_init(|| {
+        let Ok(file) = std::env::var("AC1_SHOTS") else { return vec![] };
+        let dir = std::path::Path::new(&file).parent().map(|d| d.to_path_buf()).unwrap_or_default();
+        let v3 = |s: &str| -> Option<Vec3> {
+            let v: Vec<f32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            (v.len() == 3).then(|| Vec3::new(v[0], v[1], v[2]))
+        };
+        std::fs::read_to_string(&file)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .filter_map(|l| {
+                let mut w = l.split_whitespace();
+                let name = w.next()?;
+                Some(ShotSpot { path: dir.join(format!("{name}.png")), eye: v3(w.next()?)?, at: v3(w.next()?)? })
+            })
+            .collect()
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn screenshot(
     mut commands: Commands,
@@ -1823,6 +1864,23 @@ fn screenshot(
                 exit.write(AppExit::Success);
             }
             *frame += 1;
+        }
+        return;
+    }
+    // `AC1_SHOTS=file`: each camera of the list in turn, a shot of it once the city round it has streamed in.
+    let list = shot_list();
+    if !list.is_empty() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let first = script.shot.as_ref().map_or(4.0, |s| s.1);
+        let every = std::env::var("AC1_SHOTS_EVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(3.0);
+        let k = SHOT_AT.load(Relaxed);
+        if let Some(s) = list.get(k) {
+            if clock.t > first + every * k as f32 {
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(s.path.clone()));
+                SHOT_AT.store(k + 1, Relaxed);
+            }
+        } else if clock.t > first + every * k as f32 {
+            exit.write(AppExit::Success);
         }
         return;
     }

@@ -347,6 +347,36 @@ pub(crate) fn pose_skinned(m: &mut forge::mesh::Mesh, skel: &forge::skeleton::Sk
     }
 }
 
+/// What becomes of the meshes a city places (`AC1_PROP_STATS=1` lists each line's meshes), by mesh kind: drawn, left out
+/// and why; with an example of each (its name and where it stands, Bevy space).
+#[derive(Default)]
+struct PropStats {
+    rows: std::collections::BTreeMap<(forge::mesh::MeshKind, &'static str), (usize, HashMap<String, (usize, Vec3)>)>,
+}
+
+impl PropStats {
+    fn add(&mut self, body: &[u8], what: &'static str, name: &str, at: Vec3) {
+        let row = self.rows.entry((forge::mesh::mesh_kind(body), what)).or_default();
+        row.0 += 1;
+        row.1.entry(name.to_string()).or_insert((0, at)).0 += 1;
+    }
+
+    fn log(&self, forge_file: &str) {
+        let all = std::env::var("AC1_PROP_STATS").is_ok();
+        for ((kind, what), (n, names)) in &self.rows {
+            let mut names: Vec<_> = names.iter().collect();
+            names.sort_by(|a, b| b.1.0.cmp(&a.1.0).then(a.0.cmp(b.0)));
+            let (top, (_, at)) = names[0];
+            info!("city {forge_file}: {kind:?} meshes {what}: {n} placed, {} distinct (most: {top} at {at:.1})", names.len());
+            if all {
+                for (name, (k, at)) in names {
+                    info!("    {k:>5} {name} (one at {at:.1})");
+                }
+            }
+        }
+    }
+}
+
 /// What a city mesh is for parkour, by its name: hay to jump into (`Hay_Bale_Charette`, `_Chariot`, `Hay_Bale_01`; not the
 /// straw strewn on the ground, `Hay_Bale_Tile`),
 /// a rooftop hiding spot (`Hiding_Spot_*`, not its `_Tarp`), a ladder (`Ladder_<h>m`), a bench (`Banc_*`), a pole (`Pole_*`: horizontal ones are swing bars).
@@ -671,7 +701,11 @@ fn spawn_world(
         if !opts.render {
             return 0;
         }
-        bank.slot(mats, images, diffuse(material), normal_map(material), cut, is_water)
+        let tex = diffuse(material);
+        if tex.is_none() && bank.untextured.insert(material) {
+            info!("city: material {:08x} {} has no diffuse texture found", material, rindex.get(&material).map_or("(not loaded)", |o| o.name.as_str()));
+        }
+        bank.slot(mats, images, tex, normal_map(material), Look::of(rindex.get(&material).copied(), cut), is_water)
     };
 
     let to_bevy = game_to_bevy();
@@ -790,6 +824,8 @@ fn spawn_world(
     let mut undrawn = 0usize;
     // (Picks: each one's top, to stand later ones on.)
     let mut tops: HashMap<usize, f32> = HashMap::new();
+    // What happens to each placed mesh, by its kind (`PropStats`).
+    let mut stats = PropStats::default();
     for (pi, &(ent_id, body)) in placements.iter().enumerate() {
         let picked = moved.get(pi).copied().flatten();
         let Some(mut m) = picked.map(|x| x.0).or_else(|| transform(body)) else { continue };
@@ -923,7 +959,13 @@ fn spawn_world(
         let ent_meshes: Vec<&Object> = refs_of(CLASS_MESH)
             .into_iter()
             .map(|r| r.1)
-            .filter(|r| shown_mesh(&r.name))
+            .filter(|r| {
+                let show = shown_mesh(&r.name);
+                if !show && !r.name.to_lowercase().contains("_lod") {
+                    stats.add(r.body, "left out by name", &r.name, world.w_axis.truncate());
+                }
+                show
+            })
             .filter(|r| {
                 let new = !shown.contains(&r.id);
                 shown.push(r.id);
@@ -991,6 +1033,7 @@ fn spawn_world(
             // Hay whose mesh can't be read yet (its vertex format is one not decoded): a cart-sized stack where the
             // entity stands.
             if kind_of(mi, &mesh.name) == Some(CityObject::Hay) && parse_mesh(mesh.body).is_err() {
+                stats.add(mesh.body, "not drawn: unread hay", &mesh.name, world.w_axis.truncate());
                 let c = world.w_axis.truncate();
                 level.city_objects.push((
                     crate::level::CityObject::Hay,
@@ -1015,6 +1058,7 @@ fn spawn_world(
                 if lo.x <= hi.x {
                     level.city_objects.push((kind, lo, hi, Transform::from_matrix(world)));
                 }
+                stats.add(mesh.body, "not drawn: skinned, no prop skeleton", &mesh.name, world.w_axis.truncate());
                 continue;
             }
             let p = parsed.entry(mesh.id).or_insert_with(|| {
@@ -1058,8 +1102,13 @@ fn spawn_world(
                 let lips = if holds { lip_candidates(&faces) } else { vec![] };
                 Some((subs, tris, ledges, lips))
             });
-            let Some((subs, tris, ledges, lips)) = p else { continue };
+            let Some((subs, tris, ledges, lips)) = p else {
+                let why = if parse_mesh(mesh.body).is_err() { "not drawn: unread" } else { "not drawn: skinned, no prop skeleton" };
+                stats.add(mesh.body, why, &mesh.name, world.w_axis.truncate());
+                continue;
+            };
             drawn_any = true;
+            stats.add(mesh.body, if subs.is_empty() { "not drawn: no whole part" } else { "drawn" }, &mesh.name, world.w_axis.truncate());
             let cut = cutout(&mesh.name);
             let is_water = water(&mesh.name);
             // What it draws: its material slot per part (the entity's overrides applied).
@@ -1158,6 +1207,7 @@ fn spawn_world(
     }
     info!("city {forge_file}: {} hay and hiding places by their component ({} with no mesh named for one), {} by mesh name only", marked.0, marked.1, marked.2);
     info!("city {forge_file}: {undrawn} entities collided with and none of their meshes drawn");
+    stats.log(forge_file);
     if picks.is_some() {
         // Picked props: drawn at once, at full detail.
         for d in drawn.iter().filter(|_| opts.render) {
@@ -1300,8 +1350,26 @@ fn lod_datas(game_dir: &Path, objects: &[Vec<Object>], index: &Index) -> Vec<Vec
 }
 
 /// City materials made so far: a slot per (diffuse map, normal map, cut-out, water).
+/// How a material is drawn: its alpha test's reference (0..255) if it tests alpha, and whether both sides show.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct Look {
+    alpha: Option<u8>,
+    two_sided: bool,
+}
+
+impl Look {
+    /// AC1's own flags on the material (`forge::material`: `AlphaTestEnabled`, `AlphaTestValue`, `TwoSided`); by the
+    /// mesh's name (`cutout`) where the material can't be read.
+    fn of(material: Option<&Object>, cut: bool) -> Self {
+        match material.filter(|o| o.class == CLASS_MATERIAL).and_then(|o| forge::material::Material::parse(o.body).ok()) {
+            Some(m) => Self { alpha: m.alpha_test.map(|a| (a * 255.0).round() as u8), two_sided: m.two_sided },
+            None => Self { alpha: cut.then_some(102), two_sided: cut },
+        }
+    }
+}
+
 struct MatBank {
-    slots: HashMap<(u32, u32, bool, bool), u32>,
+    slots: HashMap<(u32, u32, Look, bool), u32>,
     list: Vec<Handle<StandardMaterial>>,
     bc: bool,
     /// The largest texture side kept.
@@ -1310,11 +1378,13 @@ struct MatBank {
     textured: usize,
     textures: usize,
     texture_bytes: usize,
+    /// Materials no diffuse texture was found for (each logged once).
+    untextured: std::collections::HashSet<u32>,
 }
 
 impl MatBank {
     fn new(bc: bool, max_texture: u32) -> Self {
-        Self { slots: HashMap::new(), list: vec![], bc, max_texture, textured: 0, textures: 0, texture_bytes: 0 }
+        Self { slots: HashMap::new(), list: vec![], bc, max_texture, textured: 0, textures: 0, texture_bytes: 0, untextured: Default::default() }
     }
 
     /// The slot of a material with these maps (made on first use).
@@ -1324,13 +1394,14 @@ impl MatBank {
         images: &mut Assets<Image>,
         tex: Option<&Object>,
         nrm: Option<&Object>,
-        cut: bool,
+        look: Look,
         water: bool,
     ) -> u32 {
+        let plain = Look { alpha: None, two_sided: false };
         let key = match tex {
-            _ if water => (0, 0, false, true),
-            None => (0, 0, cut, false),
-            Some(t) => (t.id, nrm.map_or(0, |n| n.id), cut, false),
+            _ if water => (0, 0, plain, true),
+            None => (0, 0, look, false),
+            Some(t) => (t.id, nrm.map_or(0, |n| n.id), look, false),
         };
         if let Some(&s) = self.slots.get(&key) {
             return s;
@@ -1345,7 +1416,7 @@ impl MatBank {
                 cull_mode: None,
                 ..default()
             },
-            None if cut => {
+            None if look.alpha.is_some() => {
                 StandardMaterial { base_color: Color::srgb(0.36, 0.45, 0.28), perceptual_roughness: 0.9, double_sided: true, cull_mode: None, ..default() }
             }
             None => StandardMaterial { base_color: Color::srgb(0.7, 0.66, 0.58), perceptual_roughness: 0.9, ..default() },
@@ -1363,9 +1434,10 @@ impl MatBank {
                     normal_map_texture: normal,
                     flip_normal_map_y: true,
                     perceptual_roughness: 0.9,
-                    alpha_mode: if cut { AlphaMode::Mask(0.4) } else { AlphaMode::Opaque },
-                    double_sided: cut,
-                    cull_mode: if cut { None } else { Some(bevy::render::render_resource::Face::Back) },
+                    // (AC1's alpha test: kept where alpha is over the reference.)
+                    alpha_mode: look.alpha.map_or(AlphaMode::Opaque, |a| AlphaMode::Mask(a as f32 / 255.0)),
+                    double_sided: look.two_sided,
+                    cull_mode: if look.two_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
                     ..default()
                 }
             }
