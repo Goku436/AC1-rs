@@ -80,15 +80,72 @@ pub enum Feet {
     Other(u32),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Blend {
     /// `ACTBlendType`.
     pub kind: u32,
     pub flags: [u8; 3],
     /// B-position, displacement source and actuator modes.
     pub modes: [u32; 3],
-    /// Times (s); the first is the blend into the move (0.2 is the common one).
+    /// Times (s): the blend's length (0.2 is the common one), the overlap an item blend takes off its action's
+    /// length, and B's start time for the FROMTARGETTIME position mode.
     pub times: [f32; 3],
+}
+
+/// `ACTBlendType` values (`Blend::kind`; names from the exe's enum, meanings as Banned445's port reads `0x773F90`).
+pub mod blend_kind {
+    /// A cut: B shows at once, whatever the time says (86% of item blends, still carrying 0.2 s).
+    pub const NONE: u32 = 0;
+    /// A keeps playing (rolls) through the blend, and B rolls.
+    pub const AROLL_BROLL: u32 = 1;
+    /// A frozen on its last pose, B rolls (the default transition's).
+    pub const ASTOP_BROLL: u32 = 2;
+    pub const AROLL_BSTOP: u32 = 3;
+    pub const ASTOP_BSTOP: u32 = 4;
+    pub const ASTOP_BSTOP_CUBIC_QUAT: u32 = 5;
+}
+
+impl Blend {
+    /// The game's default transition (`sub_46A460`: ASTOPBROLL, 0.2 s, FROMSTART, BLENDAB, actuator FROMB), used
+    /// when neither the playing action nor the new one gives a transition.
+    pub const DEFAULT: Blend = Blend { kind: blend_kind::ASTOP_BROLL, flags: [0; 3], modes: [0, 0, 1], times: [0.2, 0.0, 0.0] };
+
+    /// The blend's length (s).
+    pub fn time(&self) -> f32 {
+        self.times[0]
+    }
+
+    /// No blend at all: B shows at once.
+    pub fn is_cut(&self) -> bool {
+        self.kind & 7 == blend_kind::NONE || self.times[0] <= 0.0
+    }
+
+    /// A keeps playing through the blend (AROLLB*), else it is frozen on its last pose.
+    pub fn rolls_a(&self) -> bool {
+        matches!(self.kind & 7, blend_kind::AROLL_BROLL | blend_kind::AROLL_BSTOP)
+    }
+
+    /// B is held on its first pose while the blend runs (*BSTOP*).
+    pub fn stops_b(&self) -> bool {
+        matches!(self.kind & 7, blend_kind::AROLL_BSTOP | blend_kind::ASTOP_BSTOP | blend_kind::ASTOP_BSTOP_CUBIC_QUAT)
+    }
+
+    /// The blend lasts at most what is left of A (flag byte 0).
+    pub fn clamps(&self) -> bool {
+        self.flags[0] & 1 != 0
+    }
+
+    /// B's weight at linear progress `t` (0..1) (`sub_773C30`): linear, or eased in (2t² − t³), out (t + t² − t³)
+    /// or both (3t² − 2t³) by flag bytes 1 and 2 (set on about ten blends of the human kit).
+    pub fn weight(&self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match (self.flags[1] & 1 != 0, self.flags[2] & 1 != 0) {
+            (true, true) => 3.0 * t * t - 2.0 * t * t * t,
+            (true, false) => 2.0 * t * t - t * t * t,
+            (false, true) => t + t * t - t * t * t,
+            (false, false) => t,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -336,6 +393,20 @@ mod tests {
         assert_eq!(item.word(), 0x0fd0);
         let turn = Item { flags: [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..Default::default() };
         assert_eq!(turn.word(), gate::TURNS_BODY | gate::LOCKED);
+    }
+
+    #[test]
+    fn blend_kinds_and_weights() {
+        let cut = Blend { kind: blend_kind::NONE, times: [0.2, 0.0, 0.0], ..Default::default() };
+        assert!(cut.is_cut());
+        assert!(!Blend::DEFAULT.is_cut() && !Blend::DEFAULT.rolls_a() && !Blend::DEFAULT.stops_b());
+        let roll = Blend { kind: blend_kind::AROLL_BROLL, times: [0.2, 0.0, 0.0], ..Default::default() };
+        assert!(roll.rolls_a() && !roll.stops_b());
+        assert!((Blend::DEFAULT.weight(0.25) - 0.25).abs() < 1e-6);
+        let eased = Blend { flags: [0, 1, 1], ..Blend::DEFAULT };
+        assert!((eased.weight(0.5) - 0.5).abs() < 1e-6 && eased.weight(0.1) < 0.1);
+        let ease_in = Blend { flags: [0, 1, 0], ..Blend::DEFAULT };
+        assert!((ease_in.weight(1.0) - 1.0).abs() < 1e-6 && ease_in.weight(0.2) < 0.2);
     }
     use super::*;
 

@@ -522,6 +522,17 @@ in this batch, by audit id:
   Banned445's decode) in place of ours' mesh-name beams and single-hold tops; not the default yet (31 of 41 routes
   against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
   beam the running game lands on).
+- **Blends** (ANIM-4 to 6): every step takes AC1's whole `ActionBlend` from the move graph, looked up as the game does
+  (`MoveGraph::blend_into`): item to item, the next item's blend; out of an item, its way's blend A into the connector
+  (or the destination when it has none), B from the connector into the destination; an action the code starts, the
+  playing item's way to it, the playing action's out-transition, the new one's in-transition, the default ASTOPBROLL
+  0.2 s (a cut for an action flagged to have none). The item's own blend no longer overrides a transition's on the
+  move's first frame. Kind NONE is a cut (86% of item blends, 221 of 243 ways in the movement blocks), AROLLB* keep A
+  playing under the blend, *BSTOP* hold B on its first pose, the weight is linear (eased only where the flags say, two
+  blends), a clamped blend lasts at most what is left of A. Ours: a cut is kept only where the two poses line up within
+  5 cm (hands and feet); where our chain does not line up as AC1's (a move begun mid-clip, a step turned onto a hold),
+  the cut would pop, and our crossfade by the gap is used. No movement block uses a B start position other than
+  FROMSTART. Our own fades (steps the graph does not have) stay smoothstep.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

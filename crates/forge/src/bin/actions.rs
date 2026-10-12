@@ -4,6 +4,19 @@ use anyhow::{Context, Result};
 use forge::action::{self, CLASS_ACTION_BLOCK, Slot};
 use std::collections::HashMap;
 
+/// A blend, short: kind (0 cut, 1 AROLLBROLL, 2 ASTOPBROLL, 3 AROLLBSTOP, 4 ASTOPBSTOP), time, flags (clamp, ease in,
+/// ease out) and modes (B position, displacement source, actuator) when set.
+fn blend(b: &action::Blend) -> String {
+    let mut s = format!("k{} {:.2}s", b.kind, b.time());
+    if b.flags != [0; 3] {
+        s += &format!(" flags {:?}", b.flags);
+    }
+    if b.modes[..2] != [0, 0] {
+        s += &format!(" modes {:?}", b.modes);
+    }
+    s
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let dir = args.get(1).context("game dir")?;
@@ -20,15 +33,15 @@ fn main() -> Result<()> {
             for a in b.actions.iter().filter_map(Slot::inline) {
                 println!("action {:#x} key {:#x} flags {:?} associated {:?}", a.id, a.key, a.flags, a.associated);
                 for t in a.transitions.iter().flatten().filter_map(Slot::inline) {
-                    println!("  -> {:#x} / {:#x}, blend {:?}", t.action, t.action2, t.blend.times);
+                    println!("  -> {:#x} / {:#x}, blend {} / {}", t.action, t.action2, blend(&t.blend), blend(&t.blend2));
                 }
                 for i in &a.items {
-                    println!("  item: blend {:?} {:?} feet {:?} flags {:?} weights {:?}", i.blend.times, i.displacement, i.feet, i.flags, i.weights);
+                    println!("  item: blend {} {:?} feet {:?} flags {:?} weights {:?}", blend(&i.blend), i.displacement, i.feet, i.flags, i.weights);
                     for c in &i.clips {
                         println!("    {}", name(c));
                     }
                     for t in i.transitions.iter().filter_map(Slot::inline) {
-                        println!("    -> {:#x} / {:#x}, blend {:?}", t.action, t.action2, t.blend.times);
+                        println!("    -> {:#x} / {:#x}, blend {} / {}", t.action, t.action2, blend(&t.blend), blend(&t.blend2));
                     }
                 }
             }

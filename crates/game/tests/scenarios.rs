@@ -885,6 +885,17 @@ const SCENARIOS: &[Scenario] = &[
         want: &["xx_h_hangwall_strafe_left_050cm", "rebound off the wall at [49.", "via xx_h_rebound_right_", "_tr_freestep_entry_footl at [49.1"],
         never: &["EMBED"],
     },
+    // Audit ANIM-4 to 6: blends as AC1's move graph gives them. The running jump's takeoff is started by the code: it
+    // blends in over its action's in-transition (AROLLBROLL 0.1 s); the swing cycle's items follow one another by cuts
+    // where they line up.
+    Scenario {
+        name: "blends from AC1's move graph: the takeoff's in-transition, the swing's cuts (audit ANIM-4 to 6)",
+        tags: &["bars", "jump"],
+        env: &[("AC1_START", "50.3,0,-90"), ("AC1_WALK", "6"), ("AC1_HIGH", "0-10"), ("AC1_LEGS", "0-10")],
+        secs: 3.0,
+        want: &["blend into xx_h_run_front_300cm_footr_to_air: kind 1 0.10 s", "blend into xx_h_swing_cycle_back_down: kind 0 0.00 s -> None"],
+        never: &["EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
