@@ -7082,15 +7082,17 @@ impl WallClimb {
             }
             self.steer = Some(want);
             // Running (high profile) and nearly round: break off into the run now, AC1's turn going straight into its
-            // jog, run or sprint (the rest of the turn is the gait's to finish).
+            // jog, run or sprint (the rest of the turn is the gait's to finish). (Only out of an item whose gate lets it
+            // be left for moving: the turn's exit, not the locked turn, audit ANIM-8.)
             let left = root_delta(end) * root_delta(root_rotation_at(&m.clip, m.t * FPS)).inverse();
             if self.high
                 && self.queue.is_empty()
                 && m.clip.name.contains("_waitturn_")
+                && lib.graph.gate(&m.clip.name).is_none_or(|g| g.may_leave(true, true))
                 && (err - step).abs() < TURN_BREAK
                 && left.to_euler(EulerRot::YXZ).0.abs() < TURN_BREAK
             {
-                debug!("climb: turn broken off into the run");
+                debug!("climb: turn broken off into the run (out of {})", m.clip.name);
                 self.last_clip = Some(m.clip.name.clone());
                 self.mv = None;
                 self.steer = None;
