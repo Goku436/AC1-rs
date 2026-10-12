@@ -1092,7 +1092,9 @@ const SCENARIOS: &[Scenario] = &[
     },
     // The eject with nothing to land on (`back_eject`), from a wall run's catch at the hang on the test level's wall: the
     // stick to the left of the wall goes left (toward -Z here), to the right right. (The climbing stick is read facing the
-    // wall; passed unturned into the facing-away side, A ejected right and D left: user report, 2026-10-12.)
+    // wall; passed unturned into the facing-away side, A ejected right and D left: user report, 2026-10-12.) It goes the
+    // stick's way, AC1's `jump_off_wall_dir`: straight to the side is turned in to 89 degrees off straight away (it was
+    // always 45 degrees: user report #10, 2026-10-12).
     Scenario {
         name: "eject from a wall run's hang with the stick left: off to the left (the facing-away side turned)",
         tags: &["hang", "wallrun"],
@@ -1106,7 +1108,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject (frontright)", "the run ends at [16.06, 0.00, 9."],
+        want: &["back eject, 89 degrees off straight away", "the run ends at [21.37, 0.00, 7."],
         never: &["EMBED"],
     },
     Scenario {
@@ -1122,7 +1124,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,right=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject (frontleft)", "the run ends at [16.06, 0.00, 2"],
+        want: &["back eject, -89 degrees off straight away", "the run ends at [21.37, 0.00, 23."],
         never: &["EMBED"],
     },
     // User report #11 (Damascus, by a market stall): the running jump at a house's roof edge flew the surface flight into
@@ -1216,6 +1218,160 @@ const SCENARIOS: &[Scenario] = &[
         secs: 4.0,
         want: &["Ghost mode off at [-25.00, 5.00, -18.50], falling at 15.0 m/s", "landed from 5.0 m", "-> ground via"],
         never: &["EMBED", "landing_death"],
+    },
+    Scenario {
+        name: "eject from a wall run's hang with the stick back and left: off 45 degrees to the left, the stick's way (user report #10)",
+        tags: &["hang", "wallrun", "eject"],
+        env: &[
+            ("AC1_START", "19.5,15.3,-90"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_JUMP", "2.6"),
+            ("AC1_CLIMB", "nograb,wait=2.4,downleft=1.2"),
+        ],
+        secs: 4.5,
+        want: &["via xx_h_hangwall_tr_rebound_footr", "back eject, 45 degrees off straight away", "the run ends at [16.33, 0.00, 10."],
+        never: &["EMBED"],
+    },
+    // The eject goes by the stick as the camera sees it, not the climbing stick in the character's frame (AC1's jump off a
+    // wall reads the interpreter's camera-relative direction): the climbing stick straight down, the camera's stick back
+    // and to the left, 45 degrees off the wall (user report #10, 2026-10-12).
+    Scenario {
+        name: "eject from a wall run's hang goes the camera's stick's way: back and left with the climbing stick straight down",
+        tags: &["hang", "wallrun", "eject"],
+        env: &[
+            ("AC1_START", "19.5,15.3,-90"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0-2.5"),
+            ("AC1_VEER", "2.4,135"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_JUMP", "2.6"),
+            ("AC1_CLIMB", "nograb,wait=2.4,down=1.2"),
+        ],
+        secs: 4.5,
+        want: &["back eject, 45 degrees off straight away", "-> land via xx_h_landing_damage_footl_roll at [16.33, 0.00, 10."],
+        never: &["EMBED"],
+    },
+    // User report #1 (2026-10-12): stuck in a Damascus rooftop hiding place. The hop out's room was tested along a ray
+    // from over its middle, 1.25 m over its 1.07 m rim, which ran into the tarp's frame every way; and the hop was stopped
+    // at the box's own wall. Now AC1's `Guard_HopOut` box past the footprint, the hiding place's own shapes left out.
+    Scenario {
+        name: "Damascus: free running into a rooftop hiding place, then out of it again (user report #1)",
+        tags: &["hay"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "185.6,-137.72,90,9"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-1.2"),
+            ("AC1_LEGS", "0-1.2"),
+            ("AC1_STOP", "1.2-30"),
+            ("AC1_CLIMB", "nograb,wait=3.0,up=0.3"),
+        ],
+        secs: 4.5,
+        want: &[
+            "dive into the haystack at [181.73, 7.72, -137.72]",
+            "hay -> hayout via xx_l_haystack_hop_out",
+            "hayout -> ground via xx_l_haystack_hop_out_tr_l_wait at [181.73, 7.72, -139.9",
+        ],
+        never: &["no room to hop out"],
+    },
+    // User report #12 (2026-10-12): a Damascus roof's parapet (0.3 m wide, the roof 0.24 m under it, the street 8 m) was
+    // a narrow top to balance on, from its hold facing the roof; standing by it with the stick along it he got onto it
+    // and crouch-walked it. AC1 runs along it as ground.
+    Scenario {
+        name: "Damascus: standing by a roof's parapet, the stick along it walks the roof, not onto it as a beam (user report #12)",
+        tags: &["beam", "ground"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "192.36,-11.2,20,9"),
+            ("AC1_WALK", "1.9"),
+            ("AC1_STOP", "0-1.0"),
+            ("AC1_VEER", "0.9,70"),
+        ],
+        secs: 3.5,
+        want: &["the run ends at [188."],
+        never: &["onto perch", "EMBED"],
+    },
+    Scenario {
+        name: "Damascus: walking up to a roof's parapet and along it stays on the roof (user report #12)",
+        tags: &["beam", "ground"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "193.4,-10.0,45,9"),
+            ("AC1_WALK", "1.9"),
+            ("AC1_PATH", "192.36,-11.4;188.0,-11.4;stop"),
+        ],
+        secs: 5.0,
+        want: &["waypoint 2 reached"],
+        never: &["onto perch", "EMBED"],
+    },
+    // User report #9 (2026-10-12): off a beam's end at a Damascus balcony's handrail (its top 2.34 m over the beam, the
+    // floor behind it under the rail), the wall run pulls up onto the rail, AC1's walling probe D taking the rail's edge
+    // as a lip with room over it (class 1), and steps off it onto the balcony. Ours topped out with nothing to grab and
+    // rebounded. (The wall run starts 0.03 m from the balcony's front, the beam's end: EMBED there is not this.)
+    Scenario {
+        name: "Damascus: a wall run off a beam at a balcony's handrail pulls up onto the rail and over it (report #9)",
+        tags: &["wallrun", "beam"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "112,-33.58,-90,5.6"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-4"),
+            ("AC1_LEGS", "0-4"),
+        ],
+        secs: 5.0,
+        want: &["via xx_h_wallingfront_step1_footr_tr_hangknee_250cm_footr", "hangknee -> perch via", "at [115.8", "landed from"],
+        never: &["tops out with nothing to grab", "rebound"],
+    },
+    // User reports #7 and #8: up the wall under a Damascus balcony held out on stepped corbels, each step 0.45 m further
+    // out and 0.12-0.3 m up. At the wall's top the stick up jumps up onto the corbels (AC1's TryBackEject, from a raised
+    // hand's pose too), the free hang climbs them hand over hand out to the balcony's front (AC1's vertical rows, an edge
+    // up to 0.5 m in or out) and pulls up onto it. Ours stepped 1m -> 1ru -> 1m over and over.
+    Scenario {
+        name: "Damascus: up the wall, onto the balcony's corbels and out along them, up onto the balcony (report #7)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "112,-24.4,-90,5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-2"),
+            ("AC1_LEGS", "0-2"),
+            ("AC1_STOP", "2.5"),
+            ("AC1_CLIMB", "nograb,wait=3,up=14"),
+        ],
+        secs: 17.0,
+        want: &[
+            "jump up from the climb to the ledge at [114.10, 11.48",
+            "hand steps onto the edge 0.12 up and 0.46 out",
+            "hand steps onto the edge 0.32 up and 0.37 out",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4",
+        ],
+        never: &["xx_l_climb_1ru_d_1m", "EMBED"],
+    },
+    Scenario {
+        name: "Damascus: the same balcony from further along its wall, after a move to the left (report #8)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "112,-24.4,-90,5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-2"),
+            ("AC1_LEGS", "0-2"),
+            ("AC1_STOP", "2.5"),
+            ("AC1_CLIMB", "nograb,wait=3,up=3.4,left=1.2,up=10"),
+        ],
+        secs: 18.0,
+        want: &["jump up from the climb to the ledge at [114.10, 11.48, -26.", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4"],
+        never: &["EMBED"],
     },
 ];
 

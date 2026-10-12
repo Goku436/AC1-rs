@@ -1874,15 +1874,18 @@ pub fn locomotion(
             let along = |i: usize| {
                 let l = &level.perches[i];
                 let axis = l.axis().with_y(0.0).normalize_or_zero();
+                // (Not from a halt onto a roof's parapet beam, floor level beside it: halted at a roof's edge in low profile,
+                // AC1 stands on the roof and looks down, audit EXTRA-1; ours stepped onto the beam. Nor with the stick
+                // along it from there: standing at a Damascus roof's edge, the stick along the parapet put him on it, user
+                // report 2026-10-12.)
+                let lone = || {
+                    let q = l.closest(tf.translation);
+                    let side = axis.cross(Vec3::Y);
+                    [side, -side].iter().all(|s| level.ground(q + *s * 0.35 + Vec3::Y * 0.2, 0.0, 0.5).is_none())
+                };
                 axis == Vec3::ZERO
-                    || axis.dot(way).abs() > 0.866
-                    // (Not a roof's parapet beam, floor level beside it: halted at a roof's edge in low profile, AC1 stands
-                    // on the roof and looks down, audit EXTRA-1; ours stepped onto the beam.)
-                    || (still && (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15 && {
-                        let q = l.closest(tf.translation);
-                        let side = axis.cross(Vec3::Y);
-                        [side, -side].iter().all(|s| level.ground(q + *s * 0.35 + Vec3::Y * 0.2, 0.0, 0.5).is_none())
-                    })
+                    || ((axis.dot(way).abs() > 0.866 || (still && (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15))
+                        && (!still || lone()))
                 // (Not running across a beam that ends the floor, a step down past it: AC1 runs over it as ground and
                 // steps off the far side, `WallClimb::step_off`, as off the bureau's roof south.)
             };
