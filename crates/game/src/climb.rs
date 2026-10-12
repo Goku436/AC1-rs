@@ -7055,8 +7055,14 @@ impl WallClimb {
         // A steered move (a turn round) follows the stick: the facing it will end on is bent toward where the stick
         // points now, at up to `STEER_RATE` on top of the clips' own turn, so the camera and the stick stay free
         // through it. (The move's start is swung round the root too, so the root does not slide.)
+        // (Not while the item playing turns the body itself, AC1's TURNS_BODY bit (the turn on the spot, the run
+        // turn-around): there the game's heading is not applied (`HumanGround__UpdateHeading` 0xD95290), the clip's own
+        // turn, its 090 and 180 variants mixed by the angle, ends on the stick; and the item is locked, so it plays out
+        // and leaves through its own ways, not broken off into the run near its end (audit ANIM-8).)
+        let turns_body = self.mv.as_ref().is_some_and(|m| lib.graph.gate(&m.clip.name).is_some_and(|g| g.has(forge::action::gate::TURNS_BODY)));
         if self.steer.is_some()
             && self.move_dir.length() > 0.1
+            && !turns_body
             && let Some(m) = &mut self.mv
         {
             let end = root_rotation_at(&m.clip, m.clip.frames());

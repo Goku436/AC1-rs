@@ -533,6 +533,9 @@ in this batch, by audit id:
   5 cm (hands and feet); where our chain does not line up as AC1's (a move begun mid-clip, a step turned onto a hold),
   the cut would pop, and our crossfade by the gap is used. No movement block uses a B start position other than
   FROMSTART. Our own fades (steps the graph does not have) stay smoothstep.
+- **Turns** (ANIM-8; ANIM-9 was GROUND-4): while the playing item has TURNS_BODY (the turn on the spot, the run
+  turn-around) the stick no longer bends its facing and a high-profile turn is no longer broken off into the run near
+  its end: the clip's own turn (090 and 180 mixed by the angle) ends it, and it leaves through its own ways.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

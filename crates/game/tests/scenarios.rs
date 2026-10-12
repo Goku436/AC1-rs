@@ -45,7 +45,8 @@ const SCENARIOS: &[Scenario] = &[
         env: &[("AC1_START", "-5,-5,0"), ("AC1_WALK", "4.5"), ("AC1_STEER", "180"), ("AC1_HIGH", "0-5")],
         secs: 3.0,
         want: &["waitturn_right_180", "_tr_h_jog_hipm_"],
-        never: &[],
+        // (The turn turns the body itself and is locked: played out, not broken off, audit ANIM-8.)
+        never: &["turn broken off into the run"],
     },
     Scenario {
         name: "sprint stop on the course ramp stays on it (the stop follows the slope)",
