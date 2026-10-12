@@ -649,11 +649,11 @@ in this batch, by audit id:
     second way to pass. The hop turns to the way out eased (turned in one frame from the wait's facing, the hands jumped
     0.6 m). The load logs the haystacks with no way out: in Damascus one pile in a walled yard (178.4, -221.9), none of
     the 123 hiding places.
-  - #12, parapets: a narrow top to balance on (`Level::add_narrow_tops`) wants a drop in front of its hold too (no
-    floor within 0.5 m under the top 0.3 m out), as a paired beam wants one past both edges. A Damascus roof's parapet
-    (0.3 m wide, the roof 0.24 m under it, the street 8 m down) was one, found from its hold facing the roof, and standing
-    by it with the stick along it he got onto it and crouch-walked it; AC1 runs along it as ground (Damascus' narrow tops
-    8,527 to 7,280). From a halt, no beam with floor beside it is got onto from the ground, the stick along it or not
+  - #12, parapets: a Damascus roof's parapet (0.3 m wide, the roof 0.24 m under it, the street 8 m down) is a narrow top
+    (`Level::add_narrow_tops`), and standing by it with the stick along it he got onto it and crouch-walked it; AC1 runs
+    along it as ground. No beam with floor beside it (0.35 m to each side) is got onto from the ground any more, standing
+    or walking, the stick along it or not. The top itself stays: free running off the bureau's roof the running game
+    jumps onto one (audit JUMP-3's route; dropping parapets from the tops, first tried, lost that jump)
     (EXTRA-1's rule held only for standing on its line). A side entry onto a beam
     (`xx_h_freestep_entry_<foot>_tr_crouch<walk|jog>_*`) ends on the beam, its clip's own way corrected onto the line:
     played from where it met the parapet it walked 1.4 m off into the air, then the perch pulled him back.
