@@ -20,7 +20,8 @@
 //! Ground moves: run stops, turning round, turns on the spot, ledge stops and looking down at big drops, the empty
 //! hand at an edge pulls down onto it, running into a tall wall leans on it, rolls off high landings, walking into a
 //! haystack dives in (platform E and its haystacks, north of block D).
-//! F1 toggle IK, F2 skeleton,
+//! F1 hides the text (the HUD and the labels), F2 the map menu (1 the test level, 2 Masyaf, 3 Damascus: the game starts
+//! again in it), F4 toggle IK, F5 skeleton,
 //! F3 IK targets, F6 pause the pose gallery and NPC line-up (they only move near the camera anyway), F12 screenshot,
 //! [ / ] step through every AC1 clip in the library (Backspace returns to locomotion).
 //!
@@ -151,6 +152,21 @@ struct Script {
 
 #[derive(Component)]
 struct Hud;
+
+/// F1 hides the text over the game (the HUD and the world labels); F2 opens the map menu.
+#[derive(Resource, Default)]
+struct Overlay {
+    hidden: bool,
+    menu: bool,
+}
+
+/// The map menu (F2).
+#[derive(Component)]
+struct MapMenu;
+
+/// The maps F2 offers: (key, name, `AC1_LEVEL`; `None` the test level).
+const MAPS: [(KeyCode, &str, Option<&str>); 3] =
+    [(KeyCode::Digit1, "Test level", None), (KeyCode::Digit2, "Masyaf", Some("masyaf")), (KeyCode::Digit3, "Damascus", Some("damascus"))];
 
 /// The test script from its settings (`AC1_WALK`, `AC1_HIGH`, ...): the environment at start, or a control file's run.
 fn script_from(get: &dyn Fn(&str) -> Result<String, ()>) -> Script {
@@ -286,6 +302,8 @@ fn main() {
                 .chain(),
         )
         .add_systems(Update, pad_input.before(player_input))
+        .init_resource::<Overlay>()
+        .add_systems(Update, overlay_keys)
         .init_resource::<probe::Probe>()
         .add_systems(Update, probe::probe_climbs.after(run_script).before(character::locomotion))
         .init_resource::<ScriptClock>()
@@ -585,6 +603,21 @@ fn setup(
         // (A dark backing: readable over the bright city.)
         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.4)),
         Node { position_type: PositionType::Absolute, left: px(6), top: px(4), padding: UiRect::all(px(4)), ..default() },
+    ));
+    let now = std::env::var("AC1_LEVEL").ok().map(|l| l.to_lowercase());
+    let mut menu = String::from("Maps (F2 or Esc closes)\n");
+    for (i, (_, name, level)) in MAPS.iter().enumerate() {
+        let here = if now.as_deref() == *level { "  (now)" } else { "" };
+        menu += &format!("\n{}  {name}{here}", i + 1);
+    }
+    commands.spawn((
+        MapMenu,
+        Text::new(menu),
+        TextFont { font_size: bevy::text::FontSize::Px(22.0), ..default() },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+        Node { position_type: PositionType::Absolute, left: percent(38), top: percent(35), padding: UiRect::all(px(16)), ..default() },
+        Visibility::Hidden,
+        GlobalZIndex(10),
     ));
 
     let data = match assets::load_character(&dir.0, "DataPC.forge", "Rank 9", "UCMA_Altair_Rank_9") {
@@ -902,7 +935,7 @@ fn player_input(
         cam.yaw -= arrows.x * ARROW_YAW_RATE * time.delta_secs();
         cam.pitch = (cam.pitch + arrows.y * ARROW_PITCH_RATE * time.delta_secs()).clamp(-1.5, 0.6);
     }
-    if keys.just_pressed(KeyCode::F2) {
+    if keys.just_pressed(KeyCode::F5) {
         dbg.skeleton ^= true;
     }
     if keys.just_pressed(KeyCode::F3) {
@@ -932,7 +965,7 @@ fn player_input(
             a.forced = None;
         }
     }
-    if keys.just_pressed(KeyCode::F1) {
+    if keys.just_pressed(KeyCode::F4) {
         ch.ik_enabled ^= true;
     }
     let mut input = stick.0;
@@ -1076,11 +1109,60 @@ fn spawn_label_near(commands: &mut Commands, name: &str, at: Vec3, follow: Optio
 }
 
 /// Keep the labels over their points, hidden behind the camera or far off.
+/// F1 hides the text over the game; F2 opens the map menu, where 1-3 start the game again in that map (the level is
+/// loaded once, at start: a new process, with `AC1_LEVEL` set, is the clean way to another one).
+fn overlay_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut overlay: ResMut<Overlay>,
+    mut menu: Query<&mut Visibility, With<MapMenu>>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    if keys.just_pressed(KeyCode::F1) {
+        overlay.hidden ^= true;
+    }
+    if keys.just_pressed(KeyCode::F2) {
+        overlay.menu ^= true;
+    } else if overlay.menu && keys.just_pressed(KeyCode::Escape) {
+        overlay.menu = false;
+    }
+    if overlay.menu
+        && let Some((_, name, level)) = MAPS.iter().find(|(k, _, _)| keys.just_pressed(*k))
+    {
+        let Ok(exe) = std::env::current_exe() else { return };
+        let mut c = std::process::Command::new(exe);
+        c.args(std::env::args_os().skip(1));
+        match level {
+            Some(l) => c.env("AC1_LEVEL", l),
+            None => c.env_remove("AC1_LEVEL"),
+        };
+        // (A start or free-camera spot belongs to the map it was given for.)
+        c.env_remove("AC1_START").env_remove("AC1_FREECAM");
+        match c.spawn() {
+            Ok(_) => {
+                info!("map menu: starting again in {name}");
+                exit.write(AppExit::Success);
+            }
+            Err(e) => warn!("map menu: could not start the game again: {e}"),
+        }
+        overlay.menu = false;
+    }
+    if let Ok(mut vis) = menu.single_mut() {
+        vis.set_if_neq(if overlay.menu { Visibility::Visible } else { Visibility::Hidden });
+    }
+}
+
 fn place_labels(
     cams: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     things: Query<&GlobalTransform, Without<Camera3d>>,
     mut labels: Query<(&WorldLabel, &mut Node, &mut Visibility, &ComputedNode)>,
+    overlay: Res<Overlay>,
 ) {
+    if overlay.hidden {
+        for (_, _, mut vis, _) in &mut labels {
+            vis.set_if_neq(Visibility::Hidden);
+        }
+        return;
+    }
     let Ok((cam, cam_tf)) = cams.single() else { return };
     for (l, mut node, mut vis, size) in &mut labels {
         let at = match l.follow {
@@ -1536,6 +1618,7 @@ fn debug_draw(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn hud(
     chars: Query<(&Character, &Controller, &Transform), With<Player>>,
     mut text: Query<(&mut Text, &mut Visibility), With<Hud>>,
@@ -1544,14 +1627,17 @@ fn hud(
     level: Res<level::Level>,
     mut contexts: Local<(String, String)>,
     eagle: Res<Eagle>,
+    overlay: Res<Overlay>,
 ) {
     let fps = diag.get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS).and_then(|d| d.smoothed()).unwrap_or(0.0);
     let (Ok((ch, ctl, tf)), Ok((mut t, mut vis))) = (chars.single(), text.single_mut()) else { return };
     // (Recording a video: no HUD in the frames.)
-    if std::env::var("AC1_FRAMES").is_ok() {
-        *vis = Visibility::Hidden;
+    // (F1: hidden.)
+    if std::env::var("AC1_FRAMES").is_ok() || overlay.hidden {
+        vis.set_if_neq(Visibility::Hidden);
         return;
     }
+    vis.set_if_neq(Visibility::Inherited);
     // The detail lines: what the body is doing (context, previous, the move), the ground gait, the input,
     // the air and the last landing.
     let context = match &ch.wall {
@@ -1610,7 +1696,7 @@ fn hud(
         "ground (procedural)".to_string()
     };
     t.0 = format!(
-        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F1)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | G outlines (both, grab, edge, none) | E eagle | C centre camera | [ ] clips, F2 skeleton, F3 IK, F6 gallery, F12 shot\n{details}",
+        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F4)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | G outlines (both, grab, edge, none) | E eagle | C centre camera | [ ] clips, F1 hide text, F2 maps, F5 skeleton, F3 IK targets, F6 gallery, F12 shot\n{details}",
         if ch.health <= 0.0 {
             "DESYNCHRONISED".to_string()
         } else {
