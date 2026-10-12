@@ -755,8 +755,15 @@ in this batch, by audit id:
     - LEDGE-7 (the wall-free hang): no free hang in the hang scenarios (20 rests, Damascus' included) has a wall under its
       hands (AC1's test: 0.15 m in, 0.6 / 1.2 / 1.8 m down): ours takes the free hang only where the feet find no wall.
       AC1 reaches `hangwallfree_wait` through entries that force a free hang whatever is under it (walling's free-hang
-      catches B and C with their swing strength, the jump's `hangwallfree` 250 / 300 cm action). To settle: a live log
-      of which actions end in `xx_h_hangwallfree_wait` on a Damascus wall, then those entries first.
+      catches B and C with their swing strength, the jump's `hangwallfree` 250 / 300 cm action). Live logs (2026-10-12,
+      24 routes round the Damascus bureau and the user's own run): no action ended in `xx_h_hangwallfree_wait`. The wall
+      hangs came from the wall run's catch (0x0106CFC5), the pull-down off a roof's edge and the standing jump at a hold
+      2.4 m up (0x01271631), all into `hangwall_wait`; the only free hangs were swing-bar catches after a back eject
+      (`air_front_050cm_to_swing`, `swing_cycle_front_up`, `hangfree_wait`). The standing jump matched Banned445's bands of
+      0xB21DA0 to the centimetre (2.0-2.5 m with a wall: 0x01271631, the root 1.1 m under the hands and 0.5 m out), whose
+      next band, 2.5-3.0 m with a wall under the hold, is 0x0121A8B1 (`jumpstraight_footl_to_hangwallfree_250/300cm`, the
+      reception into the wall-free hang): that, and the wall run's `step1_footr_tr_hangwallfree_350/400cm`, are the
+      entries; ours hangs free there. To see one: a standing jump at a hold 2.5-3.0 m over the feet with wall under it.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
@@ -778,6 +785,23 @@ first clip). Found and fixed:
   (CanPullup 0xDE2270, event 0, ahead of the hand steps and jumps up; Banned445's port); ours now does from the wall and
   free hangs (the climbing stances keep AC1's ChooseMove order, the top-out last). The route's mean gap 0.71 to 0.54 m,
   the path within 0.3 m to 4 s where it was 1.6 m off.
+
+The live log names a blend by its action's first clip, so its names say nothing about a blend's weights: the wall run's
+`..._hangwall_251cm_000cm_a` is action 0x0106CFC5 (251 and 430 cm, `_000cm` and `_050cm`), the ground impulsion's
+`..._front_down_...` action 0x04A943DE (all ten directions, up and down), `air_front_050cm_..._to_freestep` the whole
+flight blend. (The comment in `jump.rs` that every impulsion seen was `_down` read that name.) `livelog compare --game`
+names ours' clips the same way.
+
+Measured (mean root gap over the route, from when each starts moving; 21 routes): `wall1_*` hangs, climbs and ejects
+0.08-0.29 m, `wall1_standjump` 1.32 to 0.09 m, `crate_climb` 0.21, `ladder68_walk` 0.52 (0.02 at the end), roof runs
+0.28-0.61, `hay70_free` 0.71 to 0.54; `roof1_free_south` 1.21 (ours takes a parapet 0.3 m past the first edge as a jump
+target, a perch from ours' own parapet tops, where the running game jumps 2.3 m to the next roof's rim), `seams_free_west`
+0.56. Poses (bones from the root in the body's frame, same action): the wall hang's (`hangwall_wait`) hips and head
+within 0.01 m, the hands 0.02-0.03 m (their spread is the hold's); the running game's hands stop 0.11 m short of their
+IK goals and the feet 0.17 m (ours reaches them), and its hand goals sit 0.1 m over ours' hold lines on the bureau's
+walls (the root as much higher). The climbing stance (`climb_wait_1m`, 469 frames) is the largest steady one: ours'
+hips 0.08 m higher and 0.09 m nearer the wall, the head 0.09 m higher and 0.19 m further back, with the hands and feet
+within 0.1 m: AC1 leans the chest into the wall more. Not yet traced (the clip, ours' climbing IK or AC1's).
 
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
