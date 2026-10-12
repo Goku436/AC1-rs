@@ -885,6 +885,25 @@ const SCENARIOS: &[Scenario] = &[
         want: &["xx_h_hangwall_strafe_left_050cm", "rebound off the wall at [49.", "via xx_h_rebound_right_", "_tr_freestep_entry_footl at [49.1"],
         never: &["EMBED"],
     },
+    // Audit JUMP-10: the tap jump at the bureau's wall from 1.5 m off. AC1's scorer picks the hold 2.4 m up as a wall-hang
+    // target (0x40): the running game flew `_to_surface` into `xx_h_air_surface_tr_hangwall_reception_front_straight_min`,
+    // hanging at x 49.17, 5.36 m up (route wall1_tapjump). Ours ran up the wall and rebounded off it.
+    Scenario {
+        name: "Damascus: the tap jump at the bureau's wall flies at AC1's wall-hang target (the scorer's pick) into the wall hang",
+        tags: &["jump", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "47.6,-20,-90,5.55"),
+            ("AC1_WALK", "2"),
+            ("AC1_STOP", "1.2"),
+            ("AC1_HIGH", "0-4"),
+            ("AC1_LEGS", "0-0.3"),
+        ],
+        secs: 3.0,
+        want: &["running jump at the wall's ledge [49.6", "_to_surface at", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c at [49.0"],
+        never: &["EMBED", "wallingfront"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {

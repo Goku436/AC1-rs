@@ -522,6 +522,11 @@ in this batch, by audit id:
   Banned445's decode) in place of ours' mesh-name beams and single-hold tops; not the default yet (31 of 41 routes
   against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
   beam the running game lands on).
+- **Jump targets** (JUMP-10): in a city the scorer's pick decides the jump: a top, a beam or post, a far edge, a hold to
+  hang from (0x40 the wall hang, flown with the surface set into `xx_h_air_surface_tr_hangwall_reception_*` even with
+  holds under it; 0x80 the free hang), a pass-over or a pole, aimed at the grab point on its chain. Ours' own hold search
+  (`jump_hold`, 1.3-2.6 m up, the nearest) is left for the test level, which has no authored holds; the edge jump goes
+  for any pick, a free hang below too.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

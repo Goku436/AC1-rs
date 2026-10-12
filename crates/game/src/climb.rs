@@ -1585,7 +1585,7 @@ fn jump_hold_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
     // root much lower. Aimed as for a wall hang there, the hands came by a metre over the hold and he flew on.)
     jump_hold(level, from, dir).map(|(q, out)| {
         let wall = level.raycast(q - Vec3::Y * 1.0 + out * 0.5, -out, 0.5 + RECESS_MAX).is_some_and(|h| h.normal.dot(out) > 0.7);
-        if wall { q + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG } else { q + out * 0.1 - Vec3::Y * JUMP_HOLD_FREE_HANG }
+        jump_hang_root(q, out, !wall)
     })
 }
 
@@ -1661,28 +1661,37 @@ fn passover_target(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3, 
     let dir = dir.with_y(0.0).normalize_or_zero();
     let hit = [0.4, 0.9].iter().find_map(|h| level.raycast(from + Vec3::Y * *h, dir, *JUMP_HOLD_REACH.end()).filter(|h| h.normal.y.abs() < 0.3))?;
     let normal = hit.normal.with_y(0.0).normalize_or_zero();
-    if normal.dot(dir) > -JUMP_TARGET_CONE || hit.dist < *JUMP_HOLD_REACH.start() {
+    if normal.dot(dir) > -JUMP_TARGET_CONE {
+        return None;
+    }
+    passover_at(level, from, hit.point, normal)
+}
+
+/// `passover_target` at a wall whose face (facing `normal`) passes through `hit_point` (any height): the point on its
+/// top's near edge, the normal and the top's depth, when it can be gone over from `from`.
+fn passover_at(level: &Level, from: Vec3, hit_point: Vec3, normal: Vec3) -> Option<(Vec3, Vec3, f32)> {
+    if (hit_point - from).with_y(0.0).length() < *JUMP_HOLD_REACH.start() {
         return None;
     }
     let fwd = -normal;
-    let top = level.ground(hit.point.with_y(from.y + PASSOVER_RISE.end() + 0.3) + fwd * 0.05, 0.0, PASSOVER_RISE.end() + 0.3)?;
+    let top = level.ground(hit_point.with_y(from.y + PASSOVER_RISE.end() + 0.3) + fwd * 0.05, 0.0, PASSOVER_RISE.end() + 0.3)?;
     if !PASSOVER_RISE.contains(&(top.point.y - from.y)) || top.normal.y < 0.8 {
         return None;
     }
     // (How deep the top runs before it drops away, at least half a metre, on the far side.)
-    let on_top = |d: f32| level.ground(hit.point.with_y(top.point.y + 0.2) + fwd * d, 0.0, 0.4).is_some_and(|g| (g.point.y - top.point.y).abs() < 0.1);
+    let on_top = |d: f32| level.ground(hit_point.with_y(top.point.y + 0.2) + fwd * d, 0.0, 0.4).is_some_and(|g| (g.point.y - top.point.y).abs() < 0.1);
     let depth = (1..=(PASSOVER_DEPTH / 0.05) as usize + 1).map(|k| k as f32 * 0.05).find(|&d| !on_top(d))?;
-    if depth > PASSOVER_DEPTH || level.ground(hit.point.with_y(top.point.y) + fwd * (depth + 0.3), 0.0, 10.0).is_some_and(|g| top.point.y - g.point.y < 0.5) {
+    if depth > PASSOVER_DEPTH || level.ground(hit_point.with_y(top.point.y) + fwd * (depth + 0.3), 0.0, 10.0).is_some_and(|g| top.point.y - g.point.y < 0.5) {
         return None;
     }
     // (Room over the top for the body going over, open above it: probed from inside a tall wall, an inner face read
     // as a top.)
-    if level.raycast(hit.point.with_y(top.point.y + 0.4) + normal * 0.3, fwd, depth + 1.0).is_some()
+    if level.raycast(hit_point.with_y(top.point.y + 0.4) + normal * 0.3, fwd, depth + 1.0).is_some()
         || level.raycast(top.point + Vec3::Y * 0.05, Vec3::Y, PASSOVER_RISE.end() + 0.3).is_some()
     {
         return None;
     }
-    Some((hit.point.with_y(top.point.y), normal, depth))
+    Some((hit_point.with_y(top.point.y), normal, depth))
 }
 
 /// A swing bar a jump along `dir` from `from` would reach: lying across the way, `BAR_JUMP_REACH` ahead and up to
@@ -1725,10 +1734,38 @@ thread_local! {
     static EDGE_QUERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// AC1's pick for a jump (`crate::jump_query`'s scorer), as ours flies it (audit JUMP-10: the scorer's choice fixes the
+/// jump type and the point, Banned445's `targets.rs` `to_target`).
+#[derive(Clone, Copy, Debug)]
+enum Ac1Jump {
+    /// Onto a top, a post, a beam or a top's far end (types 1, 0x10000): the landing spot.
+    Land(Vec3),
+    /// To hang from a hold (0x40 the wall hang, 0x80 the free hang): the grab point on it and its outward normal.
+    Hang { hold: Vec3, out: Vec3, free: bool },
+    /// Over a thin wall (type 2): the point on its near edge and its outward normal.
+    Pass { edge: Vec3, out: Vec3 },
+    /// A swing bar (0x80 on a pole).
+    Pole,
+}
+
+impl Ac1Jump {
+    fn landing(self) -> Option<Vec3> {
+        match self {
+            Ac1Jump::Land(p) => Some(p),
+            _ => None,
+        }
+    }
+}
+
 /// AC1's own target choice (`crate::jump_query`: its candidate query and scorer): from the ground, or from the perch
 /// `skip` (a beam or post: the narrow-object zones). The landing spot for a jump onto a top, a beam or post, or a top's
-/// far end; None when nothing is in reach or the jump AC1 picks is to hang, go over, or swing (left to the catches).
+/// far end; None when nothing is in reach or the jump AC1 picks is to hang, go over, or swing (see `ac1_jump_choice`).
 fn ac1_jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Option<Vec3> {
+    ac1_jump_choice(level, from, dir, skip).and_then(Ac1Jump::landing)
+}
+
+/// The jump AC1's scorer picks from `from` along `dir` (see `ac1_jump_target`), with the point it goes for.
+fn ac1_jump_choice(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Option<Ac1Jump> {
     use crate::jump_query::{From, Kind, query, select};
     let edge = EDGE_QUERY.with(|e| e.get());
     let mode = if skip.is_some() {
@@ -1758,9 +1795,24 @@ fn ac1_jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) ->
             onto(edge - c.wall * JUMP_FAR_END_SHORT).or(Some(c.pos))
         }
         (Kind::Edge, 1) => [ROOF_EDGE_INSET, 0.15, 0.3].iter().find_map(|d| onto(c.pos - c.wall * *d)),
+        (Kind::Edge, 2) => return Some(Ac1Jump::Pass { edge: c.pos, out: c.wall }),
+        (Kind::Edge, 0x40 | 0x80) => return Some(Ac1Jump::Hang { hold: c.pos, out: c.wall, free: ty == 0x80 }),
+        (Kind::Pole, _) => return Some(Ac1Jump::Pole),
         _ => None,
     };
-    spot.filter(|p| open(*p))
+    spot.filter(|p| open(*p)).map(Ac1Jump::Land)
+}
+
+/// The root of the hang from `hold` (facing out along `out`) that a jump at it ends in: AC1's wall hang under a hold with
+/// a wall below for the feet, else its free hang, the root much lower (`hang_root`, 0xDD6730).
+fn jump_hang_root(hold: Vec3, out: Vec3, free: bool) -> Vec3 {
+    if free { hold + out * 0.1 - Vec3::Y * JUMP_HOLD_FREE_HANG } else { hold + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG }
+}
+
+/// Whether AC1's own jump query decides this level's jumps (it has authored holds; the test level's boxes have none) and
+/// the old targets are not asked for.
+fn ac1_targets(level: &Level) -> bool {
+    !level.authored.is_empty() && std::env::var("AC1_OLD_TARGETS").is_err()
 }
 
 /// Inside AC1's reach zone 1 (`JumpZones` 0x1A2BF40, the jump's own zone, read live by Banned445): a side view, `dist` on
@@ -2275,7 +2327,18 @@ impl WallClimb {
     ) -> Option<WallClimb> {
         let speed = dir.with_y(0.0).length();
         let p = root.translation;
-        let top = jump_target(level, p, dir, None);
+        // (AC1's scorer picks the jump and its point, a hang or a pass-over as much as a top (audit JUMP-10); the geometry's
+        // own hold search only on a level without authored holds.)
+        let ac1 = ac1_targets(level);
+        let choice = if ac1 { ac1_jump_choice(level, p, dir, None) } else { None };
+        let hang = match choice {
+            Some(Ac1Jump::Hang { hold, out, free }) => Some((hold, out, free)),
+            _ => None,
+        };
+        if matches!(choice, Some(Ac1Jump::Pole)) {
+            return Self::jump(lib, level, root, dir, left, from);
+        }
+        let top = if ac1 { choice.and_then(Ac1Jump::landing) } else { jump_target(level, p, dir, None) };
         // (A swing bar ahead as near and no lower than the top: AC1's scorer takes the hang target first (0xE96BF0, a pole
         // over a front ledge when nearer and not below it); the plain jump flies onto the bar.)
         if let (Some(t), Some(b)) = (top, bar_ahead(level, p, dir))
@@ -2285,16 +2348,28 @@ impl WallClimb {
             return Self::jump(lib, level, root, dir, left, from);
         }
         let at_hold = top.is_none();
-        // A thin wall ahead, too high to land on: over it, a hand on its top (AC1's passover).
-        if top.is_none()
+        // A thin wall ahead, too high to land on: over it, a hand on its top (AC1's passover; the scorer's type 2 at its
+        // edge, else ours' own search when it picked nothing).
+        let pass = match choice {
+            Some(Ac1Jump::Pass { edge, out }) => Some(Some((edge, out))),
+            None if top.is_none() => Some(None),
+            _ => None,
+        };
+        if let Some(at) = pass
             // (Off the other foot when this one's passover can't be made: the game has no right foot's
             // `xx_h_air_up_300cm_footr_to_passover`.)
-            && let Some(w) = Self::jump_passover(lib, level, root, rig, base, cr, dir, left, from.clone())
-                .or_else(|| Self::jump_passover(lib, level, root, rig, base, cr, dir, !left, from.clone()))
+            && let Some(w) = Self::jump_passover(lib, level, root, rig, base, cr, dir, at, left, from.clone())
+                .or_else(|| Self::jump_passover(lib, level, root, rig, base, cr, dir, at, !left, from.clone()))
         {
             return Some(w);
         }
-        let Some(mut to) = top.or_else(|| jump_hold_target(level, p, dir)).or_else(|| ladder_target(level, p, dir)) else {
+        let hold = if ac1 { hang.map(|(q, out, _)| (q, out)) } else { jump_hold(level, p, dir) };
+        let hang_root = match hang {
+            Some((q, out, free)) => Some(jump_hang_root(q, out, free)),
+            None if !ac1 => jump_hold_target(level, p, dir),
+            None => None,
+        };
+        let Some(mut to) = top.or(hang_root).or_else(|| ladder_target(level, p, dir)) else {
             return Self::jump(lib, level, root, dir, left, from);
         };
         // (Arriving within reach of a beam, onto the beam: AC1's free-step arrival test (0xE0B890, as Banned445's port reads
@@ -2311,7 +2386,12 @@ impl WallClimb {
         }
         // At a lone ledge with the wall under it (no holds for the feet): AC1's flight onto the surface and its reception
         // on the wall, into the wall hang.
-        if at_hold && let Some(w) = Self::jump_hangwall(lib, level, root, rig, base, cr, dir, left, from.clone()) {
+        if at_hold
+            && let Some(hold) = hold
+            // (AC1's wall-hang target (0x40) flies the surface flight into the wall hang wherever it is, holds under it
+            // or not: at the Damascus bureau's climbable wall the running game's tap jump did.)
+            && let Some(w) = Self::jump_hangwall(lib, level, root, rig, base, cr, dir, hold, hang.is_some_and(|h| !h.2), left, from.clone())
+        {
             return Some(w);
         }
         // (At a hold: the planned arc, to catch it, with AC1's takeoff and flight for that height and distance.)
@@ -2391,11 +2471,15 @@ impl WallClimb {
         base: &Pose,
         cr: ClimbRig,
         dir: Vec3,
+        at: Option<(Vec3, Vec3)>,
         left: bool,
         from: Option<Pose>,
     ) -> Option<WallClimb> {
         let p = root.translation;
-        let (edge, normal, depth) = passover_target(level, p, dir)?;
+        let (edge, normal, depth) = match at {
+            Some((edge, out)) => passover_at(level, p, edge, out)?,
+            None => passover_target(level, p, dir)?,
+        };
         let fwd = -normal;
         let hand = if left { "handr" } else { "handl" };
         let cm = if depth < PASSOVER_THIN { "030" } else { "100" };
@@ -2477,10 +2561,11 @@ impl WallClimb {
         Some(w)
     }
 
-    /// A running jump at a lone ledge (`jump_hold`) with the wall under it for the feet and no holds there: AC1's takeoff,
+    /// A running jump at a lone ledge `(hold, out)` with the wall under it for the feet and no holds there: AC1's takeoff,
     /// its flight onto a surface and its reception on the wall (`crate::jump::surface`), into the wall hang, the hands
-    /// steered onto the hold over the flight. `None` when the hold has holds under it (caught into the climb instead), no
-    /// wall for the feet, the clips are missing or land too far off, or the way is not clear.
+    /// steered onto the hold over the flight. `None` when the hold has holds under it (caught into the climb instead; not
+    /// for AC1's own wall-hang target, `wall_hang`), no wall for the feet, the clips are missing or land too far off, or
+    /// the way is not clear.
     #[allow(clippy::too_many_arguments)]
     fn jump_hangwall(
         lib: &mut AnimLib,
@@ -2490,13 +2575,14 @@ impl WallClimb {
         base: &Pose,
         cr: ClimbRig,
         dir: Vec3,
+        (hold, out): (Vec3, Vec3),
+        wall_hang: bool,
         left: bool,
         from: Option<Pose>,
     ) -> Option<WallClimb> {
         let p = root.translation;
         let speed = dir.with_y(0.0).length();
-        let (hold, out) = jump_hold(level, p, dir)?;
-        if footholds(level, hold, out) {
+        if !wall_hang && footholds(level, hold, out) {
             return None;
         }
         // (Wall under it for the feet.)
@@ -3255,7 +3341,9 @@ impl WallClimb {
             return None;
         }
         EDGE_QUERY.with(|e| e.set(true));
-        let w = ac1_jump_target(level, root.translation, dir.with_y(0.0).normalize_or_zero(), None)
+        // (Whatever the scorer picks off the edge: a top, or a free hang below it (the edge zone's 0x80, as Banned445's
+        // port turns it into a hang target), audit JUMP-10.)
+        let w = ac1_jump_choice(level, root.translation, dir.with_y(0.0).normalize_or_zero(), None)
             .is_some()
             .then(|| Self::jump_aimed(lib, level, root, rig, base, cr, dir, left, from))
             .flatten();
@@ -3481,9 +3569,11 @@ impl WallClimb {
     /// Whether a running jump along `dir` has a target (a top, post, beam, bar or hold): AC1 searches the leap of faith
     /// only when its guidance query found none (the interpreter's jump branch 0xEE817E, audit HAY-10).
     pub fn has_jump_target(level: &Level, p: Vec3, dir: Vec3) -> bool {
-        jump_target(level, p, dir, None).is_some()
+        let ac1 = ac1_targets(level);
+        (ac1 && ac1_jump_choice(level, p, dir, None).is_some())
+            || jump_target(level, p, dir, None).is_some()
             || bar_ahead(level, p, dir).is_some()
-            || jump_hold_target(level, p, dir).is_some()
+            || (!ac1 && jump_hold_target(level, p, dir).is_some())
             || ladder_target(level, p, dir).is_some()
     }
 
