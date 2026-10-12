@@ -8,6 +8,10 @@
 //!   contact table and the sound bank play for each.
 //! - `bao tree <game dir> <event id>...`: an event's graph (switches and their cases, multis, plays, random
 //!   containers, sounds).
+//!
+//! - `bao ambience <game dir> <City>`: the city's ambience regions, their sets and the loops they play.
+//!
+//! `wav`, `clip` and `tree` load `DataPC.forge`'s player sounds; `BAO_EXTRA="<forge file>:<data file>,..."` adds more.
 use anyhow::{Context, Result, bail};
 use forge::sound::{self, Bank, Codec, Kind};
 use std::collections::BTreeMap;
@@ -142,6 +146,13 @@ fn load_bank(dir: &Path) -> Result<(Bank, Option<sound::ContactTable>)> {
             table = Some(sound::parse_contact_table(o.body)?);
         }
     }
+    // `BAO_EXTRA="<forge file>:<data file>,..."`: more data files' sounds (a city's world file).
+    for spec in std::env::var("BAO_EXTRA").unwrap_or_default().split(',').filter(|s| !s.is_empty()) {
+        let (forge_file, data_file) = spec.split_once(':').context("BAO_EXTRA: <forge file>:<data file>")?;
+        let f = forge::Forge::open(dir.join(forge_file))?;
+        let e = f.entries.iter().find(|e| e.name == data_file).with_context(|| format!("no data file {data_file}"))?;
+        bank.add_data_file(&f.read(e)?)?;
+    }
     Ok((bank, table))
 }
 
@@ -267,8 +278,50 @@ fn tree(bank: &Bank, id: u32, depth: usize) {
                 tree(bank, u(o, 0x84 + 16 * j), depth + 1);
             }
         }
-        (k, t) => println!("{pad}{id:08x} kind {k} type {t}"),
+        (k, t) => {
+            println!("{pad}{id:08x} kind {k} type {t}");
+            // `BAO_HEX=1`: the bytes of what is not read.
+            if std::env::var("BAO_HEX").is_ok() {
+                for (i, c) in o[..o.len().min(0x200)].chunks(16).enumerate() {
+                    println!("{pad}  {:04x}: {}", i * 16, c.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" "));
+                }
+            }
+        }
     }
+}
+
+/// A city's ambience regions, their sets and the loops they play.
+fn ambience(dir: &Path, city: &str) -> Result<()> {
+    let (mut bank, _) = load_bank(dir)?;
+    let f = forge::Forge::open(dir.join(format!("DataPC_{city}.forge")))?;
+    let amb = sound::load_ambience(&f, city, &mut bank)?;
+    println!(
+        "{} regions over {} cells, {} sets",
+        amb.regions.len(),
+        amb.regions.iter().map(|r| r.0).collect::<std::collections::HashSet<_>>().len(),
+        amb.sets.len()
+    );
+    let mut used: Vec<u32> = amb.regions.iter().map(|r| r.1).collect();
+    used.sort();
+    used.dedup();
+    for set in used {
+        let Some((name, events)) = amb.sets.get(&set) else {
+            println!("set {set:08x}: not found");
+            continue;
+        };
+        let cells = amb.regions.iter().filter(|r| r.1 == set).count();
+        let mut by_level = [0usize; 16];
+        for r in amb.regions.iter().filter(|r| r.1 == set) {
+            if let Some((l, ..)) = amb.layout.cell(r.0, amb.levels) {
+                by_level[l as usize] += 1;
+            }
+        }
+        println!("    cells by level {:?}", &by_level[..amb.levels as usize]);
+        let loops: Vec<String> =
+            events.iter().filter_map(|&e| bank.stream_loop(e)).map(|l| format!("{:08x} {} Hz {:.0} dB", l.stream, l.rate, l.gain_db)).collect();
+        println!("{set:08x} {name} ({cells} cells): {} sounds, loops {}", events.len(), loops.join(", "));
+    }
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -278,6 +331,7 @@ fn main() -> Result<()> {
         Some("list") if a.len() == 4 => list(Path::new(&a[2]), &a[3]),
         Some("wav") if a.len() >= 4 => wav(Path::new(&a[2]), &a[3..]),
         Some("clip") if a.len() == 4 => clip(Path::new(&a[2]), &a[3]),
+        Some("ambience") if a.len() == 4 => ambience(Path::new(&a[2]), &a[3]),
         Some("tree") if a.len() >= 4 => {
             let (bank, _) = load_bank(Path::new(&a[2]))?;
             for id in &a[3..] {
@@ -286,7 +340,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         _ => bail!(
-            "usage: bao scan <game dir> | list <forge file> <data file> | wav <game dir> <bao id>... | clip <game dir> <clip name> | tree <game dir> <event id>..."
+            "usage: bao scan <game dir> | list <forge file> <data file> | wav <game dir> <bao id>... | clip <game dir> <clip name> | tree <game dir> <event id>... | ambience <game dir> <City>"
         ),
     }
 }

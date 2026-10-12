@@ -31,7 +31,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
 | Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
-| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; IMA-ADPCM decodes for 206069/206076 resources and 2229/2243 streams (the rest: Ogg-page tracks, stereo tracks); 18698 Ogg resources and 110 Ogg streams found (played as Ogg); 4178 streams are the headerless rest of a resource (speech), not decoded. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks) with Bevy's audio; M mutes |
+| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; IMA-ADPCM decodes for 206069/206076 resources and 2229/2243 streams (the rest: Ogg-page tracks, stereo tracks); 18698 Ogg resources and 110 Ogg streams found (played as Ogg); 4178 streams are the headerless rest of a resource (speech), not decoded. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks) on the surface's sound material (cities: from `CollisionMaterial`), and the city's ambience loops (Damascus: 116 region links, 36 sets, 11 streamed loops); M mutes |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); sun 11000 lux with three shadow cascades in 120 m (the first 12 m) and a linear haze from 220 m to 1.1 km (as Banned445's repo; AC1's `WorldAmbiance`/`LayeredSky` not decoded); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
 | Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); combat removed for now; scholar crowds to blend into | first version |
 | Player controller, free-running, combat, AI, crowds, missions | long-term |
@@ -588,6 +588,18 @@ AC1-Movement-Rewritten (MIT), which first played AC1's sounds.
   material; switches 1 and 3 (cases 0-4 and 0-1 in the footsteps; what sets them in AC1 is not known) play their
   default. Each resource is decoded once and played at the listener with the event's gain and pitch. M mutes,
   `AC1_MUTE=1` starts muted, `AC1_VOLUME=dB`; headless runs have no audio plugin (no device needed).
+- Surfaces: a `MeshShape`'s triangles name `CollisionMaterial`s, whose body +0 is the sound material (0-24: Stone_Clean
+  4, Marble 6, Wood_Plank 9, Grass_Short 14, Water_Shallow 19, Metal_Grill 24; `Default` 4001, none). Cities keep it per
+  triangle (`Level::tri_sound`); the footsteps' switch 0 is the material under the player (`Level::sound_material_at`).
+- Not in AC1's clip data: the free jump's take-off (`xx_h_impultionstraight_*_to_jumpstraight_clear_*`,
+  `xx_h_jumpstraight_clear_*` have no keys); it plays the contact table's `ft_jump_start` (picked here).
+- Ambience (`bao ambience <game dir> <City>`): a few grid cells' data files hold an `AssassinAmbienceRegionCellData`
+  (linked from the cell's own record, class ac2bbf68), naming a `SoundAmbienceSet` (`A_Wind_Damas_City`,
+  `A_City_Poor_Area`, ...) whose first sound is the loop: a sound of type 6, a streamed file of four mono IMA tracks
+  (`_LP_4.0`: quad, folded to stereo front over back, not checked), the rest one-off sounds (not played: their timing is
+  not known). The region's area is not read (only the cells linking it, a big region's a coarse one), so the game plays
+  the wind set and the other sets linked from the finest cells over the player, fading over 2 s; the crowd murmur
+  (`walla`) sets are left out. Not checked against the running game.
 
 ## Navigation meshes
 `NavMeshManager_<cell>` (format in `crates/forge/src/navmesh.rs`): pieces, each a walkable polygon with world-space

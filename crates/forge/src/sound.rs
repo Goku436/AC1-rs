@@ -19,8 +19,16 @@
 //!   multi (+0x10 count, event ids at +0x68, all play). Others (2, 3, 4, 6, 10: stops, volumes) start nothing.
 //! - 2 sound: +8 type, +0x18 gain in dB (16.16). 1 = one resource (+0x20 resource id, +0x48 channels, +0x4C rate,
 //!   +0x50 bytes a second, +0x54 frames, +0x58 resource bytes); 4 = random container (+0x20 count, entries at +0x84,
-//!   16 bytes: sound id, weight 16.16, repeat allowed, ?). A resource id 0x5... is a streamed file; its first part is
-//!   then the resource 0x3... with the same low bits. Types 2, 5, 6, 8 not read.
+//!   16 bytes: sound id, weight 16.16, repeat allowed, ?); 6 = a streamed file of interleaved tracks, the ambience
+//!   loops (+0x24 track count, +0x50 the stream's id, per track 0x30 bytes from +0x84: u32 rate, ...). A resource id
+//!   0x5... is a streamed file; its first part is then the resource 0x3... with the same low bits. Types 2, 5, 8 not
+//!   read.
+//!
+//! A city's ambience: some grid cells' data files (`Cell<k>_DataBlock`) hold the `AssassinAmbienceRegionCellData` of a
+//! region (its cell's own record, class ac2bbf68, links it; +8 the region's `SoundAmbienceSet`, then u8 ?, three more
+//! sets: the crowd murmur by density),
+//! and the sets hold sound references (u32 class bb8e3eec, u32 event BAO id, u32 `SoundBao` object id): the loop and
+//! the one-off sounds (gusts, birds) played now and then.
 //! - 3 resource and 5 stream: +0 u32 ?, then the data, told apart by its first bytes (`codec`): an IMA-ADPCM header
 //!   (`decode_ima`), an Ogg Vorbis file, a header of interleaved IMA tracks (`decode_tracks`), or none: the rest of a
 //!   stream whose start is the resource 0x3... with the same low bits (not decoded).
@@ -521,6 +529,160 @@ impl Bank {
         let (ch, pcm) = decode_ima(self.object(v.resource)?, Some(v.frames as usize)).ok()?;
         (ch == v.channels).then_some(pcm)
     }
+
+    /// The streamed loop a play event starts (a sound of type 6, an ambience's): the stream's id, its tracks' rate and
+    /// the gains on the way (dB). `None` for any other event.
+    pub fn stream_loop(&self, event: u32) -> Option<StreamLoop> {
+        let e = self.object(event).filter(|_| event >> 28 == 1)?;
+        if u32_at(e, 8)? != 1 {
+            return None;
+        }
+        let id = u32_at(e, 0xc)?;
+        let o = self.object(id).filter(|_| id >> 28 == 2)?;
+        if u32_at(o, 8)? != 6 {
+            return None;
+        }
+        let stream = u32_at(o, 0x50).filter(|s| s >> 28 == 5)?;
+        let rate = u32_at(o, 0x84).filter(|r| (4000..=96000).contains(r))?;
+        Some(StreamLoop { stream, rate, gain_db: fixed(u32_at(o, 0x18)?) })
+    }
+}
+
+/// See `Bank::stream_loop`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StreamLoop {
+    pub stream: u32,
+    pub rate: u32,
+    pub gain_db: f32,
+}
+
+/// CRC32("SoundAmbienceSet").
+pub const CLASS_SOUND_AMBIENCE_SET: u32 = 0x3cfd0bbb;
+/// CRC32("AssassinAmbienceRegionCellData").
+pub const CLASS_AMBIENCE_REGION: u32 = 0xf02fbd93;
+/// The class of a sound reference inside other objects (name not found).
+const CLASS_SOUND_REF: u32 = 0xbb8e3eec;
+
+/// The sound references in an object body: (event BAO id, `SoundBao` object id), in order.
+pub fn sound_refs(body: &[u8]) -> Vec<(u32, u32)> {
+    (0..body.len().saturating_sub(11))
+        .filter(|&k| u32_at(body, k) == Some(CLASS_SOUND_REF))
+        .filter_map(|k| Some((u32_at(body, k + 4)?, u32_at(body, k + 8)?)))
+        .filter(|(bao, _)| bao >> 28 == 1)
+        .collect()
+}
+
+/// An `AssassinAmbienceRegionCellData` body's `SoundAmbienceSet` (its object id).
+pub fn ambience_region_set(body: &[u8]) -> Option<u32> {
+    u32_at(body, 8)
+}
+
+/// A city's ambience regions (see the module header).
+#[derive(Clone, Debug)]
+pub struct Ambience {
+    pub layout: crate::world::GridLayout,
+    pub levels: u32,
+    /// (grid cell over all levels, the region's `SoundAmbienceSet` object id).
+    pub regions: Vec<(usize, u32)>,
+    /// `SoundAmbienceSet` object id -> (name, the event BAO ids of its sound references).
+    pub sets: HashMap<u32, (String, Vec<u32>)>,
+}
+
+impl Ambience {
+    /// The regions whose cell holds game-space point (x, y): (set, the cell's grid level), each set once at its finest.
+    /// (A region is linked from the cells its entity is in, a big one from a coarse cell: the cell is not its area,
+    /// which is not read.)
+    pub fn sets_at(&self, x: f32, y: f32) -> Vec<(u32, u32)> {
+        let mut out: Vec<(u32, u32)> = vec![];
+        for &(cell, set) in &self.regions {
+            let Some((l, c, r)) = self.layout.cell(cell, self.levels) else { continue };
+            let (min, max) = self.layout.rect(l, c, r);
+            if !((min[0]..max[0]).contains(&x) && (min[1]..max[1]).contains(&y)) {
+                continue;
+            }
+            match out.iter_mut().find(|o| o.0 == set) {
+                Some(o) => o.1 = o.1.min(l),
+                None => out.push((set, l)),
+            }
+        }
+        out
+    }
+}
+
+/// A city's ambience from its forge: the grid from its world file (`world_file`, the city's name), the regions and
+/// sets from every `Cell<k>_DataBlock`; the `SoundBao`s of the cells holding either go into `bank`. Reads (and
+/// decompresses) every cell: seconds, for a thread.
+pub fn load_ambience(forge: &crate::Forge, world_file: &str, bank: &mut Bank) -> Result<Ambience> {
+    let e = forge.entries.iter().find(|e| e.name.eq_ignore_ascii_case(world_file)).with_context(|| format!("no world file {world_file}"))?;
+    let data = forge.read(e)?;
+    let objs = crate::parse_objects(&data)?;
+    let world = objs.iter().find(|o| o.class == crate::world::CLASS_WORLD).context("no World")?;
+    let layout = crate::world::grid_layout(world.body)?;
+    let part = objs.iter().find(|o| o.class == crate::world::CLASS_GRID_PARTITION).context("no GridPartition")?;
+    let levels = crate::world::grid_levels(part.body, &layout)?;
+    let mut regions = vec![];
+    let mut sets = HashMap::new();
+    for e in &forge.entries {
+        let Some(cell) = e.name.strip_prefix("Cell").and_then(|n| n.strip_suffix("_DataBlock")).and_then(|n| n.parse::<usize>().ok()) else { continue };
+        let Ok(data) = forge.read(e) else { continue };
+        let Ok(objs) = crate::parse_objects(&data) else { continue };
+        let mut keep = false;
+        for o in &objs {
+            match o.class {
+                CLASS_AMBIENCE_REGION => {
+                    if let Some(set) = ambience_region_set(o.body) {
+                        regions.push((cell, set));
+                    }
+                    keep = true;
+                }
+                CLASS_SOUND_AMBIENCE_SET => {
+                    sets.entry(o.id).or_insert_with(|| (o.name.clone(), sound_refs(o.body).into_iter().map(|r| r.0).collect()));
+                    keep = true;
+                }
+                _ => {}
+            }
+        }
+        if keep {
+            for o in objs.iter().filter(|o| o.class == CLASS_SOUND_BAO) {
+                let _ = bank.add(o.id, o.body);
+            }
+        }
+    }
+    Ok(Ambience { layout, levels, regions, sets })
+}
+
+/// The name of the streamed data file holding stream `id` (in `DataPC_StreamedSounds.forge`).
+pub fn stream_file_name(id: u32) -> String {
+    format!("Common_BAO_{id:#010x}")
+}
+
+/// Interleaved tracks as stereo: a lone track to both sides, two as left and right, four (the ambience's: front left,
+/// front right, back left, back right, as quad sound is usually laid out; not checked) folded front over back.
+pub fn tracks_to_stereo(tracks: u16, samples: &[i16]) -> Vec<i16> {
+    let t = tracks.max(1) as usize;
+    samples
+        .chunks_exact(t)
+        .flat_map(|f| match t {
+            1 => [f[0], f[0]],
+            2 | 3 => [f[0], f[1]],
+            _ => {
+                let mix = |a: i16, b: i16| ((a as i32 + b as i32) / 2) as i16;
+                [mix(f[0], f[2]), mix(f[1], f[3])]
+            }
+        })
+        .collect()
+}
+
+/// CRC32("CollisionMaterial"): a collision surface's kind (`shape::MeshShape::materials` name them per triangle).
+pub const CLASS_COLLISION_MATERIAL: u32 = 0x74f7311d;
+/// The footstep switches' cases (the events' switch 0) run 0 ..= 24.
+pub const SOUND_MATERIALS: u32 = 25;
+
+/// A `CollisionMaterial` body's sound material (+0 u32: `Stone_Clean` 4, `Stone_Dirt` 5, `Marble` 6, `Wood_Plank` 9,
+/// `Grass_Short` 14, `Water_Shallow` 19, `Metal_Grill` 24; `Default` holds 4001, no material): the value of the
+/// footstep events' switch 0. `None` past the switches' cases.
+pub fn collision_sound_material(body: &[u8]) -> Option<u32> {
+    u32_at(body, 0).filter(|&m| m < SOUND_MATERIALS)
 }
 
 /// A character's contact table (`ContactTable_AlTair`): per surface material, the event each `ContactEventTypeHuman`
@@ -612,6 +774,28 @@ mod tests {
         assert_eq!(crc32fast::hash(b"ContactTable"), CLASS_CONTACT_TABLE);
         assert_eq!(crc32fast::hash(b"ContactSound"), CLASS_CONTACT_SOUND);
         assert_eq!(crc32fast::hash(b"AudioEvent"), CLASS_AUDIO_EVENT);
+    }
+
+    #[test]
+    fn ambience_parts_read() {
+        assert_eq!(crc32fast::hash(b"SoundAmbienceSet"), CLASS_SOUND_AMBIENCE_SET);
+        assert_eq!(crc32fast::hash(b"AssassinAmbienceRegionCellData"), CLASS_AMBIENCE_REGION);
+        let mut b = vec![1, 2, 3];
+        for v in [CLASS_SOUND_REF, 0x1055_0013, 0x0bc6_6999, CLASS_SOUND_REF, 0x2000_0001, 7] {
+            b.extend(v.to_le_bytes());
+        }
+        assert_eq!(sound_refs(&b), vec![(0x1055_0013, 0x0bc6_6999)], "event references only");
+        assert_eq!(tracks_to_stereo(4, &[2, 4, 6, 8, 1, 1, 1, 1]), vec![4, 6, 1, 1]);
+        assert_eq!(tracks_to_stereo(1, &[5, 6]), vec![5, 5, 6, 6]);
+        assert_eq!(stream_file_name(0x5118_7015), "Common_BAO_0x51187015");
+    }
+
+    #[test]
+    fn collision_materials_give_their_sound_material() {
+        assert_eq!(crc32fast::hash(b"CollisionMaterial"), CLASS_COLLISION_MATERIAL);
+        assert_eq!(collision_sound_material(&[4, 0, 0, 0, 0]), Some(4));
+        assert_eq!(collision_sound_material(&4001u32.to_le_bytes()), None);
+        assert_eq!(collision_sound_material(&[4, 0]), None);
     }
 
     #[test]
