@@ -612,7 +612,7 @@ fn spawn_world(
     let to_bevy = game_to_bevy();
     // Per mesh: its submeshes (Bevy mesh, material id), triangles and ledges (game space); None if not
     // static.
-    type Parsed = Option<(Vec<(Handle<Mesh>, u32)>, Vec<[Vec3; 3]>, Vec<(Vec3, Vec3, Vec3)>, Vec<(Vec3, Vec3, Vec3)>)>;
+    type Parsed = Option<(Vec<(Handle<Mesh>, u32, usize)>, Vec<[Vec3; 3]>, Vec<(Vec3, Vec3, Vec3)>, Vec<(Vec3, Vec3, Vec3)>)>;
     let mut parsed: HashMap<u32, Parsed> = HashMap::new();
     let mut materials: HashMap<(u32, u32, bool), Handle<StandardMaterial>> = HashMap::new();
     let plain = mats.add(StandardMaterial { base_color: Color::srgb(0.7, 0.66, 0.58), perceptual_roughness: 0.9, ..default() });
@@ -628,6 +628,8 @@ fn spawn_world(
         ..default()
     });
     let (mut placed, mut parts) = (0, 0);
+    // (What the GPU gets: vertices of every drawn part, summed over placements, and the texture bytes.)
+    let (mut drawn_verts, mut texture_bytes) = (0usize, 0usize);
     let mut houses: Vec<Vec3> = vec![];
     // What is placed: the entities, and the entities embedded in entity groups: `[id][entity class]`
     // followed by the entity's world transform and references, up to the next one.
@@ -962,11 +964,11 @@ fn spawn_world(
                     let mut bm = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
                     bm.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos.to_vec());
                     bm.insert_attribute(Mesh::ATTRIBUTE_NORMAL, pm.normals[range.clone()].to_vec());
-                    bm.insert_attribute(Mesh::ATTRIBUTE_UV_0, pm.uvs[range].to_vec());
+                    bm.insert_attribute(Mesh::ATTRIBUTE_UV_0, pm.uvs[range.clone()].to_vec());
                     bm.insert_indices(Indices::U32(idx));
                     // (Tangents for normal maps.)
                     let _ = bm.generate_tangents();
-                    subs.push((meshes.add(bm), pm.materials.get(si).copied().unwrap_or(0)));
+                    subs.push((meshes.add(bm), pm.materials.get(si).copied().unwrap_or(0), range.len()));
                 }
                 let holds = has_holds(&mesh.name) && solid(&mesh.name);
                 let ledges = if holds { edge_ledges(&faces) } else { vec![] };
@@ -975,7 +977,7 @@ fn spawn_world(
             });
             let Some((subs, tris, ledges, lips)) = p else { continue };
             let cut = cutout(&mesh.name);
-            for (h, mat) in subs.iter() {
+            for (h, mat, verts) in subs.iter() {
                 let mat = overrides.get(mat).copied().unwrap_or(*mat);
                 let tex = diffuse(mat);
                 let nrm = normal_map(mat);
@@ -987,8 +989,13 @@ fn spawn_world(
                     Some(t) => materials
                         .entry(key)
                         .or_insert_with(|| {
-                            let img = forge::decode_texture(t.body).ok().map(|t| images.add(image(t)));
-                            let normal = nrm.and_then(|n| forge::decode_texture(n.body).ok()).map(|n| images.add(image(n)));
+                            let mut add = |t: forge::Texture| {
+                                let img = image(t);
+                                texture_bytes += img.data.as_ref().map_or(0, Vec::len);
+                                images.add(img)
+                            };
+                            let img = forge::decode_texture(t.body).ok().map(&mut add);
+                            let normal = nrm.and_then(|n| forge::decode_texture(n.body).ok()).map(&mut add);
                             mats.add(StandardMaterial {
                                 base_color_texture: img,
                                 normal_map_texture: normal,
@@ -1004,6 +1011,7 @@ fn spawn_world(
                 };
                 commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(material), tf));
                 parts += 1;
+                drawn_verts += verts;
             }
             for &(a, b, out) in ledges.iter() {
                 let out = world.transform_vector3(out).with_y(0.0).normalize_or_zero();
@@ -1085,6 +1093,7 @@ fn spawn_world(
         let top = level.beam_tops.iter().chain(level.perches.iter()).flat_map(|l| [l.a, l.b]).filter(near).max_by(|a, b| a.y.total_cmp(&b.y));
         level.viewpoints.push(top.unwrap_or(v));
     }
+    info!("city {forge_file}: render: {parts} parts of {drawn_verts} vertices drawn, {:.0} MB of textures", texture_bytes as f64 / 1048576.0);
     info!(
         "city {forge_file}: {placed} meshes placed ({grouped} entities from groups, {shared_files} shared data files; {parts} parts, {} unique meshes, {} materials), {} collision triangles ({shape_tris} from {shaped} entities' collision shapes, {prims} of them primitives; {skipped_bounds} out-of-bounds or camera-only shapes left out), {} ledges, {} viewpoints, {:.1}s",
         parsed.values().filter(|p| p.is_some()).count(),

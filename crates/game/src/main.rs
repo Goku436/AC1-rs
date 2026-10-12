@@ -29,7 +29,7 @@
 //! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_HEADLESS=1 (no window, no GPU: the frames run back to back, for the scenarios), AC1_STEP=hz (every frame 1/hz s of game time however long it takes; 60 when headless), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
-//! city from the game data instead of the test level), AC1_FPS=1 (log the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
+//! city from the game data instead of the test level), AC1_FPS=1 (log the time to the first frame, then the frame rate), AC1_FREECAM="x,y,z" (start in the free camera there),
 //! AC1_JUMP=secs[,secs...] (press Space then; with AC1_WALK for a running jump), AC1_HIGH / AC1_LEGS=from-to
 //! (hold high profile / the legs), AC1_HAND=secs[,..] (the empty hand),
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
@@ -207,7 +207,11 @@ fn script_from(get: &dyn Fn(&str) -> Result<String, ()>) -> Script {
     }
 }
 
+/// When the process started (`AC1_FPS=1` logs the time to the first frame from it).
+static LAUNCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
 fn main() {
+    LAUNCH.get_or_init(std::time::Instant::now);
     let game_dir = std::env::var("AC1_GAME_DIR").unwrap_or_else(|_| r"P:\SteamLibrary\steamapps\common\Assassins Creed".into());
     let cam = env_f32s("AC1_CAM").unwrap_or_default();
     let script = script_from(&|k| std::env::var(k).map_err(|_| ()));
@@ -516,10 +520,13 @@ fn pause_statues(keys: Res<ButtonInput<KeyCode>>, mut play: ResMut<character::St
     }
 }
 
-/// `AC1_FPS=1`: log the frame rate every two seconds.
-fn fps_log(time: Res<Time>, mut acc: Local<(f32, u32)>) {
+/// `AC1_FPS=1`: log the time from launch to the first frame, then the frame rate every two seconds.
+fn fps_log(time: Res<Time>, mut acc: Local<(f32, u32)>, mut first: Local<bool>) {
     if std::env::var("AC1_FPS").is_err() {
         return;
+    }
+    if !std::mem::replace(&mut *first, true) {
+        info!("first frame {:.2} s after launch", LAUNCH.get().map_or(0.0, |t| t.elapsed().as_secs_f32()));
     }
     acc.0 += time.delta_secs();
     acc.1 += 1;

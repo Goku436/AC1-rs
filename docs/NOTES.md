@@ -849,6 +849,24 @@ over the top, 1.9 m up on average. The rest stop where the next hold is more tha
 - Holds come from AC1's own climbing markup (see "Authored guidance"); without it (or with `AC1_GEOMETRY_HOLDS`) the
   runtime makes them from building edges (a walkable top meeting a wall below).
 
+## City rendering cost and streaming
+What a city costs to draw, at five fixed cameras (`AC1_FPS=1` logs the time from launch to the first frame and the
+frame rate; the city logs `render: <parts> parts of <n> vertices drawn, <MB> of textures`). Cameras: `dam_player`
+(Damascus, the start, the follow camera), `dam_roof` (`AC1_LOOK=46,60,-23,-200,0,150`: over the roofs toward the
+citadel), `dam_far` (`AC1_LOOK=350,180,350,0,0,0`: the whole city from outside the walls), `mas_player` (Masyaf, the
+start), `mas_over` (`AC1_LOOK=150,120,200,20,50,40`: the village and cliffs from above). Measured on a Ryzen 5 5600X
+with an RTX 4060 (Vulkan) at 1280x720, vsync on (165 Hz display: 165 is the cap), with another game running beside it;
+RAM is the process's private bytes once loaded (peak in brackets), VRAM the process's dedicated GPU memory (Windows'
+GPU Process Memory counter).
+
+| Build | City | First frame (headless) | fps player / roof / far | RAM | VRAM | Drawn (parts, vertices) | Textures |
+|---|---|---|---|---|---|---|---|
+| baseline (everything at full detail, decoded to RGBA8, at most 512 px) | Damascus | 28.0-28.7 s (28.7 s) | 165 / 165 / 137 | 2.2 GB (3.3 GB) | 756-886 MB | 64970, 21.3 M | 219 MB |
+| baseline | Masyaf | 7.0-7.6 s (6.9 s) | 165 / 165 (over) | 1.8 GB (2.0 GB) | 757-762 MB | 8735, 4.36 M | 182 MB |
+
+Most of Damascus' 28 s is gameplay set-up after the city's 10 s load (holds, beams, ladders, hay against the built
+collision); streaming only what is drawn leaves that as it is.
+
 ## Animation notes
 See the header of `crates/forge/src/anim.rs`. In short: per-track blocks
 `u8 type, u32 size, u32 n, n-1 frame keys (u8, u16 if bit 0), n values` at 60 fps. Rotations are
