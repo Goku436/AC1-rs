@@ -32,7 +32,6 @@
 use crate::level::{Ledge, Level, Tri};
 use anyhow::{Context, Result};
 use bevy::asset::RenderAssetUsages;
-use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use forge::Object;
@@ -451,15 +450,8 @@ fn image(mut t: forge::Texture) -> Image {
         t.width = (t.width / 2).max(1);
         t.height = (t.height / 2).max(1);
     }
-    // City UVs run past 0..1 to tile.
-    let mut img = crate::assets::to_image(t);
-    img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-        address_mode_u: ImageAddressMode::Repeat,
-        address_mode_v: ImageAddressMode::Repeat,
-        anisotropy_clamp: 8,
-        ..ImageSamplerDescriptor::linear()
-    });
-    img
+    // (City UVs run past 0..1 to tile: their textures' address modes wrap.)
+    crate::assets::to_image(t)
 }
 
 /// Build the city into `level` (collision) and the world (meshes): see the module docs.
@@ -586,7 +578,7 @@ fn spawn_world(
             .find_map(tex)
             .or_else(|| specs.iter().filter(|s| !s.name.contains("Normal") && !s.name.contains("Specular")).find_map(tex))
     };
-    // Its normal map (tangent space, RGB, DirectX's green), if any.
+    // Its normal map (tangent space, RGB, DirectX's green; linear by its GammaSettings), if any.
     let normal_map = |material: u32| -> Option<&Object> {
         let m = index.get(&material)?;
         let sets: Vec<&Object> = refs(&index, m, CLASS_TEXTURE_SET).into_iter().map(|r| r.1).collect();
@@ -937,11 +929,7 @@ fn spawn_world(
                         .entry(key)
                         .or_insert_with(|| {
                             let img = forge::decode_texture(t.body).ok().map(|t| images.add(image(t)));
-                            let normal = nrm.and_then(|n| forge::decode_texture(n.body).ok()).map(|n| {
-                                let mut i = image(n);
-                                i.texture_descriptor.format = bevy::render::render_resource::TextureFormat::Rgba8Unorm;
-                                images.add(i)
-                            });
+                            let normal = nrm.and_then(|n| forge::decode_texture(n.body).ok()).map(|n| images.add(image(n)));
                             mats.add(StandardMaterial {
                                 base_color_texture: img,
                                 normal_map_texture: normal,
