@@ -730,6 +730,8 @@ fn spawn_world(
     let mut placement_file: Vec<usize> = vec![];
     // Entities placed from a group marked hay or a hiding place (`bhv_of`), by id.
     let mut group_bhv: HashMap<u32, crate::level::CityObject> = HashMap::new();
+    // (The group each grouped entity is placed from, by id: names the source of its guidance, `Level::authored_src`.)
+    let mut group_of: HashMap<u32, &str> = HashMap::new();
     let mut vantage: Vec<Vec3> = vec![];
     let mut placed_ids = std::collections::HashSet::new();
     let mut grouped = 0;
@@ -792,6 +794,7 @@ fn spawn_world(
                     if let Some(kind) = marked_group {
                         group_bhv.insert(u32_at(b, k - 4), kind);
                     }
+                    group_of.insert(u32_at(b, k - 4), o.name.as_str());
                     placements.push((u32_at(b, k - 4), &b[k + 4..end]));
                     placement_file.push(fi);
                     grouped += 1;
@@ -841,6 +844,12 @@ fn spawn_world(
         let refs_of = |class: u32| all_refs.iter().filter(|(_, r)| r.class == class).copied().collect::<Vec<_>>();
         // AC1's authored climbing markup on this entity (`forge::guidance`): its enabled edges, in the world.
         for g in forge::guidance::find_in_entity(body).into_iter().flatten().filter(|g| g.active) {
+            // (Its source, for the grab data's audit: the group or entity, and the entity's first mesh.)
+            let src = {
+                let owner = group_of.get(&ent_id).copied().or_else(|| index.get(&ent_id).map(|o| o.name.as_str())).unwrap_or("-");
+                let mesh = all_refs.iter().find(|(_, r)| r.class == CLASS_MESH).map_or("-", |(_, r)| r.name.as_str());
+                level.authored_source(owner, mesh)
+            };
             for e in g.edges.iter().filter(|e| e.enabled) {
                 let [n0, n1] = e.normals.map(|n| world.transform_vector3(Vec3::from(n)).normalize_or_zero());
                 // (The wall's normal is the one nearer horizontal; the other is the top's.)
@@ -852,6 +861,7 @@ fn spawn_world(
                     out: wall.with_y(0.0).normalize_or_zero(),
                     // (The entity's own +Y, game space: along a market stall's front, its kiosk axis.)
                     axis: world.transform_vector3(Vec3::Y).with_y(0.0).normalize_or_zero(),
+                    src,
                 });
             }
         }

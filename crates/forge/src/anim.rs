@@ -405,6 +405,20 @@ fn nlerp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
     q.map(|x| x / l)
 }
 
+/// AC1's quaternion interpolation (0x4916F0): along the shorter arc, a normalised lerp where the two are within about
+/// 8.4 degrees (dot 0.98936 or more), else a slerp.
+fn qinterp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
+    let dot: f32 = a.iter().zip(&b).map(|(x, y)| x * y).sum();
+    if dot.abs() >= 0.989_355_7 {
+        return nlerp(a, b, t);
+    }
+    let (s, dot) = if dot < 0.0 { (-1.0, -dot) } else { (1.0, dot) };
+    let theta = dot.min(1.0).acos();
+    let sin = theta.sin().max(1e-9);
+    let (ka, kb) = (((1.0 - t) * theta).sin() / sin, (t * theta).sin() / sin * s);
+    std::array::from_fn(|k| a[k] * ka + b[k] * kb)
+}
+
 impl Track {
     pub fn rotation_at(&self, frame: f32) -> Option<[f32; 4]> {
         let Channel::Rotation(v) = &self.channel else { return None };
@@ -421,9 +435,10 @@ impl Track {
 /// A weighted mix of clips, as AC1's action items blend a move's variants (`passover` 030cm and 100cm,
 /// `hangwall_tr_hangknee` straight, 45 degrees in and 30 out). Clips are matched by normalized time: the mix
 /// lasts the weighted duration, and at each of its frames every clip is sampled at the same fraction of
-/// its own length. Rotations blend by weighted normalized sums (signs aligned to the first), translations
-/// by weighted sums; a bone some clips lack takes the others' weights. Keys at every frame. Weights need not
-/// sum to one; non-positive ones are dropped. `None` when no clip has weight.
+/// its own length. The clips are folded in one after another in their order, as AC1's item evaluator does
+/// (`sub_777AE0`: clip i blended into what came before it by w_i / (w_0 + .. + w_i), rotations by `qinterp`;
+/// audit ANIM-13), translations likewise (a weighted mean); a bone some clips lack takes the others' weights. Keys at
+/// every frame. Weights need not sum to one; non-positive ones are dropped. `None` when no clip has weight.
 pub fn mix(clips: &[(&Animation, f32)]) -> Option<Animation> {
     let clips: Vec<(&Animation, f32)> = clips.iter().copied().filter(|(_, w)| *w > 0.0).collect();
     let total: f32 = clips.iter().map(|c| c.1).sum();
@@ -461,16 +476,13 @@ pub fn mix(clips: &[(&Animation, f32)]) -> Option<Animation> {
                     keys.iter()
                         .map(|&k| {
                             let (_, fs) = at(k);
-                            let mut acc = [0.0f32; 4];
-                            let mut first: Option<[f32; 4]> = None;
+                            let (mut acc, mut sum) = ([0.0f32, 0.0, 0.0, 1.0], 0.0f32);
                             for ((t, ..), (w, f)) in have.iter().zip(fs) {
                                 let q = t.rotation_at(f).unwrap_or([0.0, 0.0, 0.0, 1.0]);
-                                let r = *first.get_or_insert(q);
-                                let s = if q.iter().zip(&r).map(|(a, b)| a * b).sum::<f32>() < 0.0 { -w } else { w };
-                                acc.iter_mut().zip(q).for_each(|(a, x)| *a += x * s);
+                                sum += w;
+                                acc = if sum <= w { q } else { qinterp(acc, q, w / sum) };
                             }
-                            let l = acc.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-9);
-                            acc.map(|x| x / l)
+                            acc
                         })
                         .collect(),
                 )
@@ -490,7 +502,7 @@ pub fn mix(clips: &[(&Animation, f32)]) -> Option<Animation> {
                         .collect(),
                 )
             };
-            // Rotation weights normalize themselves; translations were divided by the weights present.
+            // (Folded by the running sum, the weights normalize themselves; translations were divided by the weights present.)
             Track { bone_hash: bone, kind, keys: keys.clone(), channel }
         })
         .collect::<Vec<_>>();
@@ -592,6 +604,22 @@ mod tests {
         let q = m.tracks[1].rotation_at(m.frames()).unwrap();
         assert!((q.iter().map(|x| x * x).sum::<f32>() - 1.0).abs() < 1e-4);
         assert!(mix(&[(&a, 0.0)]).is_none());
+    }
+
+    /// Far-apart variants (AC1's 090 / 180 turns) fold in one after another along the arc, as AC1's evaluator does: the
+    /// mix of a 0 and a 3 rad turn at 0.5 is the 1.5 rad turn (a normalised sum is the same for two clips), and a third
+    /// clip folds in by its share of the running weight (audit ANIM-13).
+    #[test]
+    fn mix_folds_clips_in_order() {
+        let angle = |m: &Animation| {
+            let q = m.tracks[1].rotation_at(m.frames()).unwrap();
+            2.0 * q[2].atan2(q[3])
+        };
+        let (a, b, c) = (clip(1.0, 0.0, 0.0), clip(1.0, 0.0, 3.0), clip(1.0, 0.0, 1.0));
+        assert!((angle(&mix(&[(&a, 0.5), (&b, 0.5)]).unwrap()) - 1.5).abs() < 1e-3);
+        // a, b at 1:1 (1.5 rad), then c folded in at a third: 1.5 + (1.0 - 1.5) / 3.
+        let three = angle(&mix(&[(&a, 1.0), (&b, 1.0), (&c, 1.0)]).unwrap());
+        assert!((three - (1.5 - 0.5 / 3.0)).abs() < 1e-3, "{three}");
     }
 
     /// Contact bits step from key to key; a mix takes its heaviest clip's, stretched to its length.

@@ -23,7 +23,10 @@
 //! hand at an edge pulls down onto it, running into a tall wall leans on it, rolls off high landings, walking into a
 //! haystack dives in (platform E and its haystacks, north of block D).
 //! F1 hides the text (the HUD and the labels), F2 the map menu (1 the test level, 2 Masyaf, 3 Damascus: the game starts
-//! again in it), F4 toggle IK, F5 skeleton,
+//! again in it), F8 the graphics settings (`settings`, `menu`: presets Low / Medium / High / Ultra, window mode,
+//! resolution, vsync, frame cap, city detail, texture size, shadows, anti-aliasing, fog, view distance; saved to
+//! `ac1-settings.txt` beside the executable), F10 online (`net`: hosting on / off and its port, joining an IP and port,
+//! the replay recorder; the menus take the arrows, Enter, Esc, typing and the mouse), F4 toggle IK, F5 skeleton,
 //! F3 IK targets, F6 pause the pose gallery and NPC line-up (they only move near the camera anyway), F12 screenshot, M
 //! mutes the sound (AC1's own, played from the clips' event keys: steps, landings, grunts; `sound`),
 //! [ / ] step through every AC1 clip in the library (Backspace returns to locomotion).
@@ -33,7 +36,7 @@
 //! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_FLY=from-to (the Ghost mode flight then, AC1_WALK its stick; AC1_FLY_UP / AC1_FLY_DOWN=from-to up / down held), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_HEADLESS=1 (no window, no GPU, no audio: the frames run back to back, for the scenarios), AC1_MUTE=1 (start muted), AC1_VOLUME=dB, AC1_STEP=hz (every frame 1/hz s of game time however long it takes; 60 when headless), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
-//! city from the game data instead of the test level), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_DETAIL=low|medium|high|full (how much a city draws: see `stream::Detail`; medium by default, full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
+//! city from the game data instead of the test level), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_DETAIL=low|medium|high|ultra|full (how much a city draws: see `stream::Detail`; else the graphics menu's, medium by default; full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
 //! AC1_JUMP=secs[,secs...] (press Space then; with AC1_WALK for a running jump), AC1_HIGH / AC1_LEGS=from-to
 //! (hold high profile / the legs), AC1_HAND=secs[,..] (the empty hand),
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
@@ -45,7 +48,12 @@
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only. AC1_CONTROL=<file> stays open and runs
 //! the scripts written to that file (`run <id> <secs> AC1_START=.. AC1_WALK=.. ...`, `quit`; see `control_runs`): the level
 //! loads once, each run takes seconds. AC1_GROUND_LINE, AC1_HOLDS_AT and AC1_MESHES_AT log the ground along a line, the
-//! holds and the city meshes near a point.
+//! holds and the city meshes near a point; AC1_GRAB_AUDIT=file.tsv writes the authored guidance against ours' holds
+//! (`grab_audit`). Online: AC1_HOST=port / AC1_JOIN=ip:port (start a session, as the F10 menu
+//! does), AC1_RECORD_REPLAY=1 (record a replay from the start), AC1_REPLAY=<file> (play one back; AC1_REPLAY_VIEW,
+//! AC1_REPLAY_FRAMES=dir with AC1_REPLAY_FROM / _TO renders it, see `replay`). Settings: AC1_SETTINGS=<file> (read and
+//! write that settings file, scripted runs too), AC1_NO_SETTINGS=1 (the defaults), AC1_MENU=graphics|online (open a menu
+//! from the start, for screenshots).
 
 mod animation;
 mod assets;
@@ -59,17 +67,22 @@ mod crowd;
 mod fly;
 mod gait;
 mod gallery;
+mod grab_audit;
 mod jump;
 mod jump_query;
 mod level;
+mod menu;
 mod move_blend;
 mod nav;
+mod net;
 mod npc;
 mod pad;
 mod probe;
 mod ragdoll;
 mod recorder;
+mod replay;
 mod robe;
+mod settings;
 mod sound;
 mod stream;
 mod wind;
@@ -244,11 +257,48 @@ static LAUNCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::ne
 
 fn main() {
     LAUNCH.get_or_init(std::time::Instant::now);
+    // A replay plays in the level it was recorded in.
+    if let Ok(path) = std::env::var("AC1_REPLAY") {
+        match replay::level_of(&path) {
+            // SAFETY: before any other thread starts.
+            Some(level) if !level.is_empty() => unsafe { std::env::set_var("AC1_LEVEL", level) },
+            Some(_) => unsafe { std::env::remove_var("AC1_LEVEL") },
+            None => eprintln!("replay: {path} is not an ac1-rs replay"),
+        }
+    }
     let game_dir = std::env::var("AC1_GAME_DIR").unwrap_or_else(|_| r"P:\SteamLibrary\steamapps\common\Assassins Creed".into());
     let cam = env_f32s("AC1_CAM").unwrap_or_default();
     let script = script_from(&|k| std::env::var(k).map_err(|_| ()));
     let headless = std::env::var("AC1_HEADLESS").is_ok();
     let mut app = App::new();
+    // (The network test, `net`: only with AC1_HOST or AC1_JOIN.)
+    if let Some(n) = net::open() {
+        app.insert_resource(n);
+    }
+    // Replays (`replay`): recording online (or asked for), or playing one back.
+    if let Ok(path) = std::env::var("AC1_REPLAY") {
+        match replay::load(&path) {
+            Ok(frames) => {
+                eprintln!("replay: {path}, {} frames, {:.0} s", frames.len(), frames.last().map_or(0.0, |f| f.t));
+                let from: f32 = std::env::var("AC1_REPLAY_FROM").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                let to: f32 = std::env::var("AC1_REPLAY_TO").ok().and_then(|s| s.parse().ok()).unwrap_or(f32::MAX);
+                let render = std::env::var("AC1_REPLAY_FRAMES").ok().map(|dir| {
+                    let _ = std::fs::create_dir_all(&dir);
+                    (dir, 0, to)
+                });
+                let view = match std::env::var("AC1_REPLAY_VIEW").unwrap_or_default().as_str() {
+                    "ours" => replay::View::Ours,
+                    "friend" => replay::View::Friend,
+                    "free" => replay::View::Free,
+                    _ => replay::View::Follow,
+                };
+                app.insert_resource(replay::Replay { frames, t: from, playing: true, speed: 1.0, view, render });
+            }
+            Err(e) => eprintln!("replay: {e}"),
+        }
+    } else if replay::recording_wanted() {
+        app.insert_resource(replay::Recorder::new(std::env::var("AC1_LEVEL").unwrap_or_default()));
+    }
     // (The controller only with `AC1_PAD=1`: Bevy's gamepad backend takes the pad over even with the window in the
     // background, from every copy the tests start, and another game could not use it.)
     let plugins = DefaultPlugins.build();
@@ -294,7 +344,11 @@ fn main() {
         .insert_resource(Debug {
             skeleton: std::env::var("AC1_DEBUG").is_ok(),
             targets: std::env::var("AC1_DEBUG").is_ok(),
-            edges: if (std::env::var("AC1_SHOT").is_ok() || std::env::var("AC1_FRAMES").is_ok()) && std::env::var("AC1_EDGES").is_err() { 3 } else { 0 },
+            edges: if (std::env::var("AC1_SHOT").is_ok() || std::env::var("AC1_FRAMES").is_ok() || replay::replaying()) && std::env::var("AC1_EDGES").is_err() {
+                3
+            } else {
+                0
+            },
         })
         .insert_resource(script)
         .add_plugins(character_material::CharacterMaterialPlugin)
@@ -330,6 +384,13 @@ fn main() {
         )
         .add_systems(Update, pad_input.before(player_input))
         .init_resource::<Overlay>()
+        // The graphics (F8) and online (F10) menus, and the settings they keep (`settings`, `menu`).
+        .insert_resource(settings::started().clone())
+        .init_resource::<menu::Menu>()
+        .add_systems(Startup, menu::spawn.run_if(move || !headless))
+        .add_systems(PreUpdate, menu::input.after(bevy::ui::UiSystems::Focus).run_if(move || !headless))
+        .add_systems(Update, (settings::apply, menu::draw, menu::restart).run_if(move || !headless))
+        .add_systems(Last, settings::cap_frames.run_if(move || !headless))
         .add_systems(Update, overlay_keys)
         .init_resource::<probe::Probe>()
         .add_systems(Update, probe::probe_climbs.after(run_script).before(character::locomotion))
@@ -340,6 +401,25 @@ fn main() {
         .add_systems(Update, pause_statues)
         // (What a city draws follows the camera.)
         .add_systems(Update, stream::stream_city.after(camera_follow))
+        .add_systems(
+            Update,
+            (net::spawn_friend, net::sync, net::ground_remote, net::apply)
+                .chain()
+                .after(character::animate)
+                .before(camera_follow)
+                .run_if(resource_exists::<net::Net>),
+        )
+        .add_systems(Update, net::hide_friend.run_if(not(resource_exists::<net::Net>).and_then(not(resource_exists::<replay::Replay>))))
+        .add_systems(Update, replay::record.after(camera_follow).after(net::apply).run_if(resource_exists::<replay::Recorder>))
+        .add_systems(
+            Update,
+            (replay::controls, net::ground_remote, replay::apply, replay_view)
+                .chain()
+                .after(character::animate)
+                .before(camera_follow)
+                .run_if(resource_exists::<replay::Replay>),
+        )
+        .add_systems(Update, (replay::camera, replay::render).chain().after(camera_follow).run_if(resource_exists::<replay::Replay>))
         // The robe needs the bones' world transforms of this frame.
         .add_systems(PostUpdate, robe::robe_cloth.after(bevy::transform::TransformSystems::Propagate))
         .add_systems(First, wind::advance)
@@ -370,9 +450,16 @@ const SCHOLAR_BLOCK: &str = "Acre_Outskirts Setup Acre_DataBlock";
 /// The window. Scripted runs (`AC1_SHOT`) and `AC1_BACKGROUND=1` stay out of the way of whatever else is on screen:
 /// on the second monitor if there is one, unfocused, behind other windows.
 fn game_window() -> Window {
-    // (`AC1_WINDOW_SIZE="w,h"`: its size.)
-    let size = env_f32s("AC1_WINDOW_SIZE").filter(|v| v.len() >= 2).map_or((1280u32, 720u32), |v| (v[0] as u32, v[1] as u32));
-    let window = Window { title: "ac1-rs".into(), resolution: size.into(), ..default() };
+    // (`AC1_WINDOW_SIZE="w,h"`: its size; else the graphics menu's, as its window mode and vsync.)
+    let s = settings::started();
+    let size = env_f32s("AC1_WINDOW_SIZE").filter(|v| v.len() >= 2).map_or(s.resolution, |v| (v[0] as u32, v[1] as u32));
+    let window = Window {
+        title: "ac1-rs".into(),
+        resolution: size.into(),
+        mode: if std::env::var("AC1_BACKGROUND").is_ok() { bevy::window::WindowMode::Windowed } else { settings::window_mode(s.window) },
+        present_mode: settings::present_mode(s.vsync),
+        ..default()
+    };
     // (`AC1_WINDOW_AT="x,y"`: a desktop position.)
     let window = match env_f32s("AC1_WINDOW_AT").filter(|v| v.len() >= 2) {
         Some(v) => Window { position: bevy::window::WindowPosition::At(IVec2::new(v[0] as i32, v[1] as i32)), ..window },
@@ -726,7 +813,16 @@ fn setup(
     // (Off unless asked for: its hundred figures make the test world slow to load.)
     let scripted = std::env::var("AC1_SHOT").is_ok();
     let gallery_data = (!level.city && std::env::var("AC1_GALLERY").is_ok()).then(|| data.clone());
+    // (A replay's friend: a second Altaïr, posed from the recording; online, `net::spawn_friend` makes theirs.)
+    if replay::replaying() {
+        let e = character::spawn_character(&mut commands, data.clone(), at, &mut meshes, &mut mats, &mut images, &mut bindposes, None, 0);
+        commands.entity(e).insert((character::Statue, net::Remote::default(), Visibility::Hidden));
+    }
     let root = character::spawn_character(&mut commands, data, at, &mut meshes, &mut mats, &mut images, &mut bindposes, animator, 0);
+    // (Playing a replay, the player is a puppet too: posed from the recording, not simulated.)
+    if replay::replaying() {
+        commands.entity(root).insert(character::Statue);
+    }
     if let (Some(data), Some(lib)) = (gallery_data, lib.as_mut()) {
         let rows = gallery::poses(&lib.names);
         for (r, (category, on_wall, clips)) in rows.iter().enumerate() {
@@ -982,7 +1078,13 @@ fn player_input(
         let fwd = axis(KeyCode::KeyW) - axis(KeyCode::KeyS);
         let side = axis(KeyCode::KeyD) - axis(KeyCode::KeyA);
         let up = axis(KeyCode::Space).max(axis(KeyCode::KeyE)) - axis(KeyCode::ControlLeft).max(axis(KeyCode::KeyQ));
-        let speed = if keys.pressed(KeyCode::ShiftLeft) { FREECAM_FAST } else { FREECAM_SPEED };
+        let speed = if keys.pressed(KeyCode::ShiftLeft) {
+            FREECAM_FAST
+        } else if keys.pressed(KeyCode::AltLeft) {
+            FREECAM_SLOW
+        } else {
+            FREECAM_SPEED
+        };
         let step = (rot * Vec3::NEG_Z * fwd + rot * Vec3::X * side + Vec3::Y * up).normalize_or_zero() * speed * time.delta_secs();
         cam.free = Some(eye + step);
         if let Ok((mut ctl, _, _)) = q.single_mut() {
@@ -1614,6 +1716,17 @@ fn camera_follow(
 /// Free camera speed (m/s), and with Shift.
 const FREECAM_SPEED: f32 = 12.0;
 const FREECAM_FAST: f32 = 50.0;
+/// With Alt (m/s): slow passes for drone shots.
+const FREECAM_SLOW: f32 = 2.5;
+
+/// A replay's camera views: the free camera (3) flies from where the camera is; the others give it back.
+fn replay_view(replay: Res<replay::Replay>, mut cam: ResMut<OrbitCam>) {
+    match replay.view {
+        replay::View::Free if cam.free.is_none() => cam.free = Some(cam.eye),
+        replay::View::Free => {}
+        _ => cam.free = None,
+    }
+}
 
 /// Outline what can be grabbed (where the hands grab, yellow; the edge of the ledge they grab, white), stood on (posts
 /// and beams, orange) and swung on (bars, brown) near the player. G cycles: both lines, the grab lines, the edges, none.
@@ -1718,6 +1831,7 @@ fn debug_draw(
 
 #[allow(clippy::too_many_arguments)]
 fn hud(
+    replay: Option<Res<replay::Replay>>,
     chars: Query<(&Character, &Controller, &Transform), With<Player>>,
     mut text: Query<(&mut Text, &mut Visibility), With<Hud>>,
     cam: Res<OrbitCam>,
@@ -1726,16 +1840,27 @@ fn hud(
     mut contexts: Local<(String, String)>,
     eagle: Res<Eagle>,
     overlay: Res<Overlay>,
+    net: Option<Res<net::Net>>,
 ) {
     let fps = diag.get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS).and_then(|d| d.smoothed()).unwrap_or(0.0);
     let (Ok((ch, ctl, tf)), Ok((mut t, mut vis))) = (chars.single(), text.single_mut()) else { return };
-    // (Recording a video: no HUD in the frames.)
-    // (F1: hidden.)
-    if std::env::var("AC1_FRAMES").is_ok() || std::env::var("AC1_SHOTS").is_ok() || overlay.hidden {
+    // (Recording a video, a shot list or rendering a replay: no HUD in the frames. F1: hidden.)
+    if std::env::var("AC1_FRAMES").is_ok() || std::env::var("AC1_SHOTS").is_ok() || overlay.hidden || replay.as_ref().is_some_and(|r| r.render.is_some()) {
         vis.set_if_neq(Visibility::Hidden);
         return;
     }
     vis.set_if_neq(Visibility::Inherited);
+    if let Some(r) = &replay {
+        t.0 = format!(
+            "replay {:.1} / {:.1} s | {} x{} | camera {:?}\nEnter pause | Left/Right 5 s (Shift 1 s) | , . a frame | Up/Down speed | Home start | 1 ours 2 friend's 3 free (Alt slow, Shift fast) 4 follow | F1 hide",
+            r.t,
+            r.end(),
+            if r.playing { "playing" } else { "paused" },
+            r.speed,
+            r.view
+        );
+        return;
+    }
     // The detail lines: what the body is doing (context, previous, the move), the ground gait, the input,
     // the air and the last landing.
     let context = match &ch.wall {
@@ -1797,14 +1922,15 @@ fn hud(
         "ground (procedural)".to_string()
     };
     t.0 = format!(
-        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F4)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | F7 fly (Ghost mode) | G outlines (both, grab, edge, none) | E eagle | C centre camera | [ ] clips, F1 hide text, F2 maps, F5 skeleton, F3 IK targets, F6 gallery, F12 shot\n{details}",
+        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F4)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | F7 fly (Ghost mode) | G outlines (both, grab, edge, none) | E eagle | C centre camera | [ ] clips, F1 hide text, F2 maps, F7 fly, F8 graphics, F10 online, M mute, F5 skeleton, F3 IK targets, F6 gallery, F12 shot\n{details}{online}",
         if ch.health <= 0.0 {
             "DESYNCHRONISED".to_string()
         } else {
             (0..5).map(|i| if ch.health > i as f32 * 0.2 + 0.1 { '#' } else { '-' }).collect::<String>()
         },
         ch.velocity.length(),
-        if ch.ik_enabled { "on" } else { "off" }
+        if ch.ik_enabled { "on" } else { "off" },
+        online = net.map_or(String::new(), |n| format!("\nonline: {}", n.status())),
     );
 }
 

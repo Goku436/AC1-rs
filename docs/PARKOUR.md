@@ -114,7 +114,8 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 - **Edges**: the ledge stop (event 69, only for a drop over 5 m), the low-profile halt within 0.16 m (normal within
   70°), look down (event 119: latched by the low-profile halt held 0.25 s, the edge within 0.16 m, more than 2 m of drop;
 mixed front / left / right by the edge's side), the pull-down
-  (event 70: an edge within 0.8 m ahead, normal along the facing, more than 2 m of drop). **[B]**
+  (event 70: the edge report within 0.75 m of the feet whose normal is nearest the facing, that normal within 90° of
+  it, more than 2 m of drop). **[B]**
   Seen in the running game (Damascus, the route library): running in high profile to a roof's end that is a beam over a
   0.1 m crack, the next roof 0.74 m below, AC1 ran over the beam and stepped off it 1.07 m on in 0.27 s (`roof2_run_south`);
   at the same kind of beam over 8 m it made the ledge stop. Ours since 2026-10-10: a beam ending the floor is run over
@@ -706,6 +707,56 @@ in this batch, by audit id:
     wall run on nothing was a scaffold's collision: skinned props with more than 24 bones were left undrawn as
     characters, and the scaffolds (69 bones) and storage racks (61) with them; an entity with collision shapes is now
     drawn whatever its skeleton, as the running game draws that scaffold (checked live) (the city's load logs how many collided entities draw nothing: 0 in Damascus).
+- **2026-10-12, the last findings**:
+  - EXTRA-17: the pull-down's hold is AC1's edge report (the interpreter's vt136 pick, 0xB17EF0, with 0.75 m and any
+    angle; the guard 0xD9D6C0): a hold at the feet within 0.75 m, facing out within 90 degrees of his facing, the one
+    facing most his way, more than 2 m over what lies 0.3 m past it. Ours walked 0.9 m along the facing to where the
+    floor ended and took a hold within 0.45 m of there facing within 45 degrees.
+  - JUMP-6: the running jump (AC1's kind 0) plays its takeoff and flight in the takeoff facing, the correction carrying
+    it onto the target (across the ground spread over both; the height's on the flight, [ours]: the takeoff's feet are
+    on the roof), and turns the facing toward the target linearly over the takeoff, at most 0.4 s (0xB20200 keeps the
+    body's matrix as the jump frame, 0xE0EF30 slerps the facing, Banned445's port). Ours ran the clips along the aim from
+    the first frame, the facing eased round over 0.25 s. Measured on B1 to B3 run 12 degrees off the roofs' line: the 11
+    degree turn now done by the flight's start (the running game: 14 degrees at 1.5 per frame over a 0.15 s takeoff),
+    the path within 0.04 m of before, the landing the same; every other jump of the jump / combo scenarios starts
+    facing its target (no turn) and is unchanged.
+  - ANIM-13: a mix of clips (`forge::anim::mix`) folds them in one after another, as AC1's item evaluator does
+    (`sub_777AE0`: clip i blended into the ones before it by w_i over the running sum of the weights, rotations by
+    AC1's interpolation 0x4916F0, a normalised lerp within about 8 degrees, else a slerp); ours summed the weighted
+    quaternions and normalised. The same for two clips; with three or more far-apart ones (the 090 / 180 turns mixed with
+    a straight one) the fold follows the arc. (0x507650, which the audit pointed at, is the action's length: the items'
+    durations less their blends.)
+  - ANIM-11: a climbing hand's IK puts the middle finger's knuckle (`<side>HandMiddle1`) on the hold point, as AC1's
+    HumanIK hand effector does (0xE57450 via 0x4FA910, Banned445's port): the wrist goes where the knuckle, as the clip
+    holds it that frame, lands on the hold. Ours aimed the wrist 9 cm out and 8 cm under the hold whatever the hand's
+    pose. Not done: the toe as
+    the foot's effector: AC1 puts it on a foot hold's point, ours has no foot holds (the feet go onto the wall's face,
+    the ankle 0.11 m off it); it waits for foot holds.
+  - WALL-21: the wall run takes walls leaning up to 45 degrees either way, as AC1's (`Human__WallingSlopeDir` 0xE14590,
+    `Human__WallingSlopeLimit` 0xE14FB0, read in the exe: 45 degrees refuses, the lean held to -10..+20 degrees): a ray
+    from 0.75 m out and 1 m up back toward the wall gives its lean, and the entry's contact is 0.5 m out along the
+    leaning normal, 0.3 m under the probe's hit (on a wall leaning back 20 degrees, 0.17 m higher and 0.03 m nearer than
+    on an upright one). Ours refused any face more than 17 degrees off upright. [ours] Faces over 44 degrees off upright
+    are floors to our collision; the run's body stays upright (AC1 pitches it with the slope, Banned445's port does not
+    either). The test level's leaning wall is south of the passover walls. (`wall0`'s entry, 0.10 m higher in the running
+    game than in ours, is still to explain: a lean of 11 degrees would give that height but not its 0.57 m out.)
+  - Checked, no change:
+    - CLIMB-E16 (timing): at the fixed step the reach items take their clips' time, `_a` 0.200 s, `_b` 0.400, `_c`
+      0.666 (block A, up), against the running game's 0.200 / 0.385 / 0.682 (`wall1_hang_up`): `_b` and `_c` together
+      1.066 s against 1.067. The audit's 0.43 / 0.75 s came from the windowed runs' uneven frames.
+    - INPUT-15 (AC1's ability stack): not needed yet. Nothing in ours gives or takes an ability (no missions, memory
+      blocks or tutorial); in free roam AC1 allows every one at MaxSpeed 4 (Banned445's default set), so the stack would
+      only ever say yes. It comes with the first mission or Masyaf's opening, which lock moves.
+    - LADDER-7 (the rest): Damascus' 333 authored ladder edges lean less than 10 degrees (278 under 5), so the forced
+      revolve off a ladder leaning 10 degrees or more over the climber never fires there; ours keeps ladders upright
+      (the authored edge's top is kept as a height). The back-approach turn needs a ladder whose near side is blocked at
+      chest height (AC1's attach box, 0.95 m up); none is known. To settle: the other cities' ladders' leans, and a
+      free-standing ladder with something in front of it in a city.
+    - LEDGE-7 (the wall-free hang): no free hang in the hang scenarios (20 rests, Damascus' included) has a wall under its
+      hands (AC1's test: 0.15 m in, 0.6 / 1.2 / 1.8 m down): ours takes the free hang only where the feet find no wall.
+      AC1 reaches `hangwallfree_wait` through entries that force a free hang whatever is under it (walling's free-hang
+      catches B and C with their swing strength, the jump's `hangwallfree` 250 / 300 cm action). To settle: a live log
+      of which actions end in `xx_h_hangwallfree_wait` on a Damascus wall, then those entries first.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
