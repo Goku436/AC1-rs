@@ -543,6 +543,8 @@ in this batch, by audit id:
     feet; across 2 to 8 m, along 9 to 20 m and 40 to 70 degrees off the way from 1.5 m behind the feet, opened as the
     top lies lower (full at 30 m down); in front of the facing; the two-segment clear way (bent at 0.66). [ours] The 3 m
     split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
+  - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
+    the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

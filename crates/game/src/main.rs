@@ -755,6 +755,63 @@ fn setup(
     }
 }
 
+/// The arrow keys turn the camera this fast (rad/s): AC1's keyboard binds them to the right stick.
+const ARROW_YAW_RATE: f32 = 2.5;
+const ARROW_PITCH_RATE: f32 = 1.5;
+/// A press of the high-profile button shorter than this (s) flips it, with AC1's `HighProfileToggle` (0x90B080).
+const HIGH_TOGGLE_TAP: f32 = 0.5;
+
+/// AC1's high-profile toggle: `HighProfileToggle=1` under `[Input]` in the player's own `Assassin.ini` (in
+/// `%APPDATA%\Ubisoft\Assassin's Creed`), or `AC1_HIGH_TOGGLE=1`. Off (the button held), as AC1's default.
+fn high_profile_toggle() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        if let Ok(v) = std::env::var("AC1_HIGH_TOGGLE") {
+            return v == "1";
+        }
+        let Some(ini) = std::env::var_os("APPDATA").map(|d| std::path::PathBuf::from(d).join("Ubisoft").join("Assassin's Creed").join("Assassin.ini")) else {
+            return false;
+        };
+        std::fs::read_to_string(ini).is_ok_and(|s| ini_flag(&s, "Input", "HighProfileToggle"))
+    })
+}
+
+/// Whether `key` in `[section]` of an ini file's text is set to a non-zero number.
+fn ini_flag(text: &str, section: &str, key: &str) -> bool {
+    let mut inside = false;
+    for line in text.lines().map(str::trim) {
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            inside = name.eq_ignore_ascii_case(section);
+        } else if inside
+            && let Some((k, v)) = line.split_once('=')
+            && k.trim().eq_ignore_ascii_case(key)
+        {
+            return v.trim().parse::<i32>().is_ok_and(|n| n != 0);
+        }
+    }
+    false
+}
+
+/// The high-profile button with the toggle on: held, on; a tap under `HIGH_TOGGLE_TAP` flips it on or off.
+#[derive(Default)]
+struct HighToggle {
+    on: bool,
+    was: bool,
+    held: f32,
+}
+
+impl HighToggle {
+    fn update(&mut self, pressed: bool, dt: f32) -> bool {
+        if pressed {
+            self.held = if self.was { self.held + dt } else { 0.0 };
+        } else if self.was && self.held < HIGH_TOGGLE_TAP {
+            self.on = !self.on;
+        }
+        self.was = pressed;
+        pressed || self.on
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn player_input(
     keys: Res<ButtonInput<KeyCode>>,
@@ -770,10 +827,12 @@ fn player_input(
     time: Res<Time>,
     mut cursor: Query<&mut bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
     scholars: Query<&Transform, (With<crowd::Scholar>, Without<Player>)>,
-    mut legs_buffer: Local<f32>,
+    mut buttons: Local<(f32, HighToggle)>,
     mut climb_latch: Local<(Vec2, f32)>,
     mut stick_yaw: Local<Option<(f32, Vec2)>>,
 ) {
+    // (The legs' press buffer, and the high-profile toggle.)
+    let (legs_buffer, high_toggle) = &mut *buttons;
     // Scripted captures must not pick up stray keystrokes.
     if script.shot.is_some() {
         return;
@@ -824,6 +883,13 @@ fn player_input(
         return;
     }
     cam.dist = (cam.dist * (1.0 - scroll.delta.y * 0.1)).clamp(1.2, 15.0);
+    // The arrow keys turn the camera as the mouse does: AC1's keyboard right stick (`DefaultBindings.map`, audit INPUT-10).
+    let key = |k: KeyCode| -> f32 { if keys.pressed(k) { 1.0 } else { 0.0 } };
+    let arrows = Vec2::new(key(KeyCode::ArrowRight) - key(KeyCode::ArrowLeft), key(KeyCode::ArrowUp) - key(KeyCode::ArrowDown));
+    if arrows != Vec2::ZERO {
+        cam.yaw -= arrows.x * ARROW_YAW_RATE * time.delta_secs();
+        cam.pitch = (cam.pitch + arrows.y * ARROW_PITCH_RATE * time.delta_secs()).clamp(-1.5, 0.6);
+    }
     if keys.just_pressed(KeyCode::F2) {
         dbg.skeleton ^= true;
     }
@@ -885,7 +951,9 @@ fn player_input(
     ctl.move_dir = fwd * input.y + right * input.x;
     // AC1's puppet controls: the right button is the high profile, Space the legs, Shift the empty hand
     // (see the module docs).
-    let high = mouse.pressed(MouseButton::Right) || keys.pressed(KeyCode::KeyK);
+    // (With AC1's `HighProfileToggle` set, a tap of under 0.5 s flips it on or off, held it is on as ever.)
+    let high_button = mouse.pressed(MouseButton::Right) || keys.pressed(KeyCode::KeyK);
+    let high = if high_profile_toggle() { high_toggle.update(high_button, time.delta_secs()) } else { high_button };
     let legs = keys.pressed(KeyCode::Space);
     let hand = keys.just_pressed(KeyCode::ShiftLeft) || keys.just_pressed(KeyCode::ShiftRight);
     ctl.hand_held = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
@@ -1589,5 +1657,36 @@ fn screenshot(
         } else if script.taken && t > secs + 1.5 {
             exit.write(AppExit::Success);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_toggle_flag_is_read_from_its_section() {
+        let ini = "[Video]\nHighProfileToggle=1\n[Input]\nSelectedInput=KeyboardMouse2\n HighProfileToggle = 1 \n";
+        assert!(ini_flag(ini, "Input", "HighProfileToggle"));
+        assert!(!ini_flag("[Input]\nHighProfileToggle=0\n", "Input", "HighProfileToggle"));
+        assert!(!ini_flag("[Video]\nHighProfileToggle=1\n", "Input", "HighProfileToggle"));
+    }
+
+    #[test]
+    fn a_tap_flips_high_profile_and_a_hold_does_not() {
+        let mut t = HighToggle::default();
+        let dt = 1.0 / 60.0;
+        // A tap: on, and stays on.
+        assert!(t.update(true, dt));
+        assert!(t.update(false, dt));
+        assert!(t.update(false, dt));
+        // Another tap: off.
+        t.update(true, dt);
+        assert!(!t.update(false, dt));
+        // Held a second: on while held, off after.
+        for _ in 0..60 {
+            assert!(t.update(true, dt));
+        }
+        assert!(!t.update(false, dt));
     }
 }
