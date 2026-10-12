@@ -344,6 +344,9 @@ const WALL_RUN_SLACK: f32 = 0.9;
 /// How far the hands may be from holds for a mid-air catch (m; the body is pulled in over the catch): AC1's hand box,
 /// 0.4 m across and 0.3 m up or down (0xE0A990 / 0xE0AC70, Banned445).
 const CATCH_ACROSS: f32 = 0.4;
+/// AC1's air catches look for a hold this far over the feet (m): the ledge catch (climb or wall hang) and the free hang.
+const CATCH_LEDGE_UP: f32 = 1.4;
+const CATCH_FREE_UP: f32 = 1.95;
 const CATCH_UP: f32 = 0.3;
 /// Catching a wall's holds, the hands end this far out from its face (m).
 const CATCH_HAND_OUT: f32 = 0.08;
@@ -743,8 +746,8 @@ const TOP_OUT_JOG: f32 = 3.5;
 const REBOUND_SIDE_MIN: f32 = 0.3;
 /// Running on faster than this (m/s) after a jump, its reception ends once its step is taken.
 const RECEPTION_CUT_SPEED: f32 = 2.0;
-/// The directional grab in the air: the stick more than this far off the facing (cos) and not behind it (cos) looks for
-/// a wall that way, this far (m).
+/// The directional grab in the air: the stick more than this far off the facing (cos) and not behind it (cos) searches
+/// for holds that way too, and for a wall this far (m).
 const CATCH_SIDE_COS: f32 = 0.94;
 const CATCH_BEHIND_COS: f32 = -0.5;
 const CATCH_SIDE_REACH: f32 = 1.2;
@@ -1099,6 +1102,28 @@ pub fn nearest_hold(level: &Level, wrist: Vec3, normal: Vec3) -> Option<(Ledge, 
             (*l, target, (target - wrist).length())
         })
         .min_by(|a, b| a.2.total_cmp(&b.2))
+}
+
+/// AC1's air-catch probe (`Guidance__ProbeBox`): the hold in the box round `centre` (half extents across, along `dir`
+/// and up) facing the reach `dir` within 70 degrees, each met where the probe's line along `dir` crosses it
+/// (`Ledge::project_along`, audit GUIDE-8); the nearest. The point and the hold's outward normal.
+fn catch_probe(level: &Level, centre: Vec3, dir: Vec3, half: Vec3) -> Option<(Vec3, Vec3)> {
+    let dir = dir.with_y(0.0).normalize_or_zero();
+    let across = dir.cross(Vec3::Y);
+    let cos70 = 70f32.to_radians().cos();
+    level
+        .ledges
+        .iter()
+        .filter(|l| (-l.out).dot(dir) >= cos70)
+        .map(|l| (l.project_along(centre, dir), l.out))
+        .filter(|(q, _)| {
+            let d = *q - centre;
+            d.dot(across).abs() <= half.x && d.dot(dir).abs() <= half.y && d.y.abs() <= half.z
+        })
+        .min_by(|a, b| {
+            let score = |q: Vec3| (q - centre).with_y(0.0).length() + (q.y - centre.y).abs();
+            score(a.0).total_cmp(&score(b.0))
+        })
 }
 
 /// Where a hand at `wrist` grips ledge `l`, and how far that is (`nearest_hold` for one ledge).
@@ -6590,42 +6615,91 @@ impl WallClimb {
     /// Mid-air catch: a wall ahead with holds where the catch clip puts the hands. The root turns
     /// to face the wall and is pulled onto the holds over the catch.
     #[allow(clippy::too_many_arguments)]
-    fn try_catch(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig, down_speed: f32) -> bool {
+    fn try_catch(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig) -> bool {
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
         // Ahead, or where the stick points (the directional grab: a wall to the side is reached for and caught, turning
         // to it), not behind.
         let stick = self.move_dir.with_y(0.0).normalize_or_zero();
         let side = (stick != Vec3::ZERO && stick.dot(fwd) < CATCH_SIDE_COS && stick.dot(fwd) > CATCH_BEHIND_COS).then_some(stick);
-        // (At chest height, or lower: caught at a roof's edge, the chest is level with the roof.)
+        // AC1's searches (`CheckAirCatch` 0xE0BB70: `FindLedgeCatch` 0xE0A990, `sub_DFFE30` / `FindClimbCatch` 0xE0AC70;
+        // Banned445's `air_catches.rs`, audit AIR-17): a hold round the feet + 1.4 m, 0.3 m on along the reach, 0.4 m
+        // across and 0.3 m up or down, facing within 70 degrees: the climbing or the wall-hang catch; then one round the
+        // feet + 1.95 m for the free hang (after a fall of 3 m or more 0.25 m on, 0.5 m with the empty hand held, 0.25 m up
+        // or down). These come first, with no wall ray first (ours wanted a wall at the chest within 1 m before it looked
+        // for a hold).
+        let long = self.fall_top.is_finite() && self.fall_top - root.translation.y >= CATCH_LONG_FALL;
+        let feet_at = root.translation;
+        let mut found: Vec<(Vec3, Vec3, Option<bool>)> = vec![];
+        for d in std::iter::once(fwd).chain(side) {
+            if let Some((q, n)) = catch_probe(level, feet_at + Vec3::Y * CATCH_LEDGE_UP + d * 0.3, d, Vec3::new(0.4, 0.4, 0.3)) {
+                found.push((q, n, Some(false)));
+            }
+            let (on, half) = if long {
+                let a = if self.hand_held { 0.5 } else { 0.25 };
+                (a, Vec3::new(0.4, a, 0.25))
+            } else {
+                (0.3, Vec3::new(0.4, 0.4, 0.3))
+            };
+            if let Some((q, n)) = catch_probe(level, feet_at + Vec3::Y * CATCH_FREE_UP + d * on, d, half) {
+                found.push((q, n, Some(true)));
+            }
+        }
+        // Then ours' longer reach, any catch, for two of ours' own: the directional grab (a wall `CATCH_SIDE_REACH` the
+        // stick's way, at most 60 degrees off square) and a swing bar's fling (a wall at the chest or the knees within 1 m
+        // ahead, else a hold facing us round the hands over the head). AC1 has its fling reach the hold by the jump target's
+        // own arrival, which ours' flights lack: without these the fling came in short of the boxes and fell past them.
         let wall = |dir: Vec3, reach: f32, square: f32| {
             [1.2, 0.7]
                 .iter()
                 .find_map(|h| level.raycast(root.translation + Vec3::Y * *h, dir, reach).filter(|h| h.normal.y.abs() < 0.3 && h.normal.dot(dir) < square))
         };
-        // (To the side, a wall met at most 60 degrees off square: one grazed along is not turned to.)
-        let found = wall(fwd, 1.0, 1.0).or_else(|| side.and_then(|d| wall(d, CATCH_SIDE_REACH, -0.5))).map(|h| (h.point, h.normal));
-        // (No wall at the chest, as under a ledge over an arch: AC1's catch looks for edges round the hands, wall or
-        // not; a hold facing us over the head, its line standing in for the wall's face.)
-        let found = found.or_else(|| {
-            let hands = root.translation + Vec3::Y * JUMP_HOLD_FREE_HANG;
-            level
-                .ledges
-                .iter()
-                .filter(|l| l.out.dot(fwd) < -0.7)
-                .map(|l| (l.closest(hands), l.out))
-                .filter(|(q, _)| (*q - hands).with_y(0.0).length() < 0.8 && (q.y - hands.y).abs() < 0.6)
-                .min_by(|a, b| (a.0 - hands).length().total_cmp(&(b.0 - hands).length()))
-        });
-        let Some((wall_point, wall_normal)) = found else {
-            return false;
+        let flung = self.flung;
+        let ahead = || {
+            wall(fwd, 1.0, 1.0).map(|h| (h.point, h.normal)).or_else(|| {
+                let hands = root.translation + Vec3::Y * JUMP_HOLD_FREE_HANG;
+                level
+                    .ledges
+                    .iter()
+                    .filter(|l| l.out.dot(fwd) < -0.7)
+                    .map(|l| (l.closest(hands), l.out))
+                    .filter(|(q, _)| (*q - hands).with_y(0.0).length() < 0.8 && (q.y - hands.y).abs() < 0.6)
+                    .min_by(|a, b| (a.0 - hands).length().total_cmp(&(b.0 - hands).length()))
+            })
         };
+        let far = flung.then(ahead).flatten().or_else(|| side.and_then(|d| wall(d, CATCH_SIDE_REACH, -0.5)).map(|h| (h.point, h.normal)));
+        found.extend(far.map(|(q, n)| (q, n, None)));
+        for (wall_point, wall_normal, free_only) in found {
+            if self.try_catch_at(lib, level, root, rig, base, cr, wall_point, wall_normal, free_only, long) {
+                if let Some(f) = free_only {
+                    debug!("climb: AC1's catch search at the feet + {} m found the hold at {wall_point:.2}", if f { CATCH_FREE_UP } else { CATCH_LEDGE_UP });
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    /// `try_catch` at the hold found at `wall_point` facing `wall_normal`: the free hang only when `free_only` is true (the
+    /// search at the feet + 1.95 m), the climbing catch or the wall hang when false, any when None.
+    #[allow(clippy::too_many_arguments)]
+    fn try_catch_at(
+        &mut self,
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &mut Transform,
+        rig: &Rig,
+        base: &Pose,
+        cr: ClimbRig,
+        wall_point: Vec3,
+        wall_normal: Vec3,
+        free_only: Option<bool>,
+        long: bool,
+    ) -> bool {
         let normal = wall_normal.with_y(0.0).normalize();
         let facing = Transform { translation: root.translation, rotation: Quat::from_rotation_arc(Vec3::NEG_Z, -normal), ..default() };
         // (AC1's catch (`CheckAirCatch` 0xE0BB70, Banned445's port): the climbing catch only with both feet on holds, else
         // the wall hang with the feet on the wall, else the free hang; `_max` after a fall of 3 m or more from its top, not
         // by the speed. In 40 recordings the running game never caught into the climb; ours did 3 times where it hung.)
-        let _ = down_speed;
-        let long = self.fall_top.is_finite() && self.fall_top - root.translation.y >= CATCH_LONG_FALL;
         let speed = if long { "max" } else { "min" };
         let free: Vec<String> = if long {
             ["a", "b", "c", "d"].iter().map(|k| format!("xx_fall_tr_hangfree_max_{k}")).collect()
@@ -6638,6 +6712,9 @@ impl WallClimb {
             (free, FREE, Feet::Free),
         ];
         for (names, to, feet) in catches {
+            if free_only.is_some_and(|f| f != (feet == Feet::Free)) {
+                continue;
+            }
             let Some(clips) = names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { continue };
             let Some(end) = chain_end(&clips, rig, base, cr) else { continue };
             let mut end = end.world(&facing);
@@ -6724,7 +6801,7 @@ impl WallClimb {
             // never catches on the legs held, as ours did walking off an edge, audit AIR-12.)
             && (self.can_catch || (self.hand_held && self.fall_top - root.translation.y > CATCH_HELD_FALL))
             && v.y < 1.0
-            && self.try_catch(lib, level, root, rig, base, cr, -v.y)
+            && self.try_catch(lib, level, root, rig, base, cr)
         {
             self.can_catch = false;
             return;

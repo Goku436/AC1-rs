@@ -527,6 +527,12 @@ in this batch, by audit id:
   holds under it; 0x80 the free hang), a pass-over or a pole, aimed at the grab point on its chain. Ours' own hold search
   (`jump_hold`, 1.3-2.6 m up, the nearest) is left for the test level, which has no authored holds; the edge jump goes
   for any pick, a free hang below too.
+- **Air catches** (AIR-17, GUIDE-8): AC1's searches decide the catch: a hold round the feet + 1.4 m (0.3 m on along the
+  reach, 0.4 m across, 0.3 m up or down, facing within 70 degrees) for the climbing or wall-hang catch, then one round the
+  feet + 1.95 m for the free hang (0.25 / 0.5 m on after a fall of 3 m), with no wall ray first. The grab point is the
+  probe's line along its direction meeting the hold (`Ledge::project_along`), not the nearest point across. Ours' wall
+  ray is kept only for its directional grab (a wall up to 1.2 m the stick's way) and a swing bar's fling at a wall's
+  holds (AC1's arrives by the jump target, which ours' ballistic fling lacks).
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 
