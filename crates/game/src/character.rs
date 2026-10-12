@@ -851,8 +851,19 @@ const FOOT_IK_STILL: f32 = 0.05;
 const FOOT_IK_IN: f32 = 0.2;
 const FOOT_IK_OUT: f32 = 0.6;
 const IK_OUT_RATE: f32 = 5.0;
-/// How fast a climbing hand's pull onto a hold may change (per second).
+/// How fast a climbing hand's pull onto a hold may change (per second), for clips without AC1's contact tags.
 const HAND_IK_RATE: f32 = 6.0;
+/// With the clip's contact tags (`WallClimb::contacts`): a limb's pull rises this fast while its contact bit is set and
+/// falls this fast once it is released (per second; AC1's `LimbIK` 0xE57570, 0.25 s in, 0.2 s out, audit ANIM-10).
+const CONTACT_IK_IN: f32 = 4.0;
+const CONTACT_IK_OUT: f32 = 5.0;
+
+/// A limb's IK weight moved toward `want`: by the contact rates when the clip tags its contacts, else `HAND_IK_RATE` both
+/// ways.
+fn limb_weight(w: f32, want: f32, tagged: bool, dt: f32) -> f32 {
+    let (up, down) = if tagged { (CONTACT_IK_IN, CONTACT_IK_OUT) } else { (HAND_IK_RATE, HAND_IK_RATE) };
+    (w + (want - w).clamp(-down * dt, up * dt)).clamp(0.0, 1.0)
+}
 /// Changing profile while standing (slower than this, m/s) fades between the stands over this long (s).
 const STAND_FADE_SPEED: f32 = 0.5;
 const STAND_FADE: f32 = 0.3;
@@ -2113,6 +2124,12 @@ pub fn animate(
                 pose.rotate_model(rig, b.clavicles[i], limited_arc(Vec3::new(0.0, side, 0.0), Vec3::new(0.0, side, 0.0) + reach, 0.45 * k));
                 pose.rotate_model(rig, b.spine[1], limited_arc(Vec3::Z, Vec3::Z + reach * 0.5, 0.18 * k));
             }
+            // AC1's limb contacts from the clip (its acuator-contacts track): a limb is pulled onto its hold only while
+            // the clip says it holds on, and lets go when the clip releases it (audit ANIM-10); the hold search only
+            // picks where it lands. Clips without the track keep the pull by distance alone.
+            let contacts = w.contacts();
+            let holds = |bit: u8| contacts.is_none_or(|c| c & bit != 0);
+            use forge::anim::contact;
             for i in 0..2 {
                 let arm = b.arms[i];
                 let wrist = world_from_model.transform_point3(pose.model_of(rig, arm.hand).pos);
@@ -2130,11 +2147,10 @@ pub fn animate(
                 let held = ch.wall_hand_t[i].as_ref().map(|l| crate::climb::hold_on(l, wrist));
                 let switching = matches!((&ch.wall_hand_t[i], &near), (Some(t), Some((l, _, _))) if !same(t, l));
                 let want = match held {
-                    Some((_, d)) if !switching => 1.0 - ((d - 0.06) / 0.14).clamp(0.0, 1.0),
+                    Some((_, d)) if !switching && holds([contact::LEFT_HAND, contact::RIGHT_HAND][i]) => 1.0 - ((d - 0.06) / 0.14).clamp(0.0, 1.0),
                     _ => 0.0,
                 };
-                let step = HAND_IK_RATE * dt;
-                ch.wall_hand_w[i] = (ch.wall_hand_w[i] + (want - ch.wall_hand_w[i]).clamp(-step, step)).clamp(0.0, 1.0);
+                ch.wall_hand_w[i] = limb_weight(ch.wall_hand_w[i], want, contacts.is_some(), dt);
                 if let Some((target, _)) = held {
                     let wgt = ch.wall_hand_w[i];
                     if wgt > 0.0 {
@@ -2167,9 +2183,8 @@ pub fn animate(
                 ch.wall_feet[i] = Some(d);
                 // Only pull feet that are near the wall onto it (not dangling ones), faded in by distance, changed no
                 // faster than `HAND_IK_RATE`.
-                let want = if hit.is_some() { 1.0 - ((d.abs() - 0.2) / 0.1).clamp(0.0, 1.0) } else { 0.0 };
-                let step = HAND_IK_RATE * dt;
-                ch.wall_foot_w[i] = (ch.wall_foot_w[i] + (want - ch.wall_foot_w[i]).clamp(-step, step)).clamp(0.0, 1.0);
+                let want = if hit.is_some() && holds([contact::LEFT_TOE, contact::RIGHT_TOE][i]) { 1.0 - ((d.abs() - 0.2) / 0.1).clamp(0.0, 1.0) } else { 0.0 };
+                ch.wall_foot_w[i] = limb_weight(ch.wall_foot_w[i], want, contacts.is_some(), dt);
                 if ch.wall_foot_w[i] <= 0.0 {
                     ch.wall_feet[i] = None;
                     continue;

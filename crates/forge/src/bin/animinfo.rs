@@ -31,6 +31,14 @@ fn main() -> Result<()> {
                 // the clip's data, or in how it is sampled).
                 // `ANIMINFO_TURNS=1`: the bones whose yaw (about the clip's up, Z) changes over 45 degrees across the clip,
                 // at its start, middle and end.
+                // `ANIMINFO_CONTACTS=1`: the limb-contact keys (time, bits: 2 L toe, 3 R toe, 4 L hand, 5 R hand).
+                if std::env::var("ANIMINFO_CONTACTS").is_ok()
+                    && let Some(t) = a.tracks.iter().find(|t| t.bone_hash == forge::anim::CONTACT_TRACK)
+                    && let Channel::Scalar(v) = &t.channel
+                {
+                    let keys: Vec<String> = t.keys.iter().zip(v).map(|(k, b)| format!("{:.3} {b:06b}", *k as f32 / forge::anim::FPS)).collect();
+                    println!("    contacts {}", keys.join(", "));
+                }
                 if std::env::var("ANIMINFO_TURNS").is_ok() {
                     let yaw = |q: [f32; 4]| (2.0 * (q[3] * q[2] + q[0] * q[1])).atan2(1.0 - 2.0 * (q[1] * q[1] + q[2] * q[2])).to_degrees();
                     let end = a.duration * 30.0;

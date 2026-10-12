@@ -461,7 +461,7 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   **[B]**
 
 ## 10. Limb IK
-- Limb weights rise at 4/s with a contact (0.25 s fade in) and fall at 5/s when released (0.2 s) (`LimbIK` 0xE57570).
+- Limb weights rise at 4/s with a contact (0.25 s fade in) and fall at 5/s when released (0.2 s) (`LimbIK` 0xE57570); ours reads the contacts from the clips' hash 2 track (`forge::anim::contact`, `WallClimb::contacts`).
   HumanIK's chest pull, shoulder correction and twist are off for humans; reaches stay in the limb. **[B]**
 
 ## 11. Cities: what makes Damascus different (ours)
@@ -536,6 +536,11 @@ in this batch, by audit id:
 - **Turns** (ANIM-8; ANIM-9 was GROUND-4): while the playing item has TURNS_BODY (the turn on the spot, the run
   turn-around) the stick no longer bends its facing and a high-profile turn is no longer broken off into the run near
   its end: the clip's own turn (090 and 180 mixed by the angle) ends it, and it leaves through its own ways.
+- **Limb contacts** (ANIM-10): the climbing IK reads the clip's limb-contact track (hash 2: bits 2/3 the left/right
+  toe, 4/5 the left/right hand; a mix takes its heaviest clip's, a mirrored clip swaps them): a hand or foot is pulled
+  onto its hold or the wall only while its bit is set, its weight rising 4/s and falling 5/s; the hold search only picks
+  where it lands. Clips without the track keep the pull by distance (6/s). Not yet: the travel from the old hold to the
+  new along the clip's own delta, and the grab predicted 0.2 s before a contact.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

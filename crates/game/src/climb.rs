@@ -7638,6 +7638,16 @@ impl WallClimb {
         !off_wall(&self.state) && !self.mv.as_ref().is_some_and(|m| off_wall(&m.to) || m.clip.name.contains("corner"))
     }
 
+    /// AC1's limb contacts now (`forge::anim::contact` bits), from the clip shown (its left and right swapped when it
+    /// plays mirrored); `None` when that clip has no contact track.
+    pub fn contacts(&self) -> Option<u8> {
+        use forge::anim::contact::{LEFT_HAND, LEFT_TOE, RIGHT_HAND, RIGHT_TOE};
+        let s = self.shown.as_ref()?;
+        let bits = s.clip.anim.contacts_at(s.t.min(s.clip.anim.duration) * FPS)?;
+        let (left, right) = (bits & (LEFT_HAND | LEFT_TOE), bits & (RIGHT_HAND | RIGHT_TOE));
+        Some(if s.mirrored { (bits & !(left | right)) | (left << 1) | (right >> 1) } else { bits })
+    }
+
     /// Last pose shown, to fade from when the climb ends.
     pub fn last_pose(&self) -> Option<&Pose> {
         self.last.as_ref()

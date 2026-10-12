@@ -318,13 +318,45 @@ pub fn mix(clips: &[(&Animation, f32)]) -> Option<Animation> {
             // Rotation weights normalize themselves; translations were divided by the weights present.
             Track { bone_hash: bone, kind, keys: keys.clone(), channel }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    // The limb contacts are the heaviest clip's (Banned445's port takes the dominant clip's), at the same fraction of
+    // the mix as of that clip.
+    let mut tracks = tracks;
+    if let Some((a, _)) = clips.iter().max_by(|a, b| a.1.total_cmp(&b.1))
+        && let Some(t) = a.tracks.iter().find(|t| t.bone_hash == CONTACT_TRACK && matches!(t.channel, Channel::Scalar(_)))
+    {
+        let scale = n as f32 / a.frames().max(1e-3);
+        let keys = t.keys.iter().map(|&k| (k as f32 * scale).round().min(u16::MAX as f32) as u16).collect();
+        tracks.push(Track { keys, ..t.clone() });
+    }
     Some(Animation { duration: n as f32 / FPS, tracks })
 }
+
+/// Bits of the limb-contact track (hash 2, one byte a key): the limb holds on (a hold, the wall, the ground) while its
+/// bit is set (`LimbIK__UpdateContactsFromAnimTags` 0xE56FC0, as Banned445's port reads it; `xx_l_climb_1m_u_1lu`: the
+/// left hand and toe let go at 0.067 s, the hand takes hold again at 0.333 s, the toe at 0.533 s).
+pub mod contact {
+    pub const LEFT_TOE: u8 = 1 << 2;
+    pub const RIGHT_TOE: u8 = 1 << 3;
+    pub const LEFT_HAND: u8 = 1 << 4;
+    pub const RIGHT_HAND: u8 = 1 << 5;
+}
+
+/// Bone hash of the limb-contact track.
+pub const CONTACT_TRACK: u32 = 2;
 
 impl Animation {
     pub fn frames(&self) -> f32 {
         self.duration * FPS
+    }
+
+    /// The limb-contact bits (`contact`) at `frame`: the last key at or before it, held (the bits step, they are not
+    /// interpolated). `None` when the clip has no contact track.
+    pub fn contacts_at(&self, frame: f32) -> Option<u8> {
+        let t = self.tracks.iter().find(|t| t.bone_hash == CONTACT_TRACK)?;
+        let Channel::Scalar(v) = &t.channel else { return None };
+        let i = t.keys.partition_point(|&k| (k as f32) <= frame + 1e-3).saturating_sub(1);
+        v.get(i).copied()
     }
     /// Root motion (hash 0 translation) over the whole clip, metres.
     pub fn root_motion(&self) -> [f32; 3] {
@@ -379,5 +411,21 @@ mod tests {
         let q = m.tracks[1].rotation_at(m.frames()).unwrap();
         assert!((q.iter().map(|x| x * x).sum::<f32>() - 1.0).abs() < 1e-4);
         assert!(mix(&[(&a, 0.0)]).is_none());
+    }
+
+    /// Contact bits step from key to key; a mix takes its heaviest clip's, stretched to its length.
+    #[test]
+    fn contacts_step_and_follow_the_heaviest_clip() {
+        let mut a = clip(0.5, 0.3, 0.0);
+        a.tracks.push(Track { bone_hash: CONTACT_TRACK, kind: 0x2c, keys: vec![0, 4, 20], channel: Channel::Scalar(vec![0b111100, 0b101000, 0b111100]) });
+        assert_eq!(a.contacts_at(0.0), Some(0b111100));
+        assert_eq!(a.contacts_at(10.0), Some(0b101000));
+        assert_eq!(a.contacts_at(25.0), Some(0b111100));
+        assert_eq!(clip(0.5, 0.3, 0.0).contacts_at(0.0), None);
+        let b = clip(1.0, 1.0, 1.0);
+        let m = mix(&[(&a, 0.7), (&b, 0.3)]).unwrap();
+        // 0.65 s long: the release at a fifth of the way through a.
+        assert_eq!(m.contacts_at(m.frames() * 0.3), Some(0b101000));
+        assert_eq!(mix(&[(&a, 0.3), (&b, 0.7)]).unwrap().contacts_at(0.0), None);
     }
 }
