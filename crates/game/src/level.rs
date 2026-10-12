@@ -177,8 +177,10 @@ pub struct Kiosk {
 /// 21,312 Damascus holds AC1 keeps).
 const AUTHORED_MAX_SLOPE: f32 = 0.643;
 /// AC1's hold grid shortens a guidance edge this much at its ends (m; `BuildHoldGrid` 0xDF6A40, docs/PARKOUR.md
-/// section 4): a lone piece 0.2 m long or less holds nothing.
+/// section 4)...
 const AUTHORED_TRIM: f32 = 0.1;
+/// ...and a piece shorter than that holds at its middle: kept this long there (m).
+const AUTHORED_POINT: f32 = 0.01;
 /// A top behind a hold this deep or less (m), with a drop past it, is a narrow wall top to balance on, not to stand:
 /// a beam's width. (At 0.6 m Damascus had 10,557, its parapets among them, and running along a roof switched in and
 /// out of balancing at every one; AC1 runs on those as ground, its beams found by `GuidanceBeamDetectorAccurate`.)
@@ -705,14 +707,20 @@ impl Level {
             let len = e.a.distance(e.b);
             match e.kind {
                 SubType::LedgeGrab => {
-                    // (Shortened at its free ends, as AC1's hold grid takes an edge: the lone 8-12 cm window-frame
-                    // pieces leave nothing, where leaping to one hung him from the air. Not where it goes on into
-                    // another piece: a sill in three pieces of 0.15-0.23 m is one 0.87 m hold.)
+                    // (Shortened at its free ends, as AC1's hold grid takes an edge; not where it goes on into another
+                    // piece: a sill in three pieces of 0.15-0.23 m is one 0.87 m hold. A piece too short for that holds at
+                    // its middle, as AC1's probes take one (`sub_116D3C0`: shortened 0.1 m at both ends, the midpoint
+                    // when it is 0.2 m or less; audit GUIDE-2): a railing's knob, a lone window-frame piece.)
                     let free = |p: Vec3| if ends.get(&key(p)).copied().unwrap_or(0) <= 1 { AUTHORED_TRIM } else { 0.0 };
                     let (ta, tb) = (free(e.a), free(e.b));
-                    if len > ta + tb + 0.01 && (e.b.y - e.a.y).abs() / len <= AUTHORED_MAX_SLOPE && e.out != Vec3::ZERO {
+                    if len > 1e-4 && (e.b.y - e.a.y).abs() / len <= AUTHORED_MAX_SLOPE && e.out != Vec3::ZERO {
                         let d = (e.b - e.a) / len;
-                        ledges.push(Ledge { a: e.a + d * ta, b: e.b - d * tb, out: e.out });
+                        if len > ta + tb + AUTHORED_POINT {
+                            ledges.push(Ledge { a: e.a + d * ta, b: e.b - d * tb, out: e.out });
+                        } else {
+                            let mid = (e.a + e.b) * 0.5;
+                            ledges.push(Ledge { a: mid - d * AUTHORED_POINT * 0.5, b: mid + d * AUTHORED_POINT * 0.5, out: e.out });
+                        }
                     }
                 }
                 SubType::Ladder => {
