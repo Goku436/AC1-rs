@@ -755,8 +755,12 @@ end onto another going on from it (within 0.45 m, 35 degrees) walks on along it.
 balancing on it, and free running carries on along or off it.
 
 ## City parkour objects
-Benches, and the ladders and poles of cities without authored ones, are found by mesh name (haystacks and hiding
-spots have components of their own, not yet read, audit GUIDE-7; they take the entity's position and facing): they are found by mesh name when a city is placed, and
+Benches, and the ladders and poles of cities without authored ones, are found by mesh name. Haystacks and hiding spots
+are found by their components (audit GUIDE-7): `BhvHayStack` (0x19F58E6A) on the hay's entity, `BhvHidingPlace`
+(0xDC3F581A) on a meshless member of the hiding spot's group. The meshes named as below give the bounds (on an entity
+with the component and no such mesh, its first mesh). Damascus has 169 (46 hay, 123 hiding places), Masyaf 21; every one
+also matches the names, and the names alone are kept for entities with neither component. The components' own fields
+(the volume) are not read; they take the entity's position and facing. All of them are found when a city is placed and
 set up against the built collision (`Level::add_city_objects`), logged as "N haystacks, N ladders, ...":
 - hay: `Hay_Bale_Charette*`, `Hay_Bale_Chariot*`, `Hay_Bale_01` (not the straw strewn on the ground, `Hay_Bale_Tile*`).
   Their meshes use a vertex format not decoded yet, so a cart's stack stands where its entity is (1.8 x 1.8 m, 1.8 m
