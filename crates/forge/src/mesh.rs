@@ -5,7 +5,7 @@
 //!   { u32 id, u32 class, u32 name hash, f32[16] inverse bind matrix (row-major, row-vector, translation in row 3) }
 //! - 6 bytes, u32 class 0xfc9e1595 (compiled mesh), u32 size, u32 ?, u32 vertex stride,
 //!   u32 vertex bytes, u32 index bytes, 8 bytes, u32 submesh count, u32 submesh count (2nd table),
-//!   u32 blob size, then vertices, u16 indices, two submesh tables
+//!   u32 blob size, then vertices, u16 indices (u32 in a mesh of more than 65535 vertices), two submesh tables
 //!   (20 B each: u32 4, u32 first vertex, u32 vertex count, u32 first index, u32 triangle count)
 //! - per submesh bone palette: u8 3, u8 1, u8 n, u16 ?, u16 vertex count, u8[n] skeleton bone indices.
 //! - ... trailer: u32 submesh count, u32 material id per submesh, 5 bytes.
@@ -169,6 +169,10 @@ pub fn parse_mesh(body: &[u8]) -> Result<Mesh> {
         p += 7 + n;
     }
 
+    // (Over 65535 vertices the indices are u32: six meshes in the install, the merged stand-ins of the distant city,
+    // `Damascus_FakeMesh_26`, `_48`, `_49` and three of Jerusalem's.)
+    let tris: usize = submeshes.iter().map(|s| s.tri_count as usize).sum();
+    let wide = nv > 0xFFFF && ibytes == tris * 12;
     let mut m = Mesh {
         bones,
         stride,
@@ -178,7 +182,11 @@ pub fn parse_mesh(body: &[u8]) -> Result<Mesh> {
         uvs: Vec::with_capacity(nv),
         joints: vec![[0; 4]; nv],
         weights: vec![[1.0, 0.0, 0.0, 0.0]; nv],
-        indices: (0..ibytes / 2).map(|i| u16_at(body, i0 + i * 2) as u32).collect(),
+        indices: if wide {
+            (0..ibytes / 4).map(|i| u32_at(body, i0 + i * 4)).collect()
+        } else {
+            (0..ibytes / 2).map(|i| u16_at(body, i0 + i * 2) as u32).collect()
+        },
         submeshes,
         materials: Vec::new(),
     };

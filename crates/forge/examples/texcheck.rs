@@ -1,6 +1,7 @@
 //! texcheck <game dir>: every TextureMap, TextureGradient and Material in every `.forge` of the install: how many
 //! decode, and histograms of the sampling fields (GammaSettings, AddressMode, FilterType) by the map's kind (the
-//! name's Diffuse / Normal / Specular / other), of the material templates and of the parameter types.
+//! name's Diffuse / Normal / Specular / other), of the stored pixel formats (block-aligned, full mip chain), of the
+//! material templates and of the parameter types.
 use std::collections::BTreeMap;
 
 fn kind(name: &str) -> &'static str {
@@ -28,6 +29,9 @@ fn main() -> anyhow::Result<()> {
     let mut sampling: BTreeMap<(&str, forge::texture::Sampling), (usize, String)> = BTreeMap::new();
     let mut fails: BTreeMap<String, (usize, String)> = BTreeMap::new();
     let mut templates: BTreeMap<u32, (usize, String)> = BTreeMap::new();
+    // Stored pixel formats: (format, whole 4x4 blocks at the top level, full mip chain) -> count (what a GPU with block
+    // compression can take as stored).
+    let mut stored: BTreeMap<(String, bool, bool), usize> = BTreeMap::new();
     for p in forges {
         let f = forge::Forge::open(&p)?;
         for e in &f.entries {
@@ -36,6 +40,10 @@ fn main() -> anyhow::Result<()> {
             for o in &objs {
                 if o.class == forge::CLASS_TEXTURE {
                     tex += 1;
+                    if let Ok(t) = forge::texture_levels(o.body) {
+                        let full = t.levels.len() as u32 == 32 - t.width.max(t.height).leading_zeros();
+                        *stored.entry((format!("{:?}", t.pixels), t.width % 4 == 0 && t.height % 4 == 0, full)).or_default() += 1;
+                    }
                     match forge::decode_texture(o.body) {
                         Ok(t) => {
                             tex_ok += 1;
@@ -87,6 +95,9 @@ fn main() -> anyhow::Result<()> {
     }
     for (t, (n, ex)) in &templates {
         println!("template {t:>10}: {n:>5} materials, e.g. {ex}");
+    }
+    for ((f, blocks, full), n) in &stored {
+        println!("stored {f:>5} whole blocks {blocks:>5} full chain {full:>5}: {n:>6}");
     }
     for (err, (n, ex)) in &fails {
         println!("FAIL {n:>6} {err}  e.g. {ex}");

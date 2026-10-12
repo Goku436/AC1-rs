@@ -49,8 +49,6 @@ pub fn forge_of(city: &str) -> String {
     let name: String = c.next().map(|f| f.to_ascii_uppercase()).into_iter().chain(c.map(|x| x.to_ascii_lowercase())).collect();
     format!("DataPC_{name}.forge")
 }
-/// Largest texture side kept (the chain's bigger levels are dropped, to keep memory in check).
-const MAX_TEXTURE: u32 = 512;
 
 /// Game (Z up) to Bevy (Y up).
 fn game_to_bevy() -> Mat4 {
@@ -321,7 +319,7 @@ const PROP_SKELETON_BONES: usize = 24;
 
 /// Skin `m` once to `skel`'s pose (each bone's model transform times its inverse bind, as characters are
 /// skinned), so a skinned prop stands as placed; bones are matched by id, then by name hash.
-fn pose_skinned(m: &mut forge::mesh::Mesh, skel: &forge::skeleton::Skeleton) {
+pub(crate) fn pose_skinned(m: &mut forge::mesh::Mesh, skel: &forge::skeleton::Skeleton) {
     let mats: Vec<Mat4> = m
         .bones
         .iter()
@@ -464,8 +462,42 @@ fn cutout(name: &str) -> bool {
     ["veg", "forest", "fake", "leaf", "tree", "olivier", "cedre", "cypres", "palm", "grass", "trellis", "alpha"].iter().any(|k| n.contains(k))
 }
 
-fn image(mut t: forge::Texture) -> Image {
-    while t.width.max(t.height) > MAX_TEXTURE && !t.mips.is_empty() {
+/// A city texture for the GPU: kept block-compressed as stored (BC1/BC2/BC3, `bc`: the device takes them) with its
+/// mip chain, else decoded to RGBA8 (`image`); levels over `max` px dropped either way (`stream::Detail`). Its sampler and colour space
+/// from its header.
+fn city_image(body: &[u8], bc: bool, max: u32) -> Option<Image> {
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    use forge::PixelFormat;
+    let t = forge::texture_levels(body).ok()?;
+    if !bc || !t.pixels.is_block() {
+        return forge::decode_texture(body).ok().map(|t| image(t, max));
+    }
+    let (mut w, mut h, mut levels) = (t.width, t.height, &t.levels[..]);
+    while w.max(h) > max && levels.len() > 1 {
+        (w, h, levels) = ((w / 2).max(1), (h / 2).max(1), &levels[1..]);
+    }
+    // (Block formats take whole blocks at the top level: every one in the install has them.)
+    if w % 4 != 0 || h % 4 != 0 {
+        return forge::decode_texture(body).ok().map(|t| image(t, max));
+    }
+    let srgb = t.sampling.srgb;
+    let format = match t.pixels {
+        PixelFormat::Bc1 if srgb => TextureFormat::Bc1RgbaUnormSrgb,
+        PixelFormat::Bc1 => TextureFormat::Bc1RgbaUnorm,
+        PixelFormat::Bc2 if srgb => TextureFormat::Bc2RgbaUnormSrgb,
+        PixelFormat::Bc2 => TextureFormat::Bc2RgbaUnorm,
+        PixelFormat::Bc3 if srgb => TextureFormat::Bc3RgbaUnormSrgb,
+        _ => TextureFormat::Bc3RgbaUnorm,
+    };
+    let mut img = Image::new_uninit(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, format, RenderAssetUsages::RENDER_WORLD);
+    img.texture_descriptor.mip_level_count = levels.len() as u32;
+    img.data = Some(levels.concat());
+    img.sampler = bevy::image::ImageSampler::Descriptor(crate::assets::sampler(&t.sampling));
+    Some(img)
+}
+
+fn image(mut t: forge::Texture, max: u32) -> Image {
+    while t.width.max(t.height) > max && !t.mips.is_empty() {
         t.rgba = t.mips.remove(0);
         t.width = (t.width / 2).max(1);
         t.height = (t.height / 2).max(1);
@@ -475,6 +507,7 @@ fn image(mut t: forge::Texture) -> Image {
 }
 
 /// Build the city into `level` (collision) and the world (meshes): see the module docs.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_city(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -483,8 +516,17 @@ pub fn spawn_city(
     level: &mut Level,
     game_dir: &Path,
     forge_file: &str,
+    opts: RenderOpts,
 ) -> Result<Vec3> {
-    spawn_world(commands, meshes, mats, images, level, game_dir, forge_file, None)
+    spawn_world(commands, meshes, mats, images, level, game_dir, forge_file, None, opts)
+}
+
+/// How a city is drawn: `bc`, its textures stay block-compressed on the GPU; `render`, it is drawn at all (not
+/// headless).
+#[derive(Clone, Copy)]
+pub struct RenderOpts {
+    pub bc: bool,
+    pub render: bool,
 }
 
 /// A prop taken from a city to place elsewhere: its entity's name, where it goes (Bevy, Y up) and its turn
@@ -508,8 +550,9 @@ pub fn spawn_props(
     game_dir: &Path,
     forge_file: &str,
     picks: &[PropPick],
+    opts: RenderOpts,
 ) -> Result<()> {
-    spawn_world(commands, meshes, mats, images, level, game_dir, forge_file, Some(picks)).map(|_| ())
+    spawn_world(commands, meshes, mats, images, level, game_dir, forge_file, Some(picks), opts).map(|_| ())
 }
 
 /// The data files a few entities need: from each, everything it links (meshes, materials, texture sets,
@@ -564,7 +607,9 @@ fn spawn_world(
     game_dir: &Path,
     forge_file: &str,
     picks: Option<&[PropPick]>,
+    opts: RenderOpts,
 ) -> Result<Vec3> {
+    let bc = opts.bc;
     let t0 = std::time::Instant::now();
     let forge = forge::Forge::open(game_dir.join(forge_file)).with_context(|| format!("open {forge_file}"))?;
     let mut datas: Vec<Vec<u8>> = match picks {
@@ -585,13 +630,23 @@ fn spawn_world(
     for o in objects.iter().flatten() {
         index.entry(o.id).or_insert(o);
     }
+    // Drawn only: the shared forge's data files holding the levels of detail of the shared props (their `LODSelector`s,
+    // `_LOD_*` meshes and those meshes' materials), in an index of their own over the gameplay one (which stays as it
+    // is). Not when nothing is drawn (headless) or for picked props (drawn at full detail).
+    let lod_files = if opts.render && picks.is_none() { lod_datas(game_dir, &objects, &index) } else { vec![] };
+    let lod_objects: Vec<Vec<Object>> = lod_files.iter().map(|d| forge::parse_objects(d).unwrap_or_default()).collect();
+    // (Headless: none, nothing is drawn.)
+    let mut rindex = if opts.render { index.clone() } else { Index::default() };
+    for o in lod_objects.iter().flatten() {
+        rindex.entry(o.id).or_insert(o);
+    }
     // Material -> texture set -> diffuse map spec -> texture; layered ("Multi") materials have no
     // plain diffuse spec, so then the first map spec with a texture.
     let diffuse = |material: u32| -> Option<&Object> {
-        let m = index.get(&material)?;
-        let sets: Vec<&Object> = refs(&index, m, CLASS_TEXTURE_SET).into_iter().map(|r| r.1).collect();
-        let specs: Vec<&Object> = sets.iter().flat_map(|s| refs(&index, s, CLASS_MAP_SPEC)).map(|r| r.1).collect();
-        let tex = |s: &&Object| refs(&index, s, forge::CLASS_TEXTURE).first().map(|r| r.1);
+        let m = rindex.get(&material)?;
+        let sets: Vec<&Object> = refs(&rindex, m, CLASS_TEXTURE_SET).into_iter().map(|r| r.1).collect();
+        let specs: Vec<&Object> = sets.iter().flat_map(|s| refs(&rindex, s, CLASS_MAP_SPEC)).map(|r| r.1).collect();
+        let tex = |s: &&Object| refs(&rindex, s, forge::CLASS_TEXTURE).first().map(|r| r.1);
         specs
             .iter()
             .filter(|s| s.name.contains("Diffuse"))
@@ -600,38 +655,44 @@ fn spawn_world(
     };
     // Its normal map (tangent space, RGB, DirectX's green; linear by its GammaSettings), if any.
     let normal_map = |material: u32| -> Option<&Object> {
-        let m = index.get(&material)?;
-        let sets: Vec<&Object> = refs(&index, m, CLASS_TEXTURE_SET).into_iter().map(|r| r.1).collect();
+        let m = rindex.get(&material)?;
+        let sets: Vec<&Object> = refs(&rindex, m, CLASS_TEXTURE_SET).into_iter().map(|r| r.1).collect();
         sets.iter()
-            .flat_map(|s| refs(&index, s, CLASS_MAP_SPEC))
+            .flat_map(|s| refs(&rindex, s, CLASS_MAP_SPEC))
             .map(|r| r.1)
             .filter(|s| s.name.contains("Normal"))
-            .find_map(|s| refs(&index, s, forge::CLASS_TEXTURE).first().map(|r| r.1))
+            .find_map(|s| refs(&rindex, s, forge::CLASS_TEXTURE).first().map(|r| r.1))
+    };
+    // A material slot for a mesh's material (`MatBank`); nothing is made when nothing is drawn.
+    let detail = crate::stream::Detail::from_env();
+    let mut bank = MatBank::new(bc, detail.max_texture);
+    let slot_of = |bank: &mut MatBank, mats: &mut Assets<StandardMaterial>, images: &mut Assets<Image>, material: u32, cut: bool, is_water: bool| -> u32 {
+        if !opts.render {
+            return 0;
+        }
+        bank.slot(mats, images, diffuse(material), normal_map(material), cut, is_water)
     };
 
     let to_bevy = game_to_bevy();
     // Per mesh: its submeshes (Bevy mesh, material id), triangles and ledges (game space); None if not
     // static.
-    type Parsed = Option<(Vec<(Handle<Mesh>, u32)>, Vec<[Vec3; 3]>, Vec<(Vec3, Vec3, Vec3)>, Vec<(Vec3, Vec3, Vec3)>)>;
+    // (Its drawn parts: material id and vertices per submesh, `stream::mesh_parts`.)
+    type Parsed = Option<(Vec<(u32, usize)>, Vec<[Vec3; 3]>, Vec<(Vec3, Vec3, Vec3)>, Vec<(Vec3, Vec3, Vec3)>)>;
     let mut parsed: HashMap<u32, Parsed> = HashMap::new();
-    let mut materials: HashMap<(u32, u32, bool), Handle<StandardMaterial>> = HashMap::new();
-    let plain = mats.add(StandardMaterial { base_color: Color::srgb(0.7, 0.66, 0.58), perceptual_roughness: 0.9, ..default() });
-    let plain_veg =
-        mats.add(StandardMaterial { base_color: Color::srgb(0.36, 0.45, 0.28), perceptual_roughness: 0.9, double_sided: true, cull_mode: None, ..default() });
-    let water_mat = mats.add(StandardMaterial {
-        base_color: Color::srgba(0.2, 0.38, 0.42, 0.75),
-        perceptual_roughness: 0.08,
-        reflectance: 0.6,
-        alpha_mode: AlphaMode::Blend,
-        double_sided: true,
-        cull_mode: None,
-        ..default()
-    });
     let (mut placed, mut parts) = (0, 0);
+    // (What the GPU would get at full detail: vertices of every drawn part, summed over placements.)
+    let mut drawn_verts = 0usize;
+    // What is drawn (`stream`): the placed meshes, with what their levels of detail need.
+    let mut drawn: Vec<Drawn> = vec![];
+    // (Per mesh: its index in `stored`.)
+    let mut stored: Vec<crate::stream::StoredMesh> = vec![];
+    let mut stored_at: HashMap<u32, usize> = HashMap::new();
     let mut houses: Vec<Vec3> = vec![];
     // What is placed: the entities, and the entities embedded in entity groups: `[id][entity class]`
     // followed by the entity's world transform and references, up to the next one.
     let mut placements: Vec<(u32, &[u8])> = vec![];
+    // (The data file each one comes from, an index into `datas`; `usize::MAX` for picked props.)
+    let mut placement_file: Vec<usize> = vec![];
     // Entities placed from a group marked hay or a hiding place (`bhv_of`), by id.
     let mut group_bhv: HashMap<u32, crate::level::CityObject> = HashMap::new();
     let mut vantage: Vec<Vec3> = vec![];
@@ -653,6 +714,7 @@ fn spawn_world(
             if o.class == CLASS_ENTITY {
                 moved.push(Some((place * local, k)));
                 placements.push((o.id, o.body));
+                placement_file.push(usize::MAX);
                 continue;
             }
             let b = o.body;
@@ -663,10 +725,11 @@ fn spawn_world(
                 let Some(mm) = transform(member) else { continue };
                 moved.push(Some((place * local * m.inverse() * mm, k)));
                 placements.push((u32_at(b, j - 4), member));
+                placement_file.push(usize::MAX);
             }
         }
     }
-    for o in objects.iter().flatten().filter(|_| picks.is_none()) {
+    for (fi, o) in objects.iter().enumerate().flat_map(|(fi, v)| v.iter().map(move |o| (fi, o))).filter(|_| picks.is_none()) {
         if o.class == CLASS_ENTITY && placed_ids.insert(o.id) {
             // (A lone viewpoint entity, Masyaf's tutorial tower `M05_T40_Scene_TUT_ReachHighPoint`.)
             if o.name.contains("ReachHighPoint")
@@ -675,6 +738,7 @@ fn spawn_world(
                 vantage.push((to_bevy * m).w_axis.truncate());
             }
             placements.push((o.id, o.body));
+            placement_file.push(fi);
         } else if o.class == CLASS_ENTITY_GROUP {
             let b = o.body;
             // A viewpoint tower or spire (`ReachHighPoint_*`).
@@ -694,6 +758,7 @@ fn spawn_world(
                         group_bhv.insert(u32_at(b, k - 4), kind);
                     }
                     placements.push((u32_at(b, k - 4), &b[k + 4..end]));
+                    placement_file.push(fi);
                     grouped += 1;
                 }
             }
@@ -877,7 +942,6 @@ fn spawn_world(
         // (placeholder, real) material pairs: adjacent material ids.
         let mrefs = refs_of(CLASS_MATERIAL);
         let overrides: HashMap<u32, u32> = mrefs.windows(2).filter(|w| w[1].0 == w[0].0 + 4).map(|w| (w[0].1.id, w[1].1.id)).collect();
-        let tf = Transform::from_matrix(world);
         // A skinned prop (a market stall's frame the game's physics can knock down, a haystack that gives when jumped
         // into) stands in its skeleton's pose.
         // (Props only: a character's skeleton, NPCs placed in the city, is not stood up here.)
@@ -939,10 +1003,10 @@ fn spawn_world(
                         return None;
                     }
                 };
-                let mut subs = vec![];
+                let subs = crate::stream::mesh_parts(&pm).into_iter().map(|(_, m, v)| (m, v)).collect();
                 let mut tris = vec![];
                 let mut faces = vec![];
-                for (si, s) in pm.submeshes.iter().enumerate() {
+                for s in pm.submeshes.iter() {
                     let range = s.first_vertex as usize..(s.first_vertex + s.vertex_count) as usize;
                     let Some(idx) = pm.indices.get(s.first_index as usize..(s.first_index + s.tri_count * 3) as usize) else { continue };
                     let idx: Vec<u32> = idx.iter().map(|&i| i.saturating_sub(s.first_vertex)).collect();
@@ -959,14 +1023,6 @@ fn spawn_world(
                         let vn: Vec3 = t.iter().map(|&i| Vec3::from(nrm[i as usize])).sum();
                         faces.push((tri, if n.dot(vn) < 0.0 { -n } else { n }));
                     }
-                    let mut bm = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
-                    bm.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos.to_vec());
-                    bm.insert_attribute(Mesh::ATTRIBUTE_NORMAL, pm.normals[range.clone()].to_vec());
-                    bm.insert_attribute(Mesh::ATTRIBUTE_UV_0, pm.uvs[range].to_vec());
-                    bm.insert_indices(Indices::U32(idx));
-                    // (Tangents for normal maps.)
-                    let _ = bm.generate_tangents();
-                    subs.push((meshes.add(bm), pm.materials.get(si).copied().unwrap_or(0)));
                 }
                 let holds = has_holds(&mesh.name) && solid(&mesh.name);
                 let ledges = if holds { edge_ledges(&faces) } else { vec![] };
@@ -975,35 +1031,42 @@ fn spawn_world(
             });
             let Some((subs, tris, ledges, lips)) = p else { continue };
             let cut = cutout(&mesh.name);
-            for (h, mat) in subs.iter() {
-                let mat = overrides.get(mat).copied().unwrap_or(*mat);
-                let tex = diffuse(mat);
-                let nrm = normal_map(mat);
-                let key = (tex.map_or(0, |t| t.id), nrm.map_or(0, |t| t.id), cut);
-                let material = match tex {
-                    _ if water(&mesh.name) => water_mat.clone(),
-                    None if cut => plain_veg.clone(),
-                    None => plain.clone(),
-                    Some(t) => materials
-                        .entry(key)
-                        .or_insert_with(|| {
-                            let img = forge::decode_texture(t.body).ok().map(|t| images.add(image(t)));
-                            let normal = nrm.and_then(|n| forge::decode_texture(n.body).ok()).map(|n| images.add(image(n)));
-                            mats.add(StandardMaterial {
-                                base_color_texture: img,
-                                normal_map_texture: normal,
-                                flip_normal_map_y: true,
-                                perceptual_roughness: 0.9,
-                                alpha_mode: if cut { AlphaMode::Mask(0.4) } else { AlphaMode::Opaque },
-                                double_sided: cut,
-                                cull_mode: if cut { None } else { Some(bevy::render::render_resource::Face::Back) },
-                                ..default()
-                            })
-                        })
-                        .clone(),
-                };
-                commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(material), tf));
-                parts += 1;
+            let is_water = water(&mesh.name);
+            // What it draws: its material slot per part (the entity's overrides applied).
+            let slots: Vec<u32> =
+                subs.iter().map(|(m, _)| slot_of(&mut bank, &mut *mats, &mut *images, overrides.get(m).copied().unwrap_or(*m), cut, is_water)).collect();
+            let verts: usize = subs.iter().map(|s| s.1).sum();
+            parts += subs.len();
+            drawn_verts += verts;
+            if opts.render {
+                let at = *stored_at.entry(mesh.id).or_insert_with(|| {
+                    stored.push(crate::stream::StoredMesh {
+                        body: std::sync::Arc::from(mesh.body),
+                        verts,
+                        materials: subs.iter().map(|s| s.0).collect(),
+                        pose: skel.as_ref().filter(|_| std::env::var("AC1_POSE_PROPS").is_ok()).map(|s| std::sync::Arc::new(s.clone())),
+                    });
+                    stored.len() - 1
+                });
+                let (lo, hi) = tris
+                    .iter()
+                    .flatten()
+                    .map(|v| world.transform_point3(*v))
+                    .fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(a, b), v| (a.min(v), b.max(v)));
+                drawn.push(Drawn {
+                    world,
+                    lo,
+                    hi,
+                    mesh: at,
+                    mesh_id: mesh.id,
+                    slots,
+                    overrides: overrides.clone(),
+                    cut,
+                    water: is_water,
+                    file: placement_file[pi],
+                    entity: body,
+                    entity_id: ent_id,
+                });
             }
             for &(a, b, out) in ledges.iter() {
                 let out = world.transform_vector3(out).with_y(0.0).normalize_or_zero();
@@ -1057,8 +1120,46 @@ fn spawn_world(
     }
     info!("city {forge_file}: {} hay and hiding places by their component ({} with no mesh named for one), {} by mesh name only", marked.0, marked.1, marked.2);
     if picks.is_some() {
+        // Picked props: drawn at once, at full detail.
+        for d in drawn.iter().filter(|_| opts.render) {
+            let tf = Transform::from_matrix(d.world);
+            for ((mesh, aabb), slot) in crate::stream::build_parts(&stored[d.mesh]).into_iter().zip(&d.slots) {
+                commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(bank.list[*slot as usize].clone()), tf, aabb, bevy::camera::visibility::NoAutoAabb));
+            }
+        }
         info!("props from {forge_file}: {placed} meshes, {} collision triangles, {:.1}s", level.tris.len(), t0.elapsed().as_secs_f32());
         return Ok(Vec3::ZERO);
+    }
+    if opts.render {
+        let t1 = std::time::Instant::now();
+        let city_files: Vec<&str> = forge.entries.iter().map(|e| e.name.as_str()).collect();
+        let store = render_store(RenderInput {
+            drawn,
+            stored,
+            stored_at,
+            rindex: &rindex,
+            city_objects: &objects[..city_files.len().min(objects.len())],
+            city_files: &city_files,
+            mats: &mut *mats,
+            images: &mut *images,
+            bank: &mut bank,
+            slot_of: &slot_of,
+        });
+        info!(
+            "city {forge_file}: drawn: {} instances in {} cells, {} meshes ({:.0} MB of mesh data kept), {} stand-in pieces, {} textures {:.0} MB{}, {:.1}s",
+            store.instances.len(),
+            store.cells.len(),
+            store.meshes.len(),
+            store.meshes.iter().map(|m| m.body.len()).sum::<usize>() as f64 / 1048576.0,
+            store.fakes.len(),
+            bank.textures,
+            bank.texture_bytes as f64 / 1048576.0,
+            if bc { " (block-compressed)" } else { "" },
+            t1.elapsed().as_secs_f32()
+        );
+        info!("city {forge_file}: detail {detail:?}");
+        let render = crate::stream::CityRender::new(store, bank.list.clone(), detail, commands, meshes);
+        commands.insert_resource(render);
     }
     // Navigation meshes: every cell's walkable triangles (already in world space).
     let mut nav_tris = vec![];
@@ -1085,10 +1186,11 @@ fn spawn_world(
         let top = level.beam_tops.iter().chain(level.perches.iter()).flat_map(|l| [l.a, l.b]).filter(near).max_by(|a, b| a.y.total_cmp(&b.y));
         level.viewpoints.push(top.unwrap_or(v));
     }
+    info!("city {forge_file}: render: {parts} parts of {drawn_verts} vertices at full detail");
     info!(
         "city {forge_file}: {placed} meshes placed ({grouped} entities from groups, {shared_files} shared data files; {parts} parts, {} unique meshes, {} materials), {} collision triangles ({shape_tris} from {shaped} entities' collision shapes, {prims} of them primitives; {skipped_bounds} out-of-bounds or camera-only shapes left out), {} ledges, {} viewpoints, {:.1}s",
         parsed.values().filter(|p| p.is_some()).count(),
-        materials.len(),
+        bank.textured,
         level.tris.len(),
         level.ledges.len(),
         level.viewpoints.len(),
@@ -1100,6 +1202,398 @@ fn spawn_world(
         v.get(v.len() / 2).copied().unwrap_or(0.0)
     };
     Ok(Vec3::new(median(houses.iter().map(|h| h.x).collect()), 0.0, median(houses.iter().map(|h| h.z).collect())))
+}
+
+/// The data files of the shared forge holding the levels of detail the city's entities use from it and the loaded files
+/// lack: their `LODSelector`s, those selectors' meshes, and the meshes' materials, texture sets, maps and textures.
+fn lod_datas(game_dir: &Path, objects: &[Vec<Object>], index: &Index) -> Vec<Vec<u8>> {
+    use forge::lod::CLASS_LOD_SELECTOR;
+    let path = game_dir.join(SHARED_FORGE);
+    let (Ok(forge), Ok(idx)) = (forge::Forge::open(&path), forge::index::ForgeIndex::load(&path)) else { return vec![] };
+    let class_of: HashMap<u32, u32, std::hash::BuildHasherDefault<IdHasher>> = idx.objects.iter().map(|(id, p)| (*id, p.class)).collect();
+    let ids_in = |b: &[u8], classes: &[u32]| -> Vec<u32> {
+        (0..b.len().saturating_sub(3))
+            .map(|k| u32_at(b, k))
+            .filter(|id| !index.contains_key(id) && class_of.get(id).is_some_and(|c| classes.contains(c)))
+            .collect()
+    };
+    let mut queue: Vec<u32> = objects
+        .iter()
+        .flatten()
+        .filter(|o| o.class == CLASS_ENTITY || o.class == CLASS_ENTITY_GROUP)
+        .flat_map(|o| ids_in(o.body, &[CLASS_LOD_SELECTOR]))
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut kept: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut places: HashMap<String, HashMap<u32, std::ops::Range<usize>>> = HashMap::new();
+    while let Some(id) = queue.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let Some(place) = idx.objects.get(&id) else { continue };
+        let file = place.datafile.clone();
+        if !kept.contains_key(&file) {
+            let Some(e) = forge.entries.iter().find(|e| e.name == file) else { continue };
+            let Ok(data) = forge.read(e) else { continue };
+            let base = data.as_ptr() as usize;
+            let ranges = forge::parse_objects(&data)
+                .unwrap_or_default()
+                .iter()
+                .map(|o| {
+                    let start = o.body.as_ptr() as usize - base;
+                    (o.id, start..start + o.body.len())
+                })
+                .collect();
+            places.insert(file.clone(), ranges);
+            kept.insert(file.clone(), data);
+        }
+        let next: &[u32] = match place.class {
+            CLASS_LOD_SELECTOR => &[CLASS_MESH],
+            forge::CLASS_TEXTURE => &[],
+            _ => &[CLASS_MATERIAL, CLASS_TEXTURE_SET, CLASS_MAP_SPEC, forge::CLASS_TEXTURE],
+        };
+        if let Some(r) = places.get(&file).and_then(|m| m.get(&id)) {
+            queue.extend(ids_in(&kept[&file][r.clone()], next));
+        }
+    }
+    info!("city: {} data files of levels of detail from {SHARED_FORGE}", kept.len());
+    kept.into_values().collect()
+}
+
+/// City materials made so far: a slot per (diffuse map, normal map, cut-out, water).
+struct MatBank {
+    slots: HashMap<(u32, u32, bool, bool), u32>,
+    list: Vec<Handle<StandardMaterial>>,
+    bc: bool,
+    /// The largest texture side kept.
+    max_texture: u32,
+    /// (Textured materials, textures, their bytes.)
+    textured: usize,
+    textures: usize,
+    texture_bytes: usize,
+}
+
+impl MatBank {
+    fn new(bc: bool, max_texture: u32) -> Self {
+        Self { slots: HashMap::new(), list: vec![], bc, max_texture, textured: 0, textures: 0, texture_bytes: 0 }
+    }
+
+    /// The slot of a material with these maps (made on first use).
+    fn slot(
+        &mut self,
+        mats: &mut Assets<StandardMaterial>,
+        images: &mut Assets<Image>,
+        tex: Option<&Object>,
+        nrm: Option<&Object>,
+        cut: bool,
+        water: bool,
+    ) -> u32 {
+        let key = match tex {
+            _ if water => (0, 0, false, true),
+            None => (0, 0, cut, false),
+            Some(t) => (t.id, nrm.map_or(0, |n| n.id), cut, false),
+        };
+        if let Some(&s) = self.slots.get(&key) {
+            return s;
+        }
+        let material = match tex {
+            _ if water => StandardMaterial {
+                base_color: Color::srgba(0.2, 0.38, 0.42, 0.75),
+                perceptual_roughness: 0.08,
+                reflectance: 0.6,
+                alpha_mode: AlphaMode::Blend,
+                double_sided: true,
+                cull_mode: None,
+                ..default()
+            },
+            None if cut => {
+                StandardMaterial { base_color: Color::srgb(0.36, 0.45, 0.28), perceptual_roughness: 0.9, double_sided: true, cull_mode: None, ..default() }
+            }
+            None => StandardMaterial { base_color: Color::srgb(0.7, 0.66, 0.58), perceptual_roughness: 0.9, ..default() },
+            Some(t) => {
+                let mut add = |img: Image| {
+                    self.textures += 1;
+                    self.texture_bytes += img.data.as_ref().map_or(0, Vec::len);
+                    images.add(img)
+                };
+                let img = city_image(t.body, self.bc, self.max_texture).map(&mut add);
+                let normal = nrm.and_then(|n| city_image(n.body, self.bc, self.max_texture)).map(&mut add);
+                self.textured += 1;
+                StandardMaterial {
+                    base_color_texture: img,
+                    normal_map_texture: normal,
+                    flip_normal_map_y: true,
+                    perceptual_roughness: 0.9,
+                    alpha_mode: if cut { AlphaMode::Mask(0.4) } else { AlphaMode::Opaque },
+                    double_sided: cut,
+                    cull_mode: if cut { None } else { Some(bevy::render::render_resource::Face::Back) },
+                    ..default()
+                }
+            }
+        };
+        self.list.push(mats.add(material));
+        let s = self.list.len() as u32 - 1;
+        self.slots.insert(key, s);
+        s
+    }
+}
+
+/// A placed mesh to draw, as the loader found it.
+struct Drawn<'a> {
+    /// Bevy space.
+    world: Mat4,
+    lo: Vec3,
+    hi: Vec3,
+    /// Its full-detail mesh: an index into the stored meshes, and its id.
+    mesh: usize,
+    mesh_id: u32,
+    /// Its parts' material slots.
+    slots: Vec<u32>,
+    /// The entity's (placeholder, real) materials.
+    overrides: HashMap<u32, u32>,
+    cut: bool,
+    water: bool,
+    /// The data file (index into the loaded ones) its entity comes from.
+    file: usize,
+    entity: &'a [u8],
+    entity_id: u32,
+}
+
+struct RenderInput<'a, F> {
+    drawn: Vec<Drawn<'a>>,
+    stored: Vec<crate::stream::StoredMesh>,
+    stored_at: HashMap<u32, usize>,
+    rindex: &'a Index<'a>,
+    /// The city forge's data files' objects (in `city_files`' order) and names.
+    city_objects: &'a [Vec<Object<'a>>],
+    city_files: &'a [&'a str],
+    mats: &'a mut Assets<StandardMaterial>,
+    images: &'a mut Assets<Image>,
+    bank: &'a mut MatBank,
+    slot_of: &'a F,
+}
+
+/// A compact mesh of some triangles of a parsed mesh (`idx`: indices into all its vertices), render-world only.
+fn piece_mesh(pm: &forge::mesh::Mesh, idx: &[u32]) -> Option<Mesh> {
+    let mut map: HashMap<u32, u32> = HashMap::new();
+    let (mut pos, mut nrm, mut uv, mut out) = (vec![], vec![], vec![], Vec::with_capacity(idx.len()));
+    for &i in idx {
+        let k = *map.entry(i).or_insert_with(|| {
+            let j = i as usize;
+            pos.push(pm.positions.get(j).copied().unwrap_or_default());
+            nrm.push(pm.normals.get(j).copied().unwrap_or([0.0, 0.0, 1.0]));
+            uv.push(pm.uvs.get(j).copied().unwrap_or_default());
+            pos.len() as u32 - 1
+        });
+        out.push(k);
+    }
+    if out.len() < 3 {
+        return None;
+    }
+    let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+    m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm);
+    m.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+    m.insert_indices(Indices::U32(out));
+    let _ = m.generate_tangents();
+    Some(m)
+}
+
+/// What a city draws (`stream`): its placed meshes with their levels of detail (the entities' `LODSelector`s), in the
+/// cells of the world's streaming grid, and the world's stand-ins for the distant city.
+fn render_store<F: Fn(&mut MatBank, &mut Assets<StandardMaterial>, &mut Assets<Image>, u32, bool, bool) -> u32>(
+    inp: RenderInput<F>,
+) -> crate::stream::RenderStore {
+    use crate::stream::{Cell, FakePiece, Instance, Lod, RenderStore, StoredMesh};
+    use forge::lod::{CLASS_LOD_SELECTOR, LodLevel, parse_lod_selector};
+    let RenderInput { drawn, mut stored, mut stored_at, rindex, city_objects, city_files, mats, images, bank, slot_of } = inp;
+    // Each entity's selectors' levels.
+    let mut selectors: HashMap<u32, Option<Vec<LodLevel>>> = HashMap::new();
+    let mut chains: HashMap<u32, Vec<Vec<LodLevel>>> = HashMap::new();
+    for d in &drawn {
+        chains.entry(d.entity_id).or_insert_with(|| {
+            refs_in(rindex, d.entity, d.entity_id, CLASS_LOD_SELECTOR)
+                .into_iter()
+                .filter_map(|(_, o)| selectors.entry(o.id).or_insert_with(|| parse_lod_selector(o.body).ok().map(|s| s.levels())).clone())
+                .collect()
+        });
+    }
+    // The levels' meshes not stored yet, parsed on all cores: their parts (material, vertices).
+    let mut lod_ids: Vec<u32> = chains.values().flatten().flatten().filter_map(|l| l.mesh).filter(|id| !stored_at.contains_key(id)).collect();
+    lod_ids.sort_unstable();
+    lod_ids.dedup();
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let chunk = lod_ids.len().div_ceil(threads).max(1);
+    let lod_parts: HashMap<u32, Vec<(u32, usize)>> = std::thread::scope(|sc| {
+        let jobs: Vec<_> = lod_ids
+            .chunks(chunk)
+            .map(|part| {
+                sc.spawn(move || {
+                    part.iter()
+                        .filter_map(|id| {
+                            let o = rindex.get(id).filter(|o| o.class == CLASS_MESH)?;
+                            let pm = parse_mesh(o.body).ok()?;
+                            let parts: Vec<(u32, usize)> = crate::stream::mesh_parts(&pm).into_iter().map(|(_, m, v)| (m, v)).collect();
+                            (!parts.is_empty()).then_some((*id, parts))
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
+    });
+    let mut store = RenderStore::default();
+    // The grid: the world's layout and levels, if the city has them.
+    let grid = city_objects.iter().flatten().find(|o| o.class == forge::world::CLASS_WORLD).and_then(|w| forge::world::grid_layout(w.body).ok());
+    let levels = grid.and_then(|g| {
+        city_objects.iter().flatten().find(|o| o.class == forge::world::CLASS_GRID_PARTITION).and_then(|p| forge::world::grid_levels(p.body, &g).ok())
+    });
+    let mut cells: HashMap<(u32, u32, u32), usize> = HashMap::new();
+    let mut cell_of = |store: &mut RenderStore, key: (u32, u32, u32)| -> usize {
+        *cells.entry(key).or_insert_with(|| {
+            let (min, max) = match (grid, levels) {
+                (Some(g), Some(_)) => {
+                    let (a, b) = g.rect(key.0, key.1, key.2);
+                    (Vec2::from(a), Vec2::from(b))
+                }
+                _ => (Vec2::splat(f32::MIN), Vec2::splat(f32::MAX)),
+            };
+            store.cells.push(Cell { min, max, instances: vec![] });
+            store.cells.len() - 1
+        })
+    };
+    let mut by_position = 0;
+    for d in drawn {
+        // Its levels: those of the entity's selector that has its mesh, else the mesh alone. A level whose mesh can't
+        // be drawn draws the one before it.
+        let chain = chains.get(&d.entity_id).and_then(|c| c.iter().find(|l| l.iter().any(|l| l.mesh == Some(d.mesh_id))));
+        let mut lods: Vec<Lod> = vec![];
+        let mut parts: Vec<Vec<u32>> = vec![];
+        match chain {
+            None => {
+                lods.push(Lod { mesh: Some(d.mesh), until: f32::INFINITY });
+                parts.push(d.slots.clone());
+            }
+            Some(chain) => {
+                for l in chain {
+                    let (mesh, slots) = match l.mesh {
+                        None => (None, vec![]),
+                        Some(id) if id == d.mesh_id => (Some(d.mesh), d.slots.clone()),
+                        Some(id) => {
+                            let at = stored_at.get(&id).copied().or_else(|| {
+                                let p = lod_parts.get(&id)?;
+                                let pose = stored[d.mesh].pose.clone();
+                                stored.push(StoredMesh {
+                                    body: std::sync::Arc::from(rindex[&id].body),
+                                    verts: p.iter().map(|x| x.1).sum(),
+                                    materials: p.iter().map(|x| x.0).collect(),
+                                    pose,
+                                });
+                                stored_at.insert(id, stored.len() - 1);
+                                Some(stored.len() - 1)
+                            });
+                            match at {
+                                Some(at) => {
+                                    let ms = stored[at].materials.clone();
+                                    (
+                                        Some(at),
+                                        ms.iter()
+                                            .map(|m| slot_of(bank, &mut *mats, &mut *images, d.overrides.get(m).copied().unwrap_or(*m), d.cut, d.water))
+                                            .collect(),
+                                    )
+                                }
+                                None => (lods.last().map_or(Some(d.mesh), |l| l.mesh), parts.last().cloned().unwrap_or_else(|| d.slots.clone())),
+                            }
+                        }
+                    };
+                    lods.push(Lod { mesh, until: l.until });
+                    parts.push(slots);
+                }
+            }
+        }
+        // Its cell: that of the grid cell data file it comes from (`Cell<k>_DataBlock`), else the finest under it.
+        let key = match (grid, levels) {
+            (Some(g), Some(n)) => {
+                let k = city_files
+                    .get(d.file)
+                    .and_then(|f| f.strip_prefix("Cell"))
+                    .and_then(|f| f.strip_suffix("_DataBlock"))
+                    .and_then(|k| k.parse::<usize>().ok());
+                match k.and_then(|k| g.cell(k, n)) {
+                    Some(c) => c,
+                    None => {
+                        by_position += 1;
+                        let p = d.world.w_axis;
+                        let (col, row) = (((p.x - g.origin[0]) / g.cell).floor(), ((-p.z - g.origin[1]) / g.cell).floor());
+                        if col >= 0.0 && row >= 0.0 && (col as u32) < g.width && (row as u32) < g.width { (0, col as u32, row as u32) } else { (n - 1, 0, 0) }
+                    }
+                }
+            }
+            _ => (0, 0, 0),
+        };
+        let cell = cell_of(&mut store, key);
+        store.cells[cell].instances.push(store.instances.len());
+        store.instances.push(Instance { world: d.world, lo: d.lo, hi: d.hi, levels: lods, parts });
+    }
+    // The stand-ins: each block's mesh, a piece per finest cell it stands for, and the rest (always drawn).
+    if let (Some(g), Some(_)) = (grid, levels)
+        && let Some(fakes) = city_objects.iter().flatten().find(|o| o.class == forge::world::CLASS_FAKE_ENTITIES)
+    {
+        match forge::world::fake_entities(fakes.body, &g) {
+            Ok(blocks) => {
+                // (Pieces listed here, their meshes built on all cores: block, triangles, material, world, cell.)
+                let mut pms = vec![];
+                type Job = (usize, Vec<u32>, u32, Mat4, Option<usize>);
+                let mut jobs: Vec<Job> = vec![];
+                for b in blocks {
+                    let Some(pm) = rindex.get(&b.mesh).and_then(|o| parse_mesh(o.body).ok().map(|pm| (pm, o.name.clone()))) else { continue };
+                    let (pm, name) = pm;
+                    let world = game_to_bevy() * Mat4::from_cols_array(&b.transform);
+                    for (si, s) in pm.submeshes.iter().enumerate() {
+                        let Some(all) = pm.indices.get(s.first_index as usize..(s.first_index + s.tri_count * 3) as usize) else { continue };
+                        let material = slot_of(bank, &mut *mats, &mut *images, pm.materials.get(si).copied().unwrap_or(0), cutout(&name), false);
+                        let mut covered = vec![false; all.len()];
+                        for sp in b.spans.iter().filter(|sp| sp.submesh == si) {
+                            let r = sp.first as usize..((sp.first + sp.count) as usize).min(all.len());
+                            if r.is_empty() {
+                                continue;
+                            }
+                            covered[r.clone()].iter_mut().for_each(|c| *c = true);
+                            let cell = cell_of(&mut store, (0, sp.cell.0, sp.cell.1));
+                            jobs.push((pms.len(), all[r].to_vec(), material, world, Some(cell)));
+                        }
+                        let rest: Vec<u32> = all.chunks_exact(3).enumerate().filter(|(t, _)| !covered[3 * t]).flat_map(|(_, t)| t.iter().copied()).collect();
+                        jobs.push((pms.len(), rest, material, world, None));
+                    }
+                    pms.push(pm);
+                }
+                let chunk = jobs.len().div_ceil(threads).max(1);
+                let pms = &pms;
+                let pieces: Vec<FakePiece> = std::thread::scope(|sc| {
+                    let handles: Vec<_> = jobs
+                        .chunks(chunk)
+                        .map(|part| {
+                            sc.spawn(move || {
+                                part.iter()
+                                    .filter_map(|(b, idx, material, world, cell)| {
+                                        piece_mesh(&pms[*b], idx).map(|mesh| FakePiece { mesh, material: *material, world: *world, cell: *cell })
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                        })
+                        .collect();
+                    handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+                });
+                store.fakes = pieces;
+            }
+            Err(e) => warn!("city: no stand-ins: {e:#}"),
+        }
+    }
+    if by_position > 0 {
+        debug!("city: {by_position} drawn meshes placed in the grid by position (not from a cell's data file)");
+    }
+    store.meshes = stored;
+    store
 }
 
 /// A street-level spot near `centre`: flat ground among the lowest quarter of surfaces within 60 m
