@@ -880,6 +880,10 @@ impl HighToggle {
     }
 }
 
+/// `player_input`'s latches: the legs' press buffer, the high-profile toggle, and (once set) whether the player wants
+/// the cursor held with whether the window had focus last frame.
+type InputLatches = (f32, HighToggle, Option<(bool, bool)>);
+
 #[allow(clippy::too_many_arguments)]
 fn player_input(
     keys: Res<ButtonInput<KeyCode>>,
@@ -893,30 +897,42 @@ fn player_input(
     stick: Res<pad::PadStick>,
     mut lib: Option<ResMut<animation::AnimLib>>,
     time: Res<Time>,
-    mut cursor: Query<&mut bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
+    mut cursor: Query<(&mut bevy::window::CursorOptions, &bevy::window::Window), With<bevy::window::PrimaryWindow>>,
     scholars: Query<&Transform, (With<crowd::Scholar>, Without<Player>)>,
-    mut buttons: Local<(f32, HighToggle)>,
+    mut buttons: Local<InputLatches>,
     mut climb_latch: Local<(Vec2, f32)>,
     // (The frame the stick is held in after a camera cut, with the stick it was held at.)
     mut stick_yaw: Local<Option<(f32, Vec2)>>,
 ) {
-    // (The legs' press buffer, and the high-profile toggle.)
-    let (legs_buffer, high_toggle) = &mut *buttons;
+    let (legs_buffer, high_toggle, cursor_state) = &mut *buttons;
     // Scripted captures must not pick up stray keystrokes.
     if script.shot.is_some() {
         return;
     }
-    // The mouse looks around while the cursor is held (Esc lets it go, a click takes it back).
+    // The mouse looks around while the cursor is held (Esc lets it go, a click takes it back). Windows lets the cursor
+    // out of the window whenever the window loses focus (and a lock asked for before the window has focus never
+    // takes), so the lock is asked for again each time the window gets focus back.
+    let (want_held, had_focus) = cursor_state.get_or_insert((true, false));
     let mut grabbed = false;
-    if let Ok(mut c) = cursor.single_mut() {
-        if keys.just_pressed(KeyCode::Escape) {
-            c.grab_mode = bevy::window::CursorGrabMode::None;
-            c.visible = true;
-        } else if mouse.just_pressed(MouseButton::Left) && c.visible {
+    if let Ok((mut c, window)) = cursor.single_mut() {
+        let focused = window.focused;
+        let lock = |c: &mut bevy::window::CursorOptions| {
             c.grab_mode = bevy::window::CursorGrabMode::Locked;
             c.visible = false;
+        };
+        if keys.just_pressed(KeyCode::Escape) {
+            *want_held = false;
+            c.grab_mode = bevy::window::CursorGrabMode::None;
+            c.visible = true;
+        } else if focused && c.visible && (mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right)) {
+            *want_held = true;
+            *had_focus = true;
+            lock(&mut c);
             return;
+        } else if focused && !*had_focus && *want_held {
+            lock(&mut c);
         }
+        *had_focus = focused;
         grabbed = !c.visible;
     }
     if keys.just_pressed(KeyCode::KeyP) {
