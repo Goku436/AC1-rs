@@ -7422,9 +7422,12 @@ impl WallClimb {
                 return;
             }
             // (A fade into the move just done, still under way (a blend longer than its clip: the wall run's ladder entry),
-            // is over: the fades into the wait below start from the pose shown, which has it in; kept, its pose faded
-            // from stayed while the target jumped from the move's end to the wait's start, a hand 0.46 m in a frame.)
-            self.fade = None;
+            // goes on from the pose shown, which has it in, toward the wait: kept as it was, its pose faded from stayed
+            // while the target jumped from the move's end to the wait's start, a hand 0.46 m in a frame.)
+            if let (Some((_, t, _)), Some(last)) = (&self.fade, &self.last) {
+                let len = t.max(FADE);
+                self.fade = Some((last.clone(), len, len));
+            }
             // Balancing on a post, leaning, hiding: their loops start in another pose than the move
             // ends in (a one-hand pull-up ends stepping up), so crossfade into them.
             if matches!(self.state.as_str(), PERCH | LEAN | COLLIDE | HAY | BENCH)
