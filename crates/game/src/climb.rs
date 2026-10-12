@@ -6513,7 +6513,9 @@ impl WallClimb {
                 *self = w;
                 return true;
             }
-            return self.back_eject(lib, root, input.x);
+            // (The climbing stick's x is facing the wall; `back_eject`'s side is facing away from it: A, the left on the
+            // wall, is the right once turned away. Passed as it was, A ejected to the right and D to the left.)
+            return self.back_eject(lib, root, -input.x);
         }
         if self.state == BENCH {
             self.get_up = true;

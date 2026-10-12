@@ -1050,6 +1050,41 @@ const SCENARIOS: &[Scenario] = &[
         want: &["blend into xx_h_run_front_300cm_footr_to_air: kind 1 0.10 s", "blend into xx_h_swing_cycle_back_down: kind 0 0.00 s -> None"],
         never: &["EMBED"],
     },
+    // The eject with nothing to land on (`back_eject`), from a wall run's catch at the hang on the test level's wall: the
+    // stick to the left of the wall goes left (toward -Z here), to the right right. (The climbing stick is read facing the
+    // wall; passed unturned into the facing-away side, A ejected right and D left: user report, 2026-10-12.)
+    Scenario {
+        name: "eject from a wall run's hang with the stick left: off to the left (the facing-away side turned)",
+        tags: &["hang", "wallrun"],
+        env: &[
+            ("AC1_START", "19.5,15.3,-90"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_JUMP", "2.6"),
+            ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
+        ],
+        secs: 4.5,
+        want: &["back eject (frontright)", "the run ends at [16.06, 0.00, 9."],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "eject from a wall run's hang with the stick right: off to the right",
+        tags: &["hang", "wallrun"],
+        env: &[
+            ("AC1_START", "19.5,15.3,-90"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_JUMP", "2.6"),
+            ("AC1_CLIMB", "nograb,wait=2.4,right=1.2"),
+        ],
+        secs: 4.5,
+        want: &["back eject (frontleft)", "the run ends at [16.06, 0.00, 2"],
+        never: &["EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
