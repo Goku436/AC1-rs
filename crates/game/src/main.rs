@@ -6,7 +6,9 @@
 //! (sprints, vaults, jumps off edges, runs up or grabs walls on its own), jumps, and leaps while climbing
 //! (held, it leaps up a wall hold to hold and climbs over the top). Shift is the empty hand: a gentle push,
 //! by a scholar a pickpocket, on a wall let go. (Combat is left out for now.) P free camera (WASD fly along the view, Space/E up, Ctrl/Q down,
-//! Shift faster; P again returns to Altaïr),
+//! Shift faster; P again returns to Altaïr), F7 AC1's Ghost mode, the developers' flight (`fly`: no collision, WASD
+//! along the ground by the camera, Space up, Left Ctrl down, the right button × 3, Left Alt × 10, Q held keeps the
+//! facing; F7 again falls out, from rest, or with Shift held at the flight's speed),
 //! On a wall WASD climbs, Space + WASD leaps, S at the bottom steps off, Shift lets go. On the ground (AC1's buttons):
 //! Space pressed in high profile at run speed runs up a wall ahead; let go within 0.3 s it is the tap jump (high
 //! profile, moving: at a target, else the leap of faith or a haystack, else AC1's free jump; standing, the static
@@ -28,7 +30,7 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render / AC1_SHOW_COLLISION (cities: collide with render meshes / draw the collision shapes), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_HEADLESS=1 (no window, no GPU, no audio: the frames run back to back, for the scenarios), AC1_MUTE=1 (start muted), AC1_VOLUME=dB, AC1_STEP=hz (every frame 1/hz s of game time however long it takes; 60 when headless), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_FLY=from-to (the Ghost mode flight then, AC1_WALK its stick; AC1_FLY_UP / AC1_FLY_DOWN=from-to up / down held), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_HEADLESS=1 (no window, no GPU, no audio: the frames run back to back, for the scenarios), AC1_MUTE=1 (start muted), AC1_VOLUME=dB, AC1_STEP=hz (every frame 1/hz s of game time however long it takes; 60 when headless), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_DETAIL=low|medium|high|full (how much a city draws: see `stream::Detail`; medium by default, full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
@@ -52,6 +54,7 @@ mod city;
 mod climb;
 mod climb_table;
 mod crowd;
+mod fly;
 mod gait;
 mod gallery;
 mod jump;
@@ -151,6 +154,10 @@ struct Script {
     hand: Vec<f32>,
     /// The empty hand held (from-to): AC1's manual catch in a fall.
     grasp: Option<(f32, f32)>,
+    /// AC1's Ghost mode flight (from-to), and up / down held in it (`fly`).
+    fly: Option<(f32, f32)>,
+    fly_up: Option<(f32, f32)>,
+    fly_down: Option<(f32, f32)>,
 }
 
 #[derive(Component)]
@@ -222,6 +229,9 @@ fn script_from(get: &dyn Fn(&str) -> Result<String, ()>) -> Script {
         high: range(get("AC1_HIGH")),
         legs: range(get("AC1_LEGS")),
         grasp: range(get("AC1_GRASP")),
+        fly: range(get("AC1_FLY")),
+        fly_up: range(get("AC1_FLY_UP")),
+        fly_down: range(get("AC1_FLY_DOWN")),
         hand: get("AC1_HAND").ok().map(|s| floats(&s)).unwrap_or_default(),
     }
 }
@@ -287,6 +297,7 @@ fn main() {
         .add_plugins(character_material::CharacterMaterialPlugin)
         .add_systems(Startup, (level::spawn_level, setup, grab_cursor, slow_motion).chain())
         .init_resource::<Eagle>()
+        .init_resource::<fly::Fly>()
         .init_resource::<recorder::Recorder>()
         .init_resource::<pad::PadStick>()
         .add_systems(Update, place_background_window.run_if(|| std::env::var("AC1_BACKGROUND").is_ok() && std::env::var("AC1_WINDOW_AT").is_err()))
@@ -296,6 +307,7 @@ fn main() {
             (
                 player_input,
                 run_script,
+                fly::fly,
                 character::locomotion,
                 crowd::walk_crowds,
                 crowd::blend,
@@ -884,6 +896,10 @@ impl HighToggle {
     }
 }
 
+/// `player_input`'s latches: the legs' press buffer, the high-profile toggle, and (once set) whether the player wants
+/// the cursor held with whether the window had focus last frame.
+type InputLatches = (f32, HighToggle, Option<(bool, bool)>);
+
 #[allow(clippy::too_many_arguments)]
 fn player_input(
     keys: Res<ButtonInput<KeyCode>>,
@@ -893,34 +909,46 @@ fn player_input(
     mut cam: ResMut<OrbitCam>,
     mut dbg: ResMut<Debug>,
     mut q: Query<(&mut Controller, &mut Character, &Transform), With<Player>>,
-    script: Res<Script>,
+    (script, mut fly): (Res<Script>, ResMut<fly::Fly>),
     stick: Res<pad::PadStick>,
     mut lib: Option<ResMut<animation::AnimLib>>,
     time: Res<Time>,
-    mut cursor: Query<&mut bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
+    mut cursor: Query<(&mut bevy::window::CursorOptions, &bevy::window::Window), With<bevy::window::PrimaryWindow>>,
     scholars: Query<&Transform, (With<crowd::Scholar>, Without<Player>)>,
-    mut buttons: Local<(f32, HighToggle)>,
+    mut buttons: Local<InputLatches>,
     mut climb_latch: Local<(Vec2, f32)>,
     // (The frame the stick is held in after a camera cut, with the stick it was held at.)
     mut stick_yaw: Local<Option<(f32, Vec2)>>,
 ) {
-    // (The legs' press buffer, and the high-profile toggle.)
-    let (legs_buffer, high_toggle) = &mut *buttons;
+    let (legs_buffer, high_toggle, cursor_state) = &mut *buttons;
     // Scripted captures must not pick up stray keystrokes.
     if script.shot.is_some() {
         return;
     }
-    // The mouse looks around while the cursor is held (Esc lets it go, a click takes it back).
+    // The mouse looks around while the cursor is held (Esc lets it go, a click takes it back). Windows lets the cursor
+    // out of the window whenever the window loses focus (and a lock asked for before the window has focus never
+    // takes), so the lock is asked for again each time the window gets focus back.
+    let (want_held, had_focus) = cursor_state.get_or_insert((true, false));
     let mut grabbed = false;
-    if let Ok(mut c) = cursor.single_mut() {
-        if keys.just_pressed(KeyCode::Escape) {
-            c.grab_mode = bevy::window::CursorGrabMode::None;
-            c.visible = true;
-        } else if mouse.just_pressed(MouseButton::Left) && c.visible {
+    if let Ok((mut c, window)) = cursor.single_mut() {
+        let focused = window.focused;
+        let lock = |c: &mut bevy::window::CursorOptions| {
             c.grab_mode = bevy::window::CursorGrabMode::Locked;
             c.visible = false;
+        };
+        if keys.just_pressed(KeyCode::Escape) {
+            *want_held = false;
+            c.grab_mode = bevy::window::CursorGrabMode::None;
+            c.visible = true;
+        } else if focused && c.visible && (mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right)) {
+            *want_held = true;
+            *had_focus = true;
+            lock(&mut c);
             return;
+        } else if focused && !*had_focus && *want_held {
+            lock(&mut c);
         }
+        *had_focus = focused;
         grabbed = !c.visible;
     }
     if keys.just_pressed(KeyCode::KeyP) {
@@ -1036,6 +1064,20 @@ fn player_input(
     let hand = keys.just_pressed(KeyCode::ShiftLeft) || keys.just_pressed(KeyCode::ShiftRight);
     ctl.hand_held = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     ctl.high = high;
+    // F7: AC1's Ghost mode flight (`fly`), in or out. Flying, Space is up, Left Ctrl down, Left Alt × 10 (high profile
+    // × 3), Q held strafes; nothing else of the ground's.
+    fly.toggle |= keys.just_pressed(KeyCode::F7);
+    if fly.active || fly.toggle {
+        fly.lift = key(KeyCode::Space) - key(KeyCode::ControlLeft);
+        fly.faster = keys.pressed(KeyCode::AltLeft);
+        fly.strafe = keys.pressed(KeyCode::KeyQ);
+        ctl.free_run = false;
+        ctl.blend_walk = false;
+        ctl.leap = false;
+        ctl.climb_dir = Vec2::ZERO;
+        *legs_buffer = 0.0;
+        return;
+    }
     ctl.free_run = high && legs;
     ctl.blend_walk = !high && legs;
     // The speed comes from AC1's speed value (`gait`) by profile and how far the stick is pushed; blending walks at
@@ -1331,9 +1373,20 @@ const PATH_REACH: f32 = 1.0;
 const RUN: f32 = 5.12;
 const SPRINT: f32 = 6.277;
 
-fn run_script(clock: Res<ScriptClock>, script: Res<Script>, mut q: Query<(&mut Controller, &Transform, &mut Character), With<Player>>) {
+fn run_script(
+    clock: Res<ScriptClock>,
+    script: Res<Script>,
+    mut fly: ResMut<fly::Fly>,
+    mut q: Query<(&mut Controller, &Transform, &mut Character), With<Player>>,
+) {
     let Ok((mut ctl, tf, mut ch)) = q.single_mut() else { return };
     let t = clock.t;
+    // The Ghost mode flight over its window, up and down held in it.
+    let within = |r: Option<(f32, f32)>| r.is_some_and(|(a, b)| (a..b).contains(&t));
+    if script.fly.is_some() {
+        fly.toggle = within(script.fly) != fly.active;
+        fly.lift = within(script.fly_up) as i32 as f32 - within(script.fly_down) as i32 as f32;
+    }
     if let Some(speed) = script.walk {
         // (The direction first faced, kept: turning round must not follow the body.)
         let dir = *script.dir.get_or_init(|| {
@@ -1675,6 +1728,7 @@ fn hud(
     // the air and the last landing.
     let context = match &ch.wall {
         Some(w) => format!("Climb ({})", w.state),
+        None if ch.flying => "Debug (Ghost mode)".to_string(),
         None if ch.blend => "Blend".to_string(),
         None => "Ground".to_string(),
     };
@@ -1715,6 +1769,8 @@ fn hud(
     };
     let mode = if cam.free.is_some() {
         "free camera (P to return)".to_string()
+    } else if ch.flying {
+        "Ghost mode flight (F7 lands): Space up, Ctrl down, RMB x3, Alt x10, Q strafe".to_string()
     } else if let Some(w) = &ch.wall {
         format!("climbing / jumping (AC1 clips) state {}", w.state)
     } else if ch.climb.is_some() {
@@ -1729,7 +1785,7 @@ fn hud(
         "ground (procedural)".to_string()
     };
     t.0 = format!(
-        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F4)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | G outlines (both, grab, edge, none) | E eagle | C centre camera | [ ] clips, F1 hide text, F2 maps, F5 skeleton, F3 IK targets, F6 gallery, F12 shot\n{details}",
+        "ac1-rs | {fps:.0} fps | {mode} | {profile} | health {} | speed {:.1} m/s | IK {} (F4)\nMouse look (Esc frees the cursor) | RMB high profile | Space legs: blend, or with RMB free-run / jump / leap | Shift hand: push, let go | P free cam | F7 fly (Ghost mode) | G outlines (both, grab, edge, none) | E eagle | C centre camera | [ ] clips, F1 hide text, F2 maps, F5 skeleton, F3 IK targets, F6 gallery, F12 shot\n{details}",
         if ch.health <= 0.0 {
             "DESYNCHRONISED".to_string()
         } else {

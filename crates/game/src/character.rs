@@ -218,6 +218,8 @@ pub struct Character {
     /// How much ground foot placement applies now (0..1, faded: see the IK).
     pub foot_ik_w: f32,
     pub limp: bool,
+    /// In AC1's Ghost mode flight (`fly`): no ground, collision or IK; the flight moves the root.
+    pub flying: bool,
     /// Model-space height of the soles in the idle pose.
     floor: f32,
     ankle_height: f32,
@@ -524,6 +526,7 @@ pub fn spawn_character(
         ragdoll: None,
         ragdoll_def: None,
         limp: false,
+        flying: false,
         gait: Default::default(),
         wall_feet: [None; 2],
         wall_hand_w: [0.0; 2],
@@ -1010,6 +1013,10 @@ pub fn locomotion(
     let dt = time.delta_secs().min(0.05);
     for (mut tf, mut ch, mut ctl) in &mut q {
         let ch = &mut *ch;
+        // Flying (AC1's Ghost mode): the flight moves the root, nothing here (`fly`).
+        if ch.flying {
+            continue;
+        }
         // (A jump on short notice: from a standstill, or soon after the walk or run starts or a move hands back to the
         // ground, audit JUMP-3.)
         if ch.wall.is_some() {
@@ -1870,15 +1877,18 @@ pub fn locomotion(
             let along = |i: usize| {
                 let l = &level.perches[i];
                 let axis = l.axis().with_y(0.0).normalize_or_zero();
+                // (Not from a halt onto a roof's parapet beam, floor level beside it: halted at a roof's edge in low profile,
+                // AC1 stands on the roof and looks down, audit EXTRA-1; ours stepped onto the beam. Nor with the stick
+                // along it from there: standing at a Damascus roof's edge, the stick along the parapet put him on it, user
+                // report 2026-10-12.)
+                let lone = || {
+                    let q = l.closest(tf.translation);
+                    let side = axis.cross(Vec3::Y);
+                    [side, -side].iter().all(|s| level.ground(q + *s * 0.35 + Vec3::Y * 0.2, 0.0, 0.5).is_none())
+                };
                 axis == Vec3::ZERO
-                    || axis.dot(way).abs() > 0.866
-                    // (Not a roof's parapet beam, floor level beside it: halted at a roof's edge in low profile, AC1 stands
-                    // on the roof and looks down, audit EXTRA-1; ours stepped onto the beam.)
-                    || (still && (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15 && {
-                        let q = l.closest(tf.translation);
-                        let side = axis.cross(Vec3::Y);
-                        [side, -side].iter().all(|s| level.ground(q + *s * 0.35 + Vec3::Y * 0.2, 0.0, 0.5).is_none())
-                    })
+                    || ((axis.dot(way).abs() > 0.866 || (still && (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15))
+                        && (!still || lone()))
                 // (Not running across a beam that ends the floor, a step down past it: AC1 runs over it as ground and
                 // steps off the far side, `WallClimb::step_off`, as off the bureau's roof south.)
             };
@@ -2183,7 +2193,8 @@ pub fn animate(
             pose = limp_pose;
             ch.debug_targets.extend(r.pos.iter().map(|p| (*p, Color::srgb(0.9, 0.2, 0.9))));
         }
-        let ik_on = ch.ik_enabled && ch.ragdoll.is_none();
+        // (Not flying: AC1's Debug context places nothing.)
+        let ik_on = ch.ik_enabled && ch.ragdoll.is_none() && !ch.flying;
         let world_from_model = ch.world_from_model(root);
         let model_from_world = world_from_model.inverse();
         let to_model = |p: Vec3| model_from_world.transform_point3(p);

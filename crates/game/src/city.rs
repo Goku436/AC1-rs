@@ -949,6 +949,12 @@ fn spawn_world(
             }
         };
         if ent_meshes.iter().enumerate().any(|(i, m)| volume(kind_of(i, &m.name))) {
+            // (Its own collision's bounds, a hay cart's bed or a hiding place's box: the hop out's room test leaves them
+            // out, as AC1's leaves out the haystack, `Level::hay_hop_room`.)
+            let own = level.tris[tris_before..].iter().flat_map(|t| [t.a, t.b, t.c]).fold((Vec3::MAX, Vec3::MIN), |(a, b), v| (a.min(v), b.max(v)));
+            if own.0.x <= own.1.x {
+                level.hay_shapes.push(own);
+            }
             if bhv.is_some() {
                 marked.0 += 1;
                 marked.1 += usize::from(!named);

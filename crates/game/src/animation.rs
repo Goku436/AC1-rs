@@ -201,14 +201,17 @@ pub fn root_motion_at(clip: &Clip, frame: f32) -> Vec3 {
 }
 
 /// Root-motion rotation (hash 0 rotation) at `frame`, in model space.
+/// (AC1's four `.man` clips, `Ghost_mode01` / `02`, `xx_h_jump_falling01` and `xx_h_wait_hipm_footm`, carry their root
+/// track turned 180 degrees from every other clip's, their bones facing as the rest's: theirs is taken from their first
+/// frame. Absolute, the fall out of the Ghost mode flight turned the body round in a frame.)
 pub fn root_rotation_at(clip: &Clip, frame: f32) -> Quat {
     let fix = Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2);
-    clip.anim
-        .tracks
-        .iter()
-        .find(|t| t.bone_hash == 0 && matches!(t.channel, forge::anim::Channel::Rotation(_)))
-        .and_then(|t| t.rotation_at(frame))
-        .map_or(Quat::IDENTITY, |[x, y, z, w]| fix * Quat::from_xyzw(x, y, z, w) * fix.inverse())
+    let Some(track) = clip.anim.tracks.iter().find(|t| t.bone_hash == 0 && matches!(t.channel, forge::anim::Channel::Rotation(_))) else {
+        return Quat::IDENTITY;
+    };
+    let at = |f: f32| track.rotation_at(f).map_or(Quat::IDENTITY, |[x, y, z, w]| Quat::from_xyzw(x, y, z, w));
+    let q = if clip.name.ends_with(".man") { at(0.0).inverse() * at(frame) } else { at(frame) };
+    fix * q * fix.inverse()
 }
 
 /// AC1's locomotion blend space (`HumanGround`'s walk/jog/run/sprint item): each gait's straight half-cycle

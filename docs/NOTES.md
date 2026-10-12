@@ -28,6 +28,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Navigation meshes (`NavMeshManager`) | done: 1432/1432 parse (67836 pieces, 1.13 M triangles); city routes (A*) |
 | Clip sets (`AnimSet`) | done: 81 read; soldiers and townsfolk play their own clips |
 | Flight recorder (F9), controller, scenario suite | done |
+| Ghost mode, AC1's development flight (the Human Debug context, unreachable in retail; F7) | done: no collision, action 0x0006F88B (request 7) plays `Ghost_mode01` then `Ghost_mode02` looping, out with request 33's `xx_h_jump_falling01` and a fall (from Banned445's MIT port, `debug_fly.rs`) |
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
 | Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
@@ -84,6 +85,15 @@ is kept outside the repo; see "Combat" below.
 - Running into scholars charges through them: Altaïr shoulders them aside (`xx_h_charge_run_shove_<left_handl|right_handr>_b`,
   upper body) and they stumble out of the way (`xx_stumble_soft_50cm_<back|front>_footl`), then walk back to their places.
 - P free camera.
+- F7 Ghost mode, AC1's developers' flight (the Human Debug context, `fly.rs`; behaviour from Banned445's MIT port, which
+  reads it from the executable): nothing collides and no ground move, climb or IK runs; the stick on the ground plane by
+  the camera and Space / Left Ctrl up / down, all × 5 m/s, × 3 in high profile (the right button), × 10 with Left Alt; the
+  body turns toward the horizontal motion (square over 0.1) unless Q (strafe) is held. In, HumanGround's action
+  0x0006F88B (request 7): `Ghost_mode01.man` (0.93 s), then `Ghost_mode02.man` (2.27 s) looping, 0.4 s and 0.3 s blends.
+  F7 again leaves with request 33's `xx_h_jump_falling01.man` into the ordinary fall, from rest, or with Shift (the
+  empty hand) held at the flight's velocity (our fall still caps its drift at 5 m/s). The four `.man` clips carry their
+  root track turned 180 degrees from every other clip's (their bones are as the rest's): their root rotation is taken
+  from their first frame. Scripts: `AC1_FLY=from-to`, `AC1_FLY_UP` / `AC1_FLY_DOWN=from-to`.
 
 Low obstacles (collide, glance, vault) are measured from the floor just in front of them, not from the feet: up
 stairs, a riser two steps up is one step, not a 0.42 m wall. A beam's end with ground going on at its height (a roof)
@@ -820,12 +830,12 @@ roof: 0.21 m refused it before); it also
 needs room to stand (1.7 m of headroom 0.5 m in, no wall just past the edge, probed from in front of the wall, and the
 spot not inside a solid): window sills are holds whose top is a window, not a floor to climb onto, and a beam stuck into
 a building shows its top inside the wall. Narrow wall tops (a fence's or a parapet's, 0.15-0.35 m deep behind a hold
-with a drop past it, open above) become perches along their middle (`Level::add_narrow_tops`), and so does AC1's own
+with a drop past it and in front of the hold, open above; not a roof's parapet with the roof just under it) become perches along their middle (`Level::add_narrow_tops`), and so does AC1's own
 rule, its runtime beam contacts (as Banned445's port reads them): two holds along each other within 30 degrees, facing
 away from each other, overlapping, at most 1 m apart, with a drop past both (no floor within 0.5 m under the top 0.3 m
 out from each: not a strip or a seam in a roof, where running across one he was caught balancing), give a beam along
 their middle, its pieces in line up to 1 m apart joined; both kinds kept only where the drop is there, tested every 0.25 m along (a roof edge's strip over a drop for half its length was a beam its whole length; the running game stepped off it where the roof ran flush) (Damascus 9,064 in all; none along one of AC1's authored beams, in line with it and overlapping it: north of the open roof one ran on 2.5 m over the roof past the authored beam's end, where the running game stepped off). Got onto from the ground only walking
-along it (within 30 degrees) or standing still on its line. A plank bridge 0.9 m wide by the Damascus bureau (`Wood_Bridge_01a`) is one:
+along it (within 30 degrees) or standing still on its line; from a halt never one with floor beside it. A plank bridge 0.9 m wide by the Damascus bureau (`Wood_Bridge_01a`) is one:
 the running game walked it as a narrow object (`HumanNarrowObject`, `xx_l_beam_crouchwalk`). The cities' authored
 guidance has no `Beam` edges at all (Damascus: 0): AC1's narrow objects come from these pairs. Walking off a beam's
 end onto another going on from it (within 0.45 m, 35 degrees) walks on along it. Climbing onto one ends crouched,
@@ -844,7 +854,8 @@ set up against the built collision (`Level::add_city_objects`), logged as "N hay
   high); a cart's parts merge into one stack.
 - rooftop hiding spots `Hiding_Spot_*` (a plank box under a tarp, not the `_Tarp` mesh): hay too, its top the box's
   rim, 1.07 m over the roof (AC1's state in one is `HumanHayStack`). Free running at one, the running game hopped onto
-  the rim and dived in (`xx_h_freestep_footr_to_haystack_02`); ours does too, diving from within 0.6 m of its edge.
+  the rim and dived in (`xx_h_freestep_footr_to_haystack_02`); ours does too, diving from within 0.6 m of its edge. Out of one by AC1's
+  hop-out room test past its footprint, its own shapes (the plank box, the tarp's frame) left out (`Level::hay_hop_room`).
 - ladders `Ladder_<h>m`: thin and over 2 m tall. The building is the side with a roof just under its top (the ladder
   leans on that wall, its rails standing up past the roof edge, so its top is that roof's floor); else the nearer wall.
   The foot stands toward the outer side of its bounds. Climbed from the street onto a roof and back down in Damascus.
