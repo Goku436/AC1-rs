@@ -586,7 +586,10 @@ in this batch, by audit id:
   off the top from the back), and in the wait the stick within 30° of a side goes round to the other side when AC1's
   box beside it is clear (the revolve, `xx_h_ladder_turn_<l|r>_a` / `_b_tr_h_wait_<l|r>`, guard 0xE262B0); against a
   wall the box is in the wall. Gauntlet G16 (a free-standing ladder). Not done: the back-approach turn (TURN
-  0x0A64400C/D, when the attach box is blocked) and the leaning ladder's forced revolve.
+  0x0A64400C/D, when the attach box is blocked) and the leaning ladder's forced revolve. (Fixed after: onto a ladder
+  from its top, the pull-down turns him round and the wall normal turned with it, ending into the wall: the box was
+  tested behind him in the open and he went round into E's wall, then off its far side onto E's holds from inside it,
+  and the exit off the top took him for being on its back. The normal now starts turned back by the chain's turn.)
 - **Blends** (ANIM-4 to 6): every step takes AC1's whole `ActionBlend` from the move graph, looked up as the game does
   (`MoveGraph::blend_into`): item to item, the next item's blend; out of an item, its way's blend A into the connector
   (or the destination when it has none), B from the connector into the destination; an action the code starts, the
