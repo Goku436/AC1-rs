@@ -545,16 +545,26 @@ fn setup(
     mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     level: Res<level::Level>,
 ) {
-    commands.spawn((
-        DirectionalLight { illuminance: 9000.0, shadow_maps_enabled: true, ..default() },
+    // A city: a stronger sun with three shadow cascades kept near the player (the first 12 m, none past 120 m: the
+    // default four spread over the whole view and blur his shadow), and a linear haze from 220 m to 1.1 km, as
+    // Banned445's AC1-Movement-Rewritten stands in for AC1's WorldAmbiance / LayeredSky (not decoded).
+    let city = std::env::var("AC1_LEVEL").is_ok();
+    let mut sun = commands.spawn((
+        DirectionalLight { illuminance: if city { 11_000.0 } else { 9000.0 }, shadow_maps_enabled: true, ..default() },
         Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, 0.8, -0.9, 0.0)),
     ));
+    if city {
+        sun.insert(bevy::light::CascadeShadowConfigBuilder { num_cascades: 3, first_cascade_far_bound: 12.0, maximum_distance: 120.0, ..default() }.build());
+    }
     // (Cities are a couple of kilometres across.)
-    commands.spawn((
+    let mut camera = commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection { far: 5000.0, ..default() }),
         Transform::from_xyz(0.0, 2.0, 4.0).looking_at(Vec3::Y, Vec3::Y),
     ));
+    if city {
+        camera.insert(DistanceFog { color: Color::srgb(0.80, 0.78, 0.70), falloff: FogFalloff::Linear { start: 220.0, end: 1100.0 }, ..default() });
+    }
     // Eagle Vision's dimming.
     commands.spawn((
         EagleTint,
