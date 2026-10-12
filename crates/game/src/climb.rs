@@ -974,6 +974,8 @@ pub struct WallClimb {
     /// An eject off a wall hang waiting for the rebound pose before it to end (AC1's `xx_h_hangwall_tr_rebound_<foot>`):
     /// the stick and the foot it was asked with.
     eject_after: Option<(Vec2, bool)>,
+    /// An eject's takeoff to start turned away from the wall at once (`snap_takeoff`, on the next update).
+    snap_turn: bool,
     /// The legs pressed for an eject while it could not start (mid-air in a leap between holds): the stick then and how
     /// long it is kept (AC1's Legs buffer).
     eject_wait: Option<(Vec2, f32)>,
@@ -2046,6 +2048,7 @@ impl WallClimb {
             last_hand_up: 0,
             want_drop: false,
             eject_after: None,
+            snap_turn: false,
             eject_wait: None,
             swung: false,
             lean_t: 0.0,
@@ -3119,10 +3122,8 @@ impl WallClimb {
         }
         let mut w = WallClimb::new(VAULT, -aim);
         w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![LEAP.into(), VAULT.into(), GROUND.into()], &planned, correct, Some(1));
-        // (Turned from facing the wall to facing away as the takeoff starts.)
-        if let Some(m) = &mut w.mv {
-            m.ease_rot = root.rotation * planned.rotation.inverse();
-        }
+        // (Turned from facing the wall to facing away as the takeoff starts, in one frame: `snap_takeoff`.)
+        w.snap_turn = true;
         if level.perch_inside(to, PERCH_REACH).is_none() {
             w.exit_velocity = aim * PERCH_OFF_RUN;
         }
@@ -3154,9 +3155,7 @@ impl WallClimb {
         w.can_catch = true;
         w.aimed = true;
         w.start(takeoff, JUMP.into(), &planned);
-        if let Some(m) = &mut w.mv {
-            m.ease_rot = root.rotation * planned.rotation.inverse();
-        }
+        w.snap_turn = true;
         w.ease_in(from, root);
         debug!("climb: eject at the hold over {h:.2}");
         Some(w)
@@ -3183,6 +3182,7 @@ impl WallClimb {
         if let Some(m) = &mut self.mv {
             m.ease_rot = root.rotation * turned.rotation.inverse();
         }
+        self.snap_turn = true;
         debug!("climb: back eject ({way})");
         true
     }
@@ -5425,6 +5425,42 @@ impl WallClimb {
         true
     }
 
+    /// An eject's takeoff started as AC1 starts it: the root turned from facing the wall to facing away in one frame, not
+    /// eased round through the takeoff (the rebound takeoffs are made facing away; off the bureau's wall hang the running
+    /// game's root went from -0.1 to -179.8 degrees between two frames, and 0.34 m out; audit WALL-8). The root is placed
+    /// so the hips stay where they are (across the wall; its height kept), the pose faded from turned and moved with it,
+    /// so it shows where it was.
+    fn snap_takeoff(&mut self, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig) {
+        let Some(m) = &mut self.mv else { return };
+        if m.ease_rot == Quat::IDENTITY {
+            return;
+        }
+        let Some(r) = cr.reference.filter(|&r| rig.parents[r].is_none()) else { return };
+        let Some((from, a, b)) = self.fade.clone() else { return };
+        // (The hips: the Reference bone's first child.)
+        let hips = (0..rig.parents.len()).find(|&i| rig.parents[i] == Some(r)).unwrap_or(r);
+        let mut first = base.clone();
+        sample(&m.clip, 0.0, &mut first, cr.reference);
+        let was = root.translation + world_rot(root.rotation) * from.model_of(rig, hips).pos;
+        let start = (was - world_rot(m.start_rot) * first.model_of(rig, hips).pos).with_y(m.start.y);
+        let across = (start - m.start).with_y(0.0).length();
+        m.correct += m.start - start;
+        m.start = start;
+        m.ease_rot = Quat::IDENTITY;
+        // (The pose faded from, in the new root's model space: turned by the snap and moved by the root's shift.)
+        let to_new = world_rot(m.start_rot).inverse();
+        let turn = to_new * world_rot(root.rotation);
+        let shift = to_new * (root.translation - start);
+        let mut from = from;
+        let x = &mut from.local[r];
+        x.pos = turn * x.pos + shift;
+        x.rot = (turn * x.rot).normalize();
+        // (How far the hips turn over the fade: the poses' own difference.)
+        let gap = from.model_of(rig, hips).rot.angle_between(first.model_of(rig, hips).rot).to_degrees();
+        debug!("climb: the takeoff turned away at once, the root {across:.2} m across, the hips {gap:.0} degrees off the pose before");
+        self.fade = Some((from, a, b));
+    }
+
     /// Blend in from the ground: crossfade from the pose shown and move the root from where it stood
     /// (`was`) into the first move's planned start over that move.
     fn ease_in(&mut self, from: Option<Pose>, was: &Transform) {
@@ -6950,6 +6986,9 @@ impl WallClimb {
     #[allow(clippy::too_many_arguments)]
     pub fn update(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig, input: Vec2, leap: bool, dt: f32) {
         self.legs_held = leap;
+        if std::mem::take(&mut self.snap_turn) {
+            self.snap_takeoff(root, rig, base, cr);
+        }
         // A free-step arrival past 0.6 of its way, the stick toward a haystack beside: into it (AC1's support search,
         // `HumanNarrowObject__CheckSupportAndFall` 0xE51190, runs once the arrival is past 0.6; the running game dived
         // 0.167 s into the 0.27 s `hangknee_footl_tr_freestep_entry_footl`, ours after it ended; audit HAY-4).

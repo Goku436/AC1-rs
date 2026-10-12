@@ -522,8 +522,10 @@ in this batch, by audit id:
   Banned445's decode) in place of ours' mesh-name beams and single-hold tops; not the default yet (31 of 41 routes
   against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
   beam the running game lands on).
+- **Fourth batch** (WALL-8): an eject's takeoff turns the root away from the wall in one frame, as AC1's does (it was
+  eased round over the takeoff), the hips kept where the rebound pose left them.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
-down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
+down from the hold in the two recordings; likely measured from the wall face).
 
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
