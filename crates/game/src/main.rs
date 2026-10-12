@@ -43,7 +43,7 @@
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
 //! as dir/frame_00000.png ..., then exit; encode with ffmpeg at 30 fps),
 //! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; `-` exits then without one), AC1_BACKGROUND=1 (open
-//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1, AC1_PLAIN_LOOK=1 (Altaïr without AC1's character shader),
+//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1, AC1_PLAIN_LOOK=1 (Altaïr without AC1's character shader), AC1_NO_TEXT=1 (start with the text hidden, as F1), AC1_PLAIN_CITY=1 / AC1_LINEAR_LOOK=1 / AC1_NO_GRADE=1 / AC1_NO_SKY=1 (parts of AC1's look off: `look`, `sky`),
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only. AC1_CONTROL=<file> stays open and runs
 //! the scripts written to that file (`run <id> <secs> AC1_START=.. AC1_WALK=.. ...`, `quit`; see `control_runs`): the level
 //! loads once, each run takes seconds. AC1_GROUND_LINE, AC1_HOLDS_AT and AC1_MESHES_AT log the ground along a line, the
@@ -60,6 +60,7 @@ mod beam_pairs;
 mod character;
 mod character_material;
 mod city;
+mod city_material;
 mod climb;
 mod climb_table;
 mod collision_view;
@@ -71,6 +72,7 @@ mod grab_audit;
 mod jump;
 mod jump_query;
 mod level;
+mod look;
 mod menu;
 mod move_blend;
 mod nav;
@@ -83,6 +85,7 @@ mod recorder;
 mod replay;
 mod robe;
 mod settings;
+mod sky;
 mod sound;
 mod stream;
 mod sweep;
@@ -327,10 +330,26 @@ fn main() {
     if std::env::var("AC1_FPS").is_ok() && !headless {
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     }
+    // The level's light and grade from AC1's data (`look`): the city's own, Masyaf's for the test level.
+    let level_name = std::env::var("AC1_LEVEL").ok();
+    let world_look = look::Look::load(std::path::Path::new(&game_dir), level_name.as_deref()).unwrap_or_default();
+    let f = world_look.world.fog_color;
+    let env = world_look.world.env_cube;
+    // The level's sky dome (`sky`), read now (not headless; `AC1_NO_SKY=1` leaves it out).
+    if !headless
+        && std::env::var("AC1_NO_SKY").is_err()
+        && let Some(s) = sky::load(std::path::Path::new(&game_dir), level_name.as_deref(), &world_look)
+    {
+        app.insert_resource(s);
+    }
+    let ambient = env.iter().map(|c| c.truncate()).sum::<Vec3>() / 6.0;
     app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
-        .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.82)))
-        // (Bright sky fill: faces under hoods and walls in shade read as in AC1, not black.)
-        .insert_resource(GlobalAmbientLight { color: Color::srgb(0.93, 0.96, 1.0), brightness: 1500.0, ..default() })
+        // The sky: AC1 draws a sky dome (`LayeredSky`'s layers, not drawn here); in its place the fog's colour halfway to
+        // white, graded, as pale as the running game's haze (tuned by eye).
+        .insert_resource(ClearColor(world_look.graded([(1.0 + f.x) * 0.5, (1.0 + f.y) * 0.5, (1.0 + f.z) * 0.5])))
+        // (What Bevy's own materials get for ambient: the environment cube's mean; AC1's shaders use the cube.)
+        .insert_resource(GlobalAmbientLight { color: Color::linear_rgb(ambient.x, ambient.y, ambient.z), brightness: 1.0, ..default() })
+        .insert_resource(world_look)
         .insert_resource(OrbitCam {
             focus: cam.get(3).copied().unwrap_or(1.3),
             at: None,
@@ -352,8 +371,9 @@ fn main() {
             },
         })
         .insert_resource(script)
-        .add_plugins(character_material::CharacterMaterialPlugin)
-        .add_systems(Startup, (level::spawn_level, setup, grab_cursor, slow_motion).chain())
+        .add_plugins((look::LookPlugin, character_material::CharacterMaterialPlugin, city_material::CityMaterialPlugin))
+        .add_systems(Startup, (level::spawn_level, setup, sky::spawn, grab_cursor, slow_motion).chain())
+        .add_systems(PostUpdate, sky::follow.before(bevy::transform::TransformSystems::Propagate))
         .init_resource::<Eagle>()
         .init_resource::<fly::Fly>()
         .init_resource::<collision_view::CollisionView>()
@@ -386,7 +406,7 @@ fn main() {
                 .chain(),
         )
         .add_systems(Update, pad_input.before(player_input))
-        .init_resource::<Overlay>()
+        .insert_resource(Overlay { hidden: std::env::var("AC1_NO_TEXT").is_ok(), ..default() })
         // The graphics (F8) and online (F10) menus, and the settings they keep (`settings`, `menu`).
         .insert_resource(settings::started().clone())
         .init_resource::<menu::Menu>()
@@ -688,6 +708,7 @@ fn slow_motion(mut time: ResMut<Time<Virtual>>) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn setup(
     mut commands: Commands,
     dir: Res<GameDir>,
@@ -696,27 +717,42 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
     mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     level: Res<level::Level>,
+    look: Res<look::Look>,
 ) {
-    // A city: a stronger sun with three shadow cascades kept near the player (the first 12 m, none past 120 m: the
-    // default four spread over the whole view and blur his shadow), and a linear haze from 220 m to 1.1 km, as
-    // Banned445's AC1-Movement-Rewritten stands in for AC1's WorldAmbiance / LayeredSky (not decoded).
+    // The sun where the level's `LayeredSky` puts it (`look`), with AC1's colour; a city's shadows in three cascades kept
+    // near the player (the first 12 m, none past 120 m: the default four spread over the whole view and blur his
+    // shadow). The camera writes the shaders' colours as they are (exposure 1, no tone mapping: AC1's frame is
+    // the lit colours, clamped), and Bevy's own materials get the level's fog.
     let city = std::env::var("AC1_LEVEL").is_ok();
+    let s = look.world.sun;
+    let lum = s.x.max(s.y).max(s.z).max(1e-3);
     let mut sun = commands.spawn((
-        DirectionalLight { illuminance: if city { 11_000.0 } else { 9000.0 }, shadow_maps_enabled: true, ..default() },
-        Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, 0.8, -0.9, 0.0)),
+        DirectionalLight {
+            // (Bevy's Lambert divides by pi.)
+            illuminance: lum * std::f32::consts::PI,
+            color: Color::srgb(s.x / lum, s.y / lum, s.z / lum),
+            shadow_maps_enabled: true,
+            ..default()
+        },
+        Transform::from_translation(look.sun_dir).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     if city {
         sun.insert(bevy::light::CascadeShadowConfigBuilder { num_cascades: 3, first_cascade_far_bound: 12.0, maximum_distance: 120.0, ..default() }.build());
     }
     // (Cities are a couple of kilometres across.)
-    let mut camera = commands.spawn((
+    let f = look.world.fog_color;
+    commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection { far: 5000.0, ..default() }),
         Transform::from_xyz(0.0, 2.0, 4.0).looking_at(Vec3::Y, Vec3::Y),
+        bevy::core_pipeline::tonemapping::Tonemapping::None,
+        bevy::camera::Exposure { ev100: -(1.2f32).log2() },
+        DistanceFog {
+            color: Color::srgba(f.x, f.y, f.z, look.world.fog.z * look.world.fog.w),
+            falloff: FogFalloff::Linear { start: look.fog_near, end: look.fog_far },
+            ..default()
+        },
     ));
-    if city {
-        camera.insert(DistanceFog { color: Color::srgb(0.80, 0.78, 0.70), falloff: FogFalloff::Linear { start: 220.0, end: 1100.0 }, ..default() });
-    }
     // Eagle Vision's dimming.
     commands.spawn((
         EagleTint,

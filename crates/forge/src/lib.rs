@@ -10,6 +10,7 @@
 //! - each record at `offset`: "FILEDATA" + name, a metadata copy, then the payload
 
 pub mod action;
+pub mod ambiance;
 pub mod anim;
 pub mod animset;
 pub mod cloth;
@@ -18,6 +19,7 @@ pub mod graph;
 pub mod guidance;
 pub mod hkx;
 pub mod index;
+pub mod instance;
 pub mod lod;
 pub mod material;
 pub mod mesh;

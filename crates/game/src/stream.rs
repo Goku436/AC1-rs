@@ -18,12 +18,15 @@
 //! player, LOD by distance with a vertex budget, the fake meshes on the horizon. Written afresh here over ac1-rs' own
 //! city loader.
 
+use crate::city_material::{CitySurface, NO_AO};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::NoAutoAabb;
 use bevy::light::NotShadowCaster;
+use bevy::mesh::MeshTag;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use bevy::render::storage::ShaderBuffer;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 
@@ -59,6 +62,11 @@ pub struct Instance {
     pub levels: Vec<Lod>,
     /// Per level, a material slot (`RenderStore::materials`) per part of its mesh.
     pub parts: Vec<Vec<u32>>,
+    /// Per level, where its mesh's baked occlusion starts in `RenderStore::ao` (its first vertex's byte), if it has one.
+    pub ao: Vec<Option<u32>>,
+    /// Whether it casts shadows (not an assassins' bureau's outside shell, whose roof would shade the open courtyard
+    /// inside: AC1 swaps it for the inside one there).
+    pub shadow: bool,
 }
 
 /// A grid cell (game x, y).
@@ -84,6 +92,8 @@ pub struct RenderStore {
     pub cells: Vec<Cell>,
     pub materials: Vec<Handle<StandardMaterial>>,
     pub fakes: Vec<FakePiece>,
+    /// Every placement's baked occlusion, a byte per vertex (`forge::instance`).
+    pub ao: Vec<u8>,
 }
 
 /// The parts of a mesh drawn: its submeshes whose index and vertex ranges hold (submesh, material id, vertices).
@@ -108,8 +118,9 @@ fn part_range(pm: &forge::mesh::Mesh, s: &forge::mesh::Submesh) -> Option<(std::
     .then_some((range, idx))
 }
 
-/// A mesh's parts for the GPU (as `mesh_parts`), each with its box; render-world only (no copy kept here).
-pub fn build_parts(m: &StoredMesh) -> Vec<(Mesh, Aabb)> {
+/// A mesh's parts for the GPU (as `mesh_parts`), each with its box and its first vertex in the whole mesh; render-world
+/// only (no copy kept here).
+pub fn build_parts(m: &StoredMesh) -> Vec<(Mesh, Aabb, u32)> {
     let Ok(mut pm) = forge::mesh::parse_mesh(&m.body) else { return vec![] };
     if let Some(s) = &m.pose {
         crate::city::pose_skinned(&mut pm, s);
@@ -126,21 +137,22 @@ pub fn build_parts(m: &StoredMesh) -> Vec<(Mesh, Aabb)> {
         // (Tangents for normal maps.)
         let _ = bm.generate_tangents();
         let (lo, hi) = pos.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(a, b), p| (a.min(Vec3::from(*p)), b.max(Vec3::from(*p))));
-        out.push((bm, Aabb::from_min_max(lo, hi)));
+        out.push((bm, Aabb::from_min_max(lo, hi), s.first_vertex));
     }
     out
 }
 
 /// A mesh on the GPU: its parts, how many drawn instances use it, and how long none has.
 struct Built {
-    parts: Vec<(Handle<Mesh>, Aabb)>,
+    /// Each part, its box and its first vertex in the whole mesh.
+    parts: Vec<(Handle<Mesh>, Aabb, u32)>,
     users: u32,
     idle: f32,
     verts: usize,
 }
 
-/// A built mesh's parts, each with its box.
-type Parts = Vec<(Mesh, Aabb)>;
+/// A built mesh's parts, each with its box and first vertex.
+type Parts = Vec<(Mesh, Aabb, u32)>;
 
 /// What an instance draws now: its level, that level's mesh and the entities drawing it.
 type Shown = (usize, Option<usize>, Vec<Entity>);
@@ -226,18 +238,25 @@ pub struct CityRender {
     timer: f32,
     /// Counters for the log: instances drawn, their vertices.
     drawn: (usize, usize),
+    /// AC1's city shader's materials, one per `RenderStore::materials` slot (made on the first frame; empty with
+    /// `AC1_PLAIN_CITY`), and the stand-ins' entities with their slots (switched to them then).
+    surfaces: Vec<Handle<CitySurface>>,
+    fake_slots: Vec<(Entity, u32)>,
+    made: bool,
 }
 
 impl CityRender {
     /// Spawn the stand-ins (shown) and keep the store.
     pub fn new(store: RenderStore, materials: Vec<Handle<StandardMaterial>>, detail: Detail, commands: &mut Commands, meshes: &mut Assets<Mesh>) -> Self {
         let mut fakes: HashMap<usize, (Vec<Entity>, bool)> = HashMap::new();
+        let mut fake_slots = vec![];
         let mut store = store;
         store.materials = materials;
         // (At full detail everything is drawn: no stand-ins.)
         for f in std::mem::take(&mut store.fakes).into_iter().filter(|_| !detail.full) {
             let Some(mat) = store.materials.get(f.material as usize).cloned() else { continue };
             let e = commands.spawn((Mesh3d(meshes.add(f.mesh)), MeshMaterial3d(mat), Transform::from_matrix(f.world), NotShadowCaster)).id();
+            fake_slots.push((e, f.material));
             if let Some(c) = f.cell {
                 fakes.entry(c).or_default().0.push(e);
             }
@@ -256,6 +275,9 @@ impl CityRender {
             fakes,
             timer: 0.0,
             drawn: (0, 0),
+            surfaces: vec![],
+            fake_slots,
+            made: false,
         }
     }
 
@@ -321,6 +343,38 @@ impl CityRender {
     }
 }
 
+/// What the city shader's materials are made from.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct LookAssets<'w> {
+    standard: Res<'w, Assets<StandardMaterial>>,
+    surfaces: ResMut<'w, Assets<CitySurface>>,
+    buffers: ResMut<'w, Assets<ShaderBuffer>>,
+    look: Res<'w, crate::look::Look>,
+}
+
+/// AC1's city shader's materials over the city's (`city_material`), the occlusion bytes into their buffer, the
+/// stand-ins switched to them (with no occlusion of their own).
+fn make_surfaces(city: &mut CityRender, commands: &mut Commands, a: &mut LookAssets) {
+    if !crate::city_material::enabled() {
+        return;
+    }
+    let ao = a.buffers.add(crate::city_material::ao_buffer(&std::mem::take(&mut city.store.ao)));
+    city.surfaces = city
+        .store
+        .materials
+        .iter()
+        .map(|h| {
+            let base = a.standard.get(h).cloned().unwrap_or_default();
+            a.surfaces.add(CitySurface { base, extension: crate::city_material::CityLayers { look: a.look.world, ao: ao.clone() } })
+        })
+        .collect();
+    for &(e, slot) in &city.fake_slots {
+        if let Some(s) = city.surfaces.get(slot as usize) {
+            commands.entity(e).remove::<MeshMaterial3d<StandardMaterial>>().insert((MeshMaterial3d(s.clone()), MeshTag(NO_AO)));
+        }
+    }
+}
+
 /// The level drawn at LOD distance `d`: the first whose `until` reaches it, past the last the last (`forge::lod::pick`).
 fn pick_level(levels: &[Lod], d: f32) -> Option<usize> {
     levels.iter().position(|l| d <= l.until).or(levels.len().checked_sub(1))
@@ -335,10 +389,15 @@ pub fn stream_city(
     cams: Query<&Transform, With<Camera3d>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut log: Local<f32>,
+    mut looks: LookAssets,
 ) {
     let Some(mut city) = city else { return };
     let Ok(cam) = cams.single() else { return };
     let city = &mut *city;
+    if !city.made {
+        city.made = true;
+        make_surfaces(city, &mut commands, &mut looks);
+    }
     let dt = time.delta_secs();
     let mut budget = UPLOAD_BUDGET;
     while budget > 0 {
@@ -349,7 +408,7 @@ pub fn stream_city(
         }
         let verts = city.meshes[m].verts;
         budget = budget.saturating_sub(verts);
-        let parts = parts.into_iter().map(|(mesh, aabb)| (meshes.add(mesh), aabb)).collect();
+        let parts = parts.into_iter().map(|(mesh, aabb, first)| (meshes.add(mesh), aabb, first)).collect();
         city.built.insert(m, Built { parts, users: 0, idle: 0.0, verts });
     }
     city.timer -= dt;
@@ -381,9 +440,23 @@ pub fn stream_city(
         let mut entities = vec![];
         if let Some(b) = mesh.and_then(|m| city.built.get_mut(&m)) {
             b.users += 1;
-            for (k, (h, aabb)) in b.parts.iter().enumerate() {
-                let Some(mat) = inst.parts[l].get(k).and_then(|&s| city.store.materials.get(s as usize)) else { continue };
-                entities.push(commands.spawn((Mesh3d(h.clone()), MeshMaterial3d(mat.clone()), tf, *aabb, NoAutoAabb)).id());
+            for (k, (h, aabb, first)) in b.parts.iter().enumerate() {
+                let Some(&slot) = inst.parts[l].get(k) else { continue };
+                let mut e = commands.spawn((Mesh3d(h.clone()), tf, *aabb, NoAutoAabb));
+                if !inst.shadow {
+                    e.insert(NotShadowCaster);
+                }
+                match city.surfaces.get(slot as usize) {
+                    Some(surface) => {
+                        let tag = inst.ao.get(l).copied().flatten().map_or(NO_AO, |at| at + first);
+                        e.insert((MeshMaterial3d(surface.clone()), MeshTag(tag)));
+                    }
+                    None => {
+                        let Some(mat) = city.store.materials.get(slot as usize) else { continue };
+                        e.insert(MeshMaterial3d(mat.clone()));
+                    }
+                }
+                entities.push(e.id());
             }
         }
         city.shown[i] = Some((l, mesh, entities));
@@ -398,7 +471,7 @@ pub fn stream_city(
     }
     for m in gone {
         if let Some(b) = city.built.remove(&m) {
-            for (h, _) in b.parts {
+            for (h, _, _) in b.parts {
                 meshes.remove(&h);
             }
         }
