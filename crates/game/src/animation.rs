@@ -24,6 +24,18 @@ impl Clip {
     }
 }
 
+/// A clip playing now and the time into it (s), for its event keys (the sounds, see `sound`). `slot` tells apart
+/// clips playing at once (0 the body's, 1 a legs-only one, 2 a one-shot over the walk, 3 an idle variation); `looping`:
+/// its time wraps round; `synced`: it shares its phase with the clip before it in the slot (the gait's steps).
+#[derive(Clone)]
+pub struct Playing {
+    pub slot: u8,
+    pub clip: Arc<Clip>,
+    pub t: f32,
+    pub looping: bool,
+    pub synced: bool,
+}
+
 /// All animations of one data file, parsed on first use and bound per rig (the player's is rig 0;
 /// other characters add theirs with `add_rig`).
 #[derive(Resource)]
@@ -660,6 +672,35 @@ impl Animator {
 }
 
 impl Animator {
+    /// The clips playing now (the heaviest of a blend), for their event keys: see `Playing`.
+    pub fn playing(&self) -> Vec<Playing> {
+        let one = |slot, clip: &Arc<Clip>, t: f32, looping, synced| Playing { slot, clip: clip.clone(), t, looping, synced };
+        if let Some((c, t)) = &self.forced {
+            return vec![one(0, c, *t, true, false)];
+        }
+        let heaviest = |clips: &mut dyn Iterator<Item = (&Arc<Clip>, f32)>| clips.max_by(|a, b| a.1.total_cmp(&b.1)).map(|(c, _)| c.clone());
+        let main = if self.move_w > 0.5 {
+            if let Some((p, f, w, t, len)) = self.start {
+                heaviest(&mut self.starts[p][f].iter().zip(w).filter_map(|(c, w)| Some((c.as_ref()?, w))))
+                    .map(|c| one(0, &c, (t / len.max(1e-3)).min(1.0) * c.anim.duration, false, false))
+            } else if self.weights.iter().any(|w| *w > 0.0) && self.slots[0].iter().any(Option::is_some) {
+                heaviest(&mut self.weights.iter().enumerate().filter_map(|(k, w)| Some((self.slots[self.side][k].as_ref()?, *w))))
+                    .map(|c| one(0, &c, self.phase * c.anim.duration, true, true))
+            } else {
+                let (l, u, w) = self.mix;
+                let g = if u != l && w > 0.5 { u } else { l };
+                self.gaits.get(g).and_then(|g| g.clips[self.side][0].as_ref()).map(|c| one(0, c, self.phase * c.anim.duration, true, true))
+            }
+        } else {
+            Some(one(0, self.idle_alt.as_ref().unwrap_or(self.stand_clip()), self.idle_time, true, false))
+        };
+        let mut out: Vec<Playing> = main.into_iter().collect();
+        out.extend(self.lower.as_ref().map(|(c, t)| one(1, c, *t, false, false)));
+        out.extend(self.oneshot.as_ref().map(|(c, t)| one(2, c, *t, false, false)));
+        out.extend(self.brk.as_ref().map(|(c, t)| one(3, c, *t, false, false)));
+        out
+    }
+
     /// The one-shot clip's pose (a push: upper body only, layered over the walk by the caller) and its
     /// weight, faded in and out.
     /// The left foot leads the current walk half-cycle.

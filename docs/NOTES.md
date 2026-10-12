@@ -31,7 +31,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
 | Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
-| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; IMA-ADPCM decodes for 206069/206076 resources and 2229/2243 streams (the rest: Ogg-page tracks, stereo tracks); 18698 Ogg resources and 110 Ogg streams found (played as Ogg); 4178 streams are the headerless rest of a resource (speech), not decoded. `ContactTable` read (Altaïr's 24 surface groups). |
+| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; IMA-ADPCM decodes for 206069/206076 resources and 2229/2243 streams (the rest: Ogg-page tracks, stereo tracks); 18698 Ogg resources and 110 Ogg streams found (played as Ogg); 4178 streams are the headerless rest of a resource (speech), not decoded. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks) with Bevy's audio; M mutes |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); sun 11000 lux with three shadow cascades in 120 m (the first 12 m) and a linear haze from 220 m to 1.1 km (as Banned445's repo; AC1's `WorldAmbiance`/`LayeredSky` not decoded); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
 | Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); combat removed for now; scholar crowds to blend into | first version |
 | Player controller, free-running, combat, AI, crowds, missions | long-term |
@@ -582,6 +582,12 @@ AC1-Movement-Rewritten (MIT), which first played AC1's sounds.
   hand slaps) and `ContactEvent`s (`ContactEventTypeHuman`: `ft_walk_cycle`, `ft_run_cycle`, `ft_land_heavy`, ...)
   that the character's `ContactTable` (`ContactTable_AlTair` in "Rank 9": 24 surface groups of 15) turns into events.
   Keys are in 1/120 s.
+- In game (`crates/game/src/sound.rs`): each frame the player's clips (`animation::Playing`: the heaviest of a blend,
+  a legs-only or one-shot clip over it, the climbing move) fire the keys they passed; a gait's next step carries the
+  phase over, a loop wraps, a move played again starts over. Events resolve with switch 0 = the surface's sound
+  material; switches 1 and 3 (cases 0-4 and 0-1 in the footsteps; what sets them in AC1 is not known) play their
+  default. Each resource is decoded once and played at the listener with the event's gain and pitch. M mutes,
+  `AC1_MUTE=1` starts muted, `AC1_VOLUME=dB`; headless runs have no audio plugin (no device needed).
 
 ## Navigation meshes
 `NavMeshManager_<cell>` (format in `crates/forge/src/navmesh.rs`): pieces, each a walkable polygon with world-space
