@@ -694,6 +694,12 @@ in this batch, by audit id:
     degree turn now done by the flight's start (the running game: 14 degrees at 1.5 per frame over a 0.15 s takeoff),
     the path within 0.04 m of before, the landing the same; every other jump of the jump / combo scenarios starts
     facing its target (no turn) and is unchanged.
+  - ANIM-13: a mix of clips (`forge::anim::mix`) folds them in one after another, as AC1's item evaluator does
+    (`sub_777AE0`: clip i blended into the ones before it by w_i over the running sum of the weights, rotations by
+    AC1's interpolation 0x4916F0, a normalised lerp within about 8 degrees, else a slerp); ours summed the weighted
+    quaternions and normalised. The same for two clips; with three or more far-apart ones (the 090 / 180 turns mixed with
+    a straight one) the fold follows the arc. (0x507650, which the audit pointed at, is the action's length: the items'
+    durations less their blends.)
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
