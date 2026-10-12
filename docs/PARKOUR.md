@@ -534,7 +534,12 @@ in this batch, by audit id:
   down from the wall hang, into the climbing stance only with a hold for each foot 1.2 m under its new hand (AC1's
   TryTransitionToClimb), else the hand step to the ledge there, one hand then the other
   (`xx_h_hangwall_climb_1m_<u|d>_1<l|r>u`, then `_1<l|r>u_<u|d>_1m`); ours climbed into the stance with the feet on the
-  ledge just let go of, 0.6 m under the hands.
+  ledge just let go of, 0.6 m under the hands. (LEDGE-2) Sideways, the hang switches its type in place of the step
+  where the stretch ahead needs the other one (AC1's TrySwitchHangType 0xDE1060 before StartHandStep, its foot rays as
+  Banned445's port reads them: 1.2 m in toward the wall from 1 m under the hands, 0.5 m out, 0.1 m to either side): the
+  wall hang into the free one (`xx_h_hangwall_tr_hangfree_<side>`) unless both rays meet the wall, the free hang into
+  the wall one (`xx_h_hangfree_tr_hangwall_<side>`) if either does; after the climbing holds beside, before the
+  shimmy. (No scenario: the test level has no ledge running on past its wall without holds beside it.)
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face).
 
@@ -548,7 +553,7 @@ the input interpreter sends them). Checked by mapping every action id Banned445'
 clips (`forge` example `action_clips`) against the clips our code plays: left unplayed are combat's (hurt
 falls, stumbles), other characters' (`cmaa_*`), the leap of faith's code-driven fall (`xx_h_faith_jump_fall`; ours
 stretches the dive over the whole fall), and much of `HumanLedge` (audit LEDGE-15): the hang-type switches
-(`hangwall_tr_hangfree*`, `hangfree_tr_hangwall*`), the swing back
+in place and up or down (`hangwall_tr_hangfree`, `_up_*`, `_down_*`; the sideways ones are played), the swing back
 (`hangwall_to_swingback_*`), the wall-free hang (`hangwallfree_*`), `hangfree_strafe_*_000cm_*`.
 
 ## Open questions

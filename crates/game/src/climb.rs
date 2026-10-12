@@ -927,6 +927,10 @@ impl Queued {
 enum Feet {
     Wall,
     Free,
+    /// A switch of the hang's type on the way (AC1's `TrySwitchHangType` 0xDE1060, its foot rays `feet_on_wall`): into the
+    /// free hang where not both feet find the wall, into the wall hang where either does.
+    ToFree,
+    ToWall,
 }
 
 /// A move to try: one clip, or a chain played back to back (leaps).
@@ -1324,7 +1328,20 @@ fn feet_fit_at(level: &Level, feet: &[Vec3; 2], normal: Vec3, want: Feet, hold: 
     match want {
         Feet::Wall => braced > 0,
         Feet::Free => braced == 0,
+        Feet::ToFree => hold.is_some_and(|q| feet_on_wall(level, q, normal) != (true, true)),
+        Feet::ToWall => hold.is_some_and(|q| feet_on_wall(level, q, normal) != (false, false)),
     }
+}
+
+/// AC1's foot supports for a hang with its hands at `hands` (`sub_DE0A60` from `TrySwitchHangType` 0xDE1060, as
+/// Banned445's port reads it): two rays 1.2 m in toward the wall, from 1 m under the hands, 0.5 m out and 0.1 m to
+/// either side. (Left, right) hit.
+fn feet_on_wall(level: &Level, hands: Vec3, normal: Vec3) -> (bool, bool) {
+    let n = normal.with_y(0.0).normalize_or_zero();
+    let along = Vec3::Y.cross(n).normalize_or_zero();
+    let start = hands - Vec3::Y * 1.0 + n * 0.5;
+    let hit = |o: Vec3| level.raycast(o, -n, 1.2).is_some_and(|h| h.normal.y.abs() < 0.7);
+    (hit(start - along * 0.1), hit(start + along * 0.1))
 }
 
 /// A flight whose knees meet an edge with its top at most this far over the feet (m) lands on it.
@@ -6085,6 +6102,9 @@ impl WallClimb {
                     // AC1's order (`Movement_ChooseAction` 0xDE29E0, `TrySideMoveToClimbHolds` 0xDD48B0): a wall under
                     // the feet again, onto its holds lower down, then level, before the shimmy; up onto them after it.
                     out.extend(side_to_climb("hangfree", dir).into_iter().take(2));
+                    // (Onto a stretch with the wall under it: the switch into the wall hang in place of the step, AC1's
+                    // TrySwitchHangType before StartHandStep; audit LEDGE-2.)
+                    out.push(Cand::new(format!("xx_h_hangfree_tr_hangwall_{side}"), HANGWALL_OPEN, Feet::ToWall));
                     out.push(Cand::new(format!("xx_h_hangfree_strafe_{side}_050cm_{strafe}"), to, Feet::Free));
                     out.extend(side_to_climb("hangfree", dir).into_iter().skip(2));
                     for kind in ["in", "out"] {
@@ -6128,6 +6148,8 @@ impl WallClimb {
                 let (strafe, to) = if self.state == HANGWALL { ("open", HANGWALL_OPEN) } else { ("close", HANGWALL) };
                 let onto = side_to_climb("hangwall", dir);
                 out.extend(onto[..2].iter().cloned());
+                // (Onto a stretch where not both feet find the wall: the switch into the free hang, audit LEDGE-2.)
+                out.push(Cand::new(format!("xx_h_hangwall_tr_hangfree_{}", side_name(dir)), FREE, Feet::ToFree));
                 out.push(Cand::new(format!("xx_h_hangwall_strafe_{}_050cm_{strafe}", side_name(dir)), to, Feet::Wall));
                 out.push(onto[2].clone());
             }
