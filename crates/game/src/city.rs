@@ -314,7 +314,8 @@ fn edge_ledges(tris: &[([Vec3; 3], Vec3)]) -> Vec<(Vec3, Vec3, Vec3)> {
 /// A hay cart's stack, when its mesh can't give its size: half its footprint (m).
 const HAY_CART_HALF: f32 = 0.9;
 
-/// A skinned prop's skeleton has at most this many bones (a character's has 70 and more).
+/// A skinned prop's skeleton has at most this many bones (a character's has 70 and more), unless the entity has collision
+/// shapes (a scaffold's has 69).
 const PROP_SKELETON_BONES: usize = 24;
 
 /// Skin `m` once to `skel`'s pose (each bone's model transform times its inverse bind, as characters are
@@ -783,6 +784,8 @@ fn spawn_world(
     // (Entities marked hay or a hiding place by their component, those of them with no mesh named for it, and entities
     // with such a mesh name but no component.)
     let mut marked = (0usize, 0usize, 0usize);
+    // (Entities collided with whose meshes are none of them drawn: solid thin air.)
+    let mut undrawn = 0usize;
     // (Picks: each one's top, to stand later ones on.)
     let mut tops: HashMap<usize, f32> = HashMap::new();
     for (pi, &(ent_id, body)) in placements.iter().enumerate() {
@@ -944,11 +947,13 @@ fn spawn_world(
         let overrides: HashMap<u32, u32> = mrefs.windows(2).filter(|w| w[1].0 == w[0].0 + 4).map(|w| (w[0].1.id, w[1].1.id)).collect();
         // A skinned prop (a market stall's frame the game's physics can knock down, a haystack that gives when jumped
         // into) stands in its skeleton's pose.
-        // (Props only: a character's skeleton, NPCs placed in the city, is not stood up here.)
+        // (Props only: a character's skeleton, NPCs placed in the city, is not stood up here. A bigger skeleton on an
+        // entity with collision is a prop too: Damascus's scaffolds (`Scaffold_2x3x8`, 69 bones) and storage racks (61),
+        // left undrawn, were run up and climbed as thin air on their collision, user report #13.)
         let skel = refs_of(forge::skeleton::CLASS_SKELETON)
             .first()
             .and_then(|(_, o)| forge::skeleton::parse_skeleton(o.body).ok())
-            .filter(|s| s.bones.len() <= PROP_SKELETON_BONES);
+            .filter(|s| s.bones.len() <= PROP_SKELETON_BONES || has_shape);
         // `AC1_MESHES_AT="x,y,z,r"` (game Y-up space): the meshes of every entity standing within r of a point, logged
         // (what an unknown object in a recording is).
         if let Some(v) =
@@ -958,7 +963,8 @@ fn spawn_world(
             let names: Vec<&str> = ent_meshes.iter().map(|m| m.name.as_str()).collect();
             info!("meshes at {:.2}: {names:?}", world.w_axis.truncate());
         }
-        for (mi, mesh) in ent_meshes.into_iter().enumerate() {
+        let mut drawn_any = false;
+        for (mi, mesh) in ent_meshes.iter().copied().enumerate() {
             // Hay whose mesh can't be read yet (its vertex format is one not decoded): a cart-sized stack where the
             // entity stands.
             if kind_of(mi, &mesh.name) == Some(CityObject::Hay) && parse_mesh(mesh.body).is_err() {
@@ -1030,6 +1036,7 @@ fn spawn_world(
                 Some((subs, tris, ledges, lips))
             });
             let Some((subs, tris, ledges, lips)) = p else { continue };
+            drawn_any = true;
             let cut = cutout(&mesh.name);
             let is_water = water(&mesh.name);
             // What it draws: its material slot per part (the entity's overrides applied).
@@ -1110,6 +1117,14 @@ fn spawn_world(
                 houses.push(world.w_axis.truncate());
             }
         }
+        if !drawn_any && level.tris.len() > tris_before {
+            undrawn += 1;
+            debug!(
+                "city: collided with, nothing drawn: {:?} at {:.2}",
+                ent_meshes.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+                world.w_axis.truncate()
+            );
+        }
         if let Some(k) = pick {
             let top = level.tris[tris_before..].iter().flat_map(|t| [t.a.y, t.b.y, t.c.y]).fold(f32::MIN, f32::max);
             if top > f32::MIN {
@@ -1119,6 +1134,7 @@ fn spawn_world(
         }
     }
     info!("city {forge_file}: {} hay and hiding places by their component ({} with no mesh named for one), {} by mesh name only", marked.0, marked.1, marked.2);
+    info!("city {forge_file}: {undrawn} entities collided with and none of their meshes drawn");
     if picks.is_some() {
         // Picked props: drawn at once, at full detail.
         for d in drawn.iter().filter(|_| opts.render) {
