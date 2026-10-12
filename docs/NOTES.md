@@ -8,7 +8,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Layer | State |
 |---|---|
 | `.forge` archives (index, names, FILEDATA records) | done, all 18 archives |
-| Chunked LZO1X decompression | done: 15906/15906 data files decompress (`examples/decodecheck`); 9357 split into objects, the rest are streamed sound (6531 `*_BAO_*`: Ubisoft BAO audio, signatures 01 1b 01 00 / 02 1f 00 10 as the QuickBMS scimitar script names them, not object containers) and each forge's `GlobalMetaFile` (18: one 170-byte record, byte-identical in every forge: small ids and values and a 32-bit time of 2014-07-22, likely the build's; nothing about the world, `examples/entryhex`) |
+| Chunked LZO1X decompression | done: 15906/15906 data files decompress (`examples/decodecheck`); 9357 split into objects, the rest are streamed sound (6531 `*_BAO_*`: Ubisoft BAO audio, not object containers; see "Sound") and each forge's `GlobalMetaFile` (18: one 170-byte record, byte-identical in every forge: small ids and values and a 32-bit time of 2014-07-22, likely the build's; nothing about the world, `examples/entryhex`) |
 | Object container (class hash, name, id, body) | done |
 | TextureMap -> PNG (DXT1/3/5, BGRA8) | done, verified visually: 32286/32286 textures decode (`examples/texcheck`); colour space (`GammaSettings`) and sampler (address, filter modes) read and used; cube maps 57/58, ramps (`TextureGradient`) 3/3. Stored levels as they are (`texture_levels`): 32251 block-compressed (27620 DXT1, 1878 DXT3, 2753 DXT5), every one in whole 4x4 blocks at its top level, 30640 with the full mip chain; city textures go to the GPU that way |
 | Material (85c817c3): template and typed parameter table (scalars, colours, texture slots) | 15666/15929 parse (`examples/texcheck`): every character material; the rest carry a parameter class not read yet (c52e2125, 213: glows, skies, water), a 1 at +0x29 (28 trees) or 2/4 at +0x31 (25) |
@@ -30,6 +30,8 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Flight recorder (F9), controller, scenario suite | done |
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
+| Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
+| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; IMA-ADPCM decodes for 206069/206076 resources and 2229/2243 streams (the rest: Ogg-page tracks, stereo tracks); 18698 Ogg resources and 110 Ogg streams found (played as Ogg); 4178 streams are the headerless rest of a resource (speech), not decoded. `ContactTable` read (Altaïr's 24 surface groups). |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); sun 11000 lux with three shadow cascades in 120 m (the first 12 m) and a linear haze from 220 m to 1.1 km (as Banned445's repo; AC1's `WorldAmbiance`/`LayeredSky` not decoded); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
 | Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); combat removed for now; scholar crowds to blend into | first version |
 | Player controller, free-running, combat, AI, crowds, missions | long-term |
@@ -562,7 +564,24 @@ A class id is the CRC32 of the engine's class name (Mesh `415d9568`, Entity, Ske
 TextureSet, TextureMapSpec, CompiledMesh all check). The `catalog` tool reads the names at run time from the game's
 own executable (its RTTI descriptors, `.?AV<name>@scimitar@@`, and identifier strings) and labels every class: all
 183 classes in the install get a name. Not parsed yet: `GridCellDataBlock` (a grid cell's own record; the grid itself is read, see "City rendering cost and streaming"),
-`ContactTable` (per-material contact sounds and effects; there is no audio yet), `BodyPartMapping`.
+`BodyPartMapping`. (`ContactTable` is read, see "Sound".)
+
+## Sound
+Read by `forge::sound` (layouts in its header), measured with `bao scan <game dir>`; `bao wav` writes a sound to
+`out/sound/`, `bao clip <game dir> <clip>` lists a clip's event keys and what they play. Found with Banned445's
+AC1-Movement-Rewritten (MIT), which first played AC1's sounds.
+- Sounds are BAOs (Ubisoft's DARE engine): events (what the game triggers), sounds (gains, random containers) and
+  resources (the samples) by BAO id, the top nibble the kind. `SoundBao` objects hold one each (speech one a language);
+  the streamed files hold long sounds (`Common_BAO_*`: ambience and music; `<language>_BAO_*`: speech, whose start is
+  a resource with the same low bits).
+- Events: play (a sound, with a random pitch range), switch (by a variable: 0 is the surface's sound material), multi
+  (several at once). Sounds: one resource (rate, channels, frames), or a random container (weights, the last pick not
+  repeated). Resources: IMA-ADPCM (Ubisoft's header: PCM frames first, a mono last sample apart), Ogg Vorbis, or
+  interleaved IMA tracks (the ambience: four mono tracks).
+- What plays when is in the clips: their event tracks hold `AudioEvent`s (a `SoundBao` by object id: grunts, cloth,
+  hand slaps) and `ContactEvent`s (`ContactEventTypeHuman`: `ft_walk_cycle`, `ft_run_cycle`, `ft_land_heavy`, ...)
+  that the character's `ContactTable` (`ContactTable_AlTair` in "Rank 9": 24 surface groups of 15) turns into events.
+  Keys are in 1/120 s.
 
 ## Navigation meshes
 `NavMeshManager_<cell>` (format in `crates/forge/src/navmesh.rs`): pieces, each a walkable polygon with world-space

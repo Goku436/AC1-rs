@@ -23,6 +23,7 @@ pub mod mesh;
 pub mod navmesh;
 pub mod shape;
 pub mod skeleton;
+pub mod sound;
 pub mod texture;
 pub mod world;
 

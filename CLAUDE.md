@@ -12,7 +12,7 @@ Full format notes and status table are in `docs/NOTES.md` (the README is the sho
   a clip is for (the `passover` clips looked like a vault and are a ledge move).
 
 ## Layout
-- `crates/forge`: `.forge` archives, LZO1X, object container, textures, meshes, skeletons, animation (and clip mixing), action blocks (`action.rs`) and the move graph over them (`graph.rs`; example `graph_next`), collision shapes (`shape.rs`), Havok packfiles and ragdolls (`hkx.rs`), the object index (`index.rs`). Bins: `forge`, `catalog`, `findobj`, `animinfo` (clip duration, root motion and yaw by name), `objects` (one data file's objects, hex, or `dump` to files), `world` (a city's entities and meshes), `actions`, `shapes`, `ragdolls`, `idx`. Animation notes live in the header of `src/anim.rs`.
+- `crates/forge`: `.forge` archives, LZO1X, object container, textures, meshes, skeletons, animation (and clip mixing), action blocks (`action.rs`) and the move graph over them (`graph.rs`; example `graph_next`), collision shapes (`shape.rs`), Havok packfiles and ragdolls (`hkx.rs`), the object index (`index.rs`), sound (`sound.rs`: BAO sounds, the event graph, IMA-ADPCM, contact tables). Bins: `forge`, `catalog`, `findobj`, `animinfo` (clip duration, root motion and yaw by name), `objects` (one data file's objects, hex, or `dump` to files), `world` (a city's entities and meshes), `actions`, `shapes`, `ragdolls`, `idx`, `bao` (sound: `scan`, `wav` to out/, `clip` events). Animation notes live in the header of `src/anim.rs`.
 - `crates/ik`: pure math, unit-tested: IK, the Verlet ragdoll (`ragdoll.rs`) and cloth (`cloth.rs`). No Bevy, no game data.
 - `crates/game`: Bevy runtime, run with `-p ac1`. Controls and test hooks are in the header of `src/main.rs`.
 
@@ -49,5 +49,5 @@ Driving which move plays from the move graph itself (`forge::graph::MoveGraph` i
 the code's action requests are found: 2035 action ids used in code, see docs/NOTES.md "What the executable's code asks for";
 every movement context now picks by AC1's tables or action ids, docs/PARKOUR.md "How far ours follows AC1's tables"; open: its 4 questions), the robe from AC1's own `DynamicMesh`/`ClothActionSettings`, combat (removed 2026-10-05; rebuild it
 on `HumanGround_Fight*` once movement is right), real hold data for climbing,
-Acre/Jerusalem/Kingdom checks, the streamed BAO audio (not object containers),
+Acre/Jerusalem/Kingdom checks, sound for Ogg-page tracks and the speech streams,
 the 64-bit quats of present-day Lucy's clips. Details are in the docs/NOTES.md status table and its Research section.
