@@ -1029,7 +1029,14 @@ impl Level {
             // (Past it a drop: not the step up to a roof. Along all of it, every `PAIR_BEAM_STEP`, the top kept only where
             // it drops past: tested at the middle alone, a roof edge's strip over a drop for half its length was a top to
             // balance on its whole length, the roof flush past the rest; the running game stepped off it there.)
-            let drops = |s: f32| self.ground(l.a.lerp(l.b, s) - l.out * (depth + 0.1) + Vec3::Y * 0.3, 0.0, 0.8).is_none();
+            // (And a drop in front of the hold too: a roof's parapet, its floor 0.24 m under the top behind it, is ground to
+            // AC1, not a beam. Taken from the hold facing the roof, the drop to the street past the top made it one, and
+            // standing at the roof's edge with the stick along it he got onto it and balanced there, Damascus at
+            // (192, 8, -11.46): user report, 2026-10-12.)
+            let drops = |s: f32| {
+                let p = l.a.lerp(l.b, s);
+                [p - l.out * (depth + 0.1), p + l.out * PAIR_BEAM_OUT].iter().all(|q| self.ground(*q + Vec3::Y * 0.3, 0.0, 0.8).is_none())
+            };
             let n = (len / PAIR_BEAM_STEP).ceil().max(1.0) as usize;
             let shift = -l.out * (depth * 0.5);
             let mut out = vec![];

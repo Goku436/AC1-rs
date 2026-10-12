@@ -1149,6 +1149,38 @@ const SCENARIOS: &[Scenario] = &[
         ],
         never: &["no room to hop out"],
     },
+    // User report #12 (2026-10-12): a Damascus roof's parapet (0.3 m wide, the roof 0.24 m under it, the street 8 m) was
+    // a narrow top to balance on, from its hold facing the roof; standing by it with the stick along it he got onto it
+    // and crouch-walked it. AC1 runs along it as ground.
+    Scenario {
+        name: "Damascus: standing by a roof's parapet, the stick along it walks the roof, not onto it as a beam (user report #12)",
+        tags: &["beam", "ground"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "192.36,-11.2,20,9"),
+            ("AC1_WALK", "1.9"),
+            ("AC1_STOP", "0-1.0"),
+            ("AC1_VEER", "0.9,70"),
+        ],
+        secs: 3.5,
+        want: &["the run ends at [188."],
+        never: &["onto perch", "EMBED"],
+    },
+    Scenario {
+        name: "Damascus: walking up to a roof's parapet and along it stays on the roof (user report #12)",
+        tags: &["beam", "ground"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "193.4,-10.0,45,9"),
+            ("AC1_WALK", "1.9"),
+            ("AC1_PATH", "192.36,-11.4;188.0,-11.4;stop"),
+        ],
+        secs: 5.0,
+        want: &["waypoint 2 reached"],
+        never: &["onto perch", "EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {

@@ -4694,7 +4694,11 @@ impl WallClimb {
             debug!("climb: side entry onto the beam via {}", clip.name);
             w.beam_stance = None;
             let r = Transform { translation: line.closest(root.translation), ..*root };
-            w.start_chain(vec![clip], vec![PERCH.to_string()], &r, Vec3::ZERO);
+            // (Ending on the beam: the clip's own way, played from wherever it met it, walked him 1.4 m off a Damascus
+            // parapet into the air, and the perch pulled him back onto it when it ended: user report, 2026-10-12.)
+            let end = r.translation + world_rot(r.rotation) * root_motion_at(&clip, clip.frames());
+            let correct = line.closest(end) - end;
+            w.start_chain(vec![clip], vec![PERCH.to_string()], &r, correct);
             if w.fade.is_none() {
                 w.fade = arrive_from.map(|p| Fade::new(p, ENTER_FADE));
             }

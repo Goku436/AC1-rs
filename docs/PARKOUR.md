@@ -649,6 +649,14 @@ in this batch, by audit id:
     second way to pass. The hop turns to the way out eased (turned in one frame from the wait's facing, the hands jumped
     0.6 m). The load logs the haystacks with no way out: in Damascus one pile in a walled yard (178.4, -221.9), none of
     the 123 hiding places.
+  - #12, parapets: a narrow top to balance on (`Level::add_narrow_tops`) wants a drop in front of its hold too (no
+    floor within 0.5 m under the top 0.3 m out), as a paired beam wants one past both edges. A Damascus roof's parapet
+    (0.3 m wide, the roof 0.24 m under it, the street 8 m down) was one, found from its hold facing the roof, and standing
+    by it with the stick along it he got onto it and crouch-walked it; AC1 runs along it as ground (Damascus' narrow tops
+    8,527 to 7,280). From a halt, no beam with floor beside it is got onto from the ground, the stick along it or not
+    (EXTRA-1's rule held only for standing on its line). A side entry onto a beam
+    (`xx_h_freestep_entry_<foot>_tr_crouch<walk|jog>_*`) ends on the beam, its clip's own way corrected onto the line:
+    played from where it met the parapet it walked 1.4 m off into the air, then the perch pulled him back.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.

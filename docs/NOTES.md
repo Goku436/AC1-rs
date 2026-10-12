@@ -783,12 +783,12 @@ roof: 0.21 m refused it before); it also
 needs room to stand (1.7 m of headroom 0.5 m in, no wall just past the edge, probed from in front of the wall, and the
 spot not inside a solid): window sills are holds whose top is a window, not a floor to climb onto, and a beam stuck into
 a building shows its top inside the wall. Narrow wall tops (a fence's or a parapet's, 0.15-0.35 m deep behind a hold
-with a drop past it, open above) become perches along their middle (`Level::add_narrow_tops`), and so does AC1's own
+with a drop past it and in front of the hold, open above; not a roof's parapet with the roof just under it) become perches along their middle (`Level::add_narrow_tops`), and so does AC1's own
 rule, its runtime beam contacts (as Banned445's port reads them): two holds along each other within 30 degrees, facing
 away from each other, overlapping, at most 1 m apart, with a drop past both (no floor within 0.5 m under the top 0.3 m
 out from each: not a strip or a seam in a roof, where running across one he was caught balancing), give a beam along
 their middle, its pieces in line up to 1 m apart joined; both kinds kept only where the drop is there, tested every 0.25 m along (a roof edge's strip over a drop for half its length was a beam its whole length; the running game stepped off it where the roof ran flush) (Damascus 9,064 in all; none along one of AC1's authored beams, in line with it and overlapping it: north of the open roof one ran on 2.5 m over the roof past the authored beam's end, where the running game stepped off). Got onto from the ground only walking
-along it (within 30 degrees) or standing still on its line. A plank bridge 0.9 m wide by the Damascus bureau (`Wood_Bridge_01a`) is one:
+along it (within 30 degrees) or standing still on its line; from a halt never one with floor beside it. A plank bridge 0.9 m wide by the Damascus bureau (`Wood_Bridge_01a`) is one:
 the running game walked it as a narrow object (`HumanNarrowObject`, `xx_l_beam_crouchwalk`). The cities' authored
 guidance has no `Beam` edges at all (Damascus: 0): AC1's narrow objects come from these pairs. Walking off a beam's
 end onto another going on from it (within 0.45 m, 35 degrees) walks on along it. Climbing onto one ends crouched,
