@@ -1125,6 +1125,16 @@ const SCENARIOS: &[Scenario] = &[
         want: &["back eject (frontleft)", "the run ends at [16.06, 0.00, 2"],
         never: &["EMBED"],
     },
+    // Audit ANIM-14: the robe and the secondary motion run on AC1's own data (the cloth settings, its soft mesh and
+    // capsules, every bone modifier, the wind), through a sprint and a jump (the pop check reads the swung bones).
+    Scenario {
+        name: "the robe, the skirt, hood and sword tag run on AC1's cloth settings, bone modifiers and wind",
+        tags: &["misc"],
+        env: &[("AC1_WALK", "7"), ("AC1_HIGH", "0-5"), ("AC1_JUMP", "1.5")],
+        secs: 3.0,
+        want: &["robe cloth: 146 vertices (44 pinned), 253 edges, 6 capsules, AC1's settings", "56 of 56 bone modifiers", "wind: Wind_Masyaf_001"],
+        never: &["cloth not read", "drawn skinned"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {

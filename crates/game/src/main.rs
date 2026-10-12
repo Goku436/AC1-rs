@@ -65,6 +65,7 @@ mod ragdoll;
 mod recorder;
 mod robe;
 mod stream;
+mod wind;
 
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::light::GlobalAmbientLight;
@@ -323,6 +324,7 @@ fn main() {
         .add_systems(Update, stream::stream_city.after(camera_follow))
         // The robe needs the bones' world transforms of this frame.
         .add_systems(PostUpdate, robe::robe_cloth.after(bevy::transform::TransformSystems::Propagate))
+        .add_systems(First, wind::advance)
         .run();
 }
 
@@ -643,6 +645,8 @@ fn setup(
         GlobalZIndex(10),
     ));
 
+    // The city's wind (the test level borrows Masyaf's): the robe and the skeleton's hinges feel it.
+    commands.insert_resource(wind::load(&dir.0, now.as_deref()));
     let data = match assets::load_character(&dir.0, "DataPC.forge", "Rank 9", "UCMA_Altair_Rank_9") {
         Ok(d) => d,
         Err(e) => {
