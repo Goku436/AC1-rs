@@ -91,6 +91,8 @@ pub struct RenderStore {
     pub instances: Vec<Instance>,
     pub cells: Vec<Cell>,
     pub materials: Vec<Handle<StandardMaterial>>,
+    /// Per material slot, what the city shader draws beyond its `StandardMaterial` (`city_material`).
+    pub layers: Vec<crate::city_material::SlotLayers>,
     pub fakes: Vec<FakePiece>,
     /// Every placement's baked occlusion, a byte per vertex (`forge::instance`).
     pub ao: Vec<u8>,
@@ -132,7 +134,11 @@ pub fn build_parts(m: &StoredMesh) -> Vec<(Mesh, Aabb, u32)> {
         let mut bm = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
         bm.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos.to_vec());
         bm.insert_attribute(Mesh::ATTRIBUTE_NORMAL, pm.normals[range.clone()].to_vec());
-        bm.insert_attribute(Mesh::ATTRIBUTE_UV_0, pm.uvs[range].to_vec());
+        bm.insert_attribute(Mesh::ATTRIBUTE_UV_0, pm.uvs[range.clone()].to_vec());
+        // (Static meshes' vertex colours and layer weights, where they are not white and none.)
+        if let (Some(c), Some(l)) = (pm.colors.get(range.clone()), pm.layers.get(range)) {
+            crate::city_material::vertex_extras(&mut bm, c, l);
+        }
         bm.insert_indices(Indices::U32(idx));
         // (Tangents for normal maps.)
         let _ = bm.generate_tangents();
@@ -247,11 +253,19 @@ pub struct CityRender {
 
 impl CityRender {
     /// Spawn the stand-ins (shown) and keep the store.
-    pub fn new(store: RenderStore, materials: Vec<Handle<StandardMaterial>>, detail: Detail, commands: &mut Commands, meshes: &mut Assets<Mesh>) -> Self {
+    pub fn new(
+        store: RenderStore,
+        materials: Vec<Handle<StandardMaterial>>,
+        layers: Vec<crate::city_material::SlotLayers>,
+        detail: Detail,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Self {
         let mut fakes: HashMap<usize, (Vec<Entity>, bool)> = HashMap::new();
         let mut fake_slots = vec![];
         let mut store = store;
         store.materials = materials;
+        store.layers = layers;
         // (At full detail everything is drawn: no stand-ins.)
         for f in std::mem::take(&mut store.fakes).into_iter().filter(|_| !detail.full) {
             let Some(mat) = store.materials.get(f.material as usize).cloned() else { continue };
@@ -363,9 +377,11 @@ fn make_surfaces(city: &mut CityRender, commands: &mut Commands, a: &mut LookAss
         .store
         .materials
         .iter()
-        .map(|h| {
+        .enumerate()
+        .map(|(k, h)| {
             let base = a.standard.get(h).cloned().unwrap_or_default();
-            a.surfaces.add(CitySurface { base, extension: crate::city_material::CityLayers { look: a.look.world, ao: ao.clone() } })
+            let layers = city.store.layers.get(k).cloned().unwrap_or_default();
+            a.surfaces.add(CitySurface { base, extension: layers.layers(a.look.world, ao.clone()) })
         })
         .collect();
     for &(e, slot) in &city.fake_slots {

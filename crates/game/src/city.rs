@@ -29,6 +29,7 @@
 //! hold line (jump-grabs, wall runs, catches, shimmying, top-outs, free hangs) work on them; climbing
 //! a wall hand over hand needs holds every 0.6 m, which real walls only sometimes have.
 
+use crate::city_material::{Kind, SlotLayers};
 use crate::level::{Ledge, Level, Tri};
 use anyhow::{Context, Result};
 use bevy::asset::RenderAssetUsages;
@@ -549,6 +550,19 @@ fn image(mut t: forge::Texture, max: u32) -> Image {
     crate::assets::to_image(t)
 }
 
+/// DataPC's "Game Fix" data file (the city's materials name some of its textures: the water's normal map), or nothing.
+fn game_fix(game_dir: &Path) -> Vec<u8> {
+    let read = || -> Result<Vec<u8>> {
+        let f = forge::Forge::open(game_dir.join("DataPC.forge"))?;
+        let e = f.entries.iter().find(|e| e.name == "Game Fix").context("no Game Fix")?;
+        f.read(e)
+    };
+    read().unwrap_or_else(|e| {
+        warn!("city: DataPC's Game Fix not read: {e:#}");
+        vec![]
+    })
+}
+
 /// Build the city into `level` (collision) and the world (meshes): see the module docs.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_city(
@@ -678,9 +692,15 @@ fn spawn_world(
     // is). Not when nothing is drawn (headless) or for picked props (drawn at full detail).
     let lod_files = if opts.render && picks.is_none() { lod_datas(game_dir, &objects, &index) } else { vec![] };
     let lod_objects: Vec<Vec<Object>> = lod_files.iter().map(|d| forge::parse_objects(d).unwrap_or_default()).collect();
+    // (And DataPC's "Game Fix" for its textures: the water's normal map is kept there.)
+    let fix_file = if opts.render { game_fix(game_dir) } else { vec![] };
+    let fix_objects = forge::parse_objects(&fix_file).unwrap_or_default();
     // (Headless: none, nothing is drawn.)
     let mut rindex = if opts.render { index.clone() } else { Index::default() };
     for o in lod_objects.iter().flatten() {
+        rindex.entry(o.id).or_insert(o);
+    }
+    for o in fix_objects.iter().filter(|o| matches!(o.class, forge::CLASS_TEXTURE | CLASS_MAP_SPEC | CLASS_TEXTURE_SET)) {
         rindex.entry(o.id).or_insert(o);
     }
     // Material -> texture set -> diffuse map spec -> texture; layered ("Multi") materials have no
@@ -723,8 +743,11 @@ fn spawn_world(
             return 0;
         }
         let tex = diffuse(material);
-        // (Water by its material too: AC1's puddles are submeshes of other props, a bush's or a roof's, with a water
-        // material of normal and cube maps only.)
+        // What its template does with its maps and parameters (`city_material`): water, layered ground, tints.
+        let parsed = rindex.get(&material).filter(|o| o.class == CLASS_MATERIAL).and_then(|o| forge::material::Material::parse(o.body).ok());
+        let kind = parsed.as_ref().map_or(Kind::Plain, crate::city_material::kind_of);
+        // (Water by its name where its material can't be read: AC1's puddles are submeshes of other props, a bush's or
+        // a roof's, with a water material of normal and cube maps only.)
         let material_name = rindex.get(&material).map_or(String::new(), |o| o.name.to_lowercase());
         let water = if material_name.contains("puddle") {
             Some(Water::Puddle)
@@ -733,7 +756,7 @@ fn spawn_world(
         } else {
             None
         };
-        if tex.is_none() && water.is_none() && bank.untextured.insert(material) {
+        if tex.is_none() && water.is_none() && kind == Kind::Plain && bank.untextured.insert(material) {
             info!("city: material {:08x} {} has no diffuse texture found", material, rindex.get(&material).map_or("(not loaded)", |o| o.name.as_str()));
         }
         let mut look = Look::of(rindex.get(&material).copied(), cut);
@@ -741,7 +764,21 @@ fn spawn_world(
         if look.alpha.is_none() && alpha_template(material) {
             look = Look { alpha: Some(102), two_sided: true };
         }
-        bank.slot(mats, images, tex, normal_map(material), look, water)
+        let template = parsed.as_ref().map(|m| {
+            let get = |id: u32| rindex.get(&id).copied();
+            let maps = crate::city_material::Slots::of(kind).map(|s| {
+                let one = |names: &[&str]| m.slot(names).and_then(|slot| m.resolve(slot, get));
+                [one(s.base), one(s.base_normal), one(s.layer1), one(s.layer1_normal), one(s.layer2), one(s.layer2_normal), one(s.cube)]
+            });
+            if let Some(maps) = &maps
+                && bank.special.insert(material)
+            {
+                let names: Vec<&str> = maps.iter().map(|t| t.map_or("-", |t| t.name.as_str())).collect();
+                debug!("city: material {} ({kind:?}): maps {names:?}", rindex.get(&material).map_or("?", |o| o.name.as_str()));
+            }
+            (crate::city_material::params_of(m), maps, crate::city_material::blends(m))
+        });
+        bank.slot(mats, images, material, tex, normal_map(material), look, water, template)
     };
 
     let to_bevy = game_to_bevy();
@@ -1297,7 +1334,7 @@ fn spawn_world(
             t1.elapsed().as_secs_f32()
         );
         info!("city {forge_file}: detail {detail:?}");
-        let render = crate::stream::CityRender::new(store, bank.list.clone(), detail, commands, meshes);
+        let render = crate::stream::CityRender::new(store, bank.list.clone(), bank.layers.clone(), detail, commands, meshes);
         commands.insert_resource(render);
     }
     // Navigation meshes: every cell's walkable triangles (already in world space).
@@ -1403,7 +1440,6 @@ fn lod_datas(game_dir: &Path, objects: &[Vec<Object>], index: &Index) -> Vec<Vec
     kept.into_values().collect()
 }
 
-/// City materials made so far: a slot per (diffuse map, normal map, cut-out, water).
 /// How a material is drawn: its alpha test's reference (0..255) if it tests alpha, and whether both sides show.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct Look {
@@ -1431,9 +1467,23 @@ enum Water {
     Puddle,
 }
 
+/// The depth bias of what lies on other surfaces (puddles, moss and ground patches), so it draws over them.
+const DECAL_BIAS: f32 = 64.0;
+
+/// A material's template's values and its maps for the city shader's slots (base, base normal, first layer and its
+/// normal, second layer and its normal, cube), where its template draws more than one diffuse map (`city_material`).
+/// The last: its template blends it over what is behind (`city_material::blends`).
+type Template<'a> = (crate::city_material::CityParams, Option<[Option<&'a Object<'a>>; 7]>, bool);
+
+/// City materials made so far: a slot per (diffuse map, normal map, cut-out, water), or per material where its template
+/// draws more (`MatBank::slot`).
 struct MatBank {
-    slots: HashMap<(u32, u32, Look, Option<Water>), u32>,
+    slots: HashMap<(u32, u32, u32, Look, Option<Water>), u32>,
     list: Vec<Handle<StandardMaterial>>,
+    /// Per slot, what the city shader draws beyond its `StandardMaterial`.
+    layers: Vec<SlotLayers>,
+    /// Textures made so far, by object id (shared by the slots that use them).
+    images: HashMap<u32, Handle<Image>>,
     bc: bool,
     /// The largest texture side kept.
     max_texture: u32,
@@ -1443,33 +1493,110 @@ struct MatBank {
     texture_bytes: usize,
     /// Materials no diffuse texture was found for (each logged once).
     untextured: std::collections::HashSet<u32>,
+    /// Water and layered materials (each logged once, `debug`).
+    special: std::collections::HashSet<u32>,
 }
 
 impl MatBank {
     fn new(bc: bool, max_texture: u32) -> Self {
-        Self { slots: HashMap::new(), list: vec![], bc, max_texture, textured: 0, textures: 0, texture_bytes: 0, untextured: Default::default() }
+        Self {
+            slots: HashMap::new(),
+            list: vec![],
+            layers: vec![],
+            images: HashMap::new(),
+            bc,
+            max_texture,
+            textured: 0,
+            textures: 0,
+            texture_bytes: 0,
+            untextured: Default::default(),
+            special: Default::default(),
+        }
     }
 
-    /// The slot of a material with these maps (made on first use).
+    /// A texture for the GPU (a cube map's six faces, or a 2D map as `city_image`), made once.
+    fn image(&mut self, images: &mut Assets<Image>, t: &Object) -> Option<Handle<Image>> {
+        if let Some(h) = self.images.get(&t.id) {
+            return Some(h.clone());
+        }
+        let img = if t.body.get(0x10..0x14) == Some(&2u32.to_le_bytes()[..]) {
+            forge::texture::decode_cube(t.body).ok().map(|c| crate::assets::cube_image(c, t.body))
+        } else {
+            city_image(t.body, self.bc, self.max_texture)
+        }?;
+        self.textures += 1;
+        self.texture_bytes += img.data.as_ref().map_or(0, Vec::len);
+        let h = images.add(img);
+        self.images.insert(t.id, h.clone());
+        Some(h)
+    }
+
+    /// The slot of a material with these maps (made on first use): materials whose template draws more than its diffuse
+    /// (water, layered ground, a tint) get a slot of their own, the rest share theirs by maps and flags.
+    #[allow(clippy::too_many_arguments)]
     fn slot(
         &mut self,
         mats: &mut Assets<StandardMaterial>,
         images: &mut Assets<Image>,
+        material: u32,
         tex: Option<&Object>,
         nrm: Option<&Object>,
         look: Look,
         water: Option<Water>,
+        template: Option<Template>,
     ) -> u32 {
+        let shader = crate::city_material::enabled();
+        let (params, maps, blend) = template.unwrap_or_default();
+        let own = params != crate::city_material::CityParams::default() || maps.is_some() || blend;
         let plain = Look { alpha: None, two_sided: false };
         let key = match tex {
-            _ if water.is_some() => (0, 0, plain, water),
-            None => (0, 0, look, None),
-            Some(t) => (t.id, nrm.map_or(0, |n| n.id), look, None),
+            _ if own => (material, tex.map_or(0, |t| t.id), nrm.map_or(0, |n| n.id), look, water),
+            _ if water.is_some() => (0, 0, 0, plain, water),
+            None => (0, 0, 0, look, None),
+            Some(t) => (0, t.id, nrm.map_or(0, |n| n.id), look, None),
         };
         if let Some(&s) = self.slots.get(&key) {
             return s;
         }
+        let kind = match params.mode.x {
+            x if x > 1.5 => Kind::Water,
+            x if x > 0.5 => Kind::Layered,
+            _ => Kind::Plain,
+        };
+        let mut layers = SlotLayers { params, ..default() };
+        if let Some(m) = maps {
+            let mut get = |k: usize| m[k].and_then(|t| self.image(images, t));
+            layers.base = get(0);
+            layers.base_normal = get(1);
+            layers.layer1 = get(2);
+            layers.layer1_normal = get(3);
+            layers.layer2 = get(4);
+            layers.layer2_normal = get(5);
+            layers.cube = get(6);
+        }
+        // (The city shader's water and layers need their maps: without them, a plain material.)
+        let drawn_by_shader = shader
+            && match kind {
+                Kind::Water => layers.base_normal.is_some(),
+                Kind::Layered => layers.base.is_some(),
+                Kind::Plain => true,
+            };
+        if !drawn_by_shader && kind != Kind::Plain {
+            layers = SlotLayers::default();
+        }
+        let cull = |two_sided: bool| if two_sided { None } else { Some(bevy::render::render_resource::Face::Back) };
         let material = match tex {
+            // AC1's water, drawn by the city shader.
+            _ if kind == Kind::Water && drawn_by_shader => StandardMaterial {
+                base_color: Color::srgba(0.2, 0.38, 0.42, params.water.x),
+                alpha_mode: AlphaMode::Blend,
+                // (Puddles lie on the ground itself, at its height: drawn over it.)
+                depth_bias: DECAL_BIAS,
+                double_sided: look.two_sided,
+                cull_mode: cull(look.two_sided),
+                ..default()
+            },
+            // (Its stand-in without the city shader: a wet patch for a puddle, translucent blue-green for the rest.)
             _ if water == Some(Water::Puddle) => StandardMaterial {
                 base_color: Color::srgba(0.1, 0.09, 0.08, 0.45),
                 perceptual_roughness: 0.15,
@@ -1479,7 +1606,7 @@ impl MatBank {
                 cull_mode: None,
                 ..default()
             },
-            _ if water.is_some() => StandardMaterial {
+            _ if water.is_some() || kind == Kind::Water => StandardMaterial {
                 base_color: Color::srgba(0.2, 0.38, 0.42, 0.75),
                 perceptual_roughness: 0.08,
                 reflectance: 0.6,
@@ -1488,33 +1615,39 @@ impl MatBank {
                 cull_mode: None,
                 ..default()
             },
+            // Layered ground: its maps in the city shader's slots.
+            _ if kind == Kind::Layered && drawn_by_shader => {
+                self.textured += 1;
+                StandardMaterial { perceptual_roughness: 0.9, double_sided: look.two_sided, cull_mode: cull(look.two_sided), ..default() }
+            }
             None if look.alpha.is_some() => {
                 StandardMaterial { base_color: Color::srgb(0.36, 0.45, 0.28), perceptual_roughness: 0.9, double_sided: true, cull_mode: None, ..default() }
             }
             None => StandardMaterial { base_color: Color::srgb(0.7, 0.66, 0.58), perceptual_roughness: 0.9, ..default() },
             Some(t) => {
-                let mut add = |img: Image| {
-                    self.textures += 1;
-                    self.texture_bytes += img.data.as_ref().map_or(0, Vec::len);
-                    images.add(img)
-                };
-                let img = city_image(t.body, self.bc, self.max_texture).map(&mut add);
-                let normal = nrm.and_then(|n| city_image(n.body, self.bc, self.max_texture)).map(&mut add);
+                let img = self.image(images, t);
+                let normal = nrm.and_then(|n| self.image(images, n));
                 self.textured += 1;
                 StandardMaterial {
                     base_color_texture: img,
                     normal_map_texture: normal,
                     flip_normal_map_y: true,
                     perceptual_roughness: 0.9,
-                    // (AC1's alpha test: kept where alpha is over the reference.)
-                    alpha_mode: look.alpha.map_or(AlphaMode::Opaque, |a| AlphaMode::Mask(a as f32 / 255.0)),
+                    // (AC1's alpha test: kept where alpha is over the reference; without one, blended where its template does.)
+                    alpha_mode: match look.alpha {
+                        Some(a) => AlphaMode::Mask(a as f32 / 255.0),
+                        None if blend && shader => AlphaMode::Blend,
+                        None => AlphaMode::Opaque,
+                    },
+                    depth_bias: if blend && shader { DECAL_BIAS } else { 0.0 },
                     double_sided: look.two_sided,
-                    cull_mode: if look.two_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
+                    cull_mode: cull(look.two_sided),
                     ..default()
                 }
             }
         };
         self.list.push(mats.add(material));
+        self.layers.push(layers);
         let s = self.list.len() as u32 - 1;
         self.slots.insert(key, s);
         s
@@ -1562,12 +1695,15 @@ struct RenderInput<'a, F> {
 fn piece_mesh(pm: &forge::mesh::Mesh, idx: &[u32]) -> Option<Mesh> {
     let mut map: HashMap<u32, u32> = HashMap::new();
     let (mut pos, mut nrm, mut uv, mut out) = (vec![], vec![], vec![], Vec::with_capacity(idx.len()));
+    let (mut col, mut lay) = (vec![], vec![]);
     for &i in idx {
         let k = *map.entry(i).or_insert_with(|| {
             let j = i as usize;
             pos.push(pm.positions.get(j).copied().unwrap_or_default());
             nrm.push(pm.normals.get(j).copied().unwrap_or([0.0, 0.0, 1.0]));
             uv.push(pm.uvs.get(j).copied().unwrap_or_default());
+            col.push(pm.colors.get(j).copied().unwrap_or([255; 4]));
+            lay.push(pm.layers.get(j).copied().unwrap_or_default());
             pos.len() as u32 - 1
         });
         out.push(k);
@@ -1579,6 +1715,7 @@ fn piece_mesh(pm: &forge::mesh::Mesh, idx: &[u32]) -> Option<Mesh> {
     m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
     m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm);
     m.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+    crate::city_material::vertex_extras(&mut m, &col, &lay);
     m.insert_indices(Indices::U32(out));
     let _ = m.generate_tangents();
     Some(m)

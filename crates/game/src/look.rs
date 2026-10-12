@@ -94,7 +94,8 @@ impl Look {
                 if std::env::var("AC1_LINEAR_LOOK").is_ok() { 0.0 } else { 1.0 },
                 if std::env::var("AC1_NO_GRADE").is_ok() { 0.0 } else { 1.0 },
                 if cb.enabled { 1.0 } else { 0.0 },
-                0.0,
+                // (`AC1_SHOW_LAYERS=1`: the city shows its layered materials' blend weights, `city_material.wgsl`.)
+                if std::env::var("AC1_SHOW_LAYERS").is_ok() { 1.0 } else { 0.0 },
             ),
         };
         Self { world, sun_dir: to_bevy(s.sun.toward()), fog_near: fog.near, fog_far: fog.near + (fog.far - fog.near) / fog.density.max(1e-3) }
