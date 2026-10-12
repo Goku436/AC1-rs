@@ -4841,8 +4841,8 @@ impl WallClimb {
     fn swing_next(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, done: &Clip) -> bool {
         // (Swinging up again from the still hang: AC1's `xx_h_swing_momentum_front_up` stands for the cycle's first.)
         let i = if done.name == SWING_MOMENTUM { 0 } else { SWING_CYCLE.iter().position(|n| *n == done.name).unwrap_or(SWING_CYCLE.len() - 1) };
-        // The stick not held forward at the top of a swing: AC1's stop (`xx_h_swing_stop_<front|back>_a..d`, the last
-        // items of action 0x023E0C61), into the still free hang from the bar.
+        // The legs let go: AC1's stop (`xx_h_swing_stop_<front|back>_a..d`, actions 0x023E0C61 / 62), into the still free
+        // hang from the bar.
         // (AC1 swings on while high profile and the legs are held, and stops when they are let go (the interpreter's
         // ledge events 5 / 6, as Banned445's port and its reanalysis have them); not by the stick. Caught with them let
         // go, the running game hung still from the bar 0.25 s into the first upswing, no stop: ours settles there.)
@@ -4857,8 +4857,11 @@ impl WallClimb {
             return true;
         }
         self.swung = true;
-        if (i == 0 || i == 2) && self.swing_off.is_none() && !swinging {
-            let side = if i == 0 { "front" } else { "back" };
+        // (The legs let go: AC1's event 6, whose guard 0xDCCF40 takes it only on the down items (front_down 1, back_down
+        // 3), the stop starting at that item's end (audit NARROW-14). Which stop follows which item is Banned445's mapping,
+        // front after front_down; the reanalysis has it the other way round, unchecked live.)
+        if (i == 1 || i == 3) && self.swing_off.is_none() && !swinging {
+            let side = if i == 1 { "front" } else { "back" };
             if let Some(clips) = ["a", "b", "c", "d"].iter().map(|k| lib.get(&format!("xx_h_swing_stop_{side}_{k}"))).collect::<Option<Vec<_>>>() {
                 debug!("climb: the swing comes to rest ({side})");
                 self.start_chain(clips, vec![SWING.into(), SWING.into(), SWING.into(), FREE.into()], root, Vec3::ZERO);

@@ -433,7 +433,7 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - **Swing bars** **[V, ours]**: AC1 swings on while high profile and the legs are held, and stops when they are let
   go (the interpreter's ledge events 5 / 6, Banned445's port and reanalysis), not by the stick. Caught with them let go
   (route ladder68_free), it hung still from the bar 0.25 s into the first upswing, no stop chain; ours settles into
-  `xx_h_hangfree_waitclose` after that upswing. Let go mid-swing: AC1's stop (`xx_h_swing_stop_<front|back>_a..d`, the
+  `xx_h_hangfree_waitclose` after that upswing. Let go mid-swing: at the end of the down item (event 6's guard 0xDCCF40), AC1's stop (`xx_h_swing_stop_<front|back>_a..d`, the
   last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`. Which stop is front and which back is to be
   checked live (the reanalysis says the port's are swapped). The stick forward swings him up again
   (`xx_h_swing_momentum_front_up`). The hay's hop out
@@ -533,6 +533,8 @@ in this batch, by audit id:
   - NARROW-11: on a beam, the empty hand with nothing to pull down onto climbs onto a wall ahead, else to its right or
     left (event 16 after the pull-down, holds probed 0.95 m ahead or 0.8 m to a side; ours: the ground's climb start
     turned that way). Test spot G13.
+  - NARROW-14: the swing's stop (the legs let go) starts at the end of a down item (event 6's guard 0xDCCF40), the front
+    stop after front_down and the back after back_down (Banned445's mapping; the reanalysis says swapped: a live check).
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 
