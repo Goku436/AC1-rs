@@ -95,6 +95,8 @@ pub struct HayStack {
     pub height: f32,
     /// The way one waits in it facing (AC1 turns to the hiding spot's own facing at the wait); zero where unknown.
     pub facing: Vec3,
+    /// Its own meshes' world bounds (min, max) where known: what the hop out's room test leaves out.
+    pub own: Option<(Vec3, Vec3)>,
 }
 
 /// A haystack's or hiding spot's centre and facing: the placed entity's own position (AC1 dives to it, audit HAY-3;
@@ -149,6 +151,13 @@ const HAY_HALF_MAX: f32 = 1.5;
 /// A rooftop hiding spot's rim over the roof (m; `Hiding_Spot_P_01a` in Damascus, the running game: AC1 hopped up onto
 /// it, 1.07 m, and dived in).
 const HIDING_SPOT_RIM: f32 = 1.07;
+/// Hopping out of the hay wants room in a box this far past its footprint's edge (m), this high over the root (m), of
+/// these half extents across, along and up (m): AC1's `Guard_HopOut` 0xE434E0 (`Level::hay_hop_room`).
+const HAY_HOP_ROOM: f32 = 0.5;
+const HAY_HOP_UP: f32 = 1.25;
+const HAY_HOP_BOX: Vec3 = Vec3::new(0.35, 0.5, 0.75);
+/// A hay or hiding-place entity's collision shape this wide or less (m) is its own (`Level::add_city_objects`).
+const HAY_SHAPE_MAX: f32 = 8.0;
 /// A city haystack's height when its mesh gives none (m).
 const CITY_HAY_HEIGHT: f32 = 1.8;
 
@@ -226,6 +235,8 @@ pub struct Level {
     pub authored_ladders: bool,
     /// City meshes that are parkour objects, by kind, with their world bounds (see `add_city_objects`).
     pub city_objects: Vec<(CityObject, Vec3, Vec3, Transform)>,
+    /// The world bounds of the collision shapes of entities that are hay or hiding places (see `HayStack::own`).
+    pub hay_shapes: Vec<(Vec3, Vec3)>,
     /// Where walkable tops end, not yet known to be holds (see `add_probed_ledges`).
     pub lip_candidates: Vec<Ledge>,
     /// Points of interest heads turn toward.
@@ -437,6 +448,15 @@ impl Level {
     pub fn add_city_objects(&mut self) -> (usize, usize, usize, usize) {
         let objs = std::mem::take(&mut self.city_objects);
         let (mut hay, mut ladders, mut benches, mut bars) = (0, 0, 0, 0);
+        // (A haystack's own bounds: its meshes', with the collision shapes of hay and hiding-place entities touching them
+        // (a cart's bed, a hiding place's box), each no bigger than `HAY_SHAPE_MAX` across.)
+        let shapes = std::mem::take(&mut self.hay_shapes);
+        let own_of = |lo: Vec3, hi: Vec3| {
+            shapes
+                .iter()
+                .filter(|(a, b)| (*b - *a).with_y(0.0).max_element() <= HAY_SHAPE_MAX && a.cmple(hi).all() && b.cmpge(lo).all())
+                .fold((lo, hi), |(l, h), (a, b)| (l.min(*a), h.max(*b)))
+        };
         // Hay: each cart or pile's meshes merged.
         let mut piles: Vec<(Vec3, Vec3, Transform)> = vec![];
         for &(_, lo, hi, tf) in objs.iter().filter(|o| o.0 == CityObject::Hay) {
@@ -458,7 +478,9 @@ impl Level {
             // (The skinned hay meshes measure twice a cart's size, 6.2 m, their scale unsure: the stack is its middle.)
             let half = (size.x.min(size.z) * 0.5).min(HAY_HALF_MAX);
             let (centre, facing) = hay_place(lo, hi, &tf);
-            self.haystacks.push(HayStack { centre, half, height, facing });
+            // (Its own bounds up to its height: the flat meshes leave out the cart's bed under the hay.)
+            let own = own_of(lo.min(centre - Vec3::new(half, 0.0, half)), hi.max(centre + Vec3::new(half, height, half)));
+            self.haystacks.push(HayStack { centre, half, height, facing, own: Some(own) });
             hay += 1;
         }
         for &(kind, lo, hi, tf) in objs.iter().filter(|o| o.0 != CityObject::Hay) {
@@ -522,7 +544,8 @@ impl Level {
                     // (Its top for diving in is the box's rim, not the tarp's frame over it.)
                     let half = (size.x.min(size.z) * 0.5).min(HAY_HALF_MAX);
                     let (centre, facing) = hay_place(lo, hi, &tf);
-                    self.haystacks.push(HayStack { centre, half, height: HIDING_SPOT_RIM, facing });
+                    debug!("hiding place at {centre:.2}, half {half:.2}, facing {facing:.2} (bounds {lo:.2} to {hi:.2})");
+                    self.haystacks.push(HayStack { centre, half, height: HIDING_SPOT_RIM, facing, own: Some(own_of(lo, hi)) });
                     hay += 1;
                 }
             }
@@ -927,6 +950,12 @@ impl Level {
     /// box queries, 0xB2D2A0, under `Human__ClimbBodyBoxesFree` 0xB2DF90 and the climb-out's room test 0xB2E240). A face
     /// only touching a side (within 1 mm) does not count.
     pub fn box_free(&self, centre: Vec3, axes: [Vec3; 3], half: Vec3) -> bool {
+        self.box_free_but(centre, axes, half, None)
+    }
+
+    /// `box_free`, the faces lying wholly inside the box `ignore` (world, min and max) left out.
+    pub fn box_free_but(&self, centre: Vec3, axes: [Vec3; 3], half: Vec3, ignore: Option<(Vec3, Vec3)>) -> bool {
+        let inside = |p: Vec3| ignore.is_some_and(|(lo, hi)| p.cmpge(lo - Vec3::splat(0.05)).all() && p.cmple(hi + Vec3::splat(0.05)).all());
         let reach = axes[0].abs() * half.x + axes[1].abs() * half.y + axes[2].abs() * half.z;
         let near = self.tris_near(centre - reach, centre + reach);
         let local = |p: Vec3| {
@@ -936,8 +965,41 @@ impl Level {
         let half = (half - Vec3::splat(1e-3)).max(Vec3::ZERO);
         !near.iter().any(|&i| {
             let t = &self.tris[i as usize];
-            tri_crosses_box([local(t.a), local(t.b), local(t.c)], half)
+            !(inside(t.a) && inside(t.b) && inside(t.c)) && tri_crosses_box([local(t.a), local(t.b), local(t.c)], half)
         })
+    }
+
+    /// Room to hop out of haystack `hs` from `p` (in it) along `d` (flat, unit): AC1's `Guard_HopOut` 0xE434E0 (Banned445's
+    /// port, audit HAY-6): the box `HAY_HOP_BOX` (half extents across, along, up) `HAY_HOP_ROOM` past where the way out
+    /// leaves the footprint, `HAY_HOP_UP` over the root, empty, the haystack itself left out (AC1's query skips it): its
+    /// own bounds (`HayStack::own`), a cart's bed, a hiding place's plank box (3.1 m across in some, past the footprint)
+    /// and the tarp's frame over it.
+    pub fn hay_hop_room(&self, hs: &HayStack, p: Vec3, d: Vec3) -> bool {
+        let reach = |dc: f32, pc: f32, cc: f32| if dc.abs() < 1e-4 { f32::INFINITY } else { (cc + hs.half * dc.signum() - pc) / dc };
+        let t = reach(d.x, p.x, hs.centre.x).min(reach(d.z, p.z, hs.centre.z)).max(0.0);
+        // (Over what he sits on: a cart's bed stands over the hay entity's own height, where ours seats him.)
+        let base = self.ground(p + Vec3::Y * hs.height, 0.0, hs.height + 0.5).map_or(p.y, |g| g.point.y.max(p.y));
+        let room = (p + d * (t + HAY_HOP_ROOM)).with_y(base + HAY_HOP_UP);
+        // (Or, as ours had it before, a clear way out over its top from over its middle: a pile in a yard, its walls 2.5 m
+        // round its middle and its own shape not told apart, has room only by that.)
+        let over = Vec3::new(hs.centre.x, p.y.max(hs.top()), hs.centre.z) + Vec3::Y * HAY_HOP_UP;
+        let out = t + HAY_HOP_ROOM;
+        self.box_free_but(room, [d.cross(Vec3::Y), d, Vec3::Y], HAY_HOP_BOX, hs.own)
+            || (self.raycast(over, d, out).is_none() && !self.inside_solid(over + d * out))
+    }
+
+    /// The haystacks and hiding places with no way out: from the seat, no room to hop out any of 8 ways (`hay_hop_room`).
+    pub fn hay_with_no_way_out(&self) -> Vec<Vec3> {
+        self.haystacks
+            .iter()
+            .filter(|h| {
+                (0..8).all(|k| {
+                    let a = k as f32 * std::f32::consts::FRAC_PI_4;
+                    !self.hay_hop_room(h, h.seat(), Vec3::new(a.cos(), 0.0, a.sin()))
+                })
+            })
+            .map(|h| h.centre)
+            .collect()
     }
 
     /// Narrow wall tops (a fence's or a parapet's, no deeper than `NARROW_TOP_MAX` behind a hold, with a drop past
@@ -975,7 +1037,14 @@ impl Level {
             // (Past it a drop: not the step up to a roof. Along all of it, every `PAIR_BEAM_STEP`, the top kept only where
             // it drops past: tested at the middle alone, a roof edge's strip over a drop for half its length was a top to
             // balance on its whole length, the roof flush past the rest; the running game stepped off it there.)
-            let drops = |s: f32| self.ground(l.a.lerp(l.b, s) - l.out * (depth + 0.1) + Vec3::Y * 0.3, 0.0, 0.8).is_none();
+            // (And a drop in front of the hold too: a roof's parapet, its floor 0.24 m under the top behind it, is ground to
+            // AC1, not a beam. Taken from the hold facing the roof, the drop to the street past the top made it one, and
+            // standing at the roof's edge with the stick along it he got onto it and balanced there, Damascus at
+            // (192, 8, -11.46): user report, 2026-10-12.)
+            let drops = |s: f32| {
+                let p = l.a.lerp(l.b, s);
+                [p - l.out * (depth + 0.1), p + l.out * PAIR_BEAM_OUT].iter().all(|q| self.ground(*q + Vec3::Y * 0.3, 0.0, 0.8).is_none())
+            };
             let n = (len / PAIR_BEAM_STEP).ceil().max(1.0) as usize;
             let shift = -l.out * (depth * 0.5);
             let mut out = vec![];
@@ -1261,7 +1330,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     beam(walls, level, -87.0, -83.0, z, 5.0);
     walls.cuboid(Vec3::new(-83.0, 0.0, z - 1.5), Vec3::new(-79.0, 5.0, z + 1.5));
     beam(walls, level, -79.0, -77.6, z, 5.0);
-    level.haystacks.push(HayStack { centre: Vec3::new(-76.2, 0.0, z), half: 1.3, height: 1.7, facing: Vec3::ZERO });
+    level.haystacks.push(HayStack { centre: Vec3::new(-76.2, 0.0, z), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None });
 
     // G3: a wall with holds to run up (its west face) and climb over, across its roof, a 2 m gap to the next roof, off
     // its far end to the ground.
@@ -1290,7 +1359,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     }
     beam(walls, level, -77.8, -73.8, z, 2.0);
     platform(walls, -73.8, -71.8, z, 2.0);
-    level.haystacks.push(HayStack { centre: Vec3::new(-70.1, 0.0, z), half: 1.3, height: 1.7, facing: Vec3::ZERO });
+    level.haystacks.push(HayStack { centre: Vec3::new(-70.1, 0.0, z), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None });
 
     // G6: two swing bars off a platform, down onto a post, post to post, onto a beam, along it to a platform.
     let z = 84.0;
@@ -1462,7 +1531,7 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     building(walls, strips, level, up(58.0, 8.0), Vec3::new(62.0, t2, 12.0), &[Vec3::X]);
     walls.cuboid(Vec3::new(56.6, t2 - 0.25, 9.85), Vec3::new(58.0, t2, 10.15));
     level.perches.push(Line { a: Vec3::new(56.7, t2, 10.0), b: Vec3::new(58.0, t2, 10.0) });
-    level.haystacks.push(HayStack { centre: Vec3::new(55.4, 0.0, 10.0), half: 1.3, height: 1.7, facing: Vec3::ZERO });
+    level.haystacks.push(HayStack { centre: Vec3::new(55.4, 0.0, 10.0), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None });
     // Wall W: run through the doorway (1.6 m wide, 2.4 m high) in the wall in front of it, up the bare wall (its face
     // at z = 22) and rebound back onto the holds over the doorway, 2.2 m behind (face at z = 19.8, at 2.99 and 3.59 m).
     walls.cuboid(Vec3::new(29.0, 0.0, 22.0), Vec3::new(37.0, 6.0, 22.6));
@@ -1632,6 +1701,8 @@ pub fn spawn_level(
         }
         level.build_grid();
         info!("{probed} more holds where walkable tops end over a wall (lips the edge test missed)");
+        let shut = level.hay_with_no_way_out();
+        info!("{} haystacks and hiding places with no way out{}", shut.len(), if shut.is_empty() { String::new() } else { format!(": {shut:.1?}") });
         // `AC1_HOLDS_AT="x,y,z,r"`: every hold within r of a point, logged (what a spot in a recording could grab).
         if let Some(v) =
             std::env::var("AC1_HOLDS_AT").ok().map(|s| s.split(',').filter_map(|v| v.trim().parse::<f32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 4)
@@ -1857,7 +1928,7 @@ pub fn spawn_level(
         ledge_geo.cuboid(a - Vec3::Y * 0.07, b + Vec3::Z * HOLD_DEPTH);
         level.ledges.push(Ledge { a: a + Vec3::Z * 0.06, b: b + Vec3::Z * 0.06, out: Vec3::Z });
     }
-    level.haystacks.push(HayStack { centre: Vec3::new(13.8, 0.0, 14.0), half: 1.3, height: 1.7, facing: Vec3::ZERO });
+    level.haystacks.push(HayStack { centre: Vec3::new(13.8, 0.0, 14.0), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None });
     // A ledge hanging in the air west of E (a slab on a post set back under it), 2.4 m to the right of E's
     // west holds and 1.2 m below its 3.6 m row: the long leap from E's face into a free hang catches it
     // with one hand and swings until steady.
@@ -1867,7 +1938,7 @@ pub fn spawn_level(
     let (a, b) = (Vec3::new(4.68, slab, 12.0), Vec3::new(6.32, slab, 12.0));
     ledge_geo.cuboid(a - Vec3::Y * 0.07 - Vec3::Z * HOLD_DEPTH, b);
     level.ledges.push(Ledge { a: a - Vec3::Z * 0.06, b: b - Vec3::Z * 0.06, out: Vec3::NEG_Z });
-    level.haystacks.push(HayStack { centre: Vec3::new(5.0, 0.0, 15.5), half: 1.3, height: 1.7, facing: Vec3::ZERO });
+    level.haystacks.push(HayStack { centre: Vec3::new(5.0, 0.0, 15.5), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None });
     // Tower T: 15 m, climbable on its +Z face (holds every 0.6 m from 1.79 m), with a haystack 2 m off
     // its back edge for a leap of faith.
     let tower_top = 1.79 + 0.6 * 22.0;
@@ -1878,7 +1949,7 @@ pub fn spawn_level(
         ledge_geo.cuboid(a - Vec3::Y * 0.07, b + Vec3::Z * HOLD_DEPTH);
         level.ledges.push(Ledge { a: a + Vec3::Z * 0.06, b: b + Vec3::Z * 0.06, out: Vec3::Z });
     }
-    let hay = HayStack { centre: Vec3::new(13.5, 0.0, -9.2), half: 1.3, height: 1.7, facing: Vec3::ZERO };
+    let hay = HayStack { centre: Vec3::new(13.5, 0.0, -9.2), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None };
     level.haystacks.push(hay);
     // Two-step lane (south-east, run along +X at z = -30): a 1 m fence, then two posts 1.8 m tall: free running
     // jumps onto the fence and springs straight on to the first post, then post to post.
@@ -1953,7 +2024,7 @@ pub fn spawn_level(
     add(v_holds, Color::srgb(0.55, 0.5, 0.42), &mut level, &mut commands);
     level.perches.push(Line { a: Vec3::new(23.5, v_top, 17.1), b: Vec3::new(23.5, v_top, 18.3) });
     level.viewpoints.push(Vec3::new(23.5, v_top, 18.2));
-    level.haystacks.push(HayStack { centre: Vec3::new(23.5, 0.0, 20.6), half: 1.3, height: 1.7, facing: Vec3::ZERO });
+    level.haystacks.push(HayStack { centre: Vec3::new(23.5, 0.0, 20.6), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None });
     // Flow lane: a straight, walled run south of the test area (along +X at z -26..-23) to free-run through
     // without losing speed: a 0.6 m block to step up onto and a 1.2 m wall to jump onto, a ramp up to a 2 m
     // walkway, a 2.5 m gap to jump, a jump down across a gap onto a 1 m walkway, a drop back to the ground, a
@@ -2253,7 +2324,7 @@ mod tests {
 
     #[test]
     fn haystack_footprint() {
-        let h = HayStack { centre: Vec3::new(1.0, 0.0, 2.0), half: 1.0, height: 1.5, facing: Vec3::ZERO };
+        let h = HayStack { centre: Vec3::new(1.0, 0.0, 2.0), half: 1.0, height: 1.5, facing: Vec3::ZERO, own: None };
         assert!(h.contains(Vec3::new(1.5, 3.0, 2.5), 0.3));
         assert!(!h.contains(Vec3::new(1.8, 3.0, 2.0), 0.3));
         assert!((h.top() - 1.5).abs() < 1e-6);
