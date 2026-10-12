@@ -772,6 +772,12 @@ first clip). Found and fixed:
   to the 1.7 m one, the root 0.6 m lower. AC1's chooser (0xE97720) takes the higher of two reports facing within 30
   degrees of each other; ours now takes the highest of the jump's options that fit. Ours hangs 0.005 m from the running
   game's height (0.1 m nearer the wall).
+- Up from a ledge hang pulls up first: on the haystack route (`hay70_free`) the running game, hung from the roof's edge
+  after the pull-down with W and the legs held, pulled up onto it (`hangwall_tr_hangknee`, then the free-step entry);
+  ours leapt to a hold 2.4 m higher, as the leaps came before the top-out. AC1's ledge tries the pull-up first
+  (CanPullup 0xDE2270, event 0, ahead of the hand steps and jumps up; Banned445's port); ours now does from the wall and
+  free hangs (the climbing stances keep AC1's ChooseMove order, the top-out last). The route's mean gap 0.71 to 0.54 m,
+  the path within 0.3 m to 4 s where it was 1.6 m off.
 
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the

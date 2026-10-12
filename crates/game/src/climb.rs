@@ -7694,6 +7694,15 @@ impl WallClimb {
         if !vertical && self.try_onto_ladder(lib, level, root, rig, base, cr, dir) {
             return true;
         }
+        // Hanging from a ledge (AC1's HumanLedge, not the climbing stances), up: the pull-up first wherever the ledge has a
+        // top to stand on, before the hand steps and the jumps up (CanPullup 0xDE2270, event 0, ahead of the other up
+        // moves; Banned445's port). In the running game (Damascus, live log 2026-10-12, the haystack route north-east of the
+        // seams roofs) he hung from a roof's edge after the pull-down, W and the legs held, and pulled up onto it; ours
+        // leapt to a hold 2.4 m higher.
+        if dir == "u" && (matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) || is_free(&self.state)) && self.try_top_out(lib, level, root, rig, base, cr)
+        {
+            return true;
+        }
         // (The outside corner after the reaches, as AC1's ChooseMove: the inside one before them.)
         let (corners_out, cands): (Vec<Cand>, Vec<Cand>) =
             self.candidates(lib, dir, input).into_iter().partition(|c| c.names.first().is_some_and(|n| n.contains("_corner_") && n.ends_with("_out")));

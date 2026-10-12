@@ -1039,6 +1039,28 @@ const SCENARIOS: &[Scenario] = &[
         want: &["rebound off the wall at [46.", "via xx_h_rebound_frontleft_", "_tr_freestep_entry_footr at [46."],
         never: &["EMBED"],
     },
+    // The live log's haystack route (2026-10-12): free running north-east onto the hay box's rim, into the hay, out over
+    // its far rim and down into the hang on the roof's edge; W and the legs still held, the running game pulled up onto
+    // the edge (AC1's pull-up first from a ledge hang, CanPullup 0xDE2270), where ours leapt to a hold 2.4 m higher.
+    Scenario {
+        name: "Damascus: up from the hang on a roof's edge with the legs held pulls up, as AC1's ledge does, not a leap",
+        tags: &["hang", "hay"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "52.0,-33.4,-31.0,13.45"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STICK", "1"),
+            ("AC1_STOP", "4.44"),
+            ("AC1_HEADINGS", "0.14,58.9"),
+            ("AC1_HIGH", "0-4.44"),
+            ("AC1_LEGS", "0-4.44"),
+            ("AC1_CLIMB", "nograb,leap-up=4.43"),
+        ],
+        secs: 4.5,
+        want: &["-> hangwall_open via xx_l_ledge_pulldown_soft_to_hangwall_straight_b", "hangwall_open -> hangknee via xx_h_hangwall_tr_hangknee_footl_a"],
+        never: &["xx_h_climbing_hangwall_tr_climb1m_up"],
+    },
     Scenario {
         name: "Damascus: the side eject to the left from the bureau wall's hang onto the beam along the wall (AC1's rebound)",
         tags: &["eject", "hang"],
