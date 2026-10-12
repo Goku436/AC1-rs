@@ -215,23 +215,91 @@ pub struct Texture {
     pub cube: bool,
 }
 
-/// TextureMap body (see `texture` for the header fields): u32 w, u32 h, u32 depth, u32 format, ... at +0x43 the data
-/// tag, +0x47 u32 data size, +0x4B pixel data (full mip chain, top mip first).
-pub fn decode_texture(body: &[u8]) -> Result<Texture> {
+/// How a TextureMap's pixels are stored (its format at +0x0C): 2 and 3 DXT1 (BC1), 4 DXT3 (BC2), 5 and 7 DXT5 (BC3),
+/// anything else (0) BGRA8.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PixelFormat {
+    Bgra8,
+    Bc1,
+    Bc2,
+    Bc3,
+}
+
+impl PixelFormat {
+    pub fn of(format: u32) -> Self {
+        match format {
+            2 | 3 => Self::Bc1,
+            4 => Self::Bc2,
+            5 | 7 => Self::Bc3,
+            _ => Self::Bgra8,
+        }
+    }
+
+    fn bc(self) -> Option<texpresso::Format> {
+        match self {
+            Self::Bc1 => Some(texpresso::Format::Bc1),
+            Self::Bc2 => Some(texpresso::Format::Bc2),
+            Self::Bc3 => Some(texpresso::Format::Bc3),
+            Self::Bgra8 => None,
+        }
+    }
+
+    /// Bytes of one `w` x `h` level (block formats in whole 4x4 blocks).
+    pub fn level_size(self, w: usize, h: usize) -> usize {
+        self.bc().map_or(w * h * 4, |f| f.compressed_size(w, h))
+    }
+
+    /// A block-compressed format (4x4 blocks).
+    pub fn is_block(self) -> bool {
+        self != Self::Bgra8
+    }
+}
+
+/// A TextureMap's pixels as stored: the top level and the smaller levels after it, each half the size of the one before
+/// (as many as the data holds; a cube's are its first face's).
+pub struct StoredTexture<'a> {
+    pub width: u32,
+    pub height: u32,
+    /// The format field (+0x0C) as read.
+    pub format: u32,
+    pub pixels: PixelFormat,
+    pub levels: Vec<&'a [u8]>,
+    pub sampling: texture::Sampling,
+    pub cube: bool,
+}
+
+/// The stored levels of a TextureMap body (see `texture` for the header fields): u32 w, u32 h, u32 depth, u32 format,
+/// ... at +0x43 the data tag, +0x47 u32 data size, +0x4B pixel data (full mip chain, top mip first).
+pub fn texture_levels(body: &[u8]) -> Result<StoredTexture<'_>> {
     let w32 = |o| texture::get_u32(body, o).unwrap_or(0);
     let (width, height, format) = (w32(0), w32(4), w32(12));
     ensure!((1..=8192).contains(&width) && (1..=8192).contains(&height), "texture size {width}x{height} at 0x0");
     let data = texture::pixel_data(body)?;
-    let bc = match format {
-        2 | 3 => Some(texpresso::Format::Bc1),
-        4 => Some(texpresso::Format::Bc2),
-        5 | 7 => Some(texpresso::Format::Bc3),
-        _ => None,
-    };
-    let level_size = |w: usize, h: usize| bc.map_or(w * h * 4, |f| f.compressed_size(w, h));
+    let pixels = PixelFormat::of(format);
+    let (mut w, mut h) = (width as usize, height as usize);
+    let need = pixels.level_size(w, h);
+    ensure!(data.len() >= need, "texture data short at {:#x}: {} < {need}", 0x4B, data.len());
+    let mut levels = vec![&data[..need]];
+    // The rest of the chain, while the data lasts.
+    let mut off = need;
+    while w > 1 || h > 1 {
+        (w, h) = ((w / 2).max(1), (h / 2).max(1));
+        let n = pixels.level_size(w, h);
+        if off + n > data.len() {
+            break;
+        }
+        levels.push(&data[off..off + n]);
+        off += n;
+    }
+    Ok(StoredTexture { width, height, format, pixels, levels, sampling: texture::Sampling::read(body), cube: w32(0x10) == 2 })
+}
+
+/// Decode a TextureMap body to RGBA8 (`texture_levels`, each level decoded).
+pub fn decode_texture(body: &[u8]) -> Result<Texture> {
+    let t = texture_levels(body)?;
     let decode = |src: &[u8], w: usize, h: usize| {
         let mut rgba = vec![0u8; w * h * 4];
-        match bc {
+        match t.pixels.bc() {
             Some(f) => f.decompress(src, w, h, &mut rgba),
             None => {
                 for (dst, s) in rgba.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
@@ -241,22 +309,15 @@ pub fn decode_texture(body: &[u8]) -> Result<Texture> {
         }
         rgba
     };
-    let (mut w, mut h) = (width as usize, height as usize);
-    let need = level_size(w, h);
-    ensure!(data.len() >= need, "texture data short at {:#x}: {} < {need}", 0x4B, data.len());
-    let rgba = decode(&data[..need], w, h);
-    // The rest of the chain, while the data lasts.
-    let (mut off, mut mips) = (need, vec![]);
-    while w > 1 || h > 1 {
+    let (mut w, mut h) = (t.width as usize, t.height as usize);
+    let mut decoded = Vec::with_capacity(t.levels.len());
+    for l in &t.levels {
+        decoded.push(decode(l, w, h));
         (w, h) = ((w / 2).max(1), (h / 2).max(1));
-        let n = level_size(w, h);
-        if off + n > data.len() {
-            break;
-        }
-        mips.push(decode(&data[off..off + n], w, h));
-        off += n;
     }
-    Ok(Texture { width, height, format, rgba, mips, sampling: texture::Sampling::read(body), cube: w32(0x10) == 2 })
+    let mut levels = decoded.into_iter();
+    let rgba = levels.next().unwrap_or_default();
+    Ok(Texture { width: t.width, height: t.height, format: t.format, rgba, mips: levels.collect(), sampling: t.sampling, cube: t.cube })
 }
 
 pub fn write_png(path: impl AsRef<Path>, t: &Texture) -> Result<()> {

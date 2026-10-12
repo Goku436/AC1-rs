@@ -10,7 +10,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | `.forge` archives (index, names, FILEDATA records) | done, all 18 archives |
 | Chunked LZO1X decompression | done: 15906/15906 data files decompress (`examples/decodecheck`); 9357 split into objects, the rest are streamed sound (6531 `*_BAO_*`: Ubisoft BAO audio, signatures 01 1b 01 00 / 02 1f 00 10 as the QuickBMS scimitar script names them, not object containers) and each forge's `GlobalMetaFile` (18: one 170-byte record, byte-identical in every forge: small ids and values and a 32-bit time of 2014-07-22, likely the build's; nothing about the world, `examples/entryhex`) |
 | Object container (class hash, name, id, body) | done |
-| TextureMap -> PNG (DXT1/3/5, BGRA8) | done, verified visually: 32286/32286 textures decode (`examples/texcheck`); colour space (`GammaSettings`) and sampler (address, filter modes) read and used; cube maps 57/58, ramps (`TextureGradient`) 3/3 |
+| TextureMap -> PNG (DXT1/3/5, BGRA8) | done, verified visually: 32286/32286 textures decode (`examples/texcheck`); colour space (`GammaSettings`) and sampler (address, filter modes) read and used; cube maps 57/58, ramps (`TextureGradient`) 3/3. Stored levels as they are (`texture_levels`): 32251 block-compressed (27620 DXT1, 1878 DXT3, 2753 DXT5), every one in whole 4x4 blocks at its top level, 30640 with the full mip chain; city textures go to the GPU that way |
 | Material (85c817c3): template and typed parameter table (scalars, colours, texture slots) | 15666/15929 parse (`examples/texcheck`): every character material; the rest carry a parameter class not read yet (c52e2125, 213: glows, skies, water), a 1 at +0x29 (28 trees) or 2/4 at +0x31 (25) |
 | Mesh (class 415d9568): skinned verts, submeshes, bone palettes, materials | done, 120 skinned (incl. cloth, type 4) + 31 static of 168 in DataPC |
 | Static meshes (type 0, stride 24) | done: positions `xyz/32768 * |w|/8` m (sword, terrain tiles meeting exactly, houses on their ground); every mesh in every archive parses (43984/43984): vegetation and soft bodies (`Veg_Olivier_*`, `Herbe_Scatter_*`, `*_Softbody`: the cloth-simulation object 0x5755de7f embedded as in the robe, after `u32 0 or 1, u32 1 or 5, u8 0`; static LODs with an empty bone table) and effects meshes (type 2, laid out as the static ones) |
@@ -863,6 +863,8 @@ GPU Process Memory counter).
 |---|---|---|---|---|---|---|---|
 | baseline (everything at full detail, decoded to RGBA8, at most 512 px) | Damascus | 28.0-28.7 s (28.7 s) | 165 / 165 / 137 | 2.2 GB (3.3 GB) | 756-886 MB | 64970, 21.3 M | 219 MB |
 | baseline | Masyaf | 7.0-7.6 s (6.9 s) | 165 / 165 (over) | 1.8 GB (2.0 GB) | 757-762 MB | 8735, 4.36 M | 182 MB |
+| textures uploaded block-compressed (BC1/BC2/BC3 as stored, mips kept) | Damascus | 28.4-30.7 s (27.3 s) | 134 / 60 / 85 (unsteady: the window behind another game) | 1.95 GB (2.8 GB) | 501 MB | 64970, 21.3 M | 31 MB |
+| textures block-compressed | Masyaf | 6.6 s (6.5 s) | 164 / 64 | 1.5 GB (1.8 GB) | 564 MB | 8735, 4.36 M | 26 MB |
 
 Most of Damascus' 28 s is gameplay set-up after the city's 10 s load (holds, beams, ladders, hay against the built
 collision); streaming only what is drawn leaves that as it is.

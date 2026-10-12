@@ -464,6 +464,40 @@ fn cutout(name: &str) -> bool {
     ["veg", "forest", "fake", "leaf", "tree", "olivier", "cedre", "cypres", "palm", "grass", "trellis", "alpha"].iter().any(|k| n.contains(k))
 }
 
+/// A city texture for the GPU: kept block-compressed as stored (BC1/BC2/BC3, `bc`: the device takes them) with its
+/// mip chain, else decoded to RGBA8 (`image`); levels over `MAX_TEXTURE` dropped either way. Its sampler and colour space
+/// from its header.
+fn city_image(body: &[u8], bc: bool) -> Option<Image> {
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    use forge::PixelFormat;
+    let t = forge::texture_levels(body).ok()?;
+    if !bc || !t.pixels.is_block() {
+        return forge::decode_texture(body).ok().map(image);
+    }
+    let (mut w, mut h, mut levels) = (t.width, t.height, &t.levels[..]);
+    while w.max(h) > MAX_TEXTURE && levels.len() > 1 {
+        (w, h, levels) = ((w / 2).max(1), (h / 2).max(1), &levels[1..]);
+    }
+    // (Block formats take whole blocks at the top level: every one in the install has them.)
+    if w % 4 != 0 || h % 4 != 0 {
+        return forge::decode_texture(body).ok().map(image);
+    }
+    let srgb = t.sampling.srgb;
+    let format = match t.pixels {
+        PixelFormat::Bc1 if srgb => TextureFormat::Bc1RgbaUnormSrgb,
+        PixelFormat::Bc1 => TextureFormat::Bc1RgbaUnorm,
+        PixelFormat::Bc2 if srgb => TextureFormat::Bc2RgbaUnormSrgb,
+        PixelFormat::Bc2 => TextureFormat::Bc2RgbaUnorm,
+        PixelFormat::Bc3 if srgb => TextureFormat::Bc3RgbaUnormSrgb,
+        _ => TextureFormat::Bc3RgbaUnorm,
+    };
+    let mut img = Image::new_uninit(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, format, RenderAssetUsages::RENDER_WORLD);
+    img.texture_descriptor.mip_level_count = levels.len() as u32;
+    img.data = Some(levels.concat());
+    img.sampler = bevy::image::ImageSampler::Descriptor(crate::assets::sampler(&t.sampling));
+    Some(img)
+}
+
 fn image(mut t: forge::Texture) -> Image {
     while t.width.max(t.height) > MAX_TEXTURE && !t.mips.is_empty() {
         t.rgba = t.mips.remove(0);
@@ -475,6 +509,7 @@ fn image(mut t: forge::Texture) -> Image {
 }
 
 /// Build the city into `level` (collision) and the world (meshes): see the module docs.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_city(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -483,8 +518,9 @@ pub fn spawn_city(
     level: &mut Level,
     game_dir: &Path,
     forge_file: &str,
+    bc: bool,
 ) -> Result<Vec3> {
-    spawn_world(commands, meshes, mats, images, level, game_dir, forge_file, None)
+    spawn_world(commands, meshes, mats, images, level, game_dir, forge_file, None, bc)
 }
 
 /// A prop taken from a city to place elsewhere: its entity's name, where it goes (Bevy, Y up) and its turn
@@ -508,8 +544,9 @@ pub fn spawn_props(
     game_dir: &Path,
     forge_file: &str,
     picks: &[PropPick],
+    bc: bool,
 ) -> Result<()> {
-    spawn_world(commands, meshes, mats, images, level, game_dir, forge_file, Some(picks)).map(|_| ())
+    spawn_world(commands, meshes, mats, images, level, game_dir, forge_file, Some(picks), bc).map(|_| ())
 }
 
 /// The data files a few entities need: from each, everything it links (meshes, materials, texture sets,
@@ -564,6 +601,7 @@ fn spawn_world(
     game_dir: &Path,
     forge_file: &str,
     picks: Option<&[PropPick]>,
+    bc: bool,
 ) -> Result<Vec3> {
     let t0 = std::time::Instant::now();
     let forge = forge::Forge::open(game_dir.join(forge_file)).with_context(|| format!("open {forge_file}"))?;
@@ -989,13 +1027,12 @@ fn spawn_world(
                     Some(t) => materials
                         .entry(key)
                         .or_insert_with(|| {
-                            let mut add = |t: forge::Texture| {
-                                let img = image(t);
+                            let mut add = |img: Image| {
                                 texture_bytes += img.data.as_ref().map_or(0, Vec::len);
                                 images.add(img)
                             };
-                            let img = forge::decode_texture(t.body).ok().map(&mut add);
-                            let normal = nrm.and_then(|n| forge::decode_texture(n.body).ok()).map(&mut add);
+                            let img = city_image(t.body, bc).map(&mut add);
+                            let normal = nrm.and_then(|n| city_image(n.body, bc)).map(&mut add);
                             mats.add(StandardMaterial {
                                 base_color_texture: img,
                                 normal_map_texture: normal,
@@ -1093,7 +1130,11 @@ fn spawn_world(
         let top = level.beam_tops.iter().chain(level.perches.iter()).flat_map(|l| [l.a, l.b]).filter(near).max_by(|a, b| a.y.total_cmp(&b.y));
         level.viewpoints.push(top.unwrap_or(v));
     }
-    info!("city {forge_file}: render: {parts} parts of {drawn_verts} vertices drawn, {:.0} MB of textures", texture_bytes as f64 / 1048576.0);
+    info!(
+        "city {forge_file}: render: {parts} parts of {drawn_verts} vertices drawn, {:.0} MB of textures{}",
+        texture_bytes as f64 / 1048576.0,
+        if bc { " (block-compressed)" } else { "" }
+    );
     info!(
         "city {forge_file}: {placed} meshes placed ({grouped} entities from groups, {shared_files} shared data files; {parts} parts, {} unique meshes, {} materials), {} collision triangles ({shape_tris} from {shaped} entities' collision shapes, {prims} of them primitives; {skipped_bounds} out-of-bounds or camera-only shapes left out), {} ledges, {} viewpoints, {:.1}s",
         parsed.values().filter(|p| p.is_some()).count(),
