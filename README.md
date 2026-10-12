@@ -26,6 +26,8 @@ in Rust from how the game behaves and from AC1's own move graph, the table that 
 | C | left stick click | centre the camera |
 | P | Start / Options | free camera |
 | F9 | Back / Share | flight recorder: saves the last 10 s for bug reports |
+| F8 | | graphics settings: Low / Medium / High / Ultra presets, window, vsync, frame cap, detail, shadows, anti-aliasing (saved in `ac1-settings.txt` beside the exe) |
+| F10 | | online: host a game on a port, or join one by IP and port (two players over UDP) |
 
 ## Progress
 Movement first: combat is removed for now. The default scene is a greybox test level; Damascus and Masyaf load

@@ -1,15 +1,14 @@
-//! Replays (branch `feature/multiplayer`, for showcase videos): a session recorded frame by frame and played back
-//! with any camera.
+//! Replays (for showcase videos): a session recorded frame by frame and played back with any camera.
 //!
-//! Recording: online (`AC1_HOST` / `AC1_JOIN`) or with `AC1_RECORD_REPLAY=1`, every game writes
-//! `replays/ac1-replay-<unix secs>.bin` from the start; F10 stops it, and F10 again starts a new file. Each frame (60
-//! a second at most) holds both players as shown on this side (root and every bone) and both cameras: ours, and the
+//! Recording: the online menu's "Record replay" (F10), or `AC1_RECORD_REPLAY=1` from the start, writes
+//! `replays/ac1-replay-<unix secs>-<process id>.bin` (about 20 MB a minute with a friend); turned off, the file ends,
+//! and on again a new one starts. Each frame (60 a second at most) holds both players as shown on this side (root and every bone) and both cameras: ours, and the
 //! friend's, sent with their packets. One recording has both points of view.
 //!
 //! Playback: `AC1_REPLAY=<file>` loads the recording's level and poses both Altaïrs from it (nothing is simulated).
 //! Keys: Enter pause, Left / Right 5 s back / on (with Shift 1 s), `,` / `.` a frame back / on while paused, Up / Down
 //! speed x2 / /2, Home the start; 1 our camera as recorded, 2 the friend's, 3 the free camera (WASD, Space/E up,
-//! Ctrl/Q down, Shift fast, Alt slow, the mouse looks), 4 following us; H hides the HUD (in any game).
+//! Ctrl/Q down, Shift fast, Alt slow, the mouse looks), 4 following us; F1 hides the HUD.
 //! `AC1_REPLAY_VIEW=ours|friend|free|follow` picks the camera to start with.
 //! `AC1_REPLAY_FRAMES=dir` renders it to dir/frame_00000.png ... at 30 frames a second of the recording (from
 //! `AC1_REPLAY_FROM` to `AC1_REPLAY_TO` seconds, if given), whatever the frame rate, then exits; encode with ffmpeg at
@@ -94,9 +93,9 @@ impl Replay {
     }
 }
 
-/// Is a recording to be made (online, or asked for)?
+/// Is a recording to be made from the start (`AC1_RECORD_REPLAY`)?
 pub fn recording_wanted() -> bool {
-    crate::net::enabled() || std::env::var("AC1_RECORD_REPLAY").is_ok()
+    std::env::var("AC1_RECORD_REPLAY").is_ok()
 }
 
 /// Is a replay to be played (`AC1_REPLAY`)?
@@ -125,14 +124,20 @@ impl Recorder {
         r
     }
 
-    fn start(&mut self) {
+    /// Recording now?
+    pub fn on(&self) -> bool {
+        self.out.is_some()
+    }
+
+    /// Start a new file.
+    pub fn start(&mut self) {
         let _ = std::fs::create_dir_all("replays");
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
         // (The process id too: two copies on one machine, as when testing online, started in the same second.)
         let path = format!("replays/ac1-replay-{secs}-{}.bin", std::process::id());
         match std::fs::File::create(&path) {
             Ok(f) => {
-                info!("replay: recording to {path} (F10 stops)");
+                info!("replay: recording to {path}");
                 self.out = Some(BufWriter::new(f));
                 self.t = 0.0;
                 self.last = f32::NEG_INFINITY;
@@ -142,7 +147,8 @@ impl Recorder {
         }
     }
 
-    fn stop(&mut self) {
+    /// End the file.
+    pub fn stop(&mut self) {
         if let Some(mut out) = self.out.take() {
             let _ = out.flush();
             info!("replay: recording stopped ({:.0} s)", self.t);
@@ -179,20 +185,12 @@ fn actor_of(tf: &Transform, ch: &Character, cam: Option<(Vec3, Quat)>) -> Actor 
 /// Record this frame (after the friend is posed and the camera placed). F10 stops and starts.
 pub fn record(
     time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
     mut rec: ResMut<Recorder>,
     net: Option<Res<crate::net::Net>>,
     me: Query<(&Transform, &Character), With<Player>>,
     friend: Query<FriendShown, (With<crate::net::Remote>, Without<Player>)>,
     cams: Query<&Transform, (With<Camera3d>, Without<Character>)>,
 ) {
-    if keys.just_pressed(KeyCode::F10) {
-        if rec.out.is_some() {
-            rec.stop();
-        } else {
-            rec.start();
-        }
-    }
     if rec.out.is_none() {
         return;
     }

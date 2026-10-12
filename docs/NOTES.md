@@ -28,6 +28,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Navigation meshes (`NavMeshManager`) | done: 1432/1432 parse (67836 pieces, 1.13 M triangles); city routes (A*) |
 | Clip sets (`AnimSet`) | done: 81 read; soldiers and townsfolk play their own clips |
 | Flight recorder (F9), controller, scenario suite | done |
+| In-game menus: graphics settings (F8, presets for low-end PCs, saved beside the exe), online (F10: two players over UDP, host / join, replays) | first version ("Graphics settings and online play") |
 | Ghost mode, AC1's development flight (the Human Debug context, unreachable in retail; F7) | done: no collision, action 0x0006F88B (request 7) plays `Ghost_mode01` then `Ghost_mode02` looping, out with request 33's `xx_h_jump_falling01` and a fall (from Banned445's MIT port, `debug_fly.rs`) |
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
@@ -924,17 +925,56 @@ their compact bodies (Damascus 51 MB) and built for the GPU on loader threads, n
 level (or its cell's stand-in shows) until the new mesh is there, and a mesh nothing has drawn for 5 s leaves the GPU.
 Headless runs draw nothing: no city meshes, materials or textures are made.
 
-`AC1_DETAIL` (default medium):
+`AC1_DETAIL`, else the graphics menu's city detail and texture size (F8, `settings.rs`; default medium):
 
 | Detail | Box round the camera (half side) | LOD distances | Vertex budget | Largest texture |
 |---|---|---|---|---|
 | low (a weak laptop's integrated GPU) | 64 m (AC1's own loading radius in Damascus) | x1.5 (coarser sooner) | 1.5 M | 256 px |
 | medium | 128 m | AC1's | 4 M | 512 px |
 | high | 256 m | x0.75 | 12 M | 1024 px |
+| ultra | 384 m | x0.5 | 20 M | 2048 px |
 | full | everything, no stand-ins | full detail always | none | 512 px (the city as drawn before streaming, to compare) |
 
 Most of Damascus' 28 s is gameplay set-up after the city's 10 s load (holds, beams, ladders, hay against the built
 collision); streaming only what is drawn leaves that as it is.
+
+## Graphics settings and online play (the F8 and F10 menus)
+Both menus are drawn as the F2 map menu (`menu.rs`): Up / Down pick a row, Left / Right (or a click, the right button
+back, or the wheel) change it, Enter presses a button or opens a text field (typing, Backspace, Enter keeps, Esc drops),
+Esc or the key closes. The cursor is freed while one is open and the game gets no keys; closing gives the camera the
+cursor back. Every change is saved at once to `ac1-settings.txt` beside the executable (`key = value` lines; unknown
+lines or bad values keep the defaults) and read at the next start. Scripted and headless runs (`AC1_HEADLESS`,
+`AC1_SHOT`, `AC1_FRAMES`, `AC1_CONTROL`, `AC1_NO_SETTINGS`) ignore the file and run on the defaults, so the scenarios
+are untouched; `AC1_SETTINGS=<file>` reads (and writes) that file in any run; `AC1_DETAIL` and `AC1_WINDOW_SIZE` still win.
+
+| Setting (F8) | Choices | Applies |
+|---|---|---|
+| Preset | Low, Medium (the game as before the menu), High, Ultra; Custom once a row differs | sets detail, textures, shadows, anti-aliasing, view distance |
+| Window | windowed, borderless fullscreen, fullscreen (the monitor's mode) | live |
+| Resolution | 1280x720 ... 3840x2160 (windowed) | live |
+| VSync | on (`Fifo`) / off (`AutoNoVsync`) | live |
+| Frame cap | off, 30, 60, 120, 144 (the frame's rest slept out in `Last`) | live |
+| City detail | low, medium, high, ultra, full (`stream::Detail`: draw box, LOD scale, vertex budget) | live; to or from full on a restart |
+| Texture size | 256, 512, 1024, 2048 px (city textures are cut down as they load) | restart (the menu's Restart row starts the game again where he stands) |
+| Shadows | off; low (one 1024 cascade over 40 m, hardware 2x2 filtering); medium (as set up: the city's 3 cascades in 120 m, 2048); high (4096 maps) | live |
+| Anti-aliasing | off, FXAA, MSAA 2x, MSAA 4x (the default) | live |
+| Fog | on / off (the city's linear haze) | live |
+| View distance | 600, 1200, 2500, 5000 m (the far plane; the haze closes in by 90 % of it) | live |
+
+Low (low detail, 256 px, no shadows, no AA, 1.2 km) is for weak PCs: Damascus draws about 1.2 M vertices there against
+about 8 M at Ultra.
+
+Online (F10, `net.rs`; the old `feature/multiplayer` branch, folded in on 2026-10-12): two players over UDP, each
+sending its root, every bone's rotation (16-bit) and the first four bones' positions and its camera 30 times a second;
+the other player is a second Altaïr posed from them (made, hidden, when a session starts). Rows: Hosting on / off and,
+when on, the hosting port (UDP, default 7777; open it in the firewall / router to be joined from outside); when off, Join
+IP, Join port and Join game (and Leave); Record replay (`replay.rs`: `replays/ac1-replay-<secs>-<pid>.bin`, about
+20 MB a minute, played back with `AC1_REPLAY=<file>` or `replay.bat`). The status line shows listening, connected (to
+whom), the peer count (a host takes one friend; a new one once the last has been quiet 6 s) and errors (a port in use,
+a bad address, "nobody is listening there" when Windows reports the joined port closed). `AC1_HOST=port` /
+`AC1_JOIN=ip:port` start the same from the environment. Checked between two copies on 127.0.0.1 (windowed and
+headless): each hears and shows the other. Not done: NAT punching, more than two players, anything but poses (no
+shared world state).
 
 ## Animation notes
 See the header of `crates/forge/src/anim.rs`. In short: per-track blocks
