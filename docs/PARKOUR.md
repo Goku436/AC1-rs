@@ -537,6 +537,8 @@ in this batch, by audit id:
     stop after front_down and the back after back_down (Banned445's mapping; the reanalysis says swapped: a live check).
   - EXTRA-16: the ledge stop breaks into a standing turn toward the edge in high profile (as the running game's 0.084 s
     into `waitturn_left_090`).
+  - HAY-7: out of a haystack over its rim, the side and the drop (1.5 m under the haystack's floor) come from its own box,
+    the hang from a level hold along the rim if there is one, else from the rim itself.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

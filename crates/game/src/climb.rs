@@ -579,10 +579,12 @@ const LEAN_CONTACT: f32 = 0.15;
 /// Leaning on a wall and pushing on this long (s), a low one is climbed onto, the root ending on the first top found this
 /// far in from its face (m).
 const LEAN_CLIMB_AFTER: f32 = 0.2;
-/// Out of a haystack over its rim: a hold along the rim within this of where the stick's way meets it (m), a drop of
-/// more than `HAY_OVER_DROP` past it, the passover ending this far in from the rim's edge.
-const HAY_OVER_REACH: f32 = 0.6;
+/// Out of a haystack over its rim: the side the stick points over within 45 degrees (cos), a drop of more than
+/// `HAY_OVER_DROP` under the haystack's floor past it (m), the hang from a hold along the rim within `HAY_OVER_REACH` of
+/// where the stick's way meets it (m; else from the rim), the passover ending `HAY_OVER_IN` in from the rim's edge.
+const HAY_OVER_COS: f32 = 0.7;
 const HAY_OVER_DROP: f32 = 1.5;
+const HAY_OVER_REACH: f32 = 0.6;
 const HAY_OVER_IN: f32 = 0.1;
 /// Leaning, the stick within this of straight into the wall (cos 72 degrees) keeps pushing; further off it leaves.
 const LEAN_PUSH_COS: f32 = 0.3;
@@ -1116,7 +1118,7 @@ pub struct WallClimb {
     /// How long it has leant on the wall, still (s).
     lean_t: f32,
     /// Going out of a haystack over its rim (AC1's passover): the rim's hold to hang from once over it.
-    hay_over: Option<usize>,
+    hay_over: Option<Ledge>,
     /// Just landed: the drop (m) and the damage taken (for the HUD).
     pub landed: Option<(f32, f32)>,
     /// A vault's root path, followed instead of its clips' root motion (see `VaultPath`).
@@ -5450,18 +5452,29 @@ impl WallClimb {
         }
         let d = d.normalize();
         let Some(hs) = level.haystacks.iter().find(|h| h.contains(p, 0.3)) else { return false };
-        let exit = hs.centre + d * (hs.half / d.x.abs().max(d.z.abs()).max(0.5));
-        let found = level
-            .ledges
-            .iter()
-            .enumerate()
-            .filter(|(_, l)| l.out.dot(d) > 0.7 && (l.a.y - hs.top()).abs() < 0.3 && (l.closest(exit) - exit).with_y(0.0).length() < HAY_OVER_REACH)
-            .min_by(|a, b| (a.1.closest(exit) - exit).length().total_cmp(&(b.1.closest(exit) - exit).length()));
-        let Some((i, l)) = found else { return false };
-        let rim = l.closest(exit);
-        if level.ground(rim + l.out * 0.5 + Vec3::Y * 0.2, 0.3, HAY_OVER_DROP).is_some() {
+        // (The rim and the drop past it from the haystack's own box, the side the stick points over, and a ground probe:
+        // AC1's event 2 is the haystack's own, with no hold needed (audit HAY-7: ours wanted a hold of its list there, and
+        // with none, after the heap's holds were left out or a probe missed one, hopped out instead).)
+        let out = if d.x.abs() >= d.z.abs() { Vec3::X * d.x.signum() } else { Vec3::Z * d.z.signum() };
+        if out.dot(d) < HAY_OVER_COS {
             return false;
         }
+        let along = Vec3::Y.cross(out);
+        let side = Vec3::new(hs.centre.x, hs.top(), hs.centre.z) + out * hs.half;
+        let exit = side + along * (d.dot(along) / d.dot(out).max(0.5) * hs.half).clamp(-hs.half, hs.half);
+        // (A drop past it: no floor within `HAY_OVER_DROP` under the haystack's own floor, 0.5 m out.)
+        if level.ground(exit + out * 0.5 + Vec3::Y * 0.2, 0.3, hs.top() - hs.centre.y + 0.2 + HAY_OVER_DROP).is_some() {
+            return false;
+        }
+        // (The rim's hold to hang from: one of the level's along it, else the rim itself.)
+        let l = level
+            .ledges
+            .iter()
+            .filter(|l| l.out.dot(out) > 0.7 && (l.a.y - hs.top()).abs() < 0.3 && (l.closest(exit) - exit).with_y(0.0).length() < HAY_OVER_REACH)
+            .min_by(|a, b| (a.closest(exit) - exit).length().total_cmp(&(b.closest(exit) - exit).length()))
+            .copied()
+            .unwrap_or(Ledge { a: side - along * hs.half, b: side + along * hs.half, out });
+        let rim = l.closest(exit);
         let Some(clips) = ["xx_l_haystack_wait_to_passover_handl", "xx_h_passover_handl_030cm"].iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else {
             return false;
         };
@@ -5472,7 +5485,7 @@ impl WallClimb {
         if let Some(m) = &mut self.mv {
             m.ease_rot = root.rotation * at.rotation.inverse();
         }
-        self.hay_over = Some(i);
+        self.hay_over = Some(l);
         debug!("climb: out of the haystack over its rim at {rim:.2}");
         true
     }
@@ -7381,8 +7394,7 @@ impl WallClimb {
                 return;
             }
             // Over a haystack's rim: down into the hang from it.
-            if let Some(i) = self.hay_over.take() {
-                let l = level.ledges[i];
+            if let Some(l) = self.hay_over.take() {
                 let edge = l.closest(root.translation);
                 let first = ["xx_h_passover_handl_030cm_pulldown_soft_orientation", "xx_h_passover_handl_030cm_pulldown_soft"];
                 if let Some(w) = Self::pull_down_onto(lib, level, root, rig, base, cr, &l, edge, first, self.last.clone()) {
