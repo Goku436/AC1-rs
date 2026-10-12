@@ -22,7 +22,7 @@ fn main() -> Result<()> {
             }
             all += 1;
             match forge::ambiance::find_in(objects.iter()) {
-                Ok((a, s)) => {
+                Ok(forge::ambiance::AmbiancePair { ambiance: a, sky: s }) => {
                     ok += 1;
                     println!("{} / {}:", path.file_name().unwrap_or_default().to_string_lossy(), e.name);
                     println!("  {:?}", a.fog);

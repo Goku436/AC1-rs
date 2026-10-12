@@ -666,11 +666,20 @@ fn spawn_world(
     // A material slot for a mesh's material (`MatBank`); nothing is made when nothing is drawn.
     let detail = crate::stream::Detail::from_env();
     let mut bank = MatBank::new(bc, detail.max_texture);
+    // Whether a material's shader template cuts its diffuse's alpha out (AC1's `GEN_DiffuseAlpha`, `Plants`,
+    // `Env_Foliage*`, ...): leaves, vines and trellises whatever their mesh is called.
+    let alpha_template = |material: u32| -> bool {
+        let Some(m) = rindex.get(&material).and_then(|m| forge::material::Material::parse(m.body).ok()) else { return false };
+        rindex.get(&m.template).is_some_and(|t| {
+            let n = t.name.to_lowercase();
+            ["alpha", "plants", "foliage"].iter().any(|k| n.contains(k))
+        })
+    };
     let slot_of = |bank: &mut MatBank, mats: &mut Assets<StandardMaterial>, images: &mut Assets<Image>, material: u32, cut: bool, is_water: bool| -> u32 {
         if !opts.render {
             return 0;
         }
-        bank.slot(mats, images, diffuse(material), normal_map(material), cut, is_water)
+        bank.slot(mats, images, diffuse(material), normal_map(material), cut || alpha_template(material), is_water)
     };
 
     let to_bevy = game_to_bevy();
@@ -1061,6 +1070,7 @@ fn spawn_world(
                     .fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(a, b), v| (a.min(v), b.max(v)));
                 drawn.push(Drawn {
                     world,
+                    shadow: !mesh.name.starts_with("BA_Bureau_Ext"),
                     lo,
                     hi,
                     mesh: at,
@@ -1129,7 +1139,7 @@ fn spawn_world(
         // Picked props: drawn at once, at full detail.
         for d in drawn.iter().filter(|_| opts.render) {
             let tf = Transform::from_matrix(d.world);
-            for ((mesh, aabb), slot) in crate::stream::build_parts(&stored[d.mesh]).into_iter().zip(&d.slots) {
+            for ((mesh, aabb, _), slot) in crate::stream::build_parts(&stored[d.mesh]).into_iter().zip(&d.slots) {
                 commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(bank.list[*slot as usize].clone()), tf, aabb, bevy::camera::visibility::NoAutoAabb));
             }
         }
@@ -1348,6 +1358,8 @@ impl MatBank {
 struct Drawn<'a> {
     /// Bevy space.
     world: Mat4,
+    /// It casts shadows (`stream::Instance::shadow`).
+    shadow: bool,
     lo: Vec3,
     hi: Vec3,
     /// Its full-detail mesh: an index into the stored meshes, and its id.
@@ -1469,19 +1481,26 @@ fn render_store<F: Fn(&mut MatBank, &mut Assets<StandardMaterial>, &mut Assets<I
         })
     };
     let mut by_position = 0;
+    // Each entity's baked occlusion per mesh (`forge::instance`), read once per entity.
+    let mut entity_ao: HashMap<u32, HashMap<u32, Vec<u8>>> = HashMap::new();
+    let (mut ao_levels, mut ao_bad) = (0usize, 0usize);
     for d in drawn {
         // Its levels: those of the entity's selector that has its mesh, else the mesh alone. A level whose mesh can't
         // be drawn draws the one before it.
         let chain = chains.get(&d.entity_id).and_then(|c| c.iter().find(|l| l.iter().any(|l| l.mesh == Some(d.mesh_id))));
         let mut lods: Vec<Lod> = vec![];
         let mut parts: Vec<Vec<u32>> = vec![];
+        // (Per level, the id of the mesh it draws.)
+        let mut ids: Vec<Option<u32>> = vec![];
         match chain {
             None => {
                 lods.push(Lod { mesh: Some(d.mesh), until: f32::INFINITY });
                 parts.push(d.slots.clone());
+                ids.push(Some(d.mesh_id));
             }
             Some(chain) => {
                 for l in chain {
+                    let mut used = l.mesh;
                     let (mesh, slots) = match l.mesh {
                         None => (None, vec![]),
                         Some(id) if id == d.mesh_id => (Some(d.mesh), d.slots.clone()),
@@ -1508,12 +1527,16 @@ fn render_store<F: Fn(&mut MatBank, &mut Assets<StandardMaterial>, &mut Assets<I
                                             .collect(),
                                     )
                                 }
-                                None => (lods.last().map_or(Some(d.mesh), |l| l.mesh), parts.last().cloned().unwrap_or_else(|| d.slots.clone())),
+                                None => {
+                                    used = ids.last().copied().unwrap_or(Some(d.mesh_id));
+                                    (lods.last().map_or(Some(d.mesh), |l| l.mesh), parts.last().cloned().unwrap_or_else(|| d.slots.clone()))
+                                }
                             }
                         }
                     };
                     lods.push(Lod { mesh, until: l.until });
                     parts.push(slots);
+                    ids.push(used);
                 }
             }
         }
@@ -1539,7 +1562,26 @@ fn render_store<F: Fn(&mut MatBank, &mut Assets<StandardMaterial>, &mut Assets<I
         };
         let cell = cell_of(&mut store, key);
         store.cells[cell].instances.push(store.instances.len());
-        store.instances.push(Instance { world: d.world, lo: d.lo, hi: d.hi, levels: lods, parts });
+        // Its levels' occlusion: the entity's bytes for each level's mesh, into the store's.
+        let by_mesh = entity_ao.entry(d.entity_id).or_insert_with(|| match forge::instance::mesh_ao(d.entity) {
+            Ok(v) => v.into_iter().map(|m| (m.mesh, m.ao)).collect(),
+            Err(e) => {
+                ao_bad += 1;
+                debug!("city: entity {:08x}'s occlusion not read: {e:?}", d.entity_id);
+                HashMap::new()
+            }
+        });
+        let ao: Vec<Option<u32>> = ids
+            .iter()
+            .map(|id| {
+                let bytes = by_mesh.get(&(*id)?)?;
+                let at = store.ao.len() as u32;
+                store.ao.extend_from_slice(bytes);
+                ao_levels += 1;
+                Some(at)
+            })
+            .collect();
+        store.instances.push(Instance { world: d.world, lo: d.lo, hi: d.hi, levels: lods, parts, ao, shadow: d.shadow });
     }
     // The stand-ins: each block's mesh, a piece per finest cell it stands for, and the rest (always drawn).
     if let (Some(g), Some(_)) = (grid, levels)
@@ -1598,6 +1640,7 @@ fn render_store<F: Fn(&mut MatBank, &mut Assets<StandardMaterial>, &mut Assets<I
     if by_position > 0 {
         debug!("city: {by_position} drawn meshes placed in the grid by position (not from a cell's data file)");
     }
+    info!("city: baked occlusion for {ao_levels} instance levels, {:.1} MB ({ao_bad} entities' not read)", store.ao.len() as f64 / 1048576.0);
     store.meshes = stored;
     store
 }

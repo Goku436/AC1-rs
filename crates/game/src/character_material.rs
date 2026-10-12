@@ -1,7 +1,8 @@
 //! The character shader: AC1's character templates (cloth, inside cloth, skin, weapon / mouth, eyes) as an
 //! `ExtendedMaterial` over Bevy's `StandardMaterial` (`character_material.wgsl`): the diffuse lit through the template's
 //! ramp, Phong highlights from the specular map, cloth's rim, skin's tiled specular and multiply map, the weapons' and
-//! mouth's Fresnel, the eyes' iris tint and reflection cube. Bevy keeps the lights, shadows, ambient light and fog.
+//! mouth's Fresnel, the eyes' iris tint and reflection cube; the level's light from AC1's data (`look`: the character
+//! ambient cube, the characters' sun, the fog and the grade) and Bevy's shadow maps.
 //!
 //! The parts carry a `Look` (`assets`) with the material's parameters; `spawn_character` draws them with a
 //! `StandardMaterial` and a `PendingLook`, which `apply_looks` turns into this material (so the spawners need no new
@@ -39,6 +40,8 @@ pub struct LayerControls {
     /// Style, skin specular tiling, eye normal blend, eye colour blend.
     pub options: Vec4,
     pub eye_color: Vec4,
+    /// Whether the diffuse, specular, ramp and multiply maps are sRGB textures (1) or linear (0): set by `apply_looks`.
+    pub srgb: Vec4,
 }
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
@@ -57,6 +60,9 @@ pub struct CharacterLayers {
     #[texture(107, dimension = "cube")]
     #[sampler(108)]
     pub eye_cube: Option<Handle<Image>>,
+    /// The level's light (`look`): set by `apply_looks`.
+    #[uniform(109)]
+    pub look: crate::look::WorldLook,
 }
 
 impl MaterialExtension for CharacterLayers {
@@ -120,6 +126,7 @@ pub fn controls(m: &GameMaterial, style: Style) -> LayerControls {
         ),
         options: Vec4::new(style_index(style) as f32, scalar("SpecularTiling", 1.0), scalar("NormalMapBlend", 0.0), by_id(EYE_COLOR_BLEND, 0.0)),
         eye_color: color("EyeColor"),
+        srgb: Vec4::ZERO,
     }
 }
 
@@ -140,8 +147,14 @@ fn apply_looks(
     parts: Query<(Entity, &MeshMaterial3d<StandardMaterial>, &PendingLook)>,
     standard: Res<Assets<StandardMaterial>>,
     mut surfaces: ResMut<Assets<CharacterSurface>>,
+    images: Res<Assets<Image>>,
+    look: Res<crate::look::Look>,
 ) {
+    let srgb = |h: &Option<Handle<Image>>| -> f32 {
+        h.as_ref().and_then(|h| images.get(h)).map_or(0.0, |i| if i.texture_descriptor.format.is_srgb() { 1.0 } else { 0.0 })
+    };
     use bevy::render::render_resource::Face;
+    let world = *look;
     for (e, mat, look) in &parts {
         let Some(base) = standard.get(&mat.0) else { continue };
         let mut base = base.clone();
@@ -157,7 +170,10 @@ fn apply_looks(
         if look.inside {
             (base.double_sided, base.cull_mode) = (true, Some(Face::Front));
         }
-        let handle = surfaces.add(CharacterSurface { base, extension: look.layers.clone() });
+        let mut ext = look.layers.clone();
+        ext.controls.srgb = Vec4::new(srgb(&base.base_color_texture), srgb(&ext.specular_map), srgb(&ext.ramp), srgb(&ext.multiply_map));
+        ext.look = world.world;
+        let handle = surfaces.add(CharacterSurface { base, extension: ext });
         commands.entity(e).remove::<(MeshMaterial3d<StandardMaterial>, PendingLook)>().insert(MeshMaterial3d(handle));
     }
 }

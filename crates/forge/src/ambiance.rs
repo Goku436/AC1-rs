@@ -127,11 +127,11 @@ pub struct Sun {
 }
 
 impl Sun {
-    /// The direction toward the sun in the game's Z-up world (by the azimuth and elevation's usual sense; checked by eye
-    /// against the game's shadows: `?`).
+    /// The direction toward the sun in the game's Z-up world: the azimuth turns clockwise seen from above, from +X toward
+    /// -Y (matched against the running game's shadows in Damascus: Damascus' 115 degrees lights the south faces).
     pub fn toward(&self) -> [f32; 3] {
         let (a, e) = (self.azimuth.to_radians(), self.elevation.to_radians());
-        [a.cos() * e.cos(), a.sin() * e.cos(), e.sin()]
+        [a.sin() * e.cos(), a.cos() * e.cos(), e.sin()]
     }
 }
 
@@ -244,13 +244,20 @@ impl Sky {
     }
 }
 
+/// A level's ambiance and the sky it links.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AmbiancePair {
+    pub ambiance: Ambiance,
+    pub sky: Sky,
+}
+
 /// A level's ambiance and sky, from the objects of its data files: the first `WorldAmbiance` and the sky it links.
-pub fn find_in<'a>(objects: impl IntoIterator<Item = &'a crate::Object<'a>> + Clone) -> Result<(Ambiance, Sky)> {
+pub fn find_in<'a>(objects: impl IntoIterator<Item = &'a crate::Object<'a>> + Clone) -> Result<AmbiancePair> {
     let amb = objects.clone().into_iter().find(|o| o.class == CLASS_WORLD_AMBIANCE).context("no WorldAmbiance")?;
     let a = Ambiance::parse(amb.body).with_context(|| amb.name.clone())?;
     let sky = objects.into_iter().find(|o| o.class == CLASS_LAYERED_SKY && o.id == a.sky).context("its LayeredSky is not there")?;
     let s = Sky::parse(sky.body).with_context(|| sky.name.clone())?;
-    Ok((a, s))
+    Ok(AmbiancePair { ambiance: a, sky: s })
 }
 
 #[cfg(test)]

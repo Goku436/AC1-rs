@@ -395,6 +395,7 @@ pub fn spawn_character(
             ramp: tex(look.ramp),
             multiply_map: tex(look.multiply),
             eye_cube: tex(look.cube),
+            look: crate::look::Look::default().world,
         },
         diffuse: tex(look.diffuse),
         normal: tex(look.normal),

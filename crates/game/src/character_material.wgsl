@@ -1,8 +1,9 @@
-// The character shader: AC1's character templates' lighting on top of Bevy's StandardMaterial inputs, keeping
-// Bevy's lights, shadow maps, ambient light, fog and colour management.
+// The character shader: AC1's character templates' lighting on top of Bevy's StandardMaterial inputs, with AC1's
+// level light (the character ambient cube, the characters' sun, the fog and the grade: `ac1::look`) and Bevy's shadow
+// maps.
 //
 // From Banned445's AC1-Movement-Rewritten (src/character_material.wgsl), adapted to ac1-rs (the eye cube's lookup
-// for our Y-up world; parts that receive no shadows keep out of the shadow maps).
+// for our Y-up world; parts that receive no shadows keep out of the shadow maps; the level's light).
 // Copyright (c) 2026 Banned445. MIT License:
 // Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 // documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
@@ -16,15 +17,21 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 // Styles (`options.x`): 0 cloth, 1 inside cloth, 2 skin, 3 weapon / mouth (Fresnel), 4 eyes.
+//
+// Lit as AC1's character shaders light (their DX9 code, in the data's MaterialTemplates): the level's character ambient
+// cube (the normal's Z bent up) times the diffuse, plus the characters' sun through the template's ramp with its Phong
+// highlight and the shadow map, then the fog and the level's grade. In AC1's display-space light (the default) the
+// textures and colours are taken as stored.
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
     pbr_fragment::pbr_input_from_standard_material,
-    pbr_functions::{alpha_discard, main_pass_post_lighting_processing},
+    pbr_functions::alpha_discard,
     mesh_view_bindings as view_bindings,
     clustered_forward as clustering,
     shadows,
     mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT,
 }
+#import ac1::look::{WorldLook, space, to_srgb, to_game, ambient_cube, fog, finish}
 
 struct LayerControls {
     multiply: vec4<f32>,
@@ -34,6 +41,8 @@ struct LayerControls {
     // style, skin specular tiling, eye normal blend, eye colour blend
     options: vec4<f32>,
     eye_color: vec4<f32>,
+    // Whether the diffuse, specular, ramp and multiply maps are sRGB textures (decoded when sampled).
+    srgb: vec4<f32>,
 }
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> layers: LayerControls;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var specular_map: texture_2d<f32>;
@@ -44,6 +53,16 @@ struct LayerControls {
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var multiply_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(107) var eye_cube: texture_cube<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(108) var eye_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(109) var<uniform> look: WorldLook;
+
+// A sample or colour as the shader works on it: in display-space light the value as stored (an sRGB texture's sample
+// and the colour parameters, read as sRGB, encoded back), else as it is.
+fn stored(c: vec3<f32>, srgb: f32) -> vec3<f32> {
+    if look.options.x > 0.5 && srgb > 0.5 {
+        return to_srgb(c);
+    }
+    return c;
+}
 
 // One light: the diffuse from the template's ramp at (N.L + 1) / 2 (plain N.L for the eyes) and a Phong highlight.
 fn light_response(style: u32, diffuse: vec3<f32>, specular: vec3<f32>, power: f32,
@@ -51,7 +70,7 @@ fn light_response(style: u32, diffuse: vec3<f32>, specular: vec3<f32>, power: f3
     let nl = dot(N, L);
     var diffuse_light = vec3<f32>(max(nl, 0.0));
     if style != 4u {
-        diffuse_light = textureSampleLevel(ramp, ramp_sampler, vec2<f32>((nl + 1.0) * 0.5, 0.5), 0.0).rgb;
+        diffuse_light = stored(textureSampleLevel(ramp, ramp_sampler, vec2<f32>((nl + 1.0) * 0.5, 0.5), 0.0).rgb, layers.srgb.z);
     }
     let highlight = pow(max(dot(reflect(-L, N), V), 0.0), power) * strength * max(nl, 0.0);
     return diffuse * diffuse_light + specular * highlight;
@@ -61,11 +80,12 @@ fn light_response(style: u32, diffuse: vec3<f32>, specular: vec3<f32>, power: f3
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var p = pbr_input_from_standard_material(in, is_front);
     let style = u32(layers.options.x);
+    let base = stored(p.material.base_color.rgb, layers.srgb.x);
     // The eyes' diffuse alpha is the iris tint's mask: it must not cut holes in the eye.
-    var diffuse = p.material.base_color.rgb * layers.multiply.rgb;
+    var diffuse = base * stored(layers.multiply.rgb, 1.0);
     if style == 4u {
-        let tinted = mix(p.material.base_color.rgb, layers.eye_color.rgb, p.material.base_color.a);
-        diffuse = mix(tinted, p.material.base_color.rgb, layers.options.w);
+        let tinted = mix(base, stored(layers.eye_color.rgb, 1.0), p.material.base_color.a);
+        diffuse = mix(tinted, base, layers.options.w);
         p.material.base_color.a = 1.0;
     }
     p.material.base_color = alpha_discard(p.material, p.material.base_color);
@@ -75,12 +95,17 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let nv = dot(N, V);
     var power = layers.highlight.x;
     var strength = layers.highlight.y;
-    var specular = layers.specular.rgb;
+    var specular = stored(layers.specular.rgb, 1.0);
     var spec_uv = in.uv;
     if style == 2u { spec_uv *= layers.options.y; }
-    let mask = textureSample(specular_map, specular_sampler, spec_uv);
-    if style == 2u { strength *= mask.r; diffuse *= textureSample(multiply_map, multiply_sampler, in.uv).r; }
-    else if style != 4u { specular *= mask.rgb; power += mask.b; }
+    let mask = stored(textureSample(specular_map, specular_sampler, spec_uv).rgb, layers.srgb.y);
+    if style == 2u {
+        strength *= mask.r;
+        diffuse *= stored(textureSample(multiply_map, multiply_sampler, in.uv).rgb, layers.srgb.w).r;
+    } else if style != 4u {
+        specular *= mask;
+        power += mask.b;
+    }
     if style == 3u { strength *= mix(layers.highlight.w, 1.0, pow(abs(1.0 - nv), 5.0)); }
     if style <= 1u {
         // Cloth's rim lightens the diffuse towards the silhouette before lighting.
@@ -90,25 +115,26 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         // The cube is in the game's Z-up world, looked up along (x, z, y) of the reflection there; our world is the
         // game's turned -90 degrees about X (game (x, y, z) = ours (x, -z, y)), so that is ours (x, y, -z).
         let R = reflect(-V, N);
-        diffuse += textureSample(eye_cube, eye_sampler, vec3<f32>(R.x, R.y, -R.z)).rgb;
+        diffuse += stored(textureSample(eye_cube, eye_sampler, vec3<f32>(R.x, R.y, -R.z)).rgb, 1.0);
         diffuse *= 2.0;
         strength *= mix(0.2 + 0.8 * pow(abs(1.0 - nv), 5.0), 1.0, pow(abs(1.0 - nv), 5.0));
     }
-    // Bevy's ambient light stands in for AC1's environment lighting.
-    var color = diffuse * view_bindings::lights.ambient_color.rgb;
+    // The level's character ambient cube.
+    var color = diffuse * space(look, ambient_cube(look.char_cube, to_game(N), look.bend.y));
     // (Parts marked `NotShadowReceiver`, the faces under the hood, take no shadow-map shadows.)
     let receives = (p.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u;
     let view_z = dot(vec4<f32>(view_bindings::view.view_from_world[0].z,
         view_bindings::view.view_from_world[1].z, view_bindings::view.view_from_world[2].z,
         view_bindings::view.view_from_world[3].z), p.world_position);
-    for (var i = 0u; i < view_bindings::lights.n_directional_lights; i++) {
-        let light = view_bindings::lights.directional_lights[i];
-        let L = light.direction_to_light;
+    // The characters' sun (its own colour and direction), shadowed by the first directional light's maps.
+    if view_bindings::lights.n_directional_lights > 0u {
+        let light = view_bindings::lights.directional_lights[0];
         var shade = 1.0;
         if receives && (light.flags & 1u) != 0u {
-            shade = shadows::fetch_directional_shadow(i, p.world_position, p.world_normal, view_z, in.position.xy);
+            shade = shadows::fetch_directional_shadow(0u, p.world_position, p.world_normal, view_z, in.position.xy);
         }
-        color += light_response(style, diffuse, specular, power, strength, N, V, L) * light.color.rgb * shade;
+        color += light_response(style, diffuse, specular, power, strength, N, V, normalize(look.char_sun_dir.xyz))
+            * space(look, look.char_sun.rgb) * shade;
     }
     let cluster_index = clustering::view_fragment_cluster_index(in.position.xy, view_z, p.is_orthographic);
     let ranges = clustering::unpack_clusterable_object_index_ranges(cluster_index);
@@ -133,9 +159,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             shade = shadows::fetch_point_shadow(id, p.world_position, p.world_normal, in.position.xy);
         }
         color += light_response(style, diffuse, specular, power, strength, N, V, L)
-            * light.color_inverse_square_range.rgb * attenuation * shade;
+            * light.color_inverse_square_range.rgb * view_bindings::view.exposure * attenuation * shade;
     }
+    color = fog(look, color, distance(view_bindings::view.world_position.xyz, p.world_position.xyz));
     var out: FragmentOutput;
-    out.color = main_pass_post_lighting_processing(p, vec4<f32>(color * view_bindings::view.exposure, p.material.base_color.a));
+    out.color = vec4<f32>(finish(look, color), p.material.base_color.a);
     return out;
 }
