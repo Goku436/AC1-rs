@@ -11,6 +11,8 @@ pub mod cloth;
 pub mod mirror;
 pub mod placement;
 pub mod ragdoll;
+pub mod secondary;
+pub mod wind;
 
 use glam::{Quat, Vec3};
 

@@ -83,8 +83,6 @@ struct Bones {
     legs: [LegBones; 2],
     arms: [Arm; 2],
     clavicles: [usize; 2],
-    /// Add-on bones under Spine2 that are not part of the biped (hood): they follow the head.
-    hood: Vec<usize>,
 }
 
 impl Bones {
@@ -99,10 +97,6 @@ impl Bones {
             legs: [leg("Left")?, leg("Right")?],
             arms: [Arm::from_rig(rig, "Left")?, Arm::from_rig(rig, "Right")?],
             clavicles: [f("LeftClavicle")?, f("RightClavicle")?],
-            hood: (0..rig.len())
-                .filter(|&i| rig.parents[i] == f("Spine2") && rig.names[i].as_deref().is_some_and(|n| n.starts_with('#')))
-                .filter(|&i| rig.rest[i].pos.z.abs() + rig.rest[i].pos.x.abs() > 0.0)
-                .collect(),
         })
     }
 }
@@ -181,6 +175,10 @@ pub struct Character {
     pub(crate) anim_pose: Pose,
     /// The robe tails as cloth (Altaïr's), see `robe`.
     pub robe: Option<crate::robe::Robe>,
+    /// AC1's secondary motion: its skeletons' bone modifiers (the skirt, hood and sword tag's hinges, the hood's
+    /// look-at, the body's roll bones ...), run after the IK; and how much of the wind its skeleton feels.
+    secondary: Option<ik::secondary::Secondary>,
+    skeleton_wind: f32,
     /// Limp (dead, its death clip over): AC1's ragdoll, and the pose it started from.
     pub ragdoll: Option<(ik::ragdoll::Ragdoll, Pose)>,
     ragdoll_def: Option<std::sync::Arc<ik::ragdoll::RagdollDef>>,
@@ -432,13 +430,21 @@ pub fn spawn_character(
         let look = part.look.as_ref().filter(|_| looks).map(|l| pending(l, false));
         let inside_look = inside.map(|l| pending(l, true));
         // The robe tails: simulated as cloth, drawn from a world-space copy (see `robe`).
-        if part.name.split('#').next() == Some(crate::robe::ROBE) && std::env::var("AC1_NO_CLOTH").is_err() {
+        let cloth = data.cloth.as_ref().filter(|c| part.name.split('#').next() == Some(c.mesh.as_str()) && std::env::var("AC1_NO_CLOTH").is_err());
+        if let Some(cloth) = cloth {
             let mut copy = part.mesh.clone();
             copy.remove_attribute(Mesh::ATTRIBUTE_JOINT_INDEX);
             copy.remove_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT);
             let shown = meshes.add(copy);
             let jents: Vec<Entity> = part.joints.iter().map(|&r| joints[r]).collect();
-            if let Some(r) = crate::robe::Robe::new(&part.mesh, part.inverse_binds.clone(), jents, shown.clone()) {
+            let capsules = cloth.colliders.iter().map(|(b, c)| (joints[*b], crate::robe::collider(c))).collect();
+            // Mesh space in the model: any bone's rest placement times its inverse bind.
+            let mesh_to_model = part
+                .joints
+                .first()
+                .zip(part.inverse_binds.first())
+                .map_or(Mat4::IDENTITY, |(&r, ib)| Mat4::from_rotation_translation(rest_model[r].rot, rest_model[r].pos) * *ib);
+            if let Some(r) = crate::robe::Robe::new(&part.mesh, part.inverse_binds.clone(), jents, cloth, capsules, model, mesh_to_model, shown.clone()) {
                 let mut e = commands.spawn((Name::new("robe cloth"), Mesh3d(shown.clone()), MeshMaterial3d(mat), NoFrustumCulling, Transform::default()));
                 if let Some(l) = look {
                     e.insert(l);
@@ -520,6 +526,9 @@ pub fn spawn_character(
         exit_fade: None,
         freestep_left: true,
         robe,
+        secondary: (!data.modifiers.is_empty() && std::env::var("AC1_NO_SECONDARY").is_err())
+            .then(|| ik::secondary::Secondary::new(&rig, data.modifiers.clone(), data.main_bones)),
+        skeleton_wind: data.skeleton_wind.unwrap_or(0.0),
         ragdoll: None,
         ragdoll_def: None,
         limp: false,
@@ -573,24 +582,6 @@ impl Character {
         &self.joints
     }
     /// The hips joint (where the body really is: paired clips can carry it away from the root).
-    /// Capsules round the hips and legs (world), from the bones' world transforms: what the robe swings
-    /// clear of (AC1's cloth ragdoll's sizes).
-    pub fn leg_capsules(&self, globals: &Query<&GlobalTransform>) -> Vec<ik::cloth::Capsule> {
-        let at = |b: usize| globals.get(self.joints[b]).map(|g| g.translation()).ok();
-        let b = &self.bones;
-        let mut out = vec![];
-        if let Some(h) = at(b.hips) {
-            out.push(ik::cloth::Capsule { a: h, b: h, r: 0.13 });
-        }
-        for leg in &b.legs {
-            if let (Some(u), Some(l), Some(f)) = (at(leg.upper), at(leg.lower), at(leg.foot)) {
-                out.push(ik::cloth::Capsule { a: u, b: l, r: 0.09 });
-                out.push(ik::cloth::Capsule { a: l, b: f, r: 0.07 });
-            }
-        }
-        out
-    }
-
     pub fn hips_joint(&self) -> Entity {
         self.joints[self.bones.hips]
     }
@@ -2088,6 +2079,7 @@ pub fn animate(
     play: Res<StatuePlay>,
     frame: Res<bevy::diagnostic::FrameCount>,
     cams: Query<&GlobalTransform, With<Camera3d>>,
+    wind: Option<Res<crate::wind::WindField>>,
     mut q: Query<(&Transform, &mut Character, Has<Statue>)>,
     mut joints: Query<&mut Transform, Without<Character>>,
 ) {
@@ -2498,17 +2490,19 @@ pub fn animate(
                 LookLink { bone: b.head, weight: 1.0, limit: 0.75 },
             ];
             let t = to_model(ch.look_target);
-            let head_before = pose.model_of(rig, b.head).rot;
-            let spine2_before = pose.model_of(rig, b.spine[2]).rot;
             look_at(&mut pose, rig, &links, b.head, ch.look_axis, t, smooth(ch.look_weight));
-            // Hood constraint: hood bones hang off Spine2 but follow the head's turn beyond it.
-            let head_delta = pose.model_of(rig, b.head).rot * head_before.inverse();
-            let spine_delta = pose.model_of(rig, b.spine[2]).rot * spine2_before.inverse();
-            let extra = head_delta * spine_delta.inverse();
-            for &h in &b.hood {
-                pose.rotate_model(rig, h, extra);
-            }
             ch.debug_targets.push((ch.look_target, Color::srgb(0.3, 0.6, 1.0)));
+        }
+
+        // --- AC1's secondary motion (the skirt, the hood following the head, the sword tag, the body's helpers), on
+        // the final pose, in the world (Z up) the model stands in.
+        let placed = ch.world_from_model(root);
+        if let Some(sec) = ch.secondary.as_mut() {
+            let to_game = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+            let (_, rot, pos) = placed.to_scale_rotation_translation();
+            let frame = ik::Xform::new(to_game * pos, (to_game * rot).normalize());
+            let wind = wind.as_ref().map_or(Vec3::ZERO, |w| to_game * w.at(pos) * ch.skeleton_wind);
+            sec.apply(&mut pose, &ch.rig, frame, wind, dt);
         }
 
         // --- Write joints.

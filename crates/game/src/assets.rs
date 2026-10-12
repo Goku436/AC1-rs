@@ -55,6 +55,97 @@ pub struct CharacterData {
     pub hashes: Vec<u32>,
     pub parts: Vec<Part>,
     pub textures: HashMap<u32, Image>,
+    /// AC1's cloth for its cloth mesh, if the entity has one (`robe`).
+    pub cloth: Option<ClothData>,
+    /// Its skeletons' bone modifiers (`ik::secondary`), in authored order, and the main skeleton's bone count.
+    pub modifiers: Vec<ik::secondary::Modifier>,
+    pub main_bones: usize,
+    /// How much of the wind its skeleton feels (`SkeletonComponent`'s `WindForce`), if any.
+    pub skeleton_wind: Option<f32>,
+}
+
+/// A character's cloth as AC1 sets it up (`forge::cloth`), its bones as rig bones.
+#[derive(Clone)]
+pub struct ClothData {
+    /// The cloth mesh's name (the part it simulates).
+    pub mesh: String,
+    pub settings: forge::cloth::ClothSettings,
+    pub soft: forge::cloth::SoftMesh,
+    /// The capsules: (rig bone, the capsule in its frame).
+    pub colliders: Vec<(usize, forge::cloth::Collider)>,
+    /// (action key, strength) from its `ClothActionSettings`.
+    pub actions: Vec<(u32, f32)>,
+}
+
+/// The cloth of character entity `ent` (its `Cloth`, the cloth mesh, the ragdoll and action settings it names).
+fn load_cloth(df: &DataFile, ent: &forge::Object, by_hash: &HashMap<u32, usize>) -> Result<Option<ClothData>> {
+    let refs = df.refs(ent);
+    let Some((_, mesh)) = refs.iter().find(|(_, o)| o.class == CLASS_MESH && o.body.first() == Some(&4)) else { return Ok(None) };
+    let settings = forge::cloth::cloth_settings(ent.body)?;
+    let soft = forge::cloth::soft_mesh(mesh.body).with_context(|| format!("soft mesh {}", mesh.name))?;
+    let ragdoll = df.get(settings.ragdoll).context("cloth ragdoll missing")?;
+    let colliders = forge::cloth::colliders(&settings, ragdoll.body)?
+        .into_iter()
+        .map(|c| by_hash.get(&c.bone).map(|&b| (b, c)).with_context(|| format!("cloth capsule bone {:08x} not in the rig", c.bone)))
+        .collect::<Result<Vec<_>>>()?;
+    let actions = match df.get(settings.action_settings) {
+        Some(o) => forge::cloth::action_settings(o.body)?,
+        None => vec![],
+    };
+    Ok(Some(ClothData { mesh: mesh.name.clone(), settings, soft, colliders, actions }))
+}
+
+/// One forge modifier on the merged rig (its bones as rig bones), or none when it names a bone the rig lacks.
+fn rig_modifier(m: &forge::modifier::Modifier, by_hash: &HashMap<u32, usize>) -> Option<ik::secondary::Modifier> {
+    use forge::modifier::Modifier as F;
+    use ik::secondary::{Compress, Hinge, Limit, Modifier as M, Spring};
+    let b = |h: u32| by_hash.get(&h).copied();
+    let opt = |h: Option<u32>| -> Option<Option<usize>> {
+        match h {
+            Some(h) => Some(Some(b(h)?)),
+            None => Some(None),
+        }
+    };
+    let v = Vec3::from_array;
+    Some(match m {
+        F::LookAt(l) => M::LookAt { target: b(l.target)?, aim: b(l.aim)?, axis: l.axis as usize, up: l.up as usize },
+        F::Hinge(h) => M::Hinge(Hinge {
+            target: b(h.target)?,
+            inertia: h.inertia,
+            damping: h.damping,
+            force: v(h.force),
+            force_reference: opt(h.force_reference)?,
+            wind: h.wind,
+            axis: h.axis as usize,
+            direction: h.direction as usize,
+            limits: h
+                .limits
+                .iter()
+                .map(|l| Some(Limit { reference: opt(l.reference)?, min: l.min, max: l.max, soft_min: l.soft_min, soft_max: l.soft_max }))
+                .collect::<Option<Vec<_>>>()?,
+        }),
+        F::Compress(c) => M::Compress(Compress {
+            target: b(c.target)?,
+            sources: [b(c.sources[0])?, b(c.sources[1])?],
+            position_weight: c.position_weight,
+            rotation_weight: c.rotation_weight,
+            rotation_offsets: c.rotation_offsets.map(|q| Quat::from_array(q).normalize()),
+            position_offsets: c.position_offsets.map(v),
+            rotation: c.rotation,
+            position: c.position,
+        }),
+        F::RotationPaste(t, s) => M::Copy { target: b(*t)?, source: b(*s)? },
+        F::Roll(r) => M::Roll { target: b(r.target)?, source: b(r.source)?, mode: r.mode, weight: r.weight },
+        F::SpringBox(s) => M::Spring(Spring {
+            target: b(s.target)?,
+            stiffness: s.stiffness,
+            damping: s.damping,
+            wind: s.wind,
+            force: v(s.force),
+            min: v(s.min),
+            max: v(s.max),
+        }),
+    })
 }
 
 /// Merge the entity's skeletons into one rig: add-on skeletons (head, skirt, hood, sword tag) are
@@ -102,16 +193,31 @@ pub fn load_character(game_dir: &Path, forge_file: &str, datafile: &str, entity:
     let ent = df.by_name(CLASS_ENTITY, entity).with_context(|| format!("no entity {entity}"))?;
     let refs = df.refs(ent);
 
-    // Skeletons in reference order: main skeleton first.
+    // Skeletons in reference order: main skeleton first; and their bone modifiers.
     let mut skels = vec![];
+    let mut authored = vec![];
     let mut seen = vec![];
     for (_, o) in refs.iter().filter(|(_, o)| o.class == CLASS_SKELETON) {
         if !seen.contains(&o.id) {
             seen.push(o.id);
-            skels.push(parse_skeleton(o.body).with_context(|| format!("skeleton {}", o.name))?);
+            let sk = parse_skeleton(o.body).with_context(|| format!("skeleton {}", o.name))?;
+            let (mods, errors) = forge::modifier::modifiers(o.body, &sk);
+            for e in errors {
+                warn!("skeleton {}: {e:#}", o.name);
+            }
+            authored.extend(mods);
+            skels.push(sk);
         }
     }
     let (rig, by_hash) = merge_skeletons(&skels);
+    let main_bones = skels.first().map_or(0, |s| s.bones.len());
+    let modifiers: Vec<_> = authored.iter().filter_map(|m| rig_modifier(m, &by_hash)).collect();
+    let skeleton_wind = forge::modifier::skeleton_wind(ent.body).ok().flatten().map(|w| w.scale);
+    let cloth = load_cloth(&df, ent, &by_hash).unwrap_or_else(|e| {
+        warn!("{entity}: cloth not read ({e:#}); the robe is drawn skinned");
+        None
+    });
+    info!("{entity}: {} of {} bone modifiers, cloth {}", modifiers.len(), authored.len(), if cloth.is_some() { "from AC1's settings" } else { "none" });
     let overrides = df.material_overrides(ent);
     info!("{entity}: {} skeletons -> {} bones, {} material overrides", skels.len(), rig.len(), overrides.len());
 
@@ -140,7 +246,7 @@ pub fn load_character(game_dir: &Path, forge_file: &str, datafile: &str, entity:
         }
     }
     let hashes = hashes_of(rig.len(), &by_hash);
-    Ok(CharacterData { rig, hashes, parts, textures })
+    Ok(CharacterData { rig, hashes, parts, textures, cloth, modifiers, main_bones, skeleton_wind })
 }
 
 /// Assemble a character from named parts spread over data files and forges: `skeletons` (main first) and
@@ -203,7 +309,8 @@ pub fn load_assembled_with(
     }
     info!("assembled {} skeletons -> {} bones, {} parts", skels.len(), rig.len(), parts.len());
     let hashes = hashes_of(rig.len(), &by_hash);
-    Ok(CharacterData { rig, hashes, parts, textures })
+    let main_bones = rig.len();
+    Ok(CharacterData { rig, hashes, parts, textures, cloth: None, modifiers: vec![], main_bones, skeleton_wind: None })
 }
 
 /// A texture by name from a data file (its id and image): to put the real one in for a placeholder an

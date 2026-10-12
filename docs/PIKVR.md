@@ -33,19 +33,14 @@ Rules learned on the way here:
       are walked; a ceiling stops a jump's rise and a step under it; the climb still has its own checks)
       Capsule: no ceiling handling, no stick-to-ground cast (0.58 m), no fall-off-support rule (rim past 45 degrees);
       the air, climb and fall states don't use it. Bring in what play shows is missing.
-- [ ] Scabbard angle and the hood (lead: in Banned445's repo the hood follows the head through Altaïr's authored
-      skeleton modifiers, a secondary hood look-at (aiming its X/Z axes) and hinges, and the sword tag has angular soft
-      limits: `src/skirt_hinge.rs`, `src/visual_pose.rs`, commit `caab683`; his robe also runs on the authored skirt
-      hinge chain, look-at and compression, worth the same port for our robe): read Banned445's port of the authored hood and sword-tag modifiers (his commits
-      `caab683`, `826e97e`), then read AC1's modifiers here (the face pokes through the hood when the head turns while
-      climbing: `out/shots/hood-clip-climb.png`).
-      Tried 2026-10-07: the hood skeleton (`Human_Hood`) has the hood's root `c68a1d48` under Spine2 (not the head), its
-      children `9088ea6c` / `8c5b399b` (the body mesh skins to them) and a helper `d82cfefb` under the head; its
-      `LookAtBoneModifier` turns the root's X axis to the helper (parsed by `forge::skeleton::look_ats`, which also
-      finds the skirt's: root `47ea4b09` to the hips, Z). Applied each frame it turned the root 24 degrees on average
-      (to 46) yet changed nothing visible around the face in side shots of the T2 climb, so it was not kept: the face
-      opening must follow other bones (check the head mesh's and the body's weights near the face) or the hood's
-      hinge modifiers (`skirt_hinge.rs` in Banned445's repo decodes them for the equipment too).
+- [x] (2026-10-12: fixed by AC1's own bone modifiers, `forge::modifier` + `ik::secondary`, after Banned445's port:
+      all 56 of Altaïr's run after the IK; the hood's look-at and its two hinges, limited from the head's frame, keep
+      the opening on the face: side shots of the diagonal climb on A, `out/shots/cmp-diag-3.2-110.png` and
+      `cmp-diag-4.2-110.png`, ours left, without the modifiers right, where the face shows through the opening's
+      edge; the scabbard (`UCMA_Sword_Tag`'s two hinges) and the skirt swing on theirs. Our own hood follow, which
+      turned the hood bones with the head's look-at, is gone.) Scabbard angle and the hood: the face poked through the
+      hood when the head turned while climbing (`out/shots/hood-clip-climb.png`). Tried 2026-10-07: the hood's
+      look-at alone (the root's X to a helper under the head) changed nothing visible; the hinges were the missing half.
 - [ ] Haystack in Damascus with black squares (V, later).
 
 ### 2. AC1's own data and code (decomp, move graph)
@@ -101,7 +96,8 @@ The move graph is the big one: with it the game itself says which move follows w
       2.01-2.5 m up pulls up, 2.51-4.3 m ends hanging on the wall (`_step1_tr_hangwall`), else a free hang. Ours runs up
       and grabs the highest ledge with our own moves.
 - [ ] Hay entries Ground, FreeStep, SideJump (`HumanHayStackData`): only Top is recreated.
-- [ ] Cloth: AC1's `DynamicMesh` `UCMA_Altair_Cloth_SoftBody` and `ClothActionSettings`; the robe runs on our constants.
+- [x] (2026-10-12: the robe runs on them, docs/NOTES.md "Cloth", with the city's `Wind`) Cloth: AC1's `DynamicMesh`
+      `UCMA_Altair_Cloth_SoftBody` and `ClothActionSettings`; the robe ran on our constants.
 - [ ] Side wall run: AC1 has the code (`WallingType_Horizontal`) and no clips; ours is procedural.
 - [ ] Format gaps: (every data file decompresses: the "16 failing" were each forge's `GlobalMetaFile`, its own format, and
       6531 streamed BAO sound files are audio, not objects); 16 of 22228 clips fail to parse; 64-bit quaternion tracks
@@ -168,7 +164,7 @@ or missing textures, wrong UVs, missing meshes); NPCs. Tool: a shot pass over a 
   settings (`GuidanceBeamDetectorAccurate`, class `d0a682d2`: find the data objects); (4) the remaining seam pops
   (state changes, steady sprint weaving); (5) the hood: which bones skin the face opening, then the hinge modifiers.
 - Tools made for this: the recording pop detector (a scratch script; worth turning into `examples/` or a recorder
-  option), `examples/gaitseams`, `forge::skeleton::look_ats`.
+  option), `examples/gaitseams`, `forge::modifier` (was `forge::skeleton::look_ats`).
 
 ### 2026-10-07: first pass (P and R; I through the fixes below)
 Fixed before the pass (from the user's recordings), each with a scenario:

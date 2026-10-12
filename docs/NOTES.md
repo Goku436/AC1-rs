@@ -22,7 +22,9 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Levels of detail (`LODSelector`, `forge::lod`) | done: 18807/18807 selectors parse (`examples/lodcheck`); cities draw each mesh at AC1's level for its distance |
 | World grid (`World`'s `GridLayout`, `GridPartition`) and distant stand-ins (`FakeEntities`, `forge::world`) | done: 12/13 worlds' grids read (`Map_Menu`'s layout is empty), 9/10 stand-in sets check (every span inside its submesh and on a cell with a data file; `Flashback_Paradise`: one span past its submesh); cities stream their drawn meshes by these cells |
 | Havok packfiles (`HavokChunk`), ragdolls (`RagdollNew`) | done: 72/72 ragdolls read; the dead go limp (Verlet ragdoll with AC1's bodies and limits) |
-| Cloth (`ClothComponent`, Altaïr's robe tails) | done: simulated over the skinned mesh, colliding with the legs |
+| Cloth (`ClothComponent`, Altaïr's robe tails) | done on AC1's data (`forge::cloth`, `ik::cloth`): the soft mesh's 146 vertices (44 pinned) and 253 edges, per-vertex pull and collision radius, the entity's `Cloth` settings, the 6 `humanragdoll_forcloth` capsules (thighs, shins, feet) mapped onto bones, the 20 `ClothActionSettings`, AC1's 0.033333 s step, the city's `Wind` |
+| Bone modifiers (secondary motion: hinges, look-ats, compressions, rotation copies, roll bones, spring box) | done (`forge::modifier`, `ik::secondary`): all 56 of Altaïr's (main 31, skirt 20, hood 3, sword tag 2) parse and run every frame after the IK |
+| Wind (`Wind`, a city's `Wind_<City>_001`) | done for Damascus and Masyaf (the test level borrows Masyaf's); AC1's noise tables, checked against a value read from the running game |
 | Viewpoints (`ReachHighPoint_*` groups, entities named `*ReachHighPoint*`) | done: Damascus 12, each with a leap of faith into its hay; Masyaf 1 (the tutorial tower, its hay not found: 19.8 m to the nearest) |
 | City parkour objects by mesh name (hay carts, `Ladder_*`, `Banc_*`, `Pole_*`) | done: Damascus 46 haystacks, 301 ladders, 320 benches, 159 swing bars; Masyaf 14, 40, 28, 2; climbing probe 8/20 spots over the top |
 | Navigation meshes (`NavMeshManager`) | done: 1432/1432 parse (67836 pieces, 1.13 M triangles); city routes (A*) |
@@ -433,8 +435,8 @@ Collected 2026-10-05, to check what this project has understood wrong.
   already never draws them, but takes the last row when a table has only weight-0 rows); pre-Unity cloth is
   `ClothSettings`-driven Verlet with distance constraints, per-vertex collision spheres against capsules on the
   bones, and a blend back to the skinned pose by the character's speed (AC1 ships `DynamicMesh`
-  `UCMA_Altair_Cloth_SoftBody` and `ClothActionSettings` `Altair_ClothActionSettings`; the robe here still uses its
-  own constants). Its AC1 file lists (`File Lists/AC1.gfl`, `Full File Lists/AC1.fgfl`: a 24-byte header, then Oodle Kraken, which the
+  `UCMA_Altair_Cloth_SoftBody` and `ClothActionSettings` `Altair_ClothActionSettings`; the robe here runs on them
+  since 2026-10-12, see "Cloth"). Its AC1 file lists (`File Lists/AC1.gfl`, `Full File Lists/AC1.fgfl`: a 24-byte header, then Oodle Kraken, which the
 pure-Rust `oozextract` crate unpacks) list each forge's data files and their objects by name and id: nothing that
 `forge::index` does not already give.
 - AC1 used Autodesk HumanIK for the hands and feet when climbing and pushing (Autodesk and Ubisoft, 2009). The IK here
@@ -536,7 +538,7 @@ no code):
 - Open: the skinned hay meshes (`Hay_Bale_01`, `Hay_Bale_Charette_01A`, stride 32, w always 32767) measure 6.2 m
   across at the skinned scale (1/2048), twice a cart's size; their scale or a per-mesh factor is not known yet.
 - Cloth mesh (first byte 4, e.g. Altaïr's long robe): u32 4, u32 1, u8 0, an embedded cloth-sim object (class
-  0x5755de7f, `?`), then the usual bone count, bones and compiled mesh (found by walking back from the compiled tag).
+  0x5755de7f, `SubMesh`: the soft body's own vertices and constraints, read by `forge::cloth`), then the usual bone count, bones and compiled mesh (found by walking back from the compiled tag).
 - Static mesh (first byte 0): no bones, no palettes, stride-24 vertices = the skinned layout without palette
   indices and weights. The position's w is a scale shared by the mesh (sign varies): positions are
   `xyz / 32768 * |w| / 8` m, so every mesh uses the full i16 range (sword |w| = 8, a Masyaf terrain tile 3976,
@@ -751,11 +753,55 @@ rebuilt from the particles (a bone with several children turns by a frame on two
 is over goes limp and settles; `AC1_LIMP=secs` drops the player for testing.
 
 ## Cloth
-Altaïr's entity has a `ClothComponent`: `UCMA_Altair_Cloth` (his robe tails) as a soft body colliding with
-`humanragdoll_forcloth`'s capsules. `ik::cloth` runs it over the skinned mesh: the vertices as Verlet particles,
-held to their edge lengths and across neighbouring triangles, pinned at the waist and kept within reach of where the
-animation puts them (more toward the hem), pushed out of capsules round the hips and legs; drawn from a world-space
-copy (`robe.rs`). `AC1_NO_CLOTH` keeps the skinned mesh.
+Altaïr's entity has a `ClothComponent`: `UCMA_Altair_Cloth` (his robe tails, the `DynamicMesh`
+`UCMA_Altair_Cloth_SoftBody`) as a soft body colliding with `humanragdoll_forcloth`'s capsules. Everything it runs on
+is AC1's data (2026-10-12; layouts first found by Banned445's AC1-Movement-Rewritten, MIT, `src/cloth.rs`; class names
+by CRC32 of the exe's strings: `SubMesh`, `ClothRagdoll`, `ClothRagdollCapsule`, `WindForce`, `ClothActionEntry`,
+`Hinge`); formats in the header of `crates/forge/src/cloth.rs`, tested on the install by `crates/forge/tests/cloth_data.rs`:
+- The soft mesh: its own 146 float vertices with skin weights (the compiled mesh's 146 in another order, matched by
+  place), 208 triangles of which 253 edges are constraints (the quads' sides), per vertex a pull toward the animation
+  (44 pinned at 255, others 0, 15/255 or 127/255) and a collision radius (0.01 to 0.07 m).
+- `Cloth`: damping 0.1, upward damping 0.75 (+ -2 per m/s the character rises, up to 5), 3 iterations, pull from
+  motion 0.03 per m/s and 0.015 per unit of turn, falling at most 0.99/s; `ClothComponent` gravity -9.8; a
+  `WindForce` (scale 1, 0.3 of the force along the surface kept, random amplitude 1).
+- 19 capsules of which 6 on (thighs r 0.092, shins 0.11, feet 0.08-0.09, all mode 0: a vertex goes out on the side
+  its animated place is), each in a ragdoll body's frame, moved onto the skeleton bone through the packfile's
+  `hkSkeletonMapper` (21 bones to 19 bodies).
+- `Altair_ClothActionSettings`: 20 (action, strength): the wall hang 0.9, sitting 0.01 (the robe follows the
+  animation), the free-hang climb 0.5, leans 0.5, collisions 0.9, the ladder 0.96, the wall run's catch 0.5, a fight
+  grab 0.6, five unknown actions 0.
+`ik::cloth` steps it as AC1 does (Banned445's recreation, written fresh): Verlet with the damping (an upward-moving
+vertex by the upward damping), gravity and the wind (its part along the cloth's normal whole, 0.3 of the rest, times
+1 ± a random amount), drawn to its animated place by its own pull or the motion pull, whichever is more (the motion
+pull: speed and turn, eased off by the playing action's strength, 1 for actions not listed); then 3 times: out of the
+capsules, edges to a length between the rest pose's and the animated one's. `robe.rs` skins the soft vertices on the
+CPU, steps the cloth 0.033333 s at a time on game time (AC1 steps once a frame at its 30 fps) and draws the robe on
+the body with its offsets from the animated pose eased between the last two steps, so it moves the same at 60 or 144
+fps and in the headless fixed 1/60 s runs. Ours, not AC1's: that timing (AC1 runs the step every frame whatever its
+length), the strength read only from the climb's clip (the ground's locomotion is in no listed action), a frame
+counted at most 0.1 s. `AC1_NO_CLOTH` keeps the skinned mesh.
+
+## Bone modifiers (secondary motion)
+Each skeleton carries modifiers its `SkeletonComponent` runs over the pose every frame (`forge::modifier`, layouts in
+its header; `ik::secondary` runs them): Altaïr's main skeleton 14 hinges, 10 compressions, 6 roll bones, a spring
+box; the skirt 16 hinges, a look-at, a compression, 2 rotation copies; the hood a look-at (its root's X aimed at a
+helper under the head) and 2 hinges; the sword tag 2 hinges. Hinges swing a bone about one axis: its swing speed
+gains from the bone's own motion (`inertia`), the authored force (gravity, in the model's frame) and the wind (the
+entity's `SkeletonComponent` `WindForce`, scale 1), loses `damping` while it swings against the force, and is held
+by hard limits with soft zones inside them (later limits measured from another bone's frame); after a jump of over
+2 m or a long frame it settles in three longer steps. The order is AC1's: by bone depth, then bone order, then as
+written. They run after our IK (the look-at of the head included), so the hood follows the head as AC1's does; the
+add-on skeletons' modified bones start each frame from their rest pose. The behaviour follows Banned445's
+recreation (`src/visual_pose.rs`, `src/skirt_hinge.rs`, his commits caab683, 826e97e), written fresh.
+`AC1_NO_SECONDARY` turns them off.
+
+## Wind
+A city has one `Wind` entity (`Wind_Damascus_001` in Damascus's `Cell01364_DataBlock`, `Wind_Masyaf_001` in Masyaf's
+`Cell05460_DataBlock`): strength 10, noise on (61.4 % spread, 100 % speed, 33.1 % floor, 11.7 % magnitude speed),
+blowing along its placement's X axis. Its force wanders by AC1's 1D gradient noise (tables from Knuth's subtractive
+generator, seeds 84 and 42), on game time since the map loaded; `ik::wind` reproduces a value Banned445 read from the
+running game. The data block takes seconds to read, so `wind.rs` keeps the wind in the temp directory after the first
+time. The test level uses Masyaf's; Acre, Jerusalem and Kingdom have none yet. `AC1_WIND=0` turns it off.
 
 ## NPCs (`EntityBuilder`, `BuildTable`)
 A builder names a base entity and tables; a table is weighted rows whose cells set a column: a mesh (through its
