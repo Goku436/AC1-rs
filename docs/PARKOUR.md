@@ -245,6 +245,19 @@ The climbing is a grid, not free placement:
   holds or a ladder across a gap (0xDF0050, 0xDEF3A0); corner climbs (0xDF29E0); the jump up from the climb
   (`TryBackEject` 0xDF2F50: search 2.25 m over the root, 0.8 m out). **[B]**
 - Climb → ground below: `xx_l_climb_{1m,2m}_tr_h_wait_hipm_footl_a/b` (0xDF1D20). **[B, ours]**
+- `ChooseMove`'s checks on a table move: the body's boxes at the pose it ends in (`Human__ClimbBodyBoxesFree`
+  0xB2DF90, axes right / in / up from the root: half 0.375 × 0.25 × 0.5 at 0.5 m up, 0.15 × 0.15 × 0.4 at 1.4 m; a long
+  move sideways 0.575 wide, 0.05 m back from its side). The lean guard (0xDF47E0) on the long moves and the short ones
+  down, into a pose with one side a row higher: the lean of the hands' line (going up) or the feet's (going down) from
+  up, seen from the side, positive leaning out (0xDF2CD0); refused when new − old < −30° going up (the new one taken as
+  0-45°), old − new < −30° going down (the old one so taken); the long move then falls to the short one. **[V]** Ours
+  tests both on its table moves.
+- Climb out over the top (`TryReachLedgeAbove` 0xDF1730: dirs 0, 1, 6, 7 from a level pose): the edge is the middle of
+  the two hand holds, the way in the negated sum of their normals (else a guidance edge round the root + 0.8 m up,
+  0.5 m in). Room is three empty boxes (0xB2E240, the knee catch's test too; axes along the edge, in, up): 0.6 m wide
+  from 1 m out to 0.3 m in, 0.35-1.8 m over the edge; a 0.2 m column over the edge, 0.1-1.8 m; a 0.2 × 0.2 × 1 m slab
+  tilted 30° in, centred 0.35 m out and 0.2 m up. No floor is tested. **[V]** Ours tests the same boxes
+  (`climb_out_room`), the edge from the hold the wrists are at.
 - Lost grip (a hold's object gone, 0xE55A10) → InAir with action 0x1120E17B, blend 0.2. **[B]**
 
 Ours: in the six climbing poses the move comes from AC1's tables (`climb_table.rs`, the entries and action ids
@@ -559,6 +572,21 @@ in this batch, by audit id:
   probe's line along its direction meeting the hold (`Ledge::project_along`), not the nearest point across. Ours' wall
   ray is kept only for its directional grab (a wall up to 1.2 m the stick's way) and a swing bar's fling at a wall's
   holds (AC1's arrives by the jump target, which ours' ballistic fling lacks).
+- **2026-10-11, climbing and ladders** (CLIMB-E6): the climb-out's room is AC1's three boxes over the edge (no headroom
+  or wall rays; a top too thin to probe is climbed onto at the edge's height); gauntlet G13 (an awning over a wall's top).
+  (CLIMB-E13, E14) The table moves get AC1's body boxes at the pose they end in (up and down too; the two side rays
+  dropped for them) and its lean guard; gauntlet G14 (a block out of a wall between two rows).
+  (CLIMB-E16, the release) The empty hand on the wall releases into the fall near the ground too (the step down onto it
+  is the stick's).
+  (CLIMB-E12, the overhang) A short table move up from a level pose whose holds stick out over the feet (the higher foot
+  to the lower hand leaning out 30° past the hands' line) turns into the free hang,
+  `xx_h_climb_1m_u_overhangfree_<1lu|1ru>` (TryTransitionToLedgeHang 0xDF4BA0). Not shown by a scenario: ours' feet rule
+  (a wall at most `RECESS_MAX` 0.32 m behind the hold) refuses the stance on such holds before it, going into a hang.
+  (LADDER-7) Ladders are climbed from either side where they stand free (the frame turned toward the climber; no exit
+  off the top from the back), and in the wait the stick within 30° of a side goes round to the other side when AC1's
+  box beside it is clear (the revolve, `xx_h_ladder_turn_<l|r>_a` / `_b_tr_h_wait_<l|r>`, guard 0xE262B0); against a
+  wall the box is in the wall. Gauntlet G16 (a free-standing ladder). Not done: the back-approach turn (TURN
+  0x0A64400C/D, when the attach box is blocked) and the leaning ladder's forced revolve.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.

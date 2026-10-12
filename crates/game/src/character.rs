@@ -972,6 +972,8 @@ pub fn locomotion(
                 let stick = ctl.move_dir.with_y(0.0).normalize_or_zero();
                 d.dot(side).abs() < 0.5
                     && (((0.0..LADDER_AUTO_REACH).contains(&d.dot(l.out)) && (tf.translation.y - l.base.y).abs() < 0.4 && stick.dot(-l.out) > 0.0)
+                        // (Or from behind: AC1 climbs a ladder from either side, where it stands free; audit LADDER-7.)
+                        || ((-LADDER_AUTO_REACH..0.0).contains(&d.dot(l.out)) && (tf.translation.y - l.base.y).abs() < 0.4 && stick.dot(l.out) > 0.0)
                         // (Or at its top, the stick out over it: the same event's top entry, no button; ours wanted the
                         // legs there, audit LADDER-9.)
                         || ((tf.translation.y - l.top).abs() < 0.4 && (-LADDER_TOP_REACH..0.2).contains(&d.dot(l.out)) && stick.dot(l.out) > 0.7))
