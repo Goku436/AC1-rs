@@ -3722,6 +3722,7 @@ impl WallClimb {
         if carry.is_some() {
             blended.extend(blend_hang(lib, level, root, rig, base, cr, normal, opts));
         }
+        let mut best: Option<(f32, WallClimb)> = None;
         for opt in blended.iter().chain(opts) {
             let Some(clips) = opt.names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { continue };
             let Some(end) = chain_end(&clips, rig, base, cr) else { continue };
@@ -3729,7 +3730,8 @@ impl WallClimb {
             let mut onto_perch = None;
             // Correction for the last clip (onto the top): the hang part stays in front of the edge.
             let mut end_fix = Vec3::ZERO;
-            let (err, tos) = match opt.end {
+            // (How high the hands or the top it goes to are over the feet: a standing jump takes the highest, below.)
+            let (err, tos, high) = match opt.end {
                 GrabEnd::Onto(height) => {
                     let Some((dist, top_h)) = top.filter(|(_, h)| (h - height).abs() < 0.26) else { continue };
                     if carry.is_some() && !flush_under(root.translation + fwd * dist + Vec3::Y * top_h) {
@@ -3766,7 +3768,7 @@ impl WallClimb {
                         }
                         None => fwd * ONTO_BACK,
                     };
-                    (err, tos)
+                    (err, tos, top_h)
                 }
                 GrabEnd::Hang(to, rest) => {
                     let Some(rest) = lib.get(rest) else { continue };
@@ -3826,7 +3828,7 @@ impl WallClimb {
                             .to_string()
                         })
                         .collect();
-                    (err + hang_offset(to, normal), tos)
+                    (err + hang_offset(to, normal), tos, (targets[0].y + targets[1].y) * 0.5 - root.translation.y)
                 }
             };
             let mut clips = clips;
@@ -3868,9 +3870,18 @@ impl WallClimb {
                     }
                 }
             }
-            return Some(w);
+            // A wall run catches the first in the run's order. A standing jump goes for the highest target in reach: AC1's
+            // chooser of the standing jump's hand target (0xE97720) takes the higher of two reports facing within 30 degrees
+            // of each other (Banned445's `choose_static_report`); in the running game (Damascus, the bureau's wall, live
+            // log 2026-10-12) the jump went to the hold 2.4 m over the feet, past one at 1.7 m that ours took.
+            if carry.is_some() {
+                return Some(w);
+            }
+            if best.as_ref().is_none_or(|(h, _)| high > *h + 0.05) {
+                best = Some((high, w));
+            }
         }
-        None
+        best.map(|(_, w)| w)
     }
 
     /// Clips played back to back on the ground from where the character stands (a run stop, a turn on the

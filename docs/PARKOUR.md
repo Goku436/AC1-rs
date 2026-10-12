@@ -761,6 +761,18 @@ Open (still ours' own): the hang root against the running game's: 1.13 m under o
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
 
+## The live log comparisons (2026-10-12)
+The route library played again in the running game with ac1-hook's live log on (every frame's root, context, action,
+bones, limb IK goals, input and camera), and in ours by control runs with `AC1_RECORD` (`livelog compare --game`: the
+paths, the mode switches, and the poses by clip, ours' clips named by their action as the live log names a blend by its
+first clip). Found and fixed:
+- The standing jump's target: AC1 goes for the highest hold in reach. On the bureau's wall (`wall1`, holds 1.7 and 2.4 m
+  over the feet) the running game jumped to the 2.4 m one (action 0x01271631, `jumpstraight_footl_to_hangwall_200/250cm`
+  blended toward 250, the root 1.1 m under the hand goals and 0.5 m out, as Banned445's bands of 0xB21DA0 give), ours
+  to the 1.7 m one, the root 0.6 m lower. AC1's chooser (0xE97720) takes the higher of two reports facing within 30
+  degrees of each other; ours now takes the highest of the jump's options that fit. Ours hangs 0.005 m from the running
+  game's height (0.1 m nearer the wall).
+
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
 climbing stance (short / long tables, 10-way stick, redirects), the hangs (ledge-jump table, the sideways order), the
