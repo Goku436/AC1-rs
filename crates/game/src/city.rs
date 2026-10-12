@@ -702,10 +702,20 @@ fn spawn_world(
             return 0;
         }
         let tex = diffuse(material);
-        if tex.is_none() && bank.untextured.insert(material) {
+        // (Water by its material too: AC1's puddles are submeshes of other props, a bush's or a roof's, with a water
+        // material of normal and cube maps only.)
+        let material_name = rindex.get(&material).map_or(String::new(), |o| o.name.to_lowercase());
+        let water = if material_name.contains("puddle") {
+            Some(Water::Puddle)
+        } else if is_water || material_name.contains("water") {
+            Some(Water::Open)
+        } else {
+            None
+        };
+        if tex.is_none() && water.is_none() && bank.untextured.insert(material) {
             info!("city: material {:08x} {} has no diffuse texture found", material, rindex.get(&material).map_or("(not loaded)", |o| o.name.as_str()));
         }
-        bank.slot(mats, images, tex, normal_map(material), Look::of(rindex.get(&material).copied(), cut), is_water)
+        bank.slot(mats, images, tex, normal_map(material), Look::of(rindex.get(&material).copied(), cut), water)
     };
 
     let to_bevy = game_to_bevy();
@@ -1378,8 +1388,17 @@ impl Look {
     }
 }
 
+/// Water a material draws (AC1 draws it with its water shaders, reflections of a cube map; here translucent).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum Water {
+    /// Rivers, fountains, the sea.
+    Open,
+    /// A puddle on the ground: a wet, darker patch.
+    Puddle,
+}
+
 struct MatBank {
-    slots: HashMap<(u32, u32, Look, bool), u32>,
+    slots: HashMap<(u32, u32, Look, Option<Water>), u32>,
     list: Vec<Handle<StandardMaterial>>,
     bc: bool,
     /// The largest texture side kept.
@@ -1405,19 +1424,28 @@ impl MatBank {
         tex: Option<&Object>,
         nrm: Option<&Object>,
         look: Look,
-        water: bool,
+        water: Option<Water>,
     ) -> u32 {
         let plain = Look { alpha: None, two_sided: false };
         let key = match tex {
-            _ if water => (0, 0, plain, true),
-            None => (0, 0, look, false),
-            Some(t) => (t.id, nrm.map_or(0, |n| n.id), look, false),
+            _ if water.is_some() => (0, 0, plain, water),
+            None => (0, 0, look, None),
+            Some(t) => (t.id, nrm.map_or(0, |n| n.id), look, None),
         };
         if let Some(&s) = self.slots.get(&key) {
             return s;
         }
         let material = match tex {
-            _ if water => StandardMaterial {
+            _ if water == Some(Water::Puddle) => StandardMaterial {
+                base_color: Color::srgba(0.1, 0.09, 0.08, 0.45),
+                perceptual_roughness: 0.15,
+                reflectance: 0.15,
+                alpha_mode: AlphaMode::Blend,
+                double_sided: true,
+                cull_mode: None,
+                ..default()
+            },
+            _ if water.is_some() => StandardMaterial {
                 base_color: Color::srgba(0.2, 0.38, 0.42, 0.75),
                 perceptual_roughness: 0.08,
                 reflectance: 0.6,

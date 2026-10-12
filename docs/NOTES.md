@@ -522,7 +522,11 @@ no code):
   one mip.
 - Material body: +0 u32 template id (the shader template: Altaïr's cloth 433482562, alpha cloth 2055988768, cloth
   inside 439116860, skin 433482821, weapon / throwing dagger / mouth 3292696482 / 661746657 / 439311561, eyes
-  326205072), +4 u32 texture set id, +0x08..+0x29 `?`, +0x29 u32 `?` (0), +0x2D u32 inside material id (0 none),
+  326205072), +4 u32 texture set id, +0x08 the inline `Mask` field (u32 id 0, class df5d6c0e, body `?`), +0x17..+0x29
+  the render flags, a byte each in the order of Material's reflected property list (the exe's descriptor at 0x01939CB8,
+  names by CRC32): +0x17 `BlendMode` (0 everywhere), +0x19 `InvertAlpha`, +0x1A `AlphaTestValue` (0..255), +0x20
+  `InvertCulling`, +0x25 `AlphaTestEnabled` (426 of 2181 in Common: leaves, hay cards, ivy, trellises, tarps; windows
+  carry a value with the test off), +0x26 `TwoSided` (871), the rest `?`; cities draw with them (`examples/matflags`), +0x29 u32 `?` (0), +0x2D u32 inside material id (0 none),
   +0x31 u32 `?` (0/1), +0x35 u32 parameter count, then `{u32 name CRC32, u32 class, u32 type (kind in bits 16..22),
   value}` to the body's end: kind 10 a f32, kind 13 four f32 (a colour), kind 19 class `TextureSelector` a slot
   `{u32 ?, u32 class, u32 mode, u32 channel, u32 set, u32 map}` (mode 0 the material's set's map spec at `channel`,
@@ -538,8 +542,15 @@ no code):
 - Meshes decoded per forge (`examples/meshcheck`): DataPC 151, Damascus 9180, Masyaf 3905, Acre 10759,
   Jerusalem 9466, Kingdom 4588, Common 1840. The rest: cloth meshes not of Altaïr's kind, and foliage/flags whose
   header reads as a huge bone count (another mesh type).
-- Open: the skinned hay meshes (`Hay_Bale_01`, `Hay_Bale_Charette_01A`, stride 32, w always 32767) measure 6.2 m
-  across at the skinned scale (1/2048), twice a cart's size; their scale or a per-mesh factor is not known yet.
+- The skinned hay meshes (`Hay_Bale_01`, `Hay_Bale_Charette_01A`: type 0 with 5 bones, stride 32) measure 6.1 x 4.7 m at
+  the skinned scale (1/2048) and their collision 3.5 x 3.0 m: the outer cards are mostly cut away by the alpha test, and
+  drawn with it the heap matches its collision and the cart (2026-10-12 shots); the skeleton `Hay_Bale_skul` has unit
+  bones at the heap's corners (+-1.2, +-0.8, 0.79 m). No other factor found.
+- What a city places, by mesh kind (`forge::mesh::mesh_kind`; `AC1_PROP_STATS=1` lists them), Damascus: 17826 static
+  placements drawn (958 meshes), 11 skinned drawn in bind pose, 490 skinned not drawn (380 pigeons, the rest NPC body
+  parts placed for cutscenes: no prop skeleton), 43 vegetation with soft bodies drawn (`Veg_Olivier_*`, `Herbe_Scatter_*`),
+  299 cloth drawn in bind pose (rooftop tarps, flags), 144 left out by name (map markers, helpers). Puddles are
+  submeshes of bushes and roofs with a water material (normal and cube maps only): drawn as a wet patch.
 - Cloth mesh (first byte 4, e.g. Altaïr's long robe): u32 4, u32 1, u8 0, an embedded cloth-sim object (class
   0x5755de7f, `SubMesh`: the soft body's own vertices and constraints, read by `forge::cloth`), then the usual bone count, bones and compiled mesh (found by walking back from the compiled tag).
 - Static mesh (first byte 0): no bones, no palettes, stride-24 vertices = the skinned layout without palette
