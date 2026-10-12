@@ -128,8 +128,8 @@ impl HayStack {
 
 /// A hold within `HAY_HEAP_MARGIN` outside a haystack's footprint (a beam inside it), `HAY_HEAP_ABOVE` to `HAY_HEAP_TOP`
 /// above its rim, is on its heap (m).
-const HAY_HEAP_MARGIN: f32 = 0.5;
-const HAY_HEAP_ABOVE: f32 = 0.3;
+pub(crate) const HAY_HEAP_MARGIN: f32 = 0.5;
+pub(crate) const HAY_HEAP_ABOVE: f32 = 0.3;
 /// The local axis a haystack entity faces along, and how far along it from the entity the dive ends (m): calibrated on
 /// `hay70`, the running game's four dives all ending 0.21 m that way (0.08 m to the side unaccounted for), facing it.
 const HAY_FACING_AXIS: Vec3 = Vec3::NEG_X;
@@ -137,15 +137,15 @@ const HAY_SEAT_ON: f32 = 0.21;
 /// A ladder's walkable top is looked for this far in from it (m).
 const LADDER_TOP_IN: f32 = 0.5;
 /// Holds are carved out this far either side of a ladder and out from it (m).
-const LADDER_CARVE_SIDE: f32 = 0.3;
-const LADDER_CARVE_OUT: f32 = 0.75;
+pub(crate) const LADDER_CARVE_SIDE: f32 = 0.3;
+pub(crate) const LADDER_CARVE_OUT: f32 = 0.75;
 /// A thin beam swung from as a bar (see `add_beam_bars`; m).
 const BEAM_BAR_THICK: f32 = 0.35;
 const BEAM_BAR_OVERLAP: f32 = 0.5;
 const BEAM_BAR_DROP: f32 = 2.5;
 const BEAM_BAR_DEPTH: f32 = 0.4;
 /// (Up to this over the rim: the Damascus bureau's roof heap stands 2.5 m over it; above, a balcony over the hay.)
-const HAY_HEAP_TOP: f32 = 3.0;
+pub(crate) const HAY_HEAP_TOP: f32 = 3.0;
 /// A city haystack is at most this wide each side of its middle (m).
 const HAY_HALF_MAX: f32 = 1.5;
 /// A rooftop hiding spot's rim over the roof (m; `Hiding_Spot_P_01a` in Damascus, the running game: AC1 hopped up onto
@@ -170,6 +170,8 @@ pub struct Authored {
     pub out: Vec3,
     /// The placing entity's own +Y axis in the world (flat): a kiosk's way along its counter.
     pub axis: Vec3,
+    /// Where it comes from: an index into `Level::authored_src` (the grab data's audit, `crate::grab_audit`).
+    pub src: u32,
 }
 
 /// A kiosk (a market stall, `HumanKiosk`): one of its counter's `Kiosk` guidance pieces (the front and the two sides) and
@@ -184,7 +186,7 @@ pub struct Kiosk {
 /// An authored ledge edge steeper than this (rise over length, sin 40 degrees) is a stair or roof slope, not a hold: AC1
 /// drops report edges past 40 degrees (0x66C350, Banned445's port; audit GUIDE-1: ours' 0.35, 20 degrees, threw away
 /// 21,312 Damascus holds AC1 keeps).
-const AUTHORED_MAX_SLOPE: f32 = 0.643;
+pub(crate) const AUTHORED_MAX_SLOPE: f32 = 0.643;
 /// AC1's hold grid shortens a guidance edge this much at its ends (m; `BuildHoldGrid` 0xDF6A40, docs/PARKOUR.md
 /// section 4)...
 const AUTHORED_TRIM: f32 = 0.1;
@@ -206,8 +208,36 @@ const PAIR_BEAM_OUT: f32 = 0.3;
 const PAIR_BEAM_STEP: f32 = 0.25;
 /// Pieces of one paired beam in line this far apart or less (m), over the same top, are joined.
 const PAIR_BEAM_GAP: f32 = 1.0;
+/// A perch is backed by an authored ledge grab this far across (m) and up or down (m) from its middle (`drop_unbacked`).
+const BACKED_ACROSS: f32 = 0.6;
+const BACKED_UP: f32 = 0.3;
 /// Rays this long (m) decide whether a point is inside a solid (`inside_solid`).
 const INSIDE_PROBE: f32 = 12.0;
+
+/// A vertex to the millimetre (`Level::authored_ends`).
+pub(crate) fn vertex_key(p: Vec3) -> (i64, i64, i64) {
+    ((p.x * 1000.0).round() as i64, (p.y * 1000.0).round() as i64, (p.z * 1000.0).round() as i64)
+}
+
+/// The hold an authored ledge edge gives, or None when it gives none (steeper than `AUTHORED_MAX_SLOPE`, no wall to face
+/// out from). Shortened `AUTHORED_TRIM` at its free ends (`ends`: `Level::authored_ends`), as AC1's hold grid takes an
+/// edge; not where it goes on into another piece: a sill in three pieces of 0.15-0.23 m is one 0.87 m hold. A piece too
+/// short for that holds at its middle, as AC1's probes take one (`sub_116D3C0`: shortened 0.1 m at both ends, the
+/// midpoint when it is 0.2 m or less; audit GUIDE-2): a railing's knob, a lone window-frame piece.
+pub(crate) fn authored_hold(e: &Authored, ends: &HashMap<(i64, i64, i64), u32>) -> Option<Ledge> {
+    let len = e.a.distance(e.b);
+    if len <= 1e-4 || (e.b.y - e.a.y).abs() / len > AUTHORED_MAX_SLOPE || e.out == Vec3::ZERO {
+        return None;
+    }
+    let free = |p: Vec3| if ends.get(&vertex_key(p)).copied().unwrap_or(0) <= 1 { AUTHORED_TRIM } else { 0.0 };
+    let (ta, tb) = (free(e.a), free(e.b));
+    let d = (e.b - e.a) / len;
+    if len > ta + tb + AUTHORED_POINT {
+        return Some(Ledge { a: e.a + d * ta, b: e.b - d * tb, out: e.out });
+    }
+    let mid = (e.a + e.b) * 0.5;
+    Some(Ledge { a: mid - d * AUTHORED_POINT * 0.5, b: mid + d * AUTHORED_POINT * 0.5, out: e.out })
+}
 
 /// A city mesh's part in parkour (see `city::city_object`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -231,8 +261,13 @@ pub struct Level {
     pub ledges: Vec<Ledge>,
     /// AC1's authored guidance edges (cities): see `use_authored`.
     pub authored: Vec<Authored>,
+    /// The authored edges' sources, "group or entity, a tab, its first mesh" (`Authored::src`), and their indices.
+    pub authored_src: Vec<String>,
+    pub authored_src_at: HashMap<String, u32>,
     /// Ladders came from the authored edges (the name-based ones in `add_city_objects` are then left out).
     pub authored_ladders: bool,
+    /// The holds are AC1's authored ledge grabs (`use_authored`), not edges found in the geometry.
+    pub authored_holds: bool,
     /// City meshes that are parkour objects, by kind, with their world bounds (see `add_city_objects`).
     pub city_objects: Vec<(CityObject, Vec3, Vec3, Transform)>,
     /// The world bounds of the collision shapes of entities that are hay or hiding places (see `HayStack::own`).
@@ -499,6 +534,9 @@ impl Level {
             match kind {
                 // (Authored ladders, when the city has them, replace the ones guessed from meshes.)
                 CityObject::Ladder if self.authored_ladders => {}
+                // (Nor swing poles by name where the holds are AC1's: its poles are authored, and a `Pole_*` mesh without
+                // one has none in AC1; Damascus had 11 such bars, laundry poles among them.)
+                CityObject::Pole if self.authored_holds => {}
                 CityObject::Ladder => {
                     // Thin across, tall; its wall on one side.
                     if size.y < 2.0 {
@@ -654,6 +692,8 @@ impl Level {
 
     /// Leave out the holds and beams found on a haystack's heap (over its footprint, above its rim): the hay is solid in
     /// the collision built from its mesh but is sunk into, not climbed; ours climbed from the rim to the heap's top.
+    /// Not AC1's authored holds: its hay has none, and those over a hiding place are its tarp frame's top, a ledge grab
+    /// in AC1's markup (Damascus: 1,349 pieces were dropped, on the frames standing square to the city's axes only).
     /// Returns how many.
     pub fn drop_hay_holds(&mut self) -> usize {
         let hay = self.haystacks.clone();
@@ -666,7 +706,9 @@ impl Level {
             })
         };
         let (ledges, perches) = (self.ledges.len(), self.perches.len());
-        self.ledges.retain(|l| !(on_heap(l.a, HAY_HEAP_MARGIN, Some(l.out)) && on_heap(l.b, HAY_HEAP_MARGIN, Some(l.out))));
+        if !self.authored_holds {
+            self.ledges.retain(|l| !(on_heap(l.a, HAY_HEAP_MARGIN, Some(l.out)) && on_heap(l.b, HAY_HEAP_MARGIN, Some(l.out))));
+        }
         self.perches.retain(|l| !(on_heap(l.a, 0.0, None) && on_heap(l.b, 0.0, None)));
         ledges - self.ledges.len() + perches - self.perches.len()
     }
@@ -715,6 +757,20 @@ impl Level {
         n
     }
 
+    /// The index of an authored edge's source (`Authored::src`): the group or entity placing it and that entity's first
+    /// mesh, with the digits ending a placed name left off (`Kiosk_Carpets_008` is a `Kiosk_Carpets`).
+    pub fn authored_source(&mut self, owner: &str, mesh: &str) -> u32 {
+        let trim = |s: &str| s.trim_end_matches(|c: char| c.is_ascii_digit() || c == '_').to_string();
+        let key = format!("{}\t{}", trim(owner), trim(mesh));
+        if let Some(&i) = self.authored_src_at.get(&key) {
+            return i;
+        }
+        let i = self.authored_src.len() as u32;
+        self.authored_src.push(key.clone());
+        self.authored_src_at.insert(key, i);
+        i
+    }
+
     /// Use AC1's own climbing markup where the city has it: its ledge grabs become the holds (instead of the edges and
     /// lips found in the geometry), its ladders the ladders, its horizontal poles the swing bars (each pole's two side
     /// edges as one bar). `AC1_GEOMETRY_HOLDS` keeps the geometry's holds. Returns (holds, ladders, bars), or None.
@@ -725,33 +781,11 @@ impl Level {
         use forge::guidance::SubType;
         let mut ledges = vec![];
         let (mut ladders, mut bars) = (0, 0);
-        // How many ledge pieces end at each vertex (to the millimetre): a piece goes on into another there.
-        let key = |p: Vec3| ((p.x * 1000.0).round() as i64, (p.y * 1000.0).round() as i64, (p.z * 1000.0).round() as i64);
-        let mut ends: std::collections::HashMap<(i64, i64, i64), u32> = std::collections::HashMap::new();
-        for e in self.authored.iter().filter(|e| e.kind == SubType::LedgeGrab) {
-            *ends.entry(key(e.a)).or_default() += 1;
-            *ends.entry(key(e.b)).or_default() += 1;
-        }
+        let ends = self.authored_ends();
         for e in self.authored.clone() {
             let len = e.a.distance(e.b);
             match e.kind {
-                SubType::LedgeGrab => {
-                    // (Shortened at its free ends, as AC1's hold grid takes an edge; not where it goes on into another
-                    // piece: a sill in three pieces of 0.15-0.23 m is one 0.87 m hold. A piece too short for that holds at
-                    // its middle, as AC1's probes take one (`sub_116D3C0`: shortened 0.1 m at both ends, the midpoint
-                    // when it is 0.2 m or less; audit GUIDE-2): a railing's knob, a lone window-frame piece.)
-                    let free = |p: Vec3| if ends.get(&key(p)).copied().unwrap_or(0) <= 1 { AUTHORED_TRIM } else { 0.0 };
-                    let (ta, tb) = (free(e.a), free(e.b));
-                    if len > 1e-4 && (e.b.y - e.a.y).abs() / len <= AUTHORED_MAX_SLOPE && e.out != Vec3::ZERO {
-                        let d = (e.b - e.a) / len;
-                        if len > ta + tb + AUTHORED_POINT {
-                            ledges.push(Ledge { a: e.a + d * ta, b: e.b - d * tb, out: e.out });
-                        } else {
-                            let mid = (e.a + e.b) * 0.5;
-                            ledges.push(Ledge { a: mid - d * AUTHORED_POINT * 0.5, b: mid + d * AUTHORED_POINT * 0.5, out: e.out });
-                        }
-                    }
-                }
+                SubType::LedgeGrab => ledges.extend(authored_hold(&e, &ends)),
                 SubType::Ladder => {
                     let (lo, hi) = if e.a.y < e.b.y { (e.a, e.b) } else { (e.b, e.a) };
                     if e.out != Vec3::ZERO {
@@ -775,7 +809,18 @@ impl Level {
         let holds = ledges.len();
         self.ledges = ledges;
         self.authored_ladders = ladders > 0;
+        self.authored_holds = true;
         Some((holds, ladders, bars))
+    }
+
+    /// How many authored ledge pieces end at each vertex (to the millimetre): a piece goes on into another there.
+    pub(crate) fn authored_ends(&self) -> HashMap<(i64, i64, i64), u32> {
+        let mut ends = HashMap::new();
+        for e in self.authored.iter().filter(|e| e.kind == forge::guidance::SubType::LedgeGrab) {
+            *ends.entry(vertex_key(e.a)).or_default() += 1;
+            *ends.entry(vertex_key(e.b)).or_default() += 1;
+        }
+        ends
     }
 
     /// The kiosk piece `p` lies on, within `within` (m).
@@ -789,14 +834,51 @@ impl Level {
     pub fn drop_buried_holds(&mut self) -> usize {
         let before = self.ledges.len();
         let ledges = std::mem::take(&mut self.ledges);
-        let open = |l: &Ledge, t: f32| {
-            let p = l.a.lerp(l.b, t) + Vec3::Y * 0.05;
-            self.raycast(p + l.out * 0.45, -l.out, 0.42).is_none()
-        };
-        let keep = par_map(&ledges, |l| [0.2, 0.5, 0.8].iter().any(|&t| open(l, t)));
+        let keep = par_map(&ledges, |l| self.hold_open(l));
         let kept: Vec<Ledge> = ledges.into_iter().zip(keep).filter(|(_, k)| *k).map(|(l, _)| l).collect();
         self.ledges = kept;
         before - self.ledges.len()
+    }
+
+    /// A hold reached from in front (`drop_buried_holds`): at a third of the points along it, the way in from 0.45 m out
+    /// is open.
+    pub(crate) fn hold_open(&self, l: &Ledge) -> bool {
+        [0.2, 0.5, 0.8].iter().any(|&t| {
+            let p = l.a.lerp(l.b, t) + Vec3::Y * 0.05;
+            self.raycast(p + l.out * 0.45, -l.out, 0.42).is_none()
+        })
+    }
+
+    /// Where the holds are AC1's: leave out the perches with no authored ledge grab along them (within `BACKED_ACROSS`
+    /// across and `BACKED_UP` up or down of their middle: AC1's beams are pairs of its ledge grabs) and the holds lying
+    /// on none (within 5 cm): the beam perches and beam-end holds made from `WoodBeam_*` meshes where AC1 marks nothing
+    /// (Damascus: 24 perches on beams lying in the street 0.1-0.2 m up, 16 beam-end holds). Returns (perches, holds).
+    pub fn drop_unbacked(&mut self) -> (usize, usize) {
+        use forge::guidance::SubType;
+        let grabs: Vec<&Authored> = self.authored.iter().filter(|e| e.kind == SubType::LedgeGrab).collect();
+        let mut grid: FastMap<(i32, i32), Vec<u32>> = FastMap::default();
+        for (i, e) in grabs.iter().enumerate() {
+            let (lo, hi) = (e.a.min(e.b) - BACKED_ACROSS, e.a.max(e.b) + BACKED_ACROSS);
+            for x in lo.x.floor() as i32..=hi.x.floor() as i32 {
+                for z in lo.z.floor() as i32..=hi.z.floor() as i32 {
+                    grid.entry((x, z)).or_default().push(i as u32);
+                }
+            }
+        }
+        let backed = |p: Vec3, across: f32, up: f32, out: Option<Vec3>| {
+            grid.get(&(p.x.floor() as i32, p.z.floor() as i32)).into_iter().flatten().map(|&i| grabs[i as usize]).any(|e| {
+                let q = Line { a: e.a, b: e.b }.closest(p);
+                (q - p).with_y(0.0).length() < across && (q.y - p.y).abs() < up && out.is_none_or(|o| e.out.dot(o) > 0.7)
+            })
+        };
+        let keep_perch: Vec<bool> = self.perches.iter().map(|l| backed((l.a + l.b) * 0.5, BACKED_ACROSS, BACKED_UP, None)).collect();
+        let keep_hold: Vec<bool> = self.ledges.iter().map(|l| backed((l.a + l.b) * 0.5, 0.05, 0.05, Some(l.out))).collect();
+        let (p0, h0) = (self.perches.len(), self.ledges.len());
+        let mut k = keep_perch.into_iter();
+        self.perches.retain(|_| k.next().unwrap_or(true));
+        let mut k = keep_hold.into_iter();
+        self.ledges.retain(|_| k.next().unwrap_or(true));
+        (p0 - self.perches.len(), h0 - self.ledges.len())
     }
 
     pub fn add_beam_perches(&mut self) {
@@ -1710,6 +1792,10 @@ pub fn spawn_level(
             level.add_beam_perches();
             let narrow = level.add_narrow_tops();
             info!("{narrow} narrow wall tops to balance on");
+            if authored.is_some() {
+                let (perches, holds) = level.drop_unbacked();
+                info!("{perches} perches and {holds} holds left out: no authored ledge grab along them");
+            }
         }
         let probed = if authored.is_none() && std::env::var("AC1_NO_LIPS").is_err() { level.add_probed_ledges() } else { 0 };
         // A viewpoint's entity sits partway up its tower: the spot to stand on is the top above it.
@@ -1735,6 +1821,10 @@ pub fn spawn_level(
         }
         level.build_grid();
         info!("{probed} more holds where walkable tops end over a wall (lips the edge test missed)");
+        // `AC1_GRAB_AUDIT=<file.tsv>`: the authored guidance against what was built from it (`grab_audit`).
+        if let Ok(path) = std::env::var("AC1_GRAB_AUDIT") {
+            crate::grab_audit::run(&level, &path);
+        }
         let shut = level.hay_with_no_way_out();
         info!("{} haystacks and hiding places with no way out{}", shut.len(), if shut.is_empty() { String::new() } else { format!(": {shut:.1?}") });
         // `AC1_HOLDS_AT="x,y,z,r"`: every hold within r of a point, logged (what a spot in a recording could grab).

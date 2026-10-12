@@ -8644,7 +8644,11 @@ impl WallClimb {
                 // 90 degrees in four frames.)
                 let left = if done.ease_rot != Quat::IDENTITY { done.ease_rot.slerp(Quat::IDENTITY, smoothstep(done.t / EASE_TURN)) } else { Quat::IDENTITY };
                 // (A jump's turn toward its target carries on through its flight, the clips' frame left as it was.)
-                let turned = if done.turn != Quat::IDENTITY && !done.turn_eased && next.to == VAULT { turned_by(done.turn, done.t, done.turn_span) } else { Quat::IDENTITY };
+                let turned = if done.turn != Quat::IDENTITY && !done.turn_eased && next.to == VAULT {
+                    turned_by(done.turn, done.t, done.turn_span)
+                } else {
+                    Quat::IDENTITY
+                };
                 self.mv = Some(Move {
                     clip: next.clip,
                     t: 0.0,
