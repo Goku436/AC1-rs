@@ -639,6 +639,32 @@ in this batch, by audit id:
     split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
   - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
     the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
+- **User reports (2026-10-12)**:
+  - #1, hiding places: the hop out's room is AC1's `Guard_HopOut` box (half extents 0.35 across, 0.5 along, 0.75 up),
+    0.5 m past where the way out leaves the footprint and 1.25 m over what he sits on, the haystack itself left out (its
+    meshes' bounds with the collision shapes of hay and hiding-place entities touching them: a cart's bed, a hiding
+    place's plank box, 3.1 m across in some, and the tarp's frame over it) (`Level::hay_hop_room`). Ours cast a ray from
+    over the middle, 1.25 m over the 1.07 m rim, which in Damascus' rooftop hiding places met the tarp's frame (2.3 m up)
+    every way, and the hop itself was stopped at the box's own wall: he stayed in. The older over-the-top ray stays as a
+    second way to pass. The hop turns to the way out eased (turned in one frame from the wait's facing, the hands jumped
+    0.6 m). The load logs the haystacks with no way out: in Damascus one pile in a walled yard (178.4, -221.9), none of
+    the 123 hiding places.
+  - #12, parapets: a narrow top to balance on (`Level::add_narrow_tops`) wants a drop in front of its hold too (no
+    floor within 0.5 m under the top 0.3 m out), as a paired beam wants one past both edges. A Damascus roof's parapet
+    (0.3 m wide, the roof 0.24 m under it, the street 8 m down) was one, found from its hold facing the roof, and standing
+    by it with the stick along it he got onto it and crouch-walked it; AC1 runs along it as ground (Damascus' narrow tops
+    8,527 to 7,280). From a halt, no beam with floor beside it is got onto from the ground, the stick along it or not
+    (EXTRA-1's rule held only for standing on its line). A side entry onto a beam
+    (`xx_h_freestep_entry_<foot>_tr_crouch<walk|jog>_*`) ends on the beam, its clip's own way corrected onto the line:
+    played from where it met the parapet it walked 1.4 m off into the air, then the perch pulled him back.
+  - #10, ejects: the eject with nothing to land on (`back_eject`) goes the stick's way by AC1's `jump_off_wall_dir`
+    (straight away with no stick, at most 89 degrees off it, none past 135: into the wall) at the free-jump target, its
+    takeoff the rebound groups' front 300 cm clips blended by the angle (`frontleft`/`frontright` straight away,
+    `left`/`right` along the wall), after the rebound pose (`xx_h_hangwall_tr_rebound_<foot>`) as an eject at a target
+    has; it was always 45 degrees off to the stick's side. Every eject, at a target too (`rebound_jump`, which searches
+    along that way), reads the stick as the camera sees it (`move_dir`: AC1's jump off a wall reads the interpreter's
+    camera-relative +0x1250, Banned445's port), not the climbing stick in the character's frame; scripted runs that hold
+    only the climbing stick fall back on it.
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
