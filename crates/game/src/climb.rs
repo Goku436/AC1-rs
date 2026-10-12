@@ -134,7 +134,7 @@
 
 use crate::animation::{AnimLib, Clip, mix_name, root_motion_at, root_rotation_at, sample};
 use crate::character::model_to_bevy;
-use crate::level::{Hit, Ledge, Level, Line};
+use crate::level::{Hit, Ladder, Ledge, Level, Line};
 use bevy::prelude::*;
 use forge::anim::FPS;
 use ik::{Pose, Rig};
@@ -1245,6 +1245,14 @@ pub(crate) fn climb_out_room(level: &Level, edge: Vec3, out: Vec3) -> bool {
     level.box_free(edge - d * 0.35 + Vec3::Y * 1.075, [side, d, Vec3::Y], Vec3::new(0.3, 0.65, 0.725))
         && level.box_free(edge + Vec3::Y * 0.95, [side, d, Vec3::Y], Vec3::new(0.1, 0.1, 0.85))
         && level.box_free(edge - tilt_d * 0.4, [side, tilt_d, tilt_up], Vec3::new(0.1, 0.1, 0.5))
+}
+
+/// Room for a climber on ladder `l`'s side facing `out`: nothing where he stands on it (from 0.2 m to 1.8 m up), and
+/// nothing between him and its rungs (ours: a ladder's back is climbed where it stands free).
+fn ladder_side_free(level: &Level, l: &Ladder, out: Vec3) -> bool {
+    let spot = l.base + out * LADDER_OFF;
+    let across = out.cross(Vec3::Y);
+    level.box_free(spot + Vec3::Y * 1.0, [across, out, Vec3::Y], Vec3::new(0.25, 0.25, 0.8)) && level.raycast(spot + Vec3::Y * 1.0, -out, LADDER_OFF).is_none()
 }
 
 /// AC1's body boxes at a climbing pose (`Human__ClimbBodyBoxesFree` 0xB2DF90; read from the exe, as Banned445's port has
@@ -5000,15 +5008,24 @@ impl WallClimb {
         from: Option<Pose>,
     ) -> Option<WallClimb> {
         let p = root.translation;
-        let (i, l) = level.ladders.iter().enumerate().find(|(_, l)| {
+        let (i, l, out) = level.ladders.iter().enumerate().find_map(|(i, l)| {
             let d = p - l.base;
             let side = l.out.cross(Vec3::Y);
-            d.dot(side).abs() < 0.5
-                && ((d.y.abs() < 0.4 && (0.0..1.4).contains(&d.dot(l.out))) || ((p.y - l.top).abs() < 0.4 && (-1.6..0.2).contains(&d.dot(l.out))))
+            if d.dot(side).abs() >= 0.5 {
+                return None;
+            }
+            let front = (d.y.abs() < 0.4 && (0.0..1.4).contains(&d.dot(l.out))) || ((p.y - l.top).abs() < 0.4 && (-1.6..0.2).contains(&d.dot(l.out)));
+            // (From behind, at its foot: AC1 climbs a ladder from either side, its frame the ladder's axis signed toward
+            // the climber (reanalysis LADDER-3, audit LADDER-7), where nothing stands between them: a free-standing one.)
+            let behind = !front && d.y.abs() < 0.4 && (-1.4..0.0).contains(&d.dot(l.out)) && ladder_side_free(level, l, -l.out);
+            (front || behind).then_some((i, l, if behind { -l.out } else { l.out }))
         })?;
-        let rot = facing(-l.out);
-        let spot = l.base + l.out * LADDER_OFF;
-        let mut w = WallClimb::new(LADDER_R, l.out);
+        if out != l.out {
+            debug!("climb: onto ladder {i} from its back");
+        }
+        let rot = facing(-out);
+        let spot = l.base + out * LADDER_OFF;
+        let mut w = WallClimb::new(LADDER_R, out);
         w.ladder = Some(i);
         if (p.y - l.base.y).abs() < 0.4 {
             // From the foot: the step on ends with the rungs in reach.
@@ -5099,6 +5116,38 @@ impl WallClimb {
         true
     }
 
+    /// AC1's revolve on a ladder (event 5, guard 0xE262B0, read from the exe): in the wait with the stick within 30 degrees
+    /// of a side, the ladder within 10 degrees of upright (ours are), and nothing in a box beside it (0.85 m on toward
+    /// the ladder, 1.2 m up and 0.5 m to that side; half 0.6 across, 0.55 along and 0.65 up, `sub_E24D90`):
+    /// `xx_h_ladder_turn_<l|r>_a` (a step round it, 1 m on, turning 180 degrees) then `_b_tr_h_wait_<l|r>`, onto its
+    /// other side. Against a wall the box is in the wall. (Audit LADDER-7.)
+    fn ladder_revolve(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, right: bool) -> bool {
+        let Some(l) = self.ladder.and_then(|i| level.ladders.get(i).copied()) else { return false };
+        let fwd = -self.normal.with_y(0.0).normalize_or(Vec3::NEG_Z);
+        let across = fwd.cross(Vec3::Y);
+        let centre = root.translation + fwd * 0.85 + Vec3::Y * 1.2 + across * if right { 0.5 } else { -0.5 };
+        if !level.box_free(centre, [across, fwd, Vec3::Y], Vec3::new(0.6, 0.55, 0.65)) {
+            return false;
+        }
+        let side = if right { "r" } else { "l" };
+        let Some(clips) = [format!("xx_h_ladder_turn_{side}_a"), format!("xx_h_ladder_turn_{side}_b_tr_h_wait_{side}")]
+            .iter()
+            .map(|n| lib.get(n))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        // (Ending as far out from the ladder's line on its other side, at the same height.)
+        let out = (root.translation - l.base).dot(self.normal);
+        let far = root.translation - self.normal * (2.0 * out);
+        let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
+        let correct = (far - (root.translation + travel)).with_y(0.0);
+        let to = if right { LADDER_R } else { LADDER_L };
+        debug!("climb: round ladder {} to its other side ({side})", self.ladder.unwrap_or(0));
+        self.start_chain(clips, vec![to.into(), to.into()], root, correct);
+        true
+    }
+
     /// On a ladder, sideways: across onto the wall's holds beside it, into a wall hang or a free hang
     /// (`xx_h_ladder_wait_tr_{hangwall|hangfree}_{left|right}`), whichever the holds and footing there allow.
     #[allow(clippy::too_many_arguments)]
@@ -5143,7 +5192,9 @@ impl WallClimb {
             } else {
                 [format!("xx_l_ladder_climb_up_{hand}_tr_l_wait_hipm_{foot}_a"), format!("xx_l_ladder_climb_up_{hand}_tr_l_wait_hipm_{foot}_b")]
             };
-            if let [Some(a), Some(b)] = names.map(|n| lib.get(&n)) {
+            // (Not from its back: the top it leads onto is on the other side.)
+            let back = l.out.dot(self.normal) < 0.0;
+            if !back && let [Some(a), Some(b)] = names.map(|n| lib.get(&n)) {
                 let up = root_motion_at(&a, a.frames()).z + root_motion_at(&b, b.frames()).z;
                 let need = l.top - root.translation.y;
                 // (The high steps are 1 m: the exit may be up to half a step off, made up over it.)
@@ -7549,6 +7600,11 @@ impl WallClimb {
             return;
         }
         if self.ladder.is_some() {
+            // (The stick within 30 degrees of a side: round the ladder when there is room, before the move off it sideways,
+            // AC1's order; audit LADDER-7.)
+            if input.length() > 0.3 && input.x.abs() > 0.866 * input.length() && self.ladder_revolve(lib, level, root, input.x > 0.0) {
+                return;
+            }
             // (The stick within 20 degrees of the side: AC1's |stick . facing| < 0.342, audit LADDER-8; ours took 45.)
             if input.x.abs() > 0.3 && input.y.abs() < 0.342 * input.length() {
                 self.off_ladder_side(lib, level, root, rig, base, cr, input.x);

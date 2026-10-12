@@ -545,6 +545,11 @@ in this batch, by audit id:
   to the lower hand leaning out 30° past the hands' line) turns into the free hang,
   `xx_h_climb_1m_u_overhangfree_<1lu|1ru>` (TryTransitionToLedgeHang 0xDF4BA0). Not shown by a scenario: ours' feet rule
   (a wall at most `RECESS_MAX` 0.32 m behind the hold) refuses the stance on such holds before it, going into a hang.
+  (LADDER-7) Ladders are climbed from either side where they stand free (the frame turned toward the climber; no exit
+  off the top from the back), and in the wait the stick within 30° of a side goes round to the other side when AC1's
+  box beside it is clear (the revolve, `xx_h_ladder_turn_<l|r>_a` / `_b_tr_h_wait_<l|r>`, guard 0xE262B0); against a
+  wall the box is in the wall. Gauntlet G16 (a free-standing ladder). Not done: the back-approach turn (TURN
+  0x0A64400C/D, when the attach box is blocked) and the leaning ladder's forced revolve.
 Open (still ours' own): the hang root as one function of the holds (LEDGE-8: AC1's sits 0.43-0.66 m out and 1.0-1.13 m
 down from the hold in the two recordings; likely measured from the wall face), the eject's root snap (WALL-8).
 

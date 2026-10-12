@@ -796,6 +796,31 @@ const SCENARIOS: &[Scenario] = &[
         want: &["no room for the body there (AC1's body boxes)"],
         never: &["EMBED"],
     },
+    // Audit LADDER-7: AC1's ladders are climbed from either side; the revolve round one (event 5) where there is room.
+    Scenario {
+        name: "gauntlet G16: up a free-standing ladder, the stick to the right: round it onto its other side (AC1's revolve), down",
+        tags: &["ladder"],
+        env: &[("AC1_START", "-90.44,204,-90"), ("AC1_CLIMB", "up=1.5,wait=0.5,right=0.5,wait=1,down=5")],
+        secs: 9.0,
+        want: &["round ladder", "via xx_h_ladder_turn_r_a", "via xx_h_ladder_turn_r_b_tr_h_wait_r", "-> ground via"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "gauntlet G16: at a free-standing ladder's back: onto it from there (AC1's ladders are two-sided), up, down",
+        tags: &["ladder"],
+        env: &[("AC1_START", "-89.56,204,90"), ("AC1_CLIMB", "up=1.5,down=4")],
+        secs: 7.0,
+        want: &["onto ladder", "from its back", "via xx_l_ladder_climb_up_", "-> ground via"],
+        never: &["EMBED"],
+    },
+    Scenario {
+        name: "block L's ladder against its wall, the stick to the side: no room to go round it (the wall)",
+        tags: &["ladder"],
+        env: &[("AC1_START", "23.5,-5.4,0"), ("AC1_CLIMB", "up=1.5,wait=0.5,right=0.5")],
+        secs: 5.0,
+        want: &["via xx_l_ladder_climb_up_"],
+        never: &["round ladder", "EMBED"],
+    },
     Scenario {
         name: "gauntlet G7: up a wall's holds, along to its edge, the leap across the gap onto the next wall, up to its top",
         tags: &["combo", "climb", "hang"],

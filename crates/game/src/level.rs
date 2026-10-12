@@ -1334,6 +1334,10 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     hold_rows(strips, level, Vec3::new(-92.0, 0.0, z - 2.0), Vec3::Z, 4.0, Vec3::NEG_X, &(0..6).map(|k| top(k as f32)).collect::<Vec<_>>());
     walls.cuboid(Vec3::new(-92.6, top(2.0) + 0.16, z - 2.0), Vec3::new(-92.0, top(2.0) + 0.36, z + 2.0));
 
+    // G16: a ladder standing free in the open (its front to -X): climbed from either side, and round it from one side to
+    // the other (AC1's revolve; audit LADDER-7).
+    level.ladders.push(Ladder { base: Vec3::new(-90.0, 0.0, 204.0), top: 4.5, out: Vec3::NEG_X });
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -1349,6 +1353,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G12: the jump up from the climb", Vec3::new(-95.0, 4.0, 164.0)),
         ("G13: no climbing out under an awning", Vec3::new(-95.0, 4.0, 174.0)),
         ("G14: a block in the way up the wall", Vec3::new(-95.0, 4.0, 184.0)),
+        ("G16: a free-standing ladder", Vec3::new(-92.0, 4.0, 204.0)),
     ]
 }
 
