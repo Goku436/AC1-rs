@@ -12,8 +12,10 @@
 //!   containers, sounds).
 //!
 //! - `bao ambience <game dir> <City>`: the city's ambience regions, their sets and the loops they play.
+//! - `bao emitters <game dir> <City>`: the city's placed sounds by entity name, and what their events play.
 //!
-//! `wav`, `clip` and `tree` load `DataPC.forge`'s player sounds; `BAO_EXTRA="<forge file>:<data file>,..."` adds more.
+//! `wav`, `clip` and `tree` load `DataPC.forge`'s player sounds; `BAO_EXTRA="<forge file>:<data file>,..."` adds more,
+//! `BAO_CITY=<City>` a city's.
 use anyhow::{Context, Result, bail};
 use forge::sound::{self, Bank, Codec, Kind};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -214,6 +216,11 @@ fn load_bank(dir: &Path) -> Result<(Bank, Option<sound::ContactTable>)> {
         let e = f.entries.iter().find(|e| e.name == data_file).with_context(|| format!("no data file {data_file}"))?;
         bank.add_data_file(&f.read(e)?)?;
     }
+    // `BAO_CITY=<City>`: a city's sounds (its cells' and the samples they use from the common forge).
+    if let Ok(city) = std::env::var("BAO_CITY") {
+        sound::load_ambience(&forge::Forge::open(dir.join(format!("DataPC_{city}.forge")))?, &city, &mut bank)?;
+        sound::load_resources(&forge::Forge::open(dir.join("DataPC_Common.forge"))?, &mut bank);
+    }
     Ok((bank, table))
 }
 
@@ -407,6 +414,57 @@ fn ambience(dir: &Path, city: &str) -> Result<()> {
         let loops: Vec<String> =
             events.iter().filter_map(|&e| bank.stream_loop(e)).map(|l| format!("{:08x} {} Hz {:.0} dB", l.stream, l.rate, l.gain_db)).collect();
         println!("{set:08x} {name} ({cells} cells): {} sounds, loops {}", events.len(), loops.join(", "));
+        for fx in amb.random_fx.get(&set).into_iter().flatten() {
+            println!(
+                "      one-off {:08x}: every {:.0}-{:.0} s, {:.0}-{:.0} m away, {:.0} m up",
+                fx.event, fx.repeat.0, fx.repeat.1, fx.radius.0, fx.radius.1, fx.height
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A city's placed sounds (`Ambient3dSoundComponent`s), by entity name: how many, their events (type, and for a play
+/// what it plays: looped or not, gain, roll-off).
+fn emitters(dir: &Path, city: &str) -> Result<()> {
+    let (mut bank, _) = load_bank(dir)?;
+    let f = forge::Forge::open(dir.join(format!("DataPC_{city}.forge")))?;
+    let amb = sound::load_ambience(&f, city, &mut bank)?;
+    let common = forge::Forge::open(dir.join("DataPC_Common.forge"))?;
+    let added = sound::load_resources(&common, &mut bank);
+    println!("{} emitters; {added} resources from DataPC_Common.forge, {} still missing", amb.emitters.len(), bank.missing_resources().len());
+    // (By name, its trailing number left out: how many, and the first.)
+    let mut by: BTreeMap<String, (usize, &sound::Emitter)> = BTreeMap::new();
+    for e in &amb.emitters {
+        let key: String = e.name.trim_end_matches(|c: char| c.is_ascii_digit() || c == '_' || c == ' ').to_string();
+        by.entry(key).or_insert((0, e)).0 += 1;
+    }
+    let mut pick = sound::Picker::new(1);
+    for (name, (n, e)) in by {
+        let p = e.pos;
+        println!("{n:5} {name} (e.g. at {:.0} {:.0} {:.0}), trigger zone radius {:?}", p[0], p[1], p[2], e.zone.map(|z| z.1));
+        for &ev in &e.events {
+            let ty = bank.event_type(ev);
+            let voices = bank.resolve(ev, &|_| None, &mut pick);
+            let v: Vec<String> = voices
+                .iter()
+                .map(|v| {
+                    let r = v.rolloff;
+                    format!(
+                        "{:08x} {}{:.0} dB {:.1} s rolloff {} {} {} {}",
+                        v.resource,
+                        if v.looped { "loop " } else { "" },
+                        v.gain_db,
+                        v.frames as f32 / v.rate as f32,
+                        r.saturation,
+                        r.clamp,
+                        r.fade_start,
+                        r.fade_end
+                    )
+                })
+                .collect();
+            println!("        {ev:08x} type {:?}: {}", ty, v.join(", "));
+        }
     }
     Ok(())
 }
@@ -420,6 +478,7 @@ fn main() -> Result<()> {
         Some("raw") if a.len() >= 4 => raw(Path::new(&a[2]), &a[3..]),
         Some("clip") if a.len() == 4 => clip(Path::new(&a[2]), &a[3]),
         Some("ambience") if a.len() == 4 => ambience(Path::new(&a[2]), &a[3]),
+        Some("emitters") if a.len() == 4 => emitters(Path::new(&a[2]), &a[3]),
         Some("tree") if a.len() >= 4 => {
             let (bank, _) = load_bank(Path::new(&a[2]))?;
             for id in &a[3..] {
@@ -428,7 +487,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         _ => bail!(
-            "usage: bao scan <game dir> | list <forge file> <data file> | wav <game dir> <bao id>... | raw <game dir> <bao id>... | clip <game dir> <clip name> | tree <game dir> <event id>... | ambience <game dir> <City>"
+            "usage: bao scan <game dir> | list <forge file> <data file> | wav <game dir> <bao id>... | raw <game dir> <bao id>... | clip <game dir> <clip name> | tree <game dir> <event id>... | ambience <game dir> <City> | emitters <game dir> <City>"
         ),
     }
 }
