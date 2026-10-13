@@ -28,7 +28,7 @@ pub const CACHE_VERSION: u32 = 1;
 /// The payload layout's version (in the header).
 const FORMAT: u32 = 1;
 
-const MAGIC: &[u8; 8] = b"AC1LEVEL";
+pub(crate) const MAGIC: &[u8; 8] = b"AC1LEVEL";
 
 /// No coordinate of a city is this far out (m); a number past it in the payload is corrupt.
 const MAX_COORD: f32 = 30_000.0;
@@ -184,11 +184,6 @@ pub(crate) fn read_payload_as(magic: &[u8; 8], path: &Path, key: u64) -> Result<
 
 /// Write `payload` under `key` to `path`: to a file of its own first, then renamed over it (several games loading the city
 /// at once each write whole files; a reader never sees half of one).
-pub fn write_payload(path: &Path, key: u64, payload: &[u8]) -> Result<()> {
-    write_payload_as(MAGIC, path, key, payload)
-}
-
-/// `write_payload` of a file starting with `magic`.
 pub(crate) fn write_payload_as(magic: &[u8; 8], path: &Path, key: u64, payload: &[u8]) -> Result<()> {
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d)?;
@@ -759,7 +754,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ac1-level-cache-test-{}", std::process::id()));
         let path = dir.join("x.level");
         let payload = write_level(&sample());
-        write_payload(&path, 42, &payload).expect("writes");
+        write_payload_as(MAGIC, &path, 42, &payload).expect("writes");
         assert_eq!(read_payload(&path, 42).expect("reads"), payload);
         assert!(read_payload(&path, 43).is_err(), "another key");
         let mut file = std::fs::read(&path).expect("file");

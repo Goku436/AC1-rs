@@ -1954,7 +1954,8 @@ pub fn spawn_level(
         let mut lap = cache::Lap::start();
         let file = if cache::enabled() { cache::locate(&dir.0, &city) } else { None };
         let check = cache::check();
-        let cached = file.as_ref().filter(|_| !check).and_then(|(path, key)| match cache::read_payload(path, *key).and_then(|p| cache::read_level(&p)) {
+        // (Read on a thread from the launch, `preload`.)
+        let cached = file.as_ref().filter(|_| !check).and_then(|(path, key)| match crate::preload::cached_level(path, *key) {
             Ok(l) => Some(l),
             Err(e) => {
                 info!("level cache {}: not used ({e:#}); building the city", path.display());
@@ -1969,7 +1970,7 @@ pub fn spawn_level(
                 let forge = crate::city::forge_of(&city);
                 // The drawn world from its own cache (`render_cache`), else read from the game's files (only what is
                 // drawn: the gameplay data built then is thrown away).
-                if let Some(draw) = crate::render_cache::load(&dir.0, &city) {
+                if let Some(draw) = crate::preload::draw(&dir.0, &city) {
                     lap.lap("the city's world from the render cache");
                     let detail = crate::stream::Detail::from_env();
                     let render = crate::city::realize(draw, opts.bc, detail, &mut commands, &mut meshes, &mut mats, &mut images, &forge);
@@ -1991,11 +1992,10 @@ pub fn spawn_level(
                 if check {
                     cache_check(&level, &payload, path, *key);
                 }
-                match cache::write_payload(path, *key, &payload) {
-                    Ok(()) => info!("level cache {}: saved, {}", path.display(), cache::summary(&level, &payload)),
-                    Err(e) => warn!("level cache {}: not saved: {e:#}", path.display()),
-                }
-                lap.lap("level cache saved");
+                // (Written on a thread of its own: 200 MB took seconds of the first load.)
+                info!("level cache {}: saving, {}", path.display(), cache::summary(&level, &payload));
+                cache::write_in_background(cache::MAGIC, path.clone(), *key, payload, "level cache".into());
+                lap.lap("level cache made");
             }
         }
         // `AC1_GRAB_AUDIT=<file.tsv>`: the authored guidance against what was built from it (`grab_audit`).
