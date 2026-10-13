@@ -44,7 +44,7 @@
 //! AC1_BIND_PROPS (city skinned props left in their bind pose, not stood in their skeleton's pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level; its gameplay data, collision, holds, guidance, beams, objects and navigation, is saved after
-//! the first load and read back after, `level_cache`: AC1_NO_CACHE=1 neither reads nor writes it, AC1_CACHE_DIR=dir puts it there instead of
+//! the first load and read back after, `level_cache`, and so is what it draws, `render_cache`: AC1_NO_CACHE=1 neither reads nor writes them, AC1_CACHE_DIR=dir puts it there instead of
 //! `ac1-cache` beside the executable, AC1_CACHE_CHECK=1 builds the city anyway and compares it with the cache byte for byte; every load logs its
 //! phases' times as `load: ...` lines), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_DETAIL=low|medium|high|ultra|full (how much a city draws: see `stream::Detail`; else the graphics menu's, medium by default; full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
 //! AC1_JUMP=secs[,secs...] (press Space then; with AC1_WALK for a running jump), AC1_HIGH / AC1_LEGS=from-to
@@ -94,10 +94,13 @@ mod nav;
 mod net;
 mod npc;
 mod pad;
+mod particle_material;
 mod particles;
+mod preload;
 mod probe;
 mod ragdoll;
 mod recorder;
+mod render_cache;
 mod replay;
 mod robe;
 mod settings;
@@ -291,6 +294,19 @@ fn main() {
     let cam = env_f32s("AC1_CAM").unwrap_or_default();
     let script = script_from(&|k| std::env::var(k).map_err(|_| ()));
     let headless = std::env::var("AC1_HEADLESS").is_ok();
+    // What the start will want, loaded on threads while Bevy brings up the window and the GPU (`preload`): Altaïr, the
+    // clip library, the city's caches; and the level's light and sky (wanted before the app runs).
+    let level_name = std::env::var("AC1_LEVEL").ok();
+    preload::start(std::path::Path::new(&game_dir), level_name.as_deref(), !headless);
+    let look_job = {
+        let (dir, level) = (PathBuf::from(&game_dir), level_name.clone());
+        std::thread::spawn(move || {
+            let world_look = look::Look::load(&dir, level.as_deref()).unwrap_or_default();
+            // The level's sky dome (`sky`), read now (not headless; `AC1_NO_SKY=1` leaves it out).
+            let sky = (!headless && std::env::var("AC1_NO_SKY").is_err()).then(|| sky::load(&dir, level.as_deref(), &world_look)).flatten();
+            (world_look, sky)
+        })
+    };
     let mut app = App::new();
     // (The network test, `net`: only with AC1_HOST or AC1_JOIN.)
     if let Some(n) = net::open() {
@@ -350,16 +366,16 @@ fn main() {
     if std::env::var("AC1_FPS").is_ok() && !headless {
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     }
-    // The level's light and grade from AC1's data (`look`): the city's own, Masyaf's for the test level.
-    let level_name = std::env::var("AC1_LEVEL").ok();
-    let world_look = look::Look::load(std::path::Path::new(&game_dir), level_name.as_deref()).unwrap_or_default();
+    // The level's light and grade from AC1's data (`look`): the city's own, Masyaf's for the test level; and its sky.
+    let (world_look, sky) = look_job.join().unwrap_or_else(|_| {
+        let dir = std::path::Path::new(&game_dir);
+        let world_look = look::Look::load(dir, level_name.as_deref()).unwrap_or_default();
+        let sky = (!headless && std::env::var("AC1_NO_SKY").is_err()).then(|| sky::load(dir, level_name.as_deref(), &world_look)).flatten();
+        (world_look, sky)
+    });
     let f = world_look.world.fog_color;
     let env = world_look.world.env_cube;
-    // The level's sky dome (`sky`), read now (not headless; `AC1_NO_SKY=1` leaves it out).
-    if !headless
-        && std::env::var("AC1_NO_SKY").is_err()
-        && let Some(s) = sky::load(std::path::Path::new(&game_dir), level_name.as_deref(), &world_look)
-    {
+    if let Some(s) = sky {
         app.insert_resource(s);
     }
     let ambient = env.iter().map(|c| c.truncate()).sum::<Vec3>() / 6.0;
@@ -471,6 +487,8 @@ fn main() {
         .add_systems(PostUpdate, robe::robe_cloth.after(bevy::transform::TransformSystems::Propagate))
         .add_systems(First, wind::advance)
         .run();
+    // (A city's cache files may still be being written on their threads.)
+    level_cache::finish_writes();
 }
 
 #[derive(Resource)]
@@ -834,7 +852,7 @@ fn setup(
 
     // The city's wind (the test level borrows Masyaf's): the robe and the skeleton's hinges feel it.
     commands.insert_resource(wind::load(&dir.0, now.as_deref()));
-    let data = match assets::load_character(&dir.0, "DataPC.forge", "Rank 9", "UCMA_Altair_Rank_9") {
+    let data = match preload::altair(&dir.0) {
         Ok(d) => d,
         Err(e) => {
             error!("could not load Altaïr from {:?}: {e:#}. Set AC1_GAME_DIR to your Assassin's Creed folder.", dir.0);
@@ -844,8 +862,11 @@ fn setup(
     let mut lib = if std::env::var("AC1_NO_ANIM").is_ok() {
         None
     } else {
-        match animation::AnimLib::load(&dir.0, "DataPC.forge", "Game Fix", &data.rig, data.hashes.clone()) {
-            Ok(l) => Some(l),
+        match preload::library(&dir.0) {
+            Ok(mut l) => {
+                l.bind_player(&data.rig, data.hashes.clone());
+                Some(l)
+            }
             Err(e) => {
                 warn!("no animation library ({e:#}); using procedural locomotion");
                 None
@@ -977,17 +998,10 @@ fn setup(
                 .unwrap_or_else(|| vec![Vec3::new(-12.0, 0.0, -4.5), Vec3::new(-3.0, 0.0, -4.5), Vec3::new(-3.0, 0.0, -6.2), Vec3::new(-12.0, 0.0, -6.2)]),
             s: env_f32s("AC1_CROWD_AT").and_then(|v| v.first().copied()).unwrap_or(0.0),
         });
+        // AC1's hooded scholars (`preload::scholar`), loaded ahead where they could be.
+        let mut ahead = preload::scholars().unwrap_or_default().into_iter();
         for (k, slot) in [Vec2::new(-0.4, 0.0), Vec2::new(0.4, 0.0), Vec2::new(-0.4, 0.9), Vec2::new(0.4, 0.9)].into_iter().enumerate() {
-            // AC1's hooded scholars (the `CNMA_Scholar` builder), each its own; the hand-made one if need be.
-            let built =
-                npc::build(&dir.0, SCHOLAR_FORGE, SCHOLAR_BLOCK, "CNMA_Scholar", 0x5c + k as u64 * 104_729).map_err(|e| warn!("scholar builder: {e:#}")).ok();
-            let s = match built.map(|b| b.0).map_or_else(
-                || {
-                    let (skeletons, meshes_list) = crowd::scholar_recipe();
-                    assets::load_assembled_from(&dir.0, &skeletons, &meshes_list)
-                },
-                Ok,
-            ) {
+            let s = match ahead.next().unwrap_or_else(|| preload::scholar(&dir.0, k)) {
                 Ok(s) => s,
                 Err(e) => {
                     warn!("no scholars: {e:#}");
