@@ -49,8 +49,9 @@
 //! (`hangknee_footl`, kneel on it, then stand up) or 2.5 m (`hangwaist`, then
 //! `xx_h_hangwaist_tr_hangknee_footl` and stand up); a hold at about 2 or 2.5 m with wall under the
 //! feet (`hangwall`, ending in the wide wall hang "2m"); a hold at about 2.5 or 3 m with nothing under
-//! the feet (`hangfree`, ending in a free hang). The root is moved over the flight so the hands land
-//! exactly.
+//! the feet (`hangfree`, ending in a free hang), or with a wall under it (`hangwallfree`, the wall-free hang: a free
+//! hang, the legs held off the wall, `xx_h_hangwallfree_wait`, until up switches onto the wall in place,
+//! `xx_h_hangfree_tr_hangwall`). The root is moved over the flight so the hands land exactly.
 //!
 //! Wall run (sprinting at a wall): `xx_h_wallingfront_entry_footl_a/b` (first step up the wall, +1 m)
 //! and `xx_h_wallingfront_step1_footr` (+0.5 m), then the highest thing in reach:
@@ -178,6 +179,12 @@ const FREE: &str = "free_1m";
 const HANGWALL: &str = "hangwall";
 const HANGWALL_OPEN: &str = "hangwall_open";
 const HANGWALL_REST: &str = "xx_h_hangwall_wait";
+/// The wall-free hang's wait (a free hang with a wall under the hold, the legs held off it: hands 0.46 m in front of the
+/// root, 2.41 m over it).
+const HANGWALLFREE_REST: &str = "xx_h_hangwallfree_wait";
+/// The standing jump's bands by the hold's height over the feet (AC1's 0xB21DA0): the wall hang's up to here (m), the
+/// free and wall-free hangs' from here.
+const JUMP_FREE_BAND: f32 = 2.5;
 /// The ledge hang sits this much further from the wall and lower than its clips put it (m); the hands stay on
 /// the ledge.
 const HANG_OUT: f32 = 0.08;
@@ -319,10 +326,13 @@ const ONTO_PAST_EDGE: f32 = 0.15;
 /// Jumping onto a top: the hang part is held this much further out than the clips put it (m).
 const ONTO_BACK: f32 = 0.05;
 /// Jump up to hang from a hold: (clip kind, height in cm, end state, hang loop whose hands must be on
-/// the holds).
-const JUMP_HANG: [(&str, u32, &str, &str); 4] = [
+/// the holds). (The wall-free hang's, AC1's 0x0121A8B1 and its reception 0x0121B072, for a hold 2.5-3 m up with a wall
+/// under it: `grab` keeps each to its band.)
+const JUMP_HANG: [(&str, u32, &str, &str); 6] = [
     ("hangwall", 200, HANGWALL_OPEN, HANGWALL_REST),
     ("hangwall", 250, HANGWALL_OPEN, HANGWALL_REST),
+    ("hangwallfree", 250, FREE, HANGWALLFREE_REST),
+    ("hangwallfree", 300, FREE, HANGWALLFREE_REST),
     ("hangfree", 250, FREE, "xx_h_hangfree_waitclose"),
     ("hangfree", 300, FREE, "xx_h_hangfree_waitclose"),
 ];
@@ -1326,6 +1336,13 @@ pub struct WallClimb {
     bar: Option<usize>,
     swing_off: Option<bool>,
     skip_bar: Option<(usize, f32)>,
+    /// In the wall-free hang (AC1's `xx_h_hangwallfree_wait`, the standing jump's 2.5-3 m band with a wall under the hold):
+    /// a free hang, the legs held off the wall under it, until the next move.
+    wallfree: bool,
+    /// The free hang's wait as AC1 blends it after the swing back or the jump up from the climb (0xDDAB00 / 0xDF9650 set
+    /// the ledge's wait kind 3 and its weight, the jump's `max` share): `xx_h_hangfree_wait` and `xx_h_hangwallfree_wait` by
+    /// this (0xDE1FE0), while he hangs from ledges.
+    free_wait: Option<f32>,
 }
 
 pub fn grip_target(ledge_point: Vec3, out: Vec3) -> Vec3 {
@@ -1699,6 +1716,13 @@ fn feet_fit_at(level: &Level, feet: &[Vec3; 2], normal: Vec3, want: Feet, hold: 
         Feet::ToFree => hold.is_some_and(|q| feet_on_wall(level, q, normal) != (true, true)),
         Feet::ToWall => hold.is_some_and(|q| feet_on_wall(level, q, normal) != (false, false)),
     }
+}
+
+/// AC1's "wall under the edge" class (0x08 of the jump query's +0x54, 0xE18970): from 0.5 m out of the hold and 1 m under
+/// it, a sweep in toward the wall meets it within 0.7 m (else 0x10, nothing under: a free hang).
+fn wall_under_hold(level: &Level, hold: Vec3, normal: Vec3) -> bool {
+    let n = normal.with_y(0.0).normalize_or_zero();
+    level.raycast(hold + n * 0.5 - Vec3::Y, -n, 1.4).is_some_and(|h| h.dist < 0.7 && h.normal.y.abs() < 0.7)
 }
 
 /// AC1's foot supports for a hang with its hands at `hands` (`sub_DE0A60` from `TrySwitchHangType` 0xDE1060, as
@@ -2636,6 +2660,20 @@ fn eject_way(away: Vec3, input: Vec2) -> Option<Vec3> {
     Some(d)
 }
 
+/// A jump into a free hang with a swing (the swing back up from the wall hang, the jump up from the climb) settles under
+/// its ledge as AC1's move graph goes on out of it: the connector 0x0564BB0E into the free wait, `xx_h_hangfree_swingback_
+/// <min|max>_a/b`, which 0xDE1FE0 weighs [1, 0] under the wait kind 3 those jumps set: the `min` pair whole, appended to
+/// `clips` (in place). The states for the chain: the jump's two clips, then the hang.
+fn swing_settle(lib: &mut AnimLib, clips: &mut Vec<Arc<Clip>>) -> Vec<String> {
+    let mut tos: Vec<String> = vec![LEAP.into(), FREE.into()];
+    let settle: Option<Vec<Arc<Clip>>> = ["xx_h_hangfree_swingback_min_a", "xx_h_hangfree_swingback_min_b"].iter().map(|nm| lib.get(nm)).collect();
+    if let Some(settle) = settle {
+        tos.extend(settle.iter().map(|_| FREE.to_string()));
+        clips.extend(settle);
+    }
+    tos
+}
+
 fn is_free(state: &str) -> bool {
     state.starts_with("free_")
 }
@@ -2774,6 +2812,8 @@ impl WallClimb {
             bar: None,
             swing_off: None,
             skip_bar: None,
+            wallfree: false,
+            free_wait: None,
         }
     }
 
@@ -3771,6 +3811,7 @@ impl WallClimb {
                     (err, tos, top_h)
                 }
                 GrabEnd::Hang(to, rest) => {
+                    let wallfree = rest == HANGWALLFREE_REST;
                     let Some(rest) = lib.get(rest) else { continue };
                     let end = end.world(&facing);
                     let mut pose = base.clone();
@@ -3799,12 +3840,32 @@ impl WallClimb {
                     }
                     let err = (targets[0] - hands[0] + targets[1] - hands[1]) * 0.5;
                     let feet = if to == FREE { Feet::Free } else { Feet::Wall };
+                    // The standing jump's bands by the hold's height over the feet (AC1's 0xB21DA0, Banned445's port; its
+                    // `wall` the jump query's "wall under the edge", `wall_under_hold`): the wall hang under 2.5 m, from 2.5 m
+                    // the wall-free hang with a wall under the hold (0x0121A8B1, the root 2.4 m under it and 0.5 m out, the
+                    // legs held off the wall), else the free hang (0x0121A598). (Audit LEDGE-7 / LEDGE-15: ours hung from such
+                    // a hold in the wall hang.)
+                    let mid = (targets[0] + targets[1]) * 0.5;
+                    if carry.is_none() {
+                        let dz = mid.y - root.translation.y;
+                        let under = wall_under_hold(level, mid, normal);
+                        let band = match (to, wallfree) {
+                            (_, true) => dz >= JUMP_FREE_BAND && under,
+                            (FREE, false) => dz < JUMP_FREE_BAND || !under,
+                            _ => dz < JUMP_FREE_BAND,
+                        };
+                        if !band {
+                            continue;
+                        }
+                    }
                     // (A pole's cap is hung from with the hands together.)
-                    let to = if to == HANGWALL_OPEN && on_narrow_ledge(level, (targets[0] + targets[1]) * 0.5) { HANGWALL } else { to };
+                    let to = if to == HANGWALL_OPEN && on_narrow_ledge(level, mid) { HANGWALL } else { to };
                     // (A hold up to 0.6 m lower than the clip's is reached by climbing less; real buildings
                     // fall between the heights the clips were made for.)
-                    let hold = Some((targets[0] + targets[1]) * 0.5);
-                    if !(-0.6..=0.3).contains(&err.y) || !feet_fit_at(level, &end.feet.map(|f| f + err), normal, feet, hold) {
+                    let hold = Some(mid);
+                    // (The wall-free hang's legs are held off the wall under it: its footing is the band's wall, above.)
+                    let footing = wallfree || feet_fit_at(level, &end.feet.map(|f| f + err), normal, feet, hold);
+                    if !(-0.6..=0.3).contains(&err.y) || !footing {
                         if carry.is_some() {
                             debug!(
                                 "climb: wall run catch at {:.2}: {}",
@@ -4316,12 +4377,48 @@ impl WallClimb {
                 (&name("max", "300"), h * v),
             ])
         };
-        let Some(clips) = [mix("a"), mix("b")].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>() else { return false };
+        let Some(mut clips) = [mix("a"), mix("b")].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>() else { return false };
         let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
         let to = q + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
-        debug!("climb: swing back up to the ledge at {q:.2}");
-        self.start_chain_carry(clips, vec![LEAP.into(), FREE.into()], root, to - (p + travel), Some(1));
+        debug!("climb: swing back up to the ledge at {q:.2} (out {h:.2}: the wait after it that much wall-free)");
+        // Then the swing settling under the ledge: the move graph's way out of the `_b` item (action 0x4CD68F50) into the
+        // free wait goes through the connector 0x0564BB0E, `xx_h_hangfree_swingback_<min|max>_a/b` (in place), which AC1
+        // weighs [1, 0] (0xDE1FE0 under the wait kind 3 the hop sets, 0xDDAB00): the `min` pair whole. The wait after it
+        // blends `xx_h_hangfree_wait` and `xx_h_hangwallfree_wait` by the hop's `max` share, h (audit LEDGE-15).
+        let tos = swing_settle(lib, &mut clips);
+        self.start_chain_carry(clips, tos, root, to - (p + travel), Some(1));
+        self.free_wait = Some(h);
         true
+    }
+
+    /// In a free hang, up: into the wall hang in place where both feet find the wall under the hands (AC1's CanPullup
+    /// 0xDE2270 for a free hang: `sub_DE0E30`'s two foot rays at the hands, as `feet_on_wall`, and the body's room; then
+    /// Pullup_Start 0xDDBE80 -> 0xDD4160 plays `xx_h_hangfree_tr_hangwall` (action 0x01B702FD) into the wall hang's wait,
+    /// the root carried to the wall hang's under the same hands). This comes before the pull-up, so a free hang over a
+    /// wall (the wall-free hang, a swing back onto a ledge near the wall) goes onto the wall first; audit LEDGE-15.
+    #[allow(clippy::too_many_arguments)]
+    fn free_to_wall_hang(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig) -> bool {
+        if !matches!(self.state.as_str(), FREE | FREE_OPEN) {
+            return false;
+        }
+        let Some(last) = self.last.as_ref() else { return false };
+        let m = last.model(rig);
+        let r = world_rot(root.rotation);
+        let hands = cr.hands.map(|b| root.translation + r * m[b].pos);
+        let n = self.normal.with_y(0.0).normalize_or_zero();
+        let Some(hold) = holds_within(level, &hands, n, HOLD_TOLERANCE_UP).map(|t| (t[0] + t[1]) * 0.5) else { return false };
+        if feet_on_wall(level, hold, n) != (true, true) {
+            if why() {
+                debug!("climb: no switch into the wall hang: not both feet on the wall under {hold:.2}");
+            }
+            return false;
+        }
+        let cand = Cand::new("xx_h_hangfree_tr_hangwall", HANGWALL_OPEN, Feet::ToWall);
+        if self.take_first(lib, level, root, rig, base, cr, vec![cand]) {
+            debug!("climb: the free hang onto the wall under it, in place");
+            return true;
+        }
+        false
     }
 
     /// From the climbing stance, the jump up to a ledge above and out from the wall, into a free hang under it (AC1's
@@ -4355,11 +4452,15 @@ impl WallClimb {
             (&name("max", "200"), h * (1.0 - v)),
             (&name("max", "300"), h * v),
         ]);
-        let Some(clips) = ["xx_h_climbing_1m_impultion".to_string(), jump].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>() else { return false };
+        let Some(mut clips) = ["xx_h_climbing_1m_impultion".to_string(), jump].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>() else { return false };
         let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
         let to = q + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
         debug!("climb: jump up from the climb to the ledge at {q:.2}");
-        self.start_chain_carry(clips, vec![LEAP.into(), FREE.into()], root, to - (p + travel), Some(1));
+        // (Its action 0x1EB21811 goes on through the same connector as the swing back's, and 0xDF9650 sets the same wait
+        // kind 3 with its `max` share: `swing_settle`, audit LEDGE-15.)
+        let tos = swing_settle(lib, &mut clips);
+        self.start_chain_carry(clips, tos, root, to - (p + travel), Some(1));
+        self.free_wait = Some(h);
         true
     }
 
@@ -6553,7 +6654,24 @@ impl WallClimb {
 
     /// Hang loop for the current state, or the last move held on its final frame if there is none.
     fn set_wait(&mut self, lib: &mut AnimLib, last: Arc<Clip>) {
+        // (The wall-free hang is the standing jump's reception into it, held until the next move: AC1 plays its wait,
+        // 0x0106F2E9, straight after it (0xE07D00), and the free one, 0x012719F1, after any move from it.)
+        if last.name.contains("_tr_hangwallfree_") {
+            debug!("climb: in the wall-free hang ({HANGWALLFREE_REST})");
+            self.wallfree = true;
+        } else if !last.name.contains("lookaround") {
+            self.wallfree = false;
+        }
+        // (The wait kind lasts while he hangs from ledges: AC1's ledge context resets it on leaving, 0xDCD780.)
+        if !is_free(&self.state) && !self.state.starts_with(HANGWALL) {
+            self.free_wait = None;
+        }
         let name = match self.state.as_str() {
+            FREE | FREE_OPEN if self.wallfree => Some(HANGWALLFREE_REST.to_string()),
+            FREE | FREE_OPEN if self.free_wait.is_some() => {
+                let f = self.free_wait.unwrap_or(0.0);
+                Some(mix_name(&[("xx_h_hangfree_wait", 1.0 - f), (HANGWALLFREE_REST, f)]))
+            }
             FREE => Some("xx_h_hangfree_waitclose".to_string()),
             FREE_OPEN => Some("xx_h_hangfree_waitopen".to_string()),
             // (The low wait after a dive from the ground or a free step, the high one after the leap of faith: every one of
@@ -7082,6 +7200,12 @@ impl WallClimb {
                 // StartHandStep 0xDDE0C0 after TryTransitionToClimb, Banned445's port; audit LEDGE-3: ours went into the
                 // climbing stance, the feet on the ledge just let go of).
                 out.push(Cand::new(format!("xx_h_hangwall_{dir}_climb_1m"), "1m", Feet::Wall));
+                // (Onto a ledge where not both feet find the wall: the switch into the free hang in place of the hand step,
+                // AC1's TrySwitchHangType 0xDE1060 at the step's target, which plays the left-hand one up or down,
+                // `xx_h_hangwall_tr_hangfree_<up|down>_left` (actions 0x01C3217A / 0x01C3217C; the `_right` ones are never asked
+                // for); audit LEDGE-15.)
+                let way = if dir == "u" { "up" } else { "down" };
+                out.push(Cand::new(format!("xx_h_hangwall_tr_hangfree_{way}_left"), FREE, Feet::ToFree));
                 let mut hands = ["lu", "ru"];
                 hands.sort_by_key(|h| *h != prefer);
                 for h in hands {
@@ -7699,6 +7823,10 @@ impl WallClimb {
         // moves; Banned445's port). In the running game (Damascus, live log 2026-10-12, the haystack route north-east of the
         // seams roofs) he hung from a roof's edge after the pull-down, W and the legs held, and pulled up onto it; ours
         // leapt to a hold 2.4 m higher.
+        // (CanPullup's first answer for a free hang over a wall: onto that wall, in place, `free_to_wall_hang`.)
+        if dir == "u" && self.free_to_wall_hang(lib, level, root, rig, base, cr) {
+            return true;
+        }
         if dir == "u" && (matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) || is_free(&self.state)) && self.try_top_out(lib, level, root, rig, base, cr)
         {
             return true;
