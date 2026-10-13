@@ -492,12 +492,10 @@ pub fn stream_city(
             }
         }
     }
-    // A cell's stand-in hides once every instance of the cell is drawn as wanted, and shows again when it is not wanted.
+    // A cell's stand-in hides while the cell's own instances are drawn (`hides_stand_in`).
     for (c, (entities, hidden)) in city.fakes.iter_mut() {
         let cell = &city.store.cells[*c];
-        let wanted = cell.instances.iter().any(|&i| city.want[i].is_some());
-        let settled = cell.instances.iter().all(|&i| city.shown[i].as_ref().map(|s| s.0) == city.want[i]);
-        let hide = wanted && settled;
+        let hide = hides_stand_in(cell.instances.iter().map(|&i| (city.want[i].is_some(), city.shown[i].is_some())));
         if hide != *hidden {
             *hidden = hide;
             for &e in entities.iter() {
@@ -519,6 +517,21 @@ pub fn stream_city(
             city.fakes.values().filter(|f| f.1).count()
         );
     }
+}
+
+/// Whether a cell's stand-in hides, from its instances' (wanted, drawn at some level): once the cell is wanted and every
+/// instance it wants is drawn. An instance waiting for a new level keeps its old one drawn meanwhile, so the stand-in
+/// stays hidden then. (It used to show again until the new level's mesh was built: the cell's merged, blurred stand-in
+/// drawn over its own meshes for a frame or a few, the ground and walls blinking as the camera moved.)
+fn hides_stand_in(instances: impl Iterator<Item = (bool, bool)>) -> bool {
+    let mut wanted = false;
+    for (want, drawn) in instances {
+        if want && !drawn {
+            return false;
+        }
+        wanted |= want;
+    }
+    wanted
 }
 
 /// How much a city draws (`AC1_DETAIL=low|medium|high|ultra|full`, else the graphics menu's, default medium): how far round the camera its cells are
@@ -559,5 +572,20 @@ impl Detail {
             "full" => Self::FULL,
             _ => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stand_in_hides_while_the_cell_is_drawn() {
+        // (Wanted, drawn at some level.)
+        assert!(!hides_stand_in([(false, false), (false, true)].into_iter()), "not wanted: shown");
+        assert!(!hides_stand_in([(true, false), (true, true)].into_iter()), "coming in: shown until all are drawn");
+        assert!(hides_stand_in([(true, true), (false, false)].into_iter()));
+        // (An instance changing level is still drawn at its old one: hidden, not blinking back.)
+        assert!(hides_stand_in([(true, true), (true, true)].into_iter()));
     }
 }

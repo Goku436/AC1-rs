@@ -1268,7 +1268,10 @@ is drawn while it overlaps a square box round the camera (128 m half-side), ever
 terrain in coarse cells stay); the other cells' buildings are drawn by their stand-in spans, each hidden once its cell's
 own meshes are all drawn. Past a vertex budget (nearest first) the rest draw at their coarsest level. Meshes are kept as
 their compact bodies (Damascus 51 MB) and built for the GPU on loader threads, nearest first; an instance keeps its old
-level (or its cell's stand-in shows) until the new mesh is there, and a mesh nothing has drawn for 5 s leaves the GPU.
+level until the new mesh is there (a cell's stand-in shows only while one of its wanted meshes has nothing drawn yet:
+until 2026-10-13 it also showed while an instance waited for a new level, so the cell's blurred merged mesh was drawn
+over its own for a frame or a few at every level change: the "blinking textures" as the camera moved), and a mesh
+nothing has drawn for 5 s leaves the GPU.
 Headless runs draw nothing: no city meshes, materials or textures are made.
 
 `AC1_DETAIL`, else the graphics menu's city detail and texture size (F8, `settings.rs`; default medium):
