@@ -1036,7 +1036,8 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,down=1.2"),
         ],
         secs: 5.0,
-        want: &["rebound off the wall at [46.", "via xx_h_rebound_frontleft_", "_tr_freestep_entry_footr at [46."],
+        // (Down on the beam as AC1's NarrowObject, not run on along it as ground: live log route wall1_hang_down.)
+        want: &["rebound off the wall at [46.", "via xx_h_rebound_frontleft_", "onto perch", "_tr_freestep_entry_footr at [46."],
         never: &["EMBED"],
     },
     // The live log's haystack route (2026-10-12): free running north-east onto the hay box's rim, into the hay, out over
@@ -1124,6 +1125,26 @@ const SCENARIOS: &[Scenario] = &[
             "via xx_h_freestep_front_front_300cm_",
         ],
         never: &["EMBED"],
+    },
+    // Live log route wall1_hang_right (2026-10-12): from the wall run's catch on the bureau's wall, right: the running game
+    // took the closing step and stopped (a beam sticks out of the wall 0.6 m under the hold 0.9 m on: AC1's lead-hand sweep,
+    // a capsule from over the hand down to the hang's root, 0xDD9640); ours reached on 0.43 m more.
+    Scenario {
+        name: "Damascus: along the bureau wall's hang to the right stops short of the beam under it (AC1's shimmy sweep)",
+        tags: &["hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "47.6,-20,-90,5.55"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_CLIMB", "nograb,wait=1.6,right=3.0"),
+        ],
+        secs: 5.0,
+        want: &["via xx_h_hangwall_strafe_right_050cm_close", "no room for the lead hand's reach"],
+        never: &["EMBED", "via xx_h_hangwall_strafe_right_050cm_open"],
     },
     // Live log route seams_free_west (2026-10-12): free running west over the roofs south of the hiding spot, the running
     // game ran on over a 2 cm crack between two roofs' collision at x 37.99; ours lost the ground there, stepped off and

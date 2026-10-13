@@ -939,6 +939,13 @@ const STEP_PAST_UP: f32 = 0.6;
 /// ends (m).
 const SHIMMY_CHEST: f32 = 0.45;
 const SHIMMY_ROOM: f32 = 0.25;
+/// AC1's shimmy reach sweep (0xDD9640): a capsule of this radius from the lead hand, this far out from the wall and up
+/// (down to the hang's root), starting its radius back from the hand, must go this far along the way and its radius more
+/// (m) before it meets anything.
+const SHIMMY_SWEEP_R: f32 = 0.15;
+const SHIMMY_SWEEP_OUT: f32 = 0.75;
+const SHIMMY_SWEEP_UP: f32 = 0.2;
+const SHIMMY_REACH_FREE: f32 = 0.7;
 /// A climb start from the ground reaches a wall this far in front of the root (m), running; standing, a little further.
 const CLIMB_START_REACH: f32 = 1.0;
 const CLIMB_START_STILL: f32 = 1.5;
@@ -4007,8 +4014,13 @@ impl WallClimb {
         let planned = Transform { rotation: facing(away), ..*root };
         let rot = world_rot(planned.rotation);
         let turned = world_rot(planned.rotation * root_delta(root_rotation_at(&takeoff, takeoff.frames())));
+        // (Onto a beam: on it in AC1's narrow-object stance, as `jump_freestep`. Off the bureau wall's hang the running game
+        // ejected back onto the beam behind and came down crouched on it, NarrowObject (live log route `wall1_hang_down`);
+        // ours came down as on the ground, ran 0.76 m on along it in a run stop and only then balanced.)
+        let onto_beam = level.perch_at(to, 0.15).filter(|(i, _)| level.perches[*i].axis() != Vec3::ZERO);
+        let cut = onto_beam.and_then(|_| reception_cut(&reception, RECEPTION_CUT_SPEED));
         // (The reception's step ends on the target, as AC1 aims it: see `jump_ac1`.)
-        let step = root_motion_at(&reception, reception.frames()).with_z(0.0);
+        let step = root_motion_at(&reception, cut.unwrap_or(reception.frames())).with_z(0.0);
         let landed = p + rot * root_motion_at(&takeoff, takeoff.frames()) + turned * (root_motion_at(&flight, flight.frames()) + step);
         let correct = to - landed;
         // (A near one too: the shortest flight lands about 0.5 m past a beam 0.95 m off, which the running game took.)
@@ -4017,7 +4029,15 @@ impl WallClimb {
             return None;
         }
         let mut w = WallClimb::new(VAULT, -aim);
-        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![LEAP.into(), VAULT.into(), GROUND.into()], &planned, correct, Some(1));
+        let last = if onto_beam.is_some() { PERCH } else { GROUND };
+        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), reception], vec![LEAP.into(), VAULT.into(), last.into()], &planned, correct, Some(1));
+        if let Some((i, q)) = onto_beam {
+            w.perch = Some(i);
+            debug!("climb: onto perch {i} at {q:.2} (landing on it)");
+        }
+        if let (Some(f), Some(r)) = (cut, w.queue.last()) {
+            w.cut = Some((r.clip.name.clone(), f / FPS));
+        }
         // (Turned from facing the wall to facing away as the takeoff starts, in one frame: `snap_takeoff`.)
         w.snap_turn = true;
         if level.perch_inside(to, PERCH_REACH).is_none() {
@@ -7519,6 +7539,36 @@ impl WallClimb {
                 if let Some(h) = level.raycast(from, way.normalize_or_zero(), way.length() + SHIMMY_ROOM).filter(|h| h.normal.dot(normal) < 0.7) {
                     debug!("climb: {} : something in the way {:.2} m along", c.names[0], h.dist);
                     continue;
+                }
+                // The lead hand's reach (the strafe's `_open`): AC1 sweeps a capsule (r 0.15) from 0.2 m over the lead
+                // hand, 0.75 m out from the wall, down to the hang's root, 1.55 m along the way, and wants it clear for
+                // `SHIMMY_REACH_FREE` past its radius (HumanLedge's lateral probe 0xDD9640; Banned445's port reads it as
+                // a sphere; blocked, the inside corner or a side jump, else nothing). At the bureau's wall the
+                // running game's hang took one closing step right and stopped, looking round (live log route
+                // `wall1_hang_right`); ours reached on 0.43 m more.
+                if c.names[0].contains("_strafe_")
+                    && c.names[0].ends_with("_open")
+                    && let Some(m) = self.last.as_ref().map(|p| p.model(rig))
+                {
+                    let dir = way.normalize_or_zero();
+                    let r = world_rot(root.rotation);
+                    let lead = cr.hands.map(|b| root.translation + r * m[b].pos).into_iter().max_by(|a, b| a.dot(dir).total_cmp(&b.dot(dir)));
+                    let out = normal.with_y(0.0).normalize_or_zero();
+                    if let Some(lead) = lead
+                        && dir != Vec3::ZERO
+                    {
+                        // (The capsule's path as a box, from its start to where it has gone the length wanted: from
+                        // 0.2 m over the hand down to the hang's root, 1.1 m under the hands on a wall, 2.4 m free.)
+                        let drop = if c.names[0].contains("hangfree") { FREE_ROOT_DOWN } else { 1.1 } + SHIMMY_SWEEP_UP;
+                        let top = lead - dir * SHIMMY_SWEEP_R + out * SHIMMY_SWEEP_OUT + Vec3::Y * SHIMMY_SWEEP_UP;
+                        let len = SHIMMY_REACH_FREE + SHIMMY_SWEEP_R * 2.0;
+                        let half = Vec3::new(len * 0.5, drop * 0.5 + SHIMMY_SWEEP_R, SHIMMY_SWEEP_R);
+                        let axes = [dir, Vec3::Y, dir.cross(Vec3::Y)];
+                        if !level.box_free(top + dir * len * 0.5 - Vec3::Y * drop * 0.5, axes, half) {
+                            debug!("climb: {} : no room for the lead hand's reach (AC1's sweep)", c.names[0]);
+                            continue;
+                        }
+                    }
                 }
             }
             // A leap's way from the chest where it starts to where it ends, up or down with it: clear (a leap to the side
