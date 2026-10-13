@@ -1536,6 +1536,17 @@ fn climb_body_free(level: &Level, root: Vec3, fwd: Vec3, side: i32) -> bool {
         && level.box_free(root + Vec3::Y * 1.4, axes, Vec3::new(0.15, 0.15, 0.4))
 }
 
+/// AC1's body boxes at a free hang (`Human__FreeHangBodyBoxesFree` 0xB2DD50, as `TrySwitchHangType` 0xDE1060 tests the
+/// switch from the wall hang into it): with the root at `root` facing `fwd` (into the wall), nothing in a box 0.75 m wide,
+/// 0.5 m deep and 2.4 m tall centred 0.5 m out from the root and 1.2 m up, nor in one 0.44 m deep and 1.2 m tall centred
+/// 0.25 m out and 0.8 m up.
+fn free_hang_body_free(level: &Level, root: Vec3, fwd: Vec3) -> bool {
+    let right = fwd.cross(Vec3::Y).normalize_or_zero();
+    let axes = [right, fwd, Vec3::Y];
+    level.box_free(root - fwd * 0.5 + Vec3::Y * 1.2, axes, Vec3::new(0.375, 0.25, 1.2))
+        && level.box_free(root - fwd * 0.25 + Vec3::Y * 0.8, axes, Vec3::new(0.375, 0.22, 0.6))
+}
+
 /// The lean of the line through `a` and `b` seen from the side (rad, from straight up): positive when its upper end is
 /// further out from the wall than its lower one (AC1's 0xDF2CD0; `fwd` into the wall).
 fn lean_angle(a: Vec3, b: Vec3, fwd: Vec3) -> f32 {
@@ -7396,6 +7407,20 @@ impl WallClimb {
             {
                 return true;
             }
+            // The switch from the wall hang into the free hang (AC1's `TrySwitchHangType` 0xDE1060): the free hang's pose
+            // there (0xB15AD0: the root 2.4 m under the hands' middle, at the higher hand, facing the wall) must have room
+            // for the body (0xB2DD50); a wall's end with the wall under the hands' new hold stops the hang there.
+            if c.feet == Feet::ToFree {
+                let holds = targets.map(|t| grip_hold(t, normal));
+                let mid = (holds[0] + holds[1]) * 0.5;
+                let at = mid.with_y(holds[0].y.max(holds[1].y) - FREE_ROOT_DOWN);
+                if !free_hang_body_free(level, at, -normal.with_y(0.0).normalize_or(Vec3::NEG_Z)) {
+                    if why() {
+                        debug!("climb: {} : no room for the free hang's body there (AC1's boxes)", c.names[0]);
+                    }
+                    continue;
+                }
+            }
             if !feet_fit_at(level, &end.feet.map(|f| f + land), normal, c.feet, Some((targets[0] + targets[1]) * 0.5)) {
                 if corner || why() {
                     // (What is there: each foot's wall, how far in from the foot and how far behind the hold line.)
@@ -7505,7 +7530,16 @@ impl WallClimb {
             } else {
                 Vec3::ZERO
             };
-            let err = flat + keep + normal * out - Vec3::Y * down + to_hang + step + stance;
+            // (Switching from the wall hang into the free hang: the root goes under the hands' holds, AC1's free-hang pose
+            // (0xB15AD0, interpolated to over the switch's action): the clip, made for a flat wall, carried it 0.06 m past
+            // the hold line into the wall under it, and at a wall's end the legs hung inside its corner.)
+            let under = if c.feet == Feet::ToFree {
+                let held = (grip_hold(targets[0], normal) + grip_hold(targets[1], normal)) * 0.5;
+                normal * (held - (end.pos + flat + normal * out)).dot(normal)
+            } else {
+                Vec3::ZERO
+            };
+            let err = flat + keep + normal * out - Vec3::Y * down + to_hang + step + stance + under;
             // Onto holds on a face at an angle to this one (an octagonal tower's next face, a round tower's ring): the body
             // turns about the hands to face them, as AC1 faces its climber along its holds' wall normals (`climb_pose`,
             // Banned445's port of the climb's root from its four holds). (Corners turn on their own.)
