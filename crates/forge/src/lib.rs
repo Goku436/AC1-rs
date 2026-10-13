@@ -15,6 +15,7 @@ pub mod anim;
 pub mod animset;
 pub mod cloth;
 pub mod datafile;
+pub mod fx;
 pub mod graph;
 pub mod guidance;
 pub mod hkx;
