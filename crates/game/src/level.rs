@@ -341,7 +341,7 @@ impl std::hash::Hasher for FastHasher {
 pub type FastMap<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<FastHasher>>;
 
 /// `f` over `items` on all cores, the results in the items' order (the level's checks each read the level only).
-fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+pub(crate) fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let chunk = items.len().div_ceil(threads).max(1);
     let f = &f;
@@ -646,47 +646,62 @@ impl Level {
     /// GUIDE-2: a box 0.3 m either side of the ladder and 0.75 m out and in from it): a ledge crossing a ladder keeps
     /// its parts either side. Returns how many pieces were cut.
     pub fn carve_ladders(&mut self) -> usize {
-        let ladders = self.ladders.clone();
-        let mut cut = 0;
-        for lad in &ladders {
-            let side = lad.out.cross(Vec3::Y).normalize_or_zero();
-            let (lo, hi) = (lad.base.y - 0.5, lad.top + 0.5);
-            let mut kept = Vec::with_capacity(self.ledges.len());
-            for l in self.ledges.drain(..) {
-                if l.a.y.max(l.b.y) < lo || l.a.y.min(l.b.y) > hi {
-                    kept.push(l);
-                    continue;
-                }
-                // The part of the ledge inside the box, as an interval of its parameter.
-                let (pa, pb) = (l.a - lad.base, l.b - lad.base);
-                let mut range = (0.0f32, 1.0f32);
-                for (axis, half) in [(side, LADDER_CARVE_SIDE), (lad.out, LADDER_CARVE_OUT)] {
-                    let (u, v) = (pa.dot(axis), pb.dot(axis));
-                    if (v - u).abs() < 1e-6 {
-                        if u.abs() > half {
-                            range = (1.0, 0.0);
-                        }
-                        continue;
+        // (Each ledge through the ladders in turn, its pieces on through the ladders after the one that cut it: the same
+        // pieces in the same order as ladder by ladder over all the ledges, without copying the 190,000 Damascus holds
+        // once per ladder, 2 s of its load.)
+        let cuts: Vec<(f32, f32, Vec3)> =
+            self.ladders.iter().map(|lad| (lad.base.y - 0.5, lad.top + 0.5, lad.out.cross(Vec3::Y).normalize_or_zero())).collect();
+        let carve = |l: &Ledge, k: usize| -> Option<Vec<Ledge>> {
+            let (lad, (lo, hi, side)) = (&self.ladders[k], cuts[k]);
+            if l.a.y.max(l.b.y) < lo || l.a.y.min(l.b.y) > hi {
+                return None;
+            }
+            // The part of the ledge inside the box, as an interval of its parameter.
+            let (pa, pb) = (l.a - lad.base, l.b - lad.base);
+            let mut range = (0.0f32, 1.0f32);
+            for (axis, half) in [(side, LADDER_CARVE_SIDE), (lad.out, LADDER_CARVE_OUT)] {
+                let (u, v) = (pa.dot(axis), pb.dot(axis));
+                if (v - u).abs() < 1e-6 {
+                    if u.abs() > half {
+                        range = (1.0, 0.0);
                     }
-                    let (t0, t1) = ((-half - u) / (v - u), (half - u) / (v - u));
-                    range = (range.0.max(t0.min(t1)), range.1.min(t0.max(t1)));
-                }
-                if range.0 >= range.1 {
-                    kept.push(l);
                     continue;
                 }
-                cut += 1;
-                let at = |t: f32| l.a.lerp(l.b, t);
-                let len = l.a.distance(l.b);
-                if range.0 * len > 0.05 {
-                    kept.push(Ledge { a: l.a, b: at(range.0), out: l.out });
-                }
-                if (1.0 - range.1) * len > 0.05 {
-                    kept.push(Ledge { a: at(range.1), b: l.b, out: l.out });
+                let (t0, t1) = ((-half - u) / (v - u), (half - u) / (v - u));
+                range = (range.0.max(t0.min(t1)), range.1.min(t0.max(t1)));
+            }
+            if range.0 >= range.1 {
+                return None;
+            }
+            let at = |t: f32| l.a.lerp(l.b, t);
+            let len = l.a.distance(l.b);
+            let mut pieces = vec![];
+            if range.0 * len > 0.05 {
+                pieces.push(Ledge { a: l.a, b: at(range.0), out: l.out });
+            }
+            if (1.0 - range.1) * len > 0.05 {
+                pieces.push(Ledge { a: at(range.1), b: l.b, out: l.out });
+            }
+            Some(pieces)
+        };
+        let mut cut = 0;
+        let mut kept = Vec::with_capacity(self.ledges.len());
+        // (A piece and the first ladder still to cut it, in order.)
+        let mut todo: Vec<(Ledge, usize)> = vec![];
+        for l in &self.ledges {
+            todo.push((*l, 0));
+            while let Some((piece, from)) = todo.pop() {
+                match (from..cuts.len()).find_map(|k| carve(&piece, k).map(|p| (k, p))) {
+                    Some((k, pieces)) => {
+                        cut += 1;
+                        // (Reversed onto the stack: the first piece goes on first.)
+                        todo.extend(pieces.into_iter().rev().map(|p| (p, k + 1)));
+                    }
+                    None => kept.push(piece),
                 }
             }
-            self.ledges = kept;
         }
+        self.ledges = kept;
         cut
     }
 
@@ -718,15 +733,28 @@ impl Level {
     /// from any free hang a jump reaches (target type 0x80, the swing reception; Banned445's port): the running game jumped
     /// from the beam frame east of the Damascus bureau's ladder at its far 0.2 m beam and swung. Returns how many.
     pub fn add_beam_bars(&mut self) -> usize {
-        let mut found: Vec<Line> = vec![];
-        for (i, l) in self.ledges.iter().enumerate() {
+        // (Each hold against the later ones within 0.1 m of its height only, found by 0.1 m height bands, in their order;
+        // the holds on all cores, then the bars kept in that order. Every pair of the 190,000 Damascus holds took 15 s.)
+        let band = |y: f32| (y / 0.1).floor() as i32;
+        let mut bands: FastMap<i32, Vec<u32>> = FastMap::default();
+        for (j, m) in self.ledges.iter().enumerate() {
+            bands.entry(band(m.a.y)).or_default().push(j as u32);
+        }
+        let all: Vec<usize> = (0..self.ledges.len()).collect();
+        let each = par_map(&all, |&i| {
+            let l = &self.ledges[i];
+            let mut out: Vec<(Vec3, Vec3, Vec3)> = vec![];
             let axis = (l.b - l.a).with_y(0.0);
             let len = axis.length();
             if len < BEAM_BAR_OVERLAP {
-                continue;
+                return out;
             }
             let axis = axis / len;
-            for m in &self.ledges[i + 1..] {
+            // (Two bands either side: within 0.1 m is at most one band apart, the second for rounding.)
+            let mut later: Vec<u32> =
+                (band(l.a.y) - 2..=band(l.a.y) + 2).flat_map(|k| bands.get(&k).into_iter().flatten().copied()).filter(|&j| j as usize > i).collect();
+            later.sort_unstable();
+            for m in later.iter().map(|&j| &self.ledges[j as usize]) {
                 if m.out.dot(l.out) > -0.95 || (m.a.y - l.a.y).abs() > 0.1 {
                     continue;
                 }
@@ -747,9 +775,16 @@ impl Level {
                 let under = c - Vec3::Y * BEAM_BAR_DEPTH;
                 let open = self.ground(under, 0.0, BEAM_BAR_DROP - BEAM_BAR_DEPTH).is_none()
                     && [l.out, -l.out].iter().all(|o| self.raycast(c + *o * 0.6 - Vec3::Y * 1.0, -*o, 1.2).is_none());
-                if open && !found.iter().chain(&self.bars).any(|k| k.closest(c).distance(c) < 0.3) {
-                    found.push(Line { a, b });
+                if open {
+                    out.push((a, b, c));
                 }
+            }
+            out
+        });
+        let mut found: Vec<Line> = vec![];
+        for (a, b, c) in each.into_iter().flatten() {
+            if !found.iter().chain(&self.bars).any(|k| k.closest(c).distance(c) < 0.3) {
+                found.push(Line { a, b });
             }
         }
         let n = found.len();
@@ -1771,6 +1806,133 @@ impl Builder {
     }
 }
 
+/// Build a city into `level` (`AC1_LEVEL`): its world (`city::spawn_city`: drawn, and its collision, guidance and
+/// objects), then the holds, beams, perches and objects set up against the built collision, and where the player starts.
+/// `lap` logs each phase's time.
+#[allow(clippy::too_many_arguments)]
+fn build_city(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    mats: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+    level: &mut Level,
+    game_dir: &std::path::Path,
+    city: &str,
+    opts: crate::city::RenderOpts,
+    lap: &mut crate::level_cache::Lap,
+) {
+    let forge = crate::city::forge_of(city);
+    let centre = match crate::city::spawn_city(commands, meshes, mats, images, level, game_dir, &forge, opts) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("no city {city}: {e:#}");
+            Vec3::ZERO
+        }
+    };
+    lap.lap("the city (spawn_city)");
+    level.city = true;
+    // AC1's own holds, ladders and poles where the city has them; else the edges found in its geometry.
+    let authored = level.use_authored();
+    if let Some((holds, ladders, bars)) = authored {
+        info!("authored guidance: {holds} holds, {ladders} ladders, {bars} swing bars, {} kiosk pieces", level.kiosks.len());
+    }
+    lap.lap("authored guidance");
+    level.build_grid();
+    lap.lap("raycast grid");
+    if authored.is_some() {
+        let buried = level.drop_buried_holds();
+        info!("{buried} authored holds left out: inside a wall, no way to them from in front");
+        lap.lap("buried holds");
+    }
+    // (`AC1_PAIRED_BEAMS=1`: AC1's beams and posts, the pairs of its own holds as its runtime finds them, no beams from
+    // mesh names or single-hold tops (audit GUIDE-5). Not yet the default: on the route library it lands 31 of 41
+    // within 1 m against 34 with ours' own, the jump query and the beam walk having been tuned on those; a roof's
+    // edge beam with its floor 0.12 m under it is cut away by the workspace's side planes, where the running game
+    // lands on it.)
+    if authored.is_some() && std::env::var("AC1_PAIRED_BEAMS").is_ok() {
+        let n = level.pair_beams();
+        info!("{n} beams and posts paired from the authored holds");
+        lap.lap("paired beams");
+    } else {
+        level.add_beam_perches();
+        lap.lap("beam perches");
+        let narrow = level.add_narrow_tops();
+        info!("{narrow} narrow wall tops to balance on");
+        lap.lap("narrow tops");
+        if authored.is_some() {
+            let (perches, holds) = level.drop_unbacked();
+            info!("{perches} perches and {holds} holds left out: no authored ledge grab along them");
+            lap.lap("unbacked perches");
+        }
+    }
+    let probed = if authored.is_none() && std::env::var("AC1_NO_LIPS").is_err() { level.add_probed_ledges() } else { 0 };
+    // A viewpoint's entity sits partway up its tower: the spot to stand on is the top above it.
+    for i in 0..level.viewpoints.len() {
+        let v = level.viewpoints[i];
+        if let Some(top) = level.ground(v + Vec3::Y * 80.0, 0.0, 80.0).filter(|g| g.point.y > v.y) {
+            level.viewpoints[i] = top.point;
+        }
+    }
+    lap.lap("probed lips, viewpoints");
+    let (hay, ladders, benches, bars) = level.add_city_objects();
+    info!("{hay} haystacks, {ladders} ladders, {benches} benches, {bars} swing bars");
+    lap.lap("city objects");
+    let tops = level.settle_ladder_tops();
+    info!("{tops} ladder tops set onto the walkable top they lead to");
+    let carved = level.carve_ladders();
+    info!("{carved} hold pieces carved out round ladders");
+    lap.lap("ladder tops, carving");
+    let heaped = level.drop_hay_holds();
+    info!("{heaped} holds and beams left out: on a haystack's heap");
+    let beam_bars = level.add_beam_bars();
+    info!("{beam_bars} thin beams over open space swung from as bars");
+    lap.lap("hay holds, beam bars");
+    for v in &level.viewpoints {
+        let near = level.haystacks.iter().map(|h| ((h.centre - *v).with_y(0.0).length(), v.y - h.top())).min_by(|a, b| a.0.total_cmp(&b.0));
+        debug!("viewpoint {v:.1}: nearest hay {near:.1?} (out, down)");
+    }
+    level.build_grid();
+    lap.lap("raycast grid");
+    info!("{probed} more holds where walkable tops end over a wall (lips the edge test missed)");
+    // The player on a street (Masyaf: in the village below the fortress) and a crowd loop nearby where
+    // the ground is at the same height.
+    let on_ground = |level: &Level, x: f32, z: f32| level.ground(Vec3::new(x, 0.0, z), 400.0, 500.0).map(|h| h.point);
+    let home = if city.eq_ignore_ascii_case("masyaf") {
+        on_ground(level, MASYAF_SPAWN[0], MASYAF_SPAWN[2]).unwrap_or(Vec3::ZERO)
+    } else {
+        crate::city::street_near(level, centre)
+    };
+    level.spawn = Some(home);
+    // (Not up on a roof or down in a river bed.)
+    let level_with = |p: Option<Vec3>| p.filter(|p| (p.y - home.y).abs() < 3.0);
+    let corners: Option<Vec<Vec3>> =
+        [(-6.0, -4.0), (6.0, -4.0), (6.0, -6.0), (-6.0, -6.0)].iter().map(|&(dx, dz)| level_with(on_ground(level, home.x + dx, home.z + dz))).collect();
+    level.crowd_path = corners;
+    info!("{city}: start at {home:.1}, crowd {}", level.crowd_path.is_some());
+    lap.lap("start, crowd");
+}
+
+/// `AC1_CACHE_CHECK=1`: the city just built (`payload`, `level_cache::write_level` of it) against itself read back and
+/// against what the cache file holds, byte for byte (logged `level cache check: ...`).
+fn cache_check(level: &Level, payload: &[u8], path: &std::path::Path, key: u64) {
+    use crate::level_cache as cache;
+    let fresh = cache::summary(level, payload);
+    match cache::read_level(payload).map(|l| cache::write_level(&l)) {
+        Ok(b) if b == payload => info!("level cache check: read back identical ({fresh})"),
+        Ok(b) => warn!("level cache check: DIFFERENT read back ({} bytes against {})", b.len(), payload.len()),
+        Err(e) => warn!("level cache check: DIFFERENT, not read back: {e:#}"),
+    }
+    match cache::read_payload(path, key) {
+        Ok(old) if old == payload => info!("level cache check: the cache file is identical to the fresh build"),
+        Ok(old) => {
+            let at = old.iter().zip(payload).position(|(a, b)| a != b).unwrap_or(old.len().min(payload.len()));
+            let other = cache::read_level(&old).map_or_else(|e| format!("unreadable: {e:#}"), |l| cache::summary(&l, &old));
+            warn!("level cache check: the cache file is DIFFERENT from the fresh build from byte {at}: cache {other}");
+        }
+        Err(e) => info!("level cache check: no cache file to compare ({e:#})"),
+    }
+}
+
 pub fn spawn_level(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -1783,68 +1945,51 @@ pub fn spawn_level(
     // City textures stay block-compressed on the GPU where it takes them (every desktop GPU does).
     let bc = formats.is_some_and(|f| f.0.contains(bevy::image::CompressedImageFormats::BC));
     // (Headless runs draw nothing: no city meshes or textures are made.)
-    let opts = crate::city::RenderOpts { bc, render: std::env::var("AC1_HEADLESS").is_err() };
+    let opts = crate::city::RenderOpts { bc, render: std::env::var("AC1_HEADLESS").is_err(), gameplay: true };
     if let Ok(city) = std::env::var("AC1_LEVEL") {
-        let forge = crate::city::forge_of(&city);
-        let centre = match crate::city::spawn_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut level, &dir.0, &forge, opts) {
-            Ok(c) => c,
+        // The gameplay data from the cache when it holds this city as built from these game files and this code
+        // (`level_cache`); else built, and saved for next time. Drawn: the world is still read from the game's files.
+        use crate::level_cache as cache;
+        let begun = std::time::Instant::now();
+        let mut lap = cache::Lap::start();
+        let file = if cache::enabled() { cache::locate(&dir.0, &city) } else { None };
+        let check = cache::check();
+        let cached = file.as_ref().filter(|_| !check).and_then(|(path, key)| match cache::read_payload(path, *key).and_then(|p| cache::read_level(&p)) {
+            Ok(l) => Some(l),
             Err(e) => {
-                warn!("no city {city}: {e:#}");
-                Vec3::ZERO
+                info!("level cache {}: not used ({e:#}); building the city", path.display());
+                None
             }
-        };
-        level.city = true;
-        // AC1's own holds, ladders and poles where the city has them; else the edges found in its geometry.
-        let authored = level.use_authored();
-        if let Some((holds, ladders, bars)) = authored {
-            info!("authored guidance: {holds} holds, {ladders} ladders, {bars} swing bars, {} kiosk pieces", level.kiosks.len());
-        }
-        level.build_grid();
-        if authored.is_some() {
-            let buried = level.drop_buried_holds();
-            info!("{buried} authored holds left out: inside a wall, no way to them from in front");
-        }
-        // (`AC1_PAIRED_BEAMS=1`: AC1's beams and posts, the pairs of its own holds as its runtime finds them, no beams from
-        // mesh names or single-hold tops (audit GUIDE-5). Not yet the default: on the route library it lands 31 of 41
-        // within 1 m against 34 with ours' own, the jump query and the beam walk having been tuned on those; a roof's
-        // edge beam with its floor 0.12 m under it is cut away by the workspace's side planes, where the running game
-        // lands on it.)
-        if authored.is_some() && std::env::var("AC1_PAIRED_BEAMS").is_ok() {
-            let n = level.pair_beams();
-            info!("{n} beams and posts paired from the authored holds");
+        });
+        let from_cache = cached.is_some();
+        if let Some(l) = cached {
+            level = l;
+            lap.lap("the city's gameplay data from the cache");
+            if opts.render {
+                // (Only what is drawn: the gameplay data built here is thrown away.)
+                let mut drawn_only = Level::default();
+                let world = crate::city::RenderOpts { gameplay: false, ..opts };
+                if let Err(e) =
+                    crate::city::spawn_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut drawn_only, &dir.0, &crate::city::forge_of(&city), world)
+                {
+                    warn!("no city {city}: {e:#}");
+                }
+                lap.lap("the city's world (drawn)");
+            }
         } else {
-            level.add_beam_perches();
-            let narrow = level.add_narrow_tops();
-            info!("{narrow} narrow wall tops to balance on");
-            if authored.is_some() {
-                let (perches, holds) = level.drop_unbacked();
-                info!("{perches} perches and {holds} holds left out: no authored ledge grab along them");
+            build_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut level, &dir.0, &city, opts, &mut lap);
+            if let Some((path, key)) = &file {
+                let payload = cache::write_level(&level);
+                if check {
+                    cache_check(&level, &payload, path, *key);
+                }
+                match cache::write_payload(path, *key, &payload) {
+                    Ok(()) => info!("level cache {}: saved, {}", path.display(), cache::summary(&level, &payload)),
+                    Err(e) => warn!("level cache {}: not saved: {e:#}", path.display()),
+                }
+                lap.lap("level cache saved");
             }
         }
-        let probed = if authored.is_none() && std::env::var("AC1_NO_LIPS").is_err() { level.add_probed_ledges() } else { 0 };
-        // A viewpoint's entity sits partway up its tower: the spot to stand on is the top above it.
-        for i in 0..level.viewpoints.len() {
-            let v = level.viewpoints[i];
-            if let Some(top) = level.ground(v + Vec3::Y * 80.0, 0.0, 80.0).filter(|g| g.point.y > v.y) {
-                level.viewpoints[i] = top.point;
-            }
-        }
-        let (hay, ladders, benches, bars) = level.add_city_objects();
-        info!("{hay} haystacks, {ladders} ladders, {benches} benches, {bars} swing bars");
-        let tops = level.settle_ladder_tops();
-        info!("{tops} ladder tops set onto the walkable top they lead to");
-        let carved = level.carve_ladders();
-        info!("{carved} hold pieces carved out round ladders");
-        let heaped = level.drop_hay_holds();
-        info!("{heaped} holds and beams left out: on a haystack's heap");
-        let beam_bars = level.add_beam_bars();
-        info!("{beam_bars} thin beams over open space swung from as bars");
-        for v in &level.viewpoints {
-            let near = level.haystacks.iter().map(|h| ((h.centre - *v).with_y(0.0).length(), v.y - h.top())).min_by(|a, b| a.0.total_cmp(&b.0));
-            debug!("viewpoint {v:.1}: nearest hay {near:.1?} (out, down)");
-        }
-        level.build_grid();
-        info!("{probed} more holds where walkable tops end over a wall (lips the edge test missed)");
         // `AC1_GRAB_AUDIT=<file.tsv>`: the authored guidance against what was built from it (`grab_audit`).
         if let Ok(path) = std::env::var("AC1_GRAB_AUDIT") {
             crate::grab_audit::run(&level, &path);
@@ -1915,21 +2060,7 @@ pub fn spawn_level(
                 info!("ground line [{:.2}, {:.2}]: {}", p.x, p.z, g.map_or("none".into(), |y| format!("{y:.2}")));
             }
         }
-        // The player on a street (Masyaf: in the village below the fortress) and a crowd loop nearby where
-        // the ground is at the same height.
-        let on_ground = |level: &Level, x: f32, z: f32| level.ground(Vec3::new(x, 0.0, z), 400.0, 500.0).map(|h| h.point);
-        let home = if city.eq_ignore_ascii_case("masyaf") {
-            on_ground(&level, MASYAF_SPAWN[0], MASYAF_SPAWN[2]).unwrap_or(Vec3::ZERO)
-        } else {
-            crate::city::street_near(&level, centre)
-        };
-        level.spawn = Some(home);
-        // (Not up on a roof or down in a river bed.)
-        let level_with = |p: Option<Vec3>| p.filter(|p| (p.y - home.y).abs() < 3.0);
-        let corners: Option<Vec<Vec3>> =
-            [(-6.0, -4.0), (6.0, -4.0), (6.0, -6.0), (-6.0, -6.0)].iter().map(|&(dx, dz)| level_with(on_ground(&level, home.x + dx, home.z + dz))).collect();
-        level.crowd_path = corners;
-        info!("{city}: start at {home:.1}, crowd {}", level.crowd_path.is_some());
+        info!("load: {city} ready in {:.2} s{}", begun.elapsed().as_secs_f32(), if from_cache { " (gameplay data from the cache)" } else { "" });
         commands.insert_resource(level);
         return;
     }

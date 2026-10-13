@@ -22,6 +22,8 @@ pub struct Recorder {
     recent: VecDeque<(f32, Vec3, Vec<Vec3>, String)>,
     /// A control run's recording (`AC1_RECORD=<file>` on a `run` line): every frame of the run, written when it ends.
     run: Option<(String, Vec<String>)>,
+    /// Every pop the live check found (metres, its log line), for the climbing sweep (`climb_sweep`).
+    pub pops: Vec<(f32, String)>,
 }
 
 impl Recorder {
@@ -86,7 +88,9 @@ fn pop_check(rec: &mut Recorder, t: f32, root: Vec3, bones: Vec<Vec3>, state: St
         let vp = rel(2, i).distance(rel(1, i)) / dtp;
         let jerk = (v(3, i) - v(2, i)).length() * (f(3).0 - f(2).0);
         if d > POP_MIN && d / dt > POP_FACTOR * vp + POP_SPEED && jerk > POP_MIN {
-            warn!("POP {name} {d:.3} m at {t:.2} | {} <- {}", f(3).3, f(2).3);
+            let line = format!("{name} {d:.3} m at {t:.2} | {} <- {}", f(3).3, f(2).3);
+            warn!("POP {line}");
+            rec.pops.push((d, line));
         }
     }
 }
@@ -126,7 +130,7 @@ pub fn record(
             let _ = write!(line, " {:.2},{:.2},{:.2}", p.x, p.y, p.z);
         }
     }
-    if std::env::var("AC1_POP_CHECK").is_ok() {
+    if std::env::var("AC1_POP_CHECK").is_ok() || std::env::var("AC1_CLIMB_SWEEP").is_ok() {
         let bones: Vec<Vec3> = BONES.iter().filter_map(|b| ch.joint_named(b).and_then(|e| globals.get(e).ok()).map(|g| g.translation())).collect();
         let state = line.split(" | ").nth(1).unwrap_or("").to_string();
         pop_check(&mut rec, t, tf.translation, bones, state);

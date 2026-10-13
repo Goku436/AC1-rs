@@ -32,7 +32,13 @@ fn corner_key(p: Vec3) -> (i32, i32, i32) {
 impl NavGraph {
     /// From triangles (Y up, world).
     pub fn new(tris: Vec<[Vec3; 3]>) -> Self {
-        let centre: Vec<Vec3> = tris.iter().map(|t| (t[0] + t[1] + t[2]) / 3.0).collect();
+        let links = Self::link(&tris);
+        Self::with_links(tris, links)
+    }
+
+    /// Each triangle's neighbours (see the module docs): the slow part of `new` (Damascus: a second), which the level
+    /// cache saves.
+    fn link(tris: &[[Vec3; 3]]) -> Vec<Vec<(usize, Vec3)>> {
         let mut by_edge: HashMap<(Corner, Corner), Vec<usize>> = HashMap::new();
         for (i, t) in tris.iter().enumerate() {
             for k in 0..3 {
@@ -40,8 +46,12 @@ impl NavGraph {
                 by_edge.entry((a.min(b), a.max(b))).or_default().push(i);
             }
         }
+        // (In the edges' order, not the hash map's: which border edges are joined depends on which of two comes first,
+        // and the links were different every run.)
+        let mut edges: Vec<(&(Corner, Corner), &Vec<usize>)> = by_edge.iter().collect();
+        edges.sort_unstable_by_key(|e| *e.0);
         let mut links = vec![vec![]; tris.len()];
-        for (&(a, b), ts) in &by_edge {
+        for &(&(a, b), ts) in &edges {
             let mid = (Vec3::new(a.0 as f32, a.1 as f32, a.2 as f32) + Vec3::new(b.0 as f32, b.1 as f32, b.2 as f32)) / 200.0;
             for &i in ts {
                 for &j in ts {
@@ -53,10 +63,10 @@ impl NavGraph {
         }
         // Pieces meet along border edges that do not share corners (one long edge against two short ones):
         // border edges on one line (within 10 cm), overlapping at least 20 cm, at heights within 30 cm.
-        let border: Vec<(usize, Vec3, Vec3)> = by_edge
+        let border: Vec<(usize, Vec3, Vec3)> = edges
             .iter()
             .filter(|(_, ts)| ts.len() == 1)
-            .map(|(&(a, b), ts)| {
+            .map(|&(&(a, b), ts)| {
                 let p = |c: (i32, i32, i32)| Vec3::new(c.0 as f32, c.1 as f32, c.2 as f32) / 100.0;
                 (ts[0], p(a), p(b))
             })
@@ -100,6 +110,16 @@ impl NavGraph {
                 }
             }
         }
+        // (Each triangle's links in one order, whatever order the cells came in.)
+        for l in &mut links {
+            l.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.to_array().map(f32::to_bits).cmp(&b.1.to_array().map(f32::to_bits))));
+        }
+        links
+    }
+
+    /// From triangles and their links (`link`; the level cache's, every neighbour one of `tris`).
+    pub(crate) fn with_links(tris: Vec<[Vec3; 3]>, links: Vec<Vec<(usize, Vec3)>>) -> Self {
+        let centre: Vec<Vec3> = tris.iter().map(|t| (t[0] + t[1] + t[2]) / 3.0).collect();
         let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
         for (i, t) in tris.iter().enumerate() {
             let lo = t[0].min(t[1]).min(t[2]);
@@ -115,6 +135,16 @@ impl NavGraph {
 
     pub fn len(&self) -> usize {
         self.tris.len()
+    }
+
+    /// Its triangles, as given to `new` (the level cache saves them).
+    pub fn tris(&self) -> &[[Vec3; 3]] {
+        &self.tris
+    }
+
+    /// Each triangle's links: (neighbour, the shared edge's middle) (the level cache saves them).
+    pub fn links(&self) -> &[Vec<(usize, Vec3)>] {
+        &self.links
     }
 
     /// Triangles reachable from `i` (up to `cap`), for diagnostics.
