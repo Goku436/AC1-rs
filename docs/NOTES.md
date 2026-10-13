@@ -40,8 +40,9 @@ install**. No game files, textures, meshes or code from the original are stored 
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); lit as AC1 lights them ("How AC1 lights its world": the level's sun, ambient cube, baked occlusion, fog and colour grade from its `WorldAmbiance`/`LayeredSky`), three shadow cascades in 120 m (the first 12 m); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
 | Level light and grade (`WorldAmbiance` 21c2d472, `LayeredSky` 24d32cf8: fog, post effects, suns, ambient cubes, sky layers) | done: 14/14 levels read (`examples/ambcheck`) |
 | Baked occlusion (`MeshInstanceData` / `CompiledMeshInstance`: a byte per vertex per placed mesh) | done: 17436/17436 Damascus entities and groups, every stream a byte per vertex of its mesh (`examples/aocheck`) |
-| Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); combat removed for now; scholar crowds to blend into | first version |
-| Player controller, free-running, combat, AI, crowds, missions | long-term |
+| Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); scholar crowds to blend into | first version |
+| Combat (`combat`, `fight_data`, docs/COMBAT.md): the fight blocks (`HumanWeapon`, `HumanGround_Fight`, `_ComboKill`, `_CounterKills`, `_Assassination`, `_Fight_Hurt`) picked by the exe's fight tables (attacks by side, distance and foot, combo directions, hit reactions, the 14 assassination types and their choice) | first version: draw / sheathe, the fight stance locked on a guard, the walk in it, attacks and combos (2 timed hits, the paired combo kill), blocks, the paired counter kill, the hidden blade's assassinations played paired, guards that fight back (ours), deaths limp |
+| Player controller, free-running, combat AI, crowds, missions | long-term |
 
 ## Running
     cargo run -p ac1          # AC1_GAME_DIR overrides the default install path
@@ -58,8 +59,10 @@ See the header of `crates/game/src/main.rs` for controls and test hooks.
 
 ## Controls (AC1's puppet system)
 The mouse looks around (Esc frees the cursor, a click takes it back); WASD moves.
-Combat (fights, weapons, assassinations, guards) is left out for now, to get movement right first. The removed code
-is kept outside the repo; see "Combat" below.
+Fighting (`combat`, docs/COMBAT.md): 1-4 the weapons (short blade, hidden blade, sword, fists; a press selects, the next
+draws, the next sheathes), F the target lock (the fight stance), the left button the weapon hand (attack, held the max one;
+pressed as the strike lands the combo; defending in high profile as a guard's blow comes the counter kill; with the hidden
+blade by a guard not fighting the assassination).
 - Right button held: high profile (faster, louder).
 - Space (legs): low profile, blend: the praying walk (`_cpm_monk_pray_walking`, `xx_l_pray_wait` standing); among
   scholars Altaïr hides, and with no direction held walks along with the group. High profile: free-run (sprint;
@@ -414,9 +417,9 @@ These IK layers are recreations of the behaviour seen in-game, not ports of the 
     cargo run --release -p forge --bin world -- "<game>/DataPC_Masyaf.forge"   # a city's entities and the meshes they place
 
 ## Combat
-Removed on 2026-10-05, to get movement right first: sword fights, the hidden blade, knives and fists, ground and air
-assassinations, guards and their detection. The code (`combat.rs` and its hooks) is kept outside the repo and comes
-back once movement is right, rebuilt on the move graph's fight blocks (`HumanGround_Fight*`, `HumanGround_Assassination`).
+Removed on 2026-10-05 to get movement right first, rebuilt on 2026-10-13 on AC1's own data: the fight action blocks
+and the executable's fight tables (the attack, combo and hit-reaction tables, the assassination chooser and its tables,
+the weapon tag bones). What is AC1's and what is ours, and what is not done yet: docs/COMBAT.md.
 
 ## Crowds
 Crowds: scholars (AC1's `CNMT_Scholar`: robe, hood and shoes from Acre's data on the shared human skeleton,
