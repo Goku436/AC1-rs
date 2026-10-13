@@ -1199,11 +1199,15 @@ fn spawn_world(
                 stats.add(mesh.body, "not drawn: skinned, no prop skeleton", &mesh.name, world.w_axis.truncate());
                 continue;
             }
+            // (Not a haystack: its skeleton's pose is the pile pressed down, as Altaïr lands in it; AC1 draws the heap
+            // standing until then, its bind pose. Posed, the Damascus heaps sank into the ground, the user's report
+            // 2026-10-13.)
+            let posed = pose_props() && kind_of(mi, &mesh.name) != Some(CityObject::Hay);
             let p = parsed.entry(mesh.id).or_insert_with(|| {
                 let pm = match parse_mesh(mesh.body) {
                     Ok(pm) if pm.bones.is_empty() => pm,
                     Ok(mut pm) if skel.is_some() => {
-                        if pose_props() {
+                        if posed {
                             pose_skinned(&mut pm, skel.as_ref().expect("skeleton"));
                         }
                         pm
@@ -1260,8 +1264,8 @@ fn spawn_world(
                         body: std::sync::Arc::from(mesh.body),
                         verts,
                         materials: subs.iter().map(|s| s.0).collect(),
-                        pose: skel.as_ref().filter(|_| pose_props()).map(|s| std::sync::Arc::new(s.clone())),
-                        skeleton: skel.as_ref().filter(|_| pose_props()).and(skel_object).map(|o| std::sync::Arc::from(o.body)),
+                        pose: skel.as_ref().filter(|_| posed).map(|s| std::sync::Arc::new(s.clone())),
+                        skeleton: skel.as_ref().filter(|_| posed).and(skel_object).map(|o| std::sync::Arc::from(o.body)),
                     });
                     stored.len() - 1
                 });
