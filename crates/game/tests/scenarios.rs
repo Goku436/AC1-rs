@@ -764,8 +764,9 @@ const SCENARIOS: &[Scenario] = &[
             "jump aimed at [-84.20, 2.00, 35.00]",
             "free-step jump at the swing bar at [-82.20, 4.40",
             "caught bar 4",
-            "steering onto the perch at [-79.20, 1.50",
-            "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a at [-79.",
+            // (Off the bar onto the beam as AC1 jumps at a target: the free-step flight and its reception, report 60396.)
+            "the swing jump aimed at [-79.20, 1.50, 35.00]",
+            "-> perch via xx_h_air_front_300cm_footl_to_freestep_down_tr_freestep_entry_footr at [-79.",
             // (On to the platform 2.35 m off by the free-step jump at it: the perch's jumps reach as far as AC1's zone 7
             // allows, audit JUMP-7; ours' 0.8-4.5 m cut had it jump blind.)
             "free-step jump aimed at [-76.8",
@@ -844,8 +845,9 @@ const SCENARIOS: &[Scenario] = &[
         want: &[
             "caught bar 5",
             "caught bar 6",
-            "steering onto the perch at [-80.50, 2.00",
-            "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a",
+            // (Off the bar onto the post with the free-step reception, then onto it as from a post, report 60396.)
+            "the swing jump aimed at [-80.50, 2.00, 84.00]",
+            "-> perch via xx_h_freestep_entry_footr_tr_beam_pilotis_wait_a at [-80.50",
             "free-step jump aimed at [-78.10, 2.00",
             // (On to the beam along the way: aimed at its far end as AC1's are, out of reach, the jump steers onto it.)
             "onto perch 23 at [-74.",
@@ -2128,6 +2130,37 @@ const SCENARIOS: &[Scenario] = &[
         secs: 16.0,
         want: &["city life: militia (MMMA_Damascus_Militia) in Poor Street", "combat: guard turns hostile", "combat: the strike hits"],
         never: &["city life: no crowd data"],
+    },
+    // User report 60396 (2026-10-13): off the second swing bar the jump at B6 came down 0.5 m short, on its near edge, and
+    // stepped back off it 4.7 m. AC1 flies the swing jump at its target and lands it in the free-step reception.
+    Scenario {
+        name: "rooftops: off the second swing bar onto B6 with the reception, not stepping back off its near edge (report 60396)",
+        tags: &["bars", "jump"],
+        env: &[("AC1_START", "66.14,35,0,6"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-8"), ("AC1_LEGS", "0-8")],
+        secs: 8.0,
+        want: &["the swing jump aimed at [66.14, 4.69, 13.01]", "-> ground via xx_h_air_front_300cm_footl_to_freestep_down_tr_freestep_entry_footr"],
+        never: &["came down on an edge", "landing_damage", "EMBED"],
+    },
+    // User report 46392: curving across B4 toward B5's corner with no jump target that way, the free jump went the stick's
+    // way, 60 degrees off the run, came down on B5's corner and stepped off it. AC1's free jump goes along the facing.
+    Scenario {
+        name: "rooftops: curving off B4 with no target the stick's way, the free jump along the facing onto B5 (report 46392)",
+        tags: &["jump"],
+        env: &[("AC1_START", "64.2,33,-90,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-1.6"), ("AC1_LEGS", "0-1.6"), ("AC1_VEER", "0.2,140")],
+        secs: 2.5,
+        want: &["caught the top at the knees", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl"],
+        never: &["came down on an edge", "EMBED"],
+    },
+    // User report 423408: a wall run's eject back at a hold on the wall behind flew at the hold's hang, and the fall's catch
+    // took the hold 0.6 m higher, into the climb's crouched catch. AC1 lands its eject at a hold in the wall-hang reception
+    // on that hold (audit WALL-10: `air_front_050cm_footr_to_swing`, `hangwall_reception_front_straight_min_a`).
+    Scenario {
+        name: "wall run eject back at a hold: AC1's wall-hang reception on the hold aimed at, not the climb's catch on another (report 423408)",
+        tags: &["wallrun", "hang", "jump"],
+        env: &[("AC1_START", "9.08,11,0"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-0.8"), ("AC1_JUMP", "0.85")],
+        secs: 3.0,
+        want: &["eject at the wall hang on the hold at [9.08, 3.00, 11.94]", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c"],
+        never: &["xx_fall_tr_climb_min", "EMBED"],
     },
 ];
 
