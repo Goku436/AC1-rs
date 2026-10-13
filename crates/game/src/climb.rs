@@ -1346,6 +1346,9 @@ pub struct WallClimb {
     vault_path: Option<VaultPath>,
     /// The wall hang's corner turn, followed instead of its clips' root motion (see `TurnPath`); dropped by the next move.
     turn_path: Option<TurnPath>,
+    /// A running jump's reception onto a knob (`KNOB_LEN`): the wrists' target on it, where both hands go over the reception (AC1's
+    /// limb goals are the hand contacts, both on the knob); dropped by the next move from the hang.
+    knob: Option<Vec3>,
     /// Ground velocity to hand back to locomotion when finished (running landings).
     pub exit_velocity: Vec3,
     /// Wanted world direction of travel (set by the caller; length 0..1), and sprinting.
@@ -3006,6 +3009,7 @@ impl WallClimb {
             landed: None,
             vault_path: None,
             turn_path: None,
+            knob: None,
             exit_velocity: Vec3::ZERO,
             move_dir: Vec3::ZERO,
             sprint: false,
@@ -3518,7 +3522,13 @@ impl WallClimb {
         let mut w = WallClimb::new(VAULT, out);
         w.start_chain_carry(clips, tos, &planned, err + hang_offset(rest, out), Some(1));
         w.ease_in(from, root);
+        // (Both hands onto the knob over the reception, as AC1's hand goals: its clips hold them 0.6 m apart, and the
+        // hands-together hang after them showed them come together only then, user report 156949.)
+        w.knob = knob.then_some(grip_target(hold, out));
         debug!("climb: running jump at the wall's ledge {hold:.2}, onto the wall hang ({})", j.reception[0].0);
+        if knob {
+            debug!("climb: both hands onto the knob over the reception");
+        }
         Some(w)
     }
 
@@ -6865,6 +6875,9 @@ impl WallClimb {
         self.fade = self.last.clone().map(|p| Fade::new(p, FADE));
         self.mirrored = false;
         self.turn_path = None;
+        if !matches!(self.state.as_str(), VAULT | DROP) {
+            self.knob = None;
+        }
         // (Out of the stance: upright again over this clip, unless the move sets its own stance, `take_first`.)
         self.stance_root = None;
         // (The goals of the stance left, kept by each limb until its clip lets go of it.)
@@ -9668,7 +9681,12 @@ impl WallClimb {
     /// True while the hands hang on holds (not while pulling up over the top, turning a corner,
     /// leaping or leaving the wall, where the clip alone is right).
     pub fn hands_on_wall(&self) -> bool {
-        !off_wall(&self.state) && !self.mv.as_ref().is_some_and(|m| off_wall(&m.to) || m.clip.name.contains("corner"))
+        self.knob_grip().is_some() || (!off_wall(&self.state) && !self.mv.as_ref().is_some_and(|m| off_wall(&m.to) || m.clip.name.contains("corner")))
+    }
+
+    /// Over a running jump's reception onto a knob: the knob's hold point, both hands' goal (AC1's hand contacts on it).
+    pub fn knob_grip(&self) -> Option<Vec3> {
+        self.knob.filter(|_| self.mv.as_ref().is_some_and(|m| m.to == DROP || m.to == HANGWALL))
     }
 
     /// Turning a corner in the wall hang: where hand `i` (0 left, 1 right) goes on the new hold, for the hand IK in place

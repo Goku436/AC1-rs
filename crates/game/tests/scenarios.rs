@@ -1647,7 +1647,8 @@ const SCENARIOS: &[Scenario] = &[
     // User report 2026-10-13 (recording 156949, "he grabs the air"): from the scaffold's planks at (41, 7.7, -25) a running jump
     // at the house wall catches a knob 9.99 m up (an authored guidance piece 0.17 m long, `House_P_6x6x8_01a`). The hang
     // after AC1's reception is the hands-together one, both hands on the knob; it was the hands-apart hang, 0.3 m either
-    // side of it in the air. [ours: the reception itself still holds the hands apart.]
+    // side of it in the air. The reception before it too: both hands onto the knob from the hands' catch (AC1's hand goals
+    // are their contacts, both on it); its clips hold them 0.6 m apart (user report 156949, the 1.8 s reception).
     Scenario {
         name: "Damascus: a running jump at a knob on a house wall hangs from it with both hands on it (user report 2026-10-13)",
         tags: &["jump", "hang"],
@@ -1661,7 +1662,11 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_STOP", "0.6"),
         ],
         secs: 5.0,
-        want: &["running jump at the wall's ledge [41.14, 9.99, -30.01]", "drop -> hangwall via xx_hangwall_reception_front_straight_max_c at [41.15, 8.87"],
+        want: &[
+            "running jump at the wall's ledge [41.14, 9.99, -30.01]",
+            "both hands onto the knob over the reception",
+            "drop -> hangwall via xx_hangwall_reception_front_straight_max_c at [41.15, 8.87",
+        ],
         never: &["-> hangwall_open via xx_hangwall_reception", "EMBED"],
     },
     // Audit LEDGE-15: from a free hang up to a row where a foot finds the wall: AC1's TrySwitchHangType at the hand step's
