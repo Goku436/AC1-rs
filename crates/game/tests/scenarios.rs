@@ -896,7 +896,8 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["climb"],
         env: &[("AC1_START", "-92.6,184,-90,1"), ("AC1_CLIMB", "up=6"), ("AC1_CLIMB_WHY", "1")],
         secs: 8.0,
-        want: &["no room for the body there (AC1's body boxes)"],
+        // (Since 2026-10-13 the reach up is turned down first, by AC1's reach capsule; the table's moves by its body boxes.)
+        want: &["(AC1's reach capsule)"],
         never: &["EMBED"],
     },
     // Audit LADDER-7: AC1's ladders are climbed from either side; the revolve round one (event 5) where there is room.
@@ -1276,7 +1277,9 @@ const SCENARIOS: &[Scenario] = &[
     },
     // User report #6 (Damascus): free running off a roof at a building's ledge 7.8 m up, he took a window 2 m below it (the
     // per-hand hold search of #11) and, leaping to the side from there, went 2.4 m down through the porch roof he stood on.
-    // Now he catches the ledge.
+    // Now he catches the ledge. (Since 2026-10-13 flown as AC1's scorer types it, a wall-hang target (0x40, the wall within
+    // 0.7 m in from 0.5 m out at 1 m under it): the surface flight into the wall hang on it; ours caught it in a fall into
+    // a free hang, its own wall check, from 1.2 m under, missing the wall.)
     Scenario {
         name: "Damascus report #6: free running off the roof at the building's ledge catches the ledge (not a window below)",
         tags: &["jump", "hang"],
@@ -1289,9 +1292,9 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_LEGS", "0-4"),
             ("AC1_PATH", "105.2,-50.21;106.08,-48.85;106.2,-47.6;106.0,-40"),
         ],
-        secs: 3.0,
-        want: &["found the hold at [106.", ", 7.77, -42.8", "-> free_1m via xx_fall_tr_hangfree_min_b"],
-        never: &["EMBED", "hangwall_reception"],
+        secs: 4.0,
+        want: &["running jump at the wall's ledge [106.24, 7.77, -42.81]", "-> hangwall_open via xx_hangwall_reception_front_straight_max_c"],
+        never: &["EMBED", "xx_h_jumpfalling01"],
     },
     Scenario {
         // (AC1's Ghost mode, the Human Debug context: no collision, `Ghost_mode01` then the loop; out, request 33's
@@ -1834,6 +1837,66 @@ const SCENARIOS: &[Scenario] = &[
         secs: 7.0,
         want: &["the climb start onto a hold 2.28 m over the feet", "1m -> hangknee via"],
         never: &["out of reach: jump to the next hold", "EMBED"],
+    },
+    // User report 2026-10-13 (recording 1300517, "can't get up most borders"): pulled down off a Damascus roof's edge at
+    // (44.78, 11.9, -29.4) into the free hang, onto the wall under it (`hangfree_tr_hangwall`), then up: the roof top is
+    // 0.24 m over the grip and ours turned down any top over 0.2 m (AC1's room test leaves 0.35 m free, tests no floor).
+    Scenario {
+        name: "Damascus: from the hang under a roof's edge whose top is 0.24 m over the grip, up pulls up onto the roof (user report 1300517)",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "44.78,-29.6,180,12.5"),
+            ("AC1_WALK", "1.5"),
+            ("AC1_STOP", "0.8-60"),
+            ("AC1_HAND", "1.0"),
+            ("AC1_CLIMB", "nograb,wait=3,up=6"),
+        ],
+        secs: 9.0,
+        want: &["free_open -> hangwall_open via xx_h_hangfree_tr_hangwall", "-> top via xx_h_hangknee_"],
+        never: &["landing", "EMBED"],
+    },
+    // User reports 2026-10-13 (recordings 1319499, 13501): up the wall under a plank walkway sticking out 2.2 m over the
+    // street from its top (y 11.8-12.0): AC1's vertical reach sweeps the body's capsule (0.35 m, 1.8 m tall) to the new
+    // root (StartReachMove 0xDF6810, Banned445's port), which meets the planks; ours reached up through them and stood
+    // with the body in them. (Whether AC1 gets up there some other way is not known: no live check yet.)
+    Scenario {
+        name: "Damascus: up the wall under a plank walkway, the reach up does not go through the planks (user reports 1319499, 13501)",
+        tags: &["climb", "hang", "jump"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_CLIMB_WHY", "1"),
+            ("AC1_START", "40.67,-25.3,0,8.5"),
+            ("AC1_WALK", "4"),
+            ("AC1_STICK", "1"),
+            ("AC1_HIGH", "0-3"),
+            ("AC1_LEGS", "0-3"),
+            ("AC1_CLIMB", "nograb,up=10"),
+        ],
+        secs: 9.0,
+        want: &["-> hangwall via xx_hangwall_reception_front_straight_", "up_l_hand_2_a : the body's sweep up or down meets something (AC1's reach capsule)"],
+        never: &["leap -> 1m via xx_h_climbing_hangwall_tr_climb1m_up_l_hand_2_c", "EMBED"],
+    },
+    // User report 2026-10-13 (recording 1310993, "grabbing on stuff that doesn't look grabbable"): a free run off a Damascus
+    // roof at the roof edge across the street (11.77 m, sticking 0.45 m out over the facade): AC1's scorer's wall-hang
+    // target (0x40), flown into the wall hang; ours' own check for a wall under the feet fell short of the facade, the jump
+    // flew the plain arc, met the wall 0.4 m under the edge and fell 2 m onto a window's frame (AC1's own holds).
+    Scenario {
+        name: "Damascus: a running jump at the roof edge across the street receives into the wall hang on it (user report 1310993)",
+        tags: &["jump", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "40.45,-32.5,180,12.6"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-5"),
+        ],
+        secs: 4.0,
+        want: &["running jump at the wall's ledge [40.45, 11.77, -24.75]", "drop -> hangwall_open via xx_hangwall_reception_front_straight_max_c"],
+        never: &["xx_h_jumpfalling01", "fall_tr_climb", "EMBED"],
     },
 ];
 

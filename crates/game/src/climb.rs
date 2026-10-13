@@ -1606,6 +1606,19 @@ pub(crate) fn climb_body_free(level: &Level, root: Vec3, fwd: Vec3, side: i32) -
         && level.box_free(root + Vec3::Y * 1.4, axes, Vec3::new(0.15, 0.15, 0.4))
 }
 
+/// AC1's reach capsule (r `REACH_CAPSULE_R`, `REACH_CAPSULE_H` tall from the root) swept from `from` to `to` (roots), facing
+/// `fwd`: the box round the sweep, its rounded ends left out (`REACH_CAPSULE_R` in at the bottom and top), meets nothing.
+fn reach_sweep_free(level: &Level, from: Vec3, to: Vec3, fwd: Vec3) -> bool {
+    let right = fwd.cross(Vec3::Y).normalize_or_zero();
+    let (lo, hi) = (from.y.min(to.y) + REACH_CAPSULE_R, from.y.max(to.y) + REACH_CAPSULE_H - REACH_CAPSULE_R);
+    let mid = ((from + to) * 0.5).with_y((lo + hi) * 0.5);
+    let flat = (to - from).with_y(0.0);
+    let half = Vec3::new(REACH_CAPSULE_R + flat.dot(right).abs() * 0.5, REACH_CAPSULE_R + flat.dot(fwd).abs() * 0.5, (hi - lo) * 0.5);
+    level.box_free(mid, [right, fwd, Vec3::Y], half)
+}
+const REACH_CAPSULE_R: f32 = 0.35;
+const REACH_CAPSULE_H: f32 = 1.8;
+
 /// AC1's body boxes at a free hang (`Human__FreeHangBodyBoxesFree` 0xB2DD50, as `TrySwitchHangType` 0xDE1060 tests the
 /// switch from the wall hang into it): with the root at `root` facing `fwd` (into the wall), nothing in a box 0.75 m wide,
 /// 0.5 m deep and 2.4 m tall centred 0.5 m out from the root and 1.2 m up, nor in one 0.44 m deep and 1.2 m tall centred
@@ -3486,13 +3499,24 @@ impl WallClimb {
         if !wall_hang && footholds(level, hold, out) {
             return None;
         }
-        // (Wall under it for the feet.)
+        // (Wall under it for the feet. Not for AC1's own wall-hang target (0x40): its class has the wall under the edge
+        // already, and it flies the surface flight into the wall hang (a Damascus roof edge 0.45 m out over the facade,
+        // user report 1310993: this ray fell short of the facade, the jump flew the plain arc at the hang's root, met the
+        // wall 0.4 m under the edge and fell 2 m onto a window's frame).)
         let under = hold - Vec3::Y * 1.2 + out * 0.4;
-        level.raycast(under, -out, 0.8).filter(|h| h.normal.dot(out) > 0.7)?;
+        if !wall_hang && level.raycast(under, -out, 0.8).filter(|h| h.normal.dot(out) > 0.7).is_none() {
+            if why() {
+                debug!("climb: no running jump into the wall hang at {hold:.2}: no wall for the feet under it");
+            }
+            return None;
+        }
         let hang = hold + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG;
         let way = (hang - p).with_y(0.0);
         // (Nothing in the way at the chest before the wall.)
         if level.raycast(p + Vec3::Y * 1.2, way.normalize_or_zero(), (way.length() - 0.8).max(0.0)).is_some() {
+            if why() {
+                debug!("climb: no running jump into the wall hang at {hold:.2}: something in the way at the chest");
+            }
             return None;
         }
         // (The wall's lean under the edge, positive overhanging: AC1's angled receptions. The hard one for a fast jump or
@@ -8138,6 +8162,19 @@ impl WallClimb {
                         }
                         continue;
                     }
+                }
+            }
+            // AC1's vertical reach (`HumanClimb__StartReachMove` 0xDF6810, its test as Banned445's port reads it): the body's
+            // capsule (0.35 m round, 1.8 m tall, 0.15 m out from the root) swept to the new root must meet nothing; under a
+            // plank walkway sticking out from the wall's top (Damascus, user reports 13501 / 1319499) ours reached up
+            // through it and stood with the body in the planks.
+            if c.table.is_none() && c.names[0].contains("_tr_climb1m_") && (c.names[0].contains("_up_") || c.names[0].contains("_down_")) {
+                let fwd = -normal.with_y(0.0).normalize_or(Vec3::NEG_Z);
+                if !reach_sweep_free(level, root.translation - fwd * 0.15, end.pos + err - fwd * 0.15, fwd) {
+                    if why() {
+                        debug!("climb: {} : the body's sweep up or down meets something (AC1's reach capsule)", c.names[0]);
+                    }
+                    continue;
                 }
             }
             let tos = chain_states(clips.len(), &self.state, &c.to);
