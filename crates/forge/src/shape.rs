@@ -65,6 +65,13 @@ impl R<'_> {
 
 /// Parse a `MeshShape` object's body (after its header).
 pub fn parse_mesh_shape(body: &[u8]) -> Result<MeshShape> {
+    let (s, len) = parse_mesh_shape_prefix(body)?;
+    ensure!(len == body.len(), "{} bytes left at {len:#x}", body.len() - len);
+    Ok(s)
+}
+
+/// A `MeshShape` body at the start of `body` (one stored inline, as a crowd region layout's), and its length.
+pub fn parse_mesh_shape_prefix(body: &[u8]) -> Result<(MeshShape, usize)> {
     let mut r = R { d: body, p: 0 };
     let vertices = (0..r.count(16)?).map(|_| r.vec4()).collect::<Result<Vec<_>>>()?;
     let mopp = r.count(1)?;
@@ -86,8 +93,7 @@ pub fn parse_mesh_shape(body: &[u8]) -> Result<MeshShape> {
     ensure!(class == CLASS_FILTER_INFO, "class {class:08x} at {at:#x}, wanted CollisionFilterInfo");
     r.take(12)?;
     let (min, max) = (r.vec4()?, r.vec4()?);
-    ensure!(r.p == body.len(), "{} bytes left at {:#x}", body.len() - r.p, r.p);
-    Ok(MeshShape { vertices, triangles, triangle_materials, materials, min, max })
+    Ok((MeshShape { vertices, triangles, triangle_materials, materials, min, max }, r.p))
 }
 
 /// `RigidBody` (CRC32 of the name): inline in an entity's `InertComponent` (static bodies) or `RigidBodyComponent`

@@ -13,7 +13,7 @@ const DEFAULT_GAME_DIR: &str = "P:/SteamLibrary/steamapps/common/Assassins Creed
 struct Scenario {
     name: &'static str,
     /// The systems it goes through (`AC1_SCENARIO_TAGS` picks by these): ground, jump, climb, hang, beam, ladder, bars,
-    /// hay, vault, wallrun, ragdoll, misc, fight.
+    /// hay, vault, wallrun, ragdoll, misc, fight, crowd.
     tags: &'static [&'static str],
     env: &'static [(&'static str, &'static str)],
     secs: f32,
@@ -1812,6 +1812,53 @@ const SCENARIOS: &[Scenario] = &[
         want: &["2m -> free_1m via xx_l_climb_1m_l_hangfree", "free_1m -> hangwall_open via xx_h_hangfree_tr_hangwall"],
         never: &["onehand_footl_to_freestep_entry", "landing_damage", "EMBED"],
     },
+    // City life (`city_life`): Damascus peopled from AC1's crowd data, 12 at most (scripted runs load and build in step,
+    // so each run is the same).
+    Scenario {
+        name: "city life: a Damascus street peopled from AC1's crowd regions and flows; walking into a passer-by, their soft stumble",
+        tags: &["crowd"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_CITY_LIFE", "1"), ("AC1_CROWD_MAX", "12"), ("AC1_START", "44,-50,0,6"), ("AC1_WALK", "1.5")],
+        secs: 10.0,
+        want: &[
+            "city life: 29 regions, 16303 region triangles, 451 flows",
+            "city life: 12 people near (12 wanted",
+            "bump (walk, 1.5 m/s) MCxx_Poor plays xx_stumble_soft_20cm_",
+        ],
+        never: &["city life: no crowd data"],
+    },
+    Scenario {
+        name: "city life: running into the crowd, Altaïr shoves through and they stumble 50 cm aside",
+        tags: &["crowd"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_CITY_LIFE", "1"), ("AC1_CROWD_MAX", "12"), ("AC1_START", "44,-50,0,6"), ("AC1_WALK", "3.5")],
+        secs: 10.0,
+        want: &["bump (run, 3.5 m/s) MCxx_Poor plays xx_stumble_soft_50cm_"],
+        never: &["city life: no crowd data"],
+    },
+    Scenario {
+        name: "city life: sprinting into the crowd, a passer-by's strong stumble",
+        tags: &["crowd"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_CITY_LIFE", "1"), ("AC1_CROWD_MAX", "12"), ("AC1_START", "44,-50,0,6"), ("AC1_WALK", "6")],
+        secs: 10.0,
+        want: &["bump (sprint, 6.0 m/s) MCxx_Poor plays xx_stumble_strong_"],
+        never: &["city life: no crowd data"],
+    },
+    Scenario {
+        name: "city life: the street's militia (AC1's militia fraction, combat's guards) fights back when attacked",
+        tags: &["crowd", "fight"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_CITY_LIFE", "1"),
+            ("AC1_CROWD_MAX", "12"),
+            ("AC1_START", "44,-50,0,6"),
+            ("AC1_WALK", "1.5"),
+            ("AC1_STOP", "7"),
+            ("AC1_LOCK", "8"),
+            ("AC1_ATTACK", "9:0.6,10.5:0.6,12:0.6"),
+        ],
+        secs: 16.0,
+        want: &["city life: militia (MMMA_Damascus_Militia) in Poor Street", "combat: guard turns hostile", "combat: the strike hits"],
+        never: &["city life: no crowd data"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
@@ -1881,7 +1928,8 @@ fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
 }
 
 /// The systems scenarios are tagged with.
-const TAGS: &[&str] = &["ground", "jump", "climb", "hang", "beam", "ladder", "bars", "hay", "vault", "wallrun", "ragdoll", "misc", "combo", "eject", "fight"];
+const TAGS: &[&str] =
+    &["ground", "jump", "climb", "hang", "beam", "ladder", "bars", "hay", "vault", "wallrun", "ragdoll", "misc", "combo", "eject", "fight", "crowd"];
 
 /// Every scenario is tagged with known systems (no game needed). `AC1_SCENARIO_LIST=1` prints them: count, then
 /// `tags<TAB>name` lines (for the pipeline page).

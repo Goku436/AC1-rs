@@ -440,6 +440,14 @@ pub struct Guard {
 }
 
 impl Guard {
+    /// A guard as `spawn_guards` makes them (`AC1_GUARD_AWARE`, `AC1_GUARD_BLOCK`, `AC1_GUARD_PASSIVE`), its dice seeded
+    /// with `seed` (the city's patrols, `city_life`, make theirs with this).
+    pub fn new(seed: u32) -> Self {
+        let block = std::env::var("AC1_GUARD_BLOCK").ok().and_then(|v| v.parse().ok()).unwrap_or(0.5);
+        let passive = std::env::var("AC1_GUARD_PASSIVE").is_ok();
+        Guard { hostile: std::env::var("AC1_GUARD_AWARE").is_ok(), next_attack: 2.0, rng: 0x9e37_79b9 ^ seed, block, passive }
+    }
+
     fn rand(&mut self) -> f32 {
         self.rng ^= self.rng << 13;
         self.rng ^= self.rng >> 17;
@@ -627,8 +635,6 @@ fn spawn_guards(
             let part = d.parts.iter().position(|p| p.name.contains("Sword"))?;
             Some((clone_part(&d.parts[part]), d.textures))
         });
-    let block = std::env::var("AC1_GUARD_BLOCK").ok().and_then(|v| v.parse().ok()).unwrap_or(0.5);
-    let passive = std::env::var("AC1_GUARD_PASSIVE").is_ok();
     let hp = std::env::var("AC1_GUARD_HP").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     for (k, (at, yaw)) in spots.into_iter().enumerate() {
         let (mut g, scale) = match crate::npc::build(&dir.0, crate::NPC_FORGE, crate::NPC_BLOCK, "MMMA_FreeMission_Militia", 11 + k as u64 * 131) {
@@ -659,7 +665,7 @@ fn spawn_guards(
         commands.entity(e).insert((
             Transform::from_translation(p).with_rotation(yaw_rot(yaw)).with_scale(Vec3::splat(scale)),
             f,
-            Guard { hostile: std::env::var("AC1_GUARD_AWARE").is_ok(), next_attack: 2.0, rng: 0x9e37_79b9 ^ (k as u32 * 7919 + 1), block, passive },
+            Guard::new(k as u32 * 7919 + 1),
         ));
         info!("combat: guard {k} at [{:.2}, {:.2}, {:.2}]", p.x, p.y, p.z);
     }

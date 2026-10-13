@@ -33,6 +33,15 @@ pub struct Player;
 #[derive(Component)]
 pub struct Statue;
 
+/// Animation level of detail (`city_life`'s far people): the pose is rebuilt every `every` frames (on frames where
+/// the frame count plus `phase` divides by it), with the time gone by since.
+#[derive(Component, Default)]
+pub struct AnimLod {
+    pub every: u32,
+    pub phase: u32,
+    pub skipped: f32,
+}
+
 /// F6 pauses the gallery and line-up figures; while they play, only those near the camera move (each one
 /// samples its clip, and Altaïr's robe is cloth rebuilt every frame: a hundred of them cost most of a frame).
 #[derive(Resource, Default)]
@@ -2157,14 +2166,24 @@ pub fn animate(
     frame: Res<bevy::diagnostic::FrameCount>,
     cams: Query<&GlobalTransform, With<Camera3d>>,
     wind: Option<Res<crate::wind::WindField>>,
-    mut q: Query<(&Transform, &mut Character, Has<Statue>)>,
+    mut q: Query<(&Transform, &mut Character, Has<Statue>, Option<&mut AnimLod>)>,
     mut joints: Query<&mut Transform, Without<Character>>,
 ) {
-    let dt = time.delta_secs().clamp(1e-4, 0.05);
+    let frame_dt = time.delta_secs().clamp(1e-4, 0.05);
     let cam = cams.iter().next().map(|g| g.translation());
-    for (root, mut ch, statue) in &mut q {
+    for (root, mut ch, statue, lod) in &mut q {
         if statue && statue_still(&play, frame.0, cam, root.translation, STATUE_NEAR) {
             continue;
+        }
+        // (Every few frames only, with the time since: `AnimLod`.)
+        let mut dt = frame_dt;
+        if let Some(mut l) = lod.filter(|l| l.every > 1) {
+            l.skipped += frame_dt;
+            if !(frame.0 + l.phase).is_multiple_of(l.every) {
+                continue;
+            }
+            dt = l.skipped.min(0.2);
+            l.skipped = 0.0;
         }
 
         let ch = &mut *ch;
