@@ -814,6 +814,23 @@ in this batch, by audit id:
     transition's target) in any action block of any data file, nor an object in DataPC's index, nor named anywhere else in
     the exe (searched 2026-10-13): a walling path the shipped game cannot play. Left out; to settle, whether the running
     game ever enters that sub-state (the walling's +0x3E logged on a wall run).
+- **2026-10-13, the pops in the hang jumps' flights** (the scenarios' live pop check, `AC1_POP_CHECK`): the standing jump's
+  flights into the hangs (`jumpstraight_footl_to_hangwall_250cm`, `_hangwallfree_250/300cm`, `_hangfree_250cm`) showed
+  0.17-0.18 m pops at their start. Two causes. (1) Ours went from the crouch's still end straight into the flight's arm
+  swing; AC1's ground plays its static jump's push off first, `xx_h_impultionstraight_<foot>_to_jumpstraight_clear_<foot>`
+  (0x00F0A538, request 89, 0.13 s in place), for these jumps too: the running game logged it (0x59) for 0.135 s before
+  `jumpstraight_footl_to_hangwall_200cm`, the body rising into the flight's pose (live log 2026-10-12, 3114.245), as
+  Banned445's port has it (StaticPrepare before the jump). Now in every standing jump to a ledge (`jump_options`).
+  (2) Every seam of a chain into a blend showed the frame before again: the fade started from the pose last shown at
+  weight 0, A's own last frame never shown, then B's motion all at once. The seam's fade now starts from A's last pose
+  (under a fade still running into A, as that fade shows it), and B and the fade go on by the time left over in the frame
+  (AC1's slot ends with time to spare and the next item takes it, 0x730E50 / 0x72FC30 as the port reads them). The
+  flights' pops are gone (0.18 -> under 0.1 m); over the climb, hang, jump, wallrun and bars tags the pops logged went
+  911 -> 715, those over 0.12 m 93 -> 77. Left (looked at, not ours to change or no clear cause): the swing back's
+  `hangwall_to_swingback_up_max_*_a` (0.15 m, the clip's own left hand leaving the hold at 9 m/s in its last frames, with
+  or without IK); the eject off a wall run's hang (`rebound_*_to_air`, 0.2-0.3 m): the new chain's first frame shows the
+  frozen pose under the root already turned 170 degrees, `snap_takeoff` turning that pose only on the next update (one
+  frame of the body turned; to settle by snapping in the frame the eject starts).
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.

@@ -44,7 +44,7 @@
 //! (rise, 1 m in 0.4 s) while gravity moves the root, then `xx_h_jumpstraight_clear_footall_tr_fall`
 //! from the top of the jump down. It can catch holds like the running jump.
 //!
-//! Standing jump to a ledge: the same crouch, then `xx_h_jumpstraight_footl_to_<kind>_<h>cm` (the
+//! Standing jump to a ledge: the same crouch and push off, then `xx_h_jumpstraight_footl_to_<kind>_<h>cm` (the
 //! flight, root up) and its `_tr_<kind>_a/b`. By what is in front: a walkable top at 1.5 or 2 m
 //! (`hangknee_footl`, kneel on it, then stand up) or 2.5 m (`hangwaist`, then
 //! `xx_h_hangwaist_tr_hangknee_footl` and stand up); a hold at about 2 or 2.5 m with wall under the
@@ -1799,6 +1799,9 @@ fn collide_name(pattern: &str, mix: f32) -> String {
 /// foot apart): AC1's chains line up there. Ours do not always (a move begun mid-clip, a fade still running at the
 /// seam, a step played mirrored or turned onto a hold): there the cut would pop, and our crossfade by the gap is used.
 const CUT_GAP: f32 = 0.05;
+/// A seam's time left over in its frame (s) carried into the next clip, at most (a frame at 30 fps: a cut clip ends further
+/// past its time, and that is not carried).
+const SEAM_OVER_MAX: f32 = 1.0 / 30.0;
 
 /// A fade from `from` with AC1's blend `b` (`None` for a cut). `a`: the clip shown before, rolling on under the blend
 /// for AROLLB* kinds (unless a fade ran over it: then it is frozen, as Banned445's port does), and bounding the
@@ -1995,7 +1998,17 @@ fn blend_onto(opts: &[GrabOpt], height: f32) -> Vec<GrabOpt> {
 fn jump_options() -> Vec<GrabOpt> {
     let jump = |kind: &str, cm: u32| {
         let main = format!("xx_h_jumpstraight_footl_to_{kind}_{cm}cm");
-        vec![STRAIGHT_JUMP[0].replace("{f}", "footl"), main.clone(), format!("{main}_tr_{kind}_a"), format!("{main}_tr_{kind}_b")]
+        // (The crouch, then AC1's static jump's push off, `STATIC_PREPARE` 0x00F0A538 (request 89, 0.13 s in place), before
+        // the flight the code starts at the takeoff, as for the free jump: the running game played it before
+        // `jumpstraight_footl_to_hangwall_200cm` (live log 2026-10-12, 0x59 for 0.135 s, the body rising into the flight's
+        // pose). Ours went from the crouch's still end straight into the flight's arm swing: a 0.18 m pop.)
+        vec![
+            STRAIGHT_JUMP[0].replace("{f}", "footl"),
+            STRAIGHT_JUMP[1].replace("{f}", "footl"),
+            main.clone(),
+            format!("{main}_tr_{kind}_a"),
+            format!("{main}_tr_{kind}_b"),
+        ]
     };
     let onto =
         JUMP_ONTO.iter().map(|&(kind, cm, after)| GrabOpt { names: jump(kind, cm), catch: 2, end: GrabEnd::Onto(cm as f32 / 100.0), after: strings(after) });
@@ -3920,7 +3933,7 @@ impl WallClimb {
                         .map(|i| {
                             if i + opt.catch >= n {
                                 to
-                            } else if i == 0 {
+                            } else if i == 0 || (carry.is_none() && i == 1) {
                                 lead
                             } else {
                                 LEAP
@@ -8893,7 +8906,26 @@ impl WallClimb {
                 // graph does not have, a crossfade by how far the hands and feet jump (AC1 chains do not all line up).
                 // (A has played to its end: it does not roll on, and a blend clamped to what is left of A is a cut.)
                 self.blended_for = Some(next.clip.name.clone());
-                if let Some(last) = &self.last {
+                // (The seam falls inside this frame: A ended `over` seconds ago, and B plays on from there (AC1's slot ends
+                // with time left over, consumed by the next item, 0x730E50 / 0x72FC30 as Banned445's port reads them). A
+                // blend starts from A's own last pose (under a fade still running into A, as that fade shows it now), not the
+                // frame before's: A's last frame is never shown, and from the frame before the seam's first frame showed that
+                // frame again, a held frame, then B's motion all at once (a 0.16 m pop at the standing jump's flight).)
+                let over = if done.rate > 0.0 { ((done.t - end) / done.rate).clamp(0.0, SEAM_OVER_MAX) } else { 0.0 };
+                let a_end = (!self.mirrored && self.fade.as_ref().is_none_or(|f| f.roll.is_none())).then(|| {
+                    let mut p = base.clone();
+                    sample(&done.clip, end * FPS, &mut p, cr.reference);
+                    // (A fade still running into A, as `pose` shows it this frame.)
+                    match &self.fade {
+                        Some(f) => {
+                            let mut faded = f.from.clone();
+                            faded.blend(&p, f.weight());
+                            faded
+                        }
+                        None => p,
+                    }
+                });
+                if let Some(last) = a_end.as_ref().or(self.last.as_ref()) {
                     let listed = !lib.graph.places(&done.clip.name).is_empty() && !lib.graph.places(&next.clip.name).is_empty();
                     let mut next_pose = base.clone();
                     sample(&next.clip, 0.0, &mut next_pose, cr.reference);
@@ -8906,6 +8938,11 @@ impl WallClimb {
                     };
                     debug!("climb: seam blend {} -> {}: {:?}", done.clip.name, next.clip.name, self.fade.as_ref().map(|f| (f.len, f.blend.map(|b| b.kind))));
                 }
+                if let Some(f) = &mut self.fade
+                    && !f.holds_b()
+                {
+                    f.t -= over;
+                }
                 // (A turn still easing in carries on into the next clip: cut at a short clip's end, a catch turned him
                 // 90 degrees in four frames.)
                 let left = if done.ease_rot != Quat::IDENTITY { done.ease_rot.slerp(Quat::IDENTITY, smoothstep(done.t / EASE_TURN)) } else { Quat::IDENTITY };
@@ -8915,9 +8952,10 @@ impl WallClimb {
                 } else {
                     Quat::IDENTITY
                 };
+                let hold_b = self.fade.as_ref().is_some_and(Fade::holds_b);
                 self.mv = Some(Move {
                     clip: next.clip,
-                    t: 0.0,
+                    t: if hold_b { 0.0 } else { over * next.rate },
                     to: next.to,
                     start: root.translation,
                     start_rot: left.inverse() * turned.inverse() * root.rotation,
