@@ -28,7 +28,7 @@ pub const CACHE_VERSION: u32 = 1;
 /// The payload layout's version (in the header).
 const FORMAT: u32 = 1;
 
-const MAGIC: &[u8; 8] = b"AC1LEVEL";
+pub(crate) const MAGIC: &[u8; 8] = b"AC1LEVEL";
 
 /// No coordinate of a city is this far out (m); a number past it in the payload is corrupt.
 const MAX_COORD: f32 = 30_000.0;
@@ -57,8 +57,9 @@ const SOURCES: &[&str] = &[
     include_str!("../../forge/src/sound.rs"),
 ];
 
-/// Env switches that change what a city's build gives: each value makes its own cache file.
-const VARIANT_ENV: &[&str] = &["AC1_COLLISION", "AC1_GEOMETRY_HOLDS", "AC1_PAIRED_BEAMS", "AC1_NO_LIPS", "AC1_POSE_PROPS"];
+/// Env switches that change what a city's build gives: each value makes its own cache file. (`AC1_BIND_PROPS` leaves
+/// skinned props in their bind pose, which moves their holds, beams and haystacks.)
+pub(crate) const VARIANT_ENV: &[&str] = &["AC1_COLLISION", "AC1_GEOMETRY_HOLDS", "AC1_PAIRED_BEAMS", "AC1_NO_LIPS", "AC1_POSE_PROPS", "AC1_BIND_PROPS"];
 
 /// Env switches whose output comes from building the city (debug meshes drawn, logs while placing): with one set the
 /// cache is not used.
@@ -114,16 +115,33 @@ fn dir() -> Option<PathBuf> {
     Some(std::env::current_exe().ok()?.parent()?.join("ac1-cache"))
 }
 
+/// What a kind of cache file is made from: its file extension, version, the code deriving it and the env switches that
+/// change it (the level here; the drawn city, `render_cache`).
+pub(crate) struct CacheKind {
+    pub ext: &'static str,
+    pub version: u32,
+    pub sources: &'static [&'static str],
+    pub variant_env: &'static [&'static str],
+}
+
+/// The city's gameplay data.
+const LEVEL: CacheKind = CacheKind { ext: "level", version: CACHE_VERSION, sources: SOURCES, variant_env: VARIANT_ENV };
+
 /// The cache file of `city` (lowercase) under the env switches set now, and its key over the game files.
 pub fn locate(game_dir: &Path, city: &str) -> Option<(PathBuf, u64)> {
+    locate_kind(game_dir, city, &LEVEL)
+}
+
+/// `locate` for a kind of cache file.
+pub(crate) fn locate_kind(game_dir: &Path, city: &str, kind: &CacheKind) -> Option<(PathBuf, u64)> {
     let city = city.to_ascii_lowercase();
     let mut variant = Hash64::default();
-    for k in VARIANT_ENV {
+    for k in kind.variant_env {
         variant = variant.bytes(k.as_bytes()).bytes(std::env::var(k).unwrap_or_else(|_| "\u{0}unset".into()).as_bytes());
     }
     let variant = variant.finish() as u32;
-    let mut key = Hash64::default().bytes(&CACHE_VERSION.to_le_bytes()).bytes(&FORMAT.to_le_bytes()).bytes(city.as_bytes());
-    for s in SOURCES {
+    let mut key = Hash64::default().bytes(kind.ext.as_bytes()).bytes(&kind.version.to_le_bytes()).bytes(&FORMAT.to_le_bytes()).bytes(city.as_bytes());
+    for s in kind.sources {
         key = key.bytes(s.as_bytes());
     }
     key = key.bytes(&variant.to_le_bytes());
@@ -140,32 +158,39 @@ pub fn locate(game_dir: &Path, city: &str) -> Option<(PathBuf, u64)> {
         key = key.bytes(f.as_bytes()).bytes(&len.to_le_bytes()).bytes(&secs.to_le_bytes()).bytes(&nanos.to_le_bytes());
     }
     let safe: String = city.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
-    Some((dir()?.join(format!("{safe}-{variant:08x}.level")), key.finish()))
+    Some((dir()?.join(format!("{safe}-{variant:08x}.{}", kind.ext)), key.finish()))
 }
 
 /// The payload of the cache file at `path` if it is whole and was made under `key`.
 pub fn read_payload(path: &Path, key: u64) -> Result<Vec<u8>> {
-    let d = std::fs::read(path)?;
-    ensure!(d.len() >= 36 && &d[..8] == MAGIC, "not a level cache");
+    read_payload_as(MAGIC, path, key)
+}
+
+/// `read_payload` of a file starting with `magic`.
+pub(crate) fn read_payload_as(magic: &[u8; 8], path: &Path, key: u64) -> Result<Vec<u8>> {
+    let mut d = std::fs::read(path)?;
+    ensure!(d.len() >= 36 && &d[..8] == magic, "not a {} cache", String::from_utf8_lossy(magic));
     let u32_at = |o: usize| u32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]]);
     let u64_at = |o: usize| u64::from(u32_at(o)) | (u64::from(u32_at(o + 4)) << 32);
     ensure!(u32_at(8) == FORMAT, "format {} (this build reads {FORMAT})", u32_at(8));
     ensure!(u64_at(12) == key, "made from other game files, code or settings");
     let (len, sum) = (u64_at(20), u64_at(28));
     ensure!(len == (d.len() - 36) as u64, "payload of {len} bytes, the file holds {}", d.len() - 36);
-    let payload = d[36..].to_vec();
-    ensure!(Hash64::default().bytes(&payload).finish() == sum, "checksum does not match");
-    Ok(payload)
+    // (The payload in place, not copied: hundreds of megabytes.)
+    d.drain(..36);
+    ensure!(Hash64::default().bytes(&d).finish() == sum, "checksum does not match");
+    Ok(d)
 }
 
 /// Write `payload` under `key` to `path`: to a file of its own first, then renamed over it (several games loading the city
 /// at once each write whole files; a reader never sees half of one).
-pub fn write_payload(path: &Path, key: u64, payload: &[u8]) -> Result<()> {
+pub(crate) fn write_payload_as(magic: &[u8; 8], path: &Path, key: u64, payload: &[u8]) -> Result<()> {
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d)?;
+        remove_stale_temporaries(d);
     }
     let mut out = Vec::with_capacity(payload.len() + 36);
-    out.extend(MAGIC);
+    out.extend(magic);
     out.extend(FORMAT.to_le_bytes());
     out.extend(key.to_le_bytes());
     out.extend((payload.len() as u64).to_le_bytes());
@@ -178,6 +203,41 @@ pub fn write_payload(path: &Path, key: u64, payload: &[u8]) -> Result<()> {
         bail!("rename: {e}");
     }
     Ok(())
+}
+
+/// Half-written files (`*.tmp<pid>`) a game left when it was closed while writing, an hour old or more.
+fn remove_stale_temporaries(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let stale = e.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() > 3600);
+        let temporary = e.path().extension().and_then(|x| x.to_str()).is_some_and(|x| x.starts_with("tmp"));
+        if stale && temporary {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+/// Cache files being written on threads of their own (`write_in_background`), waited for as the game closes.
+static WRITERS: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(vec![]);
+
+/// `write_payload_as` on a thread of its own (a city's cache file is hundreds of megabytes: seconds of the first load
+/// on a busy disk), logged when done; `finish_writes` waits for it.
+pub(crate) fn write_in_background(magic: &'static [u8; 8], path: PathBuf, key: u64, payload: Vec<u8>, what: String) {
+    let job = std::thread::spawn(move || match write_payload_as(magic, &path, key, &payload) {
+        Ok(()) => info!("{what} {}: saved", path.display()),
+        Err(e) => warn!("{what} {}: not saved: {e:#}", path.display()),
+    });
+    if let Ok(mut w) = WRITERS.lock() {
+        w.push(job);
+    }
+}
+
+/// Wait for the cache files still being written (the game closing).
+pub fn finish_writes() {
+    let jobs = WRITERS.lock().map(|mut w| std::mem::take(&mut *w)).unwrap_or_default();
+    for j in jobs {
+        let _ = j.join();
+    }
 }
 
 /// Timing of a load's phases (`load: <phase> <s>` lines; `AC1_FPS=1` logs the time to the first frame).
@@ -196,40 +256,53 @@ impl Lap {
 
 // ---- The payload ----
 
-struct W(Vec<u8>);
+pub(crate) struct W(pub Vec<u8>);
 
 impl W {
-    fn u8(&mut self, v: u8) {
+    pub fn u8(&mut self, v: u8) {
         self.0.push(v);
     }
-    fn u32(&mut self, v: u32) {
+    pub fn u32(&mut self, v: u32) {
         self.0.extend(v.to_le_bytes());
     }
-    fn len(&mut self, n: usize) {
+    pub fn len(&mut self, n: usize) {
         self.0.extend((n as u64).to_le_bytes());
     }
-    fn f32(&mut self, v: f32) {
+    pub fn f32(&mut self, v: f32) {
         self.0.extend(v.to_bits().to_le_bytes());
     }
-    fn v3(&mut self, v: Vec3) {
+    pub fn v3(&mut self, v: Vec3) {
         self.f32(v.x);
         self.f32(v.y);
         self.f32(v.z);
     }
-    fn bool(&mut self, v: bool) {
+    pub fn bool(&mut self, v: bool) {
         self.u8(v as u8);
     }
-    fn str(&mut self, s: &str) {
+    pub fn str(&mut self, s: &str) {
         self.len(s.len());
         self.0.extend(s.as_bytes());
     }
-    fn vec<T>(&mut self, items: &[T], mut f: impl FnMut(&mut Self, &T)) {
+    /// A run of bytes: its length, then them.
+    pub fn bytes(&mut self, b: &[u8]) {
+        self.len(b.len());
+        self.0.extend(b);
+    }
+    /// A run of u32s: their count, then them.
+    pub fn u32s(&mut self, v: &[u32]) {
+        self.len(v.len());
+        self.0.reserve(v.len() * 4);
+        for x in v {
+            self.0.extend(x.to_le_bytes());
+        }
+    }
+    pub fn vec<T>(&mut self, items: &[T], mut f: impl FnMut(&mut Self, &T)) {
         self.len(items.len());
         for t in items {
             f(self, t);
         }
     }
-    fn opt<T>(&mut self, v: Option<&T>, f: impl FnOnce(&mut Self, &T)) {
+    pub fn opt<T>(&mut self, v: Option<&T>, f: impl FnOnce(&mut Self, &T)) {
         self.bool(v.is_some());
         if let Some(v) = v {
             f(self, v);
@@ -247,27 +320,27 @@ impl W {
 }
 
 /// A bounds-checked reader over the payload; every error names its offset.
-struct R<'a> {
-    d: &'a [u8],
-    p: usize,
+pub(crate) struct R<'a> {
+    pub d: &'a [u8],
+    pub p: usize,
 }
 
 impl<'a> R<'a> {
-    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
+    pub fn take(&mut self, n: usize) -> Result<&'a [u8]> {
         let end = self.p.checked_add(n).filter(|&e| e <= self.d.len());
         let Some(end) = end else { bail!("level cache ends early at {:#x} (wanted {n} bytes)", self.p) };
         let s = &self.d[self.p..end];
         self.p = end;
         Ok(s)
     }
-    fn u8(&mut self) -> Result<u8> {
+    pub fn u8(&mut self) -> Result<u8> {
         Ok(self.take(1)?[0])
     }
-    fn u32(&mut self) -> Result<u32> {
+    pub fn u32(&mut self) -> Result<u32> {
         let b = self.take(4)?;
         Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
-    fn u64(&mut self) -> Result<u64> {
+    pub fn u64(&mut self) -> Result<u64> {
         let b = self.take(8)?;
         let mut a = [0u8; 8];
         a.copy_from_slice(b);
@@ -275,7 +348,7 @@ impl<'a> R<'a> {
     }
     /// A count of items at least `min_size` bytes each: never more than the bytes left could hold (no huge allocation
     /// from a corrupt count).
-    fn len(&mut self, min_size: usize) -> Result<usize> {
+    pub fn len(&mut self, min_size: usize) -> Result<usize> {
         let at = self.p;
         let n = self.u64()?;
         let left = (self.d.len() - self.p) as u64;
@@ -285,7 +358,7 @@ impl<'a> R<'a> {
         Ok(n as usize)
     }
     /// A coordinate or size: finite and within `MAX_COORD` (a corrupt one could make the grids loop for ever).
-    fn f32(&mut self) -> Result<f32> {
+    pub fn f32(&mut self) -> Result<f32> {
         let at = self.p;
         let v = f32::from_bits(self.u32()?);
         if !in_range(v) {
@@ -293,10 +366,24 @@ impl<'a> R<'a> {
         }
         Ok(v)
     }
-    fn v3(&mut self) -> Result<Vec3> {
+    pub fn v3(&mut self) -> Result<Vec3> {
         Ok(Vec3::new(self.f32()?, self.f32()?, self.f32()?))
     }
-    fn bool(&mut self) -> Result<bool> {
+    /// A number as written, whatever it is (an infinite distance, a box left empty at `f32::MAX`).
+    pub fn f32_raw(&mut self) -> Result<f32> {
+        Ok(f32::from_bits(self.u32()?))
+    }
+    /// A run of bytes (`W::bytes`).
+    pub fn bytes(&mut self) -> Result<&'a [u8]> {
+        let n = self.len(1)?;
+        self.take(n)
+    }
+    /// A run of u32s (`W::u32s`).
+    pub fn u32s(&mut self) -> Result<Vec<u32>> {
+        let n = self.len(4)?;
+        Ok(self.take(n * 4)?.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+    }
+    pub fn bool(&mut self) -> Result<bool> {
         let at = self.p;
         match self.u8()? {
             0 => Ok(false),
@@ -304,12 +391,12 @@ impl<'a> R<'a> {
             v => bail!("level cache flag {v} at {at:#x}"),
         }
     }
-    fn str(&mut self) -> Result<String> {
+    pub fn str(&mut self) -> Result<String> {
         let n = self.len(1)?;
         let at = self.p;
         String::from_utf8(self.take(n)?.to_vec()).map_err(|_| anyhow::anyhow!("level cache text at {at:#x} is not UTF-8"))
     }
-    fn vec<T>(&mut self, min_size: usize, mut f: impl FnMut(&mut Self) -> Result<T>) -> Result<Vec<T>> {
+    pub fn vec<T>(&mut self, min_size: usize, mut f: impl FnMut(&mut Self) -> Result<T>) -> Result<Vec<T>> {
         let n = self.len(min_size)?;
         let mut out = Vec::with_capacity(n);
         for _ in 0..n {
@@ -317,14 +404,14 @@ impl<'a> R<'a> {
         }
         Ok(out)
     }
-    fn opt<T>(&mut self, f: impl FnOnce(&mut Self) -> Result<T>) -> Result<Option<T>> {
+    pub fn opt<T>(&mut self, f: impl FnOnce(&mut Self) -> Result<T>) -> Result<Option<T>> {
         Ok(if self.bool()? { Some(f(self)?) } else { None })
     }
     fn ledge(&mut self) -> Result<Ledge> {
         Ok(Ledge { a: self.v3()?, b: self.v3()?, out: self.v3()? })
     }
     /// An index below `n`.
-    fn index(&mut self, n: usize) -> Result<usize> {
+    pub fn index(&mut self, n: usize) -> Result<usize> {
         let at = self.p;
         let i = self.u64()?;
         if i >= n as u64 {
@@ -667,7 +754,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ac1-level-cache-test-{}", std::process::id()));
         let path = dir.join("x.level");
         let payload = write_level(&sample());
-        write_payload(&path, 42, &payload).expect("writes");
+        write_payload_as(MAGIC, &path, 42, &payload).expect("writes");
         assert_eq!(read_payload(&path, 42).expect("reads"), payload);
         assert!(read_payload(&path, 43).is_err(), "another key");
         let mut file = std::fs::read(&path).expect("file");
