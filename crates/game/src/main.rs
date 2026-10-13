@@ -79,6 +79,7 @@ mod collision_view;
 mod combat;
 mod crowd;
 mod fight_data;
+mod fight_tables;
 mod fly;
 mod gait;
 mod gallery;
