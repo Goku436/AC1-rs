@@ -1869,8 +1869,8 @@ pub fn locomotion(
         }
         embed_check(&level, tf.translation, "ground");
         // (The fall starts at the edge line, the feet past it: AC1's ground loss, `HumanGround__CheckGroundLoss`, not the
-        // capsule sliding off the rim.)
-        if let Some(g) = level.ground(tf.translation, 0.6, 20.0) {
+        // capsule sliding off the rim. Not over a crack between two meshes, `ground_over_crack`.)
+        if let Some(g) = level.ground(tf.translation, 0.6, 20.0).map(|g| ground_over_crack(&level, tf.translation, ch.velocity, g)) {
             if tf.translation.y > g.point.y + crate::climb::EDGE_STEP_DROP
                 && ch.fall_v == 0.0
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
@@ -1929,13 +1929,17 @@ pub fn locomotion(
                 let p = tf.translation + way * 0.8 + Vec3::Y * 0.2;
                 level.ground(p, 0.0, LEDGE_STOP_DROP).is_none_or(|g| p.y - g.point.y > 2.0 && level.perch_at(g.point, 0.2).is_some())
             };
+            // (Up on the rim first, the feet on its top: a roof's parapet 0.23 m over the roof, the running game stepped up
+            // onto it and jumped from its top 2.3 m to the next roof's rim (live log route `roof1_free_south`); ours, 0.28 m
+            // short of its line, jumped onto it as a perch, then on.)
+            let on_rim = |q: Vec3| (g.point.y - q.y).abs() < 0.1;
             if ch.fall_v == 0.0
                 && !floor_on
                 && !still
                 && !ledge_stop_drop
-                && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some_and(|(i, _)| {
+                && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some_and(|(i, q)| {
                     let axis = level.perches[i].axis().with_y(0.0).normalize_or_zero();
-                    axis != Vec3::ZERO && axis.dot(way).abs() < 0.5
+                    axis != Vec3::ZERO && axis.dot(way).abs() < 0.5 && on_rim(q)
                 })
                 && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(way) > std::f32::consts::FRAC_1_SQRT_2
                 && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
@@ -2005,6 +2009,25 @@ pub fn locomotion(
             }
         }
     }
+}
+
+/// The ground under the feet `p`, a crack between two meshes bridged: where the ray straight down falls through a gap a
+/// few centimetres wide (between two Damascus roofs west of the seams start, at x 37.99, it met the street 8 m down; ours
+/// stepped off there and fell, live log route `seams_free_west`, where the running game ran on), the floor on its far
+/// side within `LEDGE_STOP_CRACK` the way he moves (standing: on both sides within 0.1 m), at about the feet's height.
+/// AC1 walks off at a guidance edge's line (0xDA3F40, its cached edge report), which a crack in the collision has none of.
+fn ground_over_crack(level: &Level, p: Vec3, v: Vec3, g: Hit) -> Hit {
+    if p.y <= g.point.y + crate::climb::EDGE_STEP_DROP {
+        return g;
+    }
+    let floor = |q: Vec3| level.ground(q, 0.45, crate::climb::EDGE_STEP_DROP).filter(|h| h.normal.y > 0.7).map(|h| h.point.y);
+    let way = v.with_y(0.0).normalize_or_zero();
+    let across = if way != Vec3::ZERO {
+        (1..=(LEDGE_STOP_CRACK / 0.05).round() as usize).find_map(|k| floor(p + way * (k as f32 * 0.05)))
+    } else {
+        [Vec3::X, Vec3::Z].into_iter().find_map(|d| Some((floor(p + d * 0.1)? + floor(p - d * 0.1)?) * 0.5))
+    };
+    across.map_or(g, |y| Hit { point: p.with_y(y), normal: Vec3::Y, dist: g.dist })
 }
 
 fn try_grab(level: &Level, tf: &Transform) -> Option<Climb> {
