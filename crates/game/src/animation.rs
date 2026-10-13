@@ -55,7 +55,9 @@ pub struct AnimLib {
 }
 
 impl AnimLib {
-    pub fn load(game_dir: &Path, forge_file: &str, datafile: &str, rig: &Rig, rig_hashes: Vec<u32>) -> Result<Self> {
+    /// The library with no rig bound yet (`bind_player` binds the player's, rig 0): read before the player's rig is,
+    /// on a thread of its own (`preload`).
+    pub fn load_unbound(game_dir: &Path, forge_file: &str, datafile: &str) -> Result<Self> {
         let forge = forge::Forge::open(game_dir.join(forge_file))?;
         let e = forge.entries.iter().find(|e| e.name == datafile).with_context(|| format!("no data file {datafile}"))?;
         let data = forge.read(e)?;
@@ -87,7 +89,12 @@ impl AnimLib {
             .collect();
         let graph = forge::graph::MoveGraph::new(blocks.iter().map(|(n, b)| (*n, b)), |id| by_id.get(&id).cloned());
         info!("move graph: {} actions in {} blocks", graph.len(), blocks.len());
-        Ok(Self { data, index, names, cache: HashMap::new(), rigs: vec![(rig_hashes, rig.find("Reference"))], sets, replace: HashMap::new(), graph })
+        Ok(Self { data, index, names, cache: HashMap::new(), rigs: vec![], sets, replace: HashMap::new(), graph })
+    }
+
+    /// Bind the player's rig as rig 0 (before any other).
+    pub fn bind_player(&mut self, rig: &Rig, rig_hashes: Vec<u32>) {
+        self.rigs.insert(0, (rig_hashes, rig.find("Reference")));
     }
 
     /// Rig `rig` plays clip set `set`'s clips in place of the shared ones (a soldier's `mmaa_anim_set`).

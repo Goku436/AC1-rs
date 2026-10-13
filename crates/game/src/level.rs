@@ -1094,6 +1094,21 @@ impl Level {
         self.box_free_but(centre, axes, half, None)
     }
 
+    /// The faces crossing the oriented box (as `box_free` tests it): for tracing why a box is not free.
+    pub fn box_hits(&self, centre: Vec3, axes: [Vec3; 3], half: Vec3) -> Vec<Tri> {
+        let reach = axes[0].abs() * half.x + axes[1].abs() * half.y + axes[2].abs() * half.z;
+        let local = |p: Vec3| {
+            let d = p - centre;
+            Vec3::new(d.dot(axes[0]), d.dot(axes[1]), d.dot(axes[2]))
+        };
+        let half = (half - Vec3::splat(1e-3)).max(Vec3::ZERO);
+        self.tris_near(centre - reach, centre + reach)
+            .into_iter()
+            .map(|i| self.tris[i as usize])
+            .filter(|t| tri_crosses_box([local(t.a), local(t.b), local(t.c)], half))
+            .collect()
+    }
+
     /// `box_free`, the faces lying wholly inside the box `ignore` (world, min and max) left out.
     pub fn box_free_but(&self, centre: Vec3, axes: [Vec3; 3], half: Vec3, ignore: Option<(Vec3, Vec3)>) -> bool {
         let inside = |p: Vec3| ignore.is_some_and(|(lo, hi)| p.cmpge(lo - Vec3::splat(0.05)).all() && p.cmple(hi + Vec3::splat(0.05)).all());
@@ -1954,7 +1969,8 @@ pub fn spawn_level(
         let mut lap = cache::Lap::start();
         let file = if cache::enabled() { cache::locate(&dir.0, &city) } else { None };
         let check = cache::check();
-        let cached = file.as_ref().filter(|_| !check).and_then(|(path, key)| match cache::read_payload(path, *key).and_then(|p| cache::read_level(&p)) {
+        // (Read on a thread from the launch, `preload`.)
+        let cached = file.as_ref().filter(|_| !check).and_then(|(path, key)| match crate::preload::cached_level(path, *key) {
             Ok(l) => Some(l),
             Err(e) => {
                 info!("level cache {}: not used ({e:#}); building the city", path.display());
@@ -1966,15 +1982,23 @@ pub fn spawn_level(
             level = l;
             lap.lap("the city's gameplay data from the cache");
             if opts.render {
-                // (Only what is drawn: the gameplay data built here is thrown away.)
-                let mut drawn_only = Level::default();
-                let world = crate::city::RenderOpts { gameplay: false, ..opts };
-                if let Err(e) =
-                    crate::city::spawn_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut drawn_only, &dir.0, &crate::city::forge_of(&city), world)
-                {
-                    warn!("no city {city}: {e:#}");
+                let forge = crate::city::forge_of(&city);
+                // The drawn world from its own cache (`render_cache`), else read from the game's files (only what is
+                // drawn: the gameplay data built then is thrown away).
+                if let Some(draw) = crate::preload::draw(&dir.0, &city) {
+                    lap.lap("the city's world from the render cache");
+                    let detail = crate::stream::Detail::from_env();
+                    let render = crate::city::realize(draw, opts.bc, detail, &mut commands, &mut meshes, &mut mats, &mut images, &forge);
+                    commands.insert_resource(render);
+                    lap.lap("the city's world made (drawn)");
+                } else {
+                    let mut drawn_only = Level::default();
+                    let world = crate::city::RenderOpts { gameplay: false, ..opts };
+                    if let Err(e) = crate::city::spawn_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut drawn_only, &dir.0, &forge, world) {
+                        warn!("no city {city}: {e:#}");
+                    }
+                    lap.lap("the city's world (drawn)");
                 }
-                lap.lap("the city's world (drawn)");
             }
         } else {
             build_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut level, &dir.0, &city, opts, &mut lap);
@@ -1983,11 +2007,10 @@ pub fn spawn_level(
                 if check {
                     cache_check(&level, &payload, path, *key);
                 }
-                match cache::write_payload(path, *key, &payload) {
-                    Ok(()) => info!("level cache {}: saved, {}", path.display(), cache::summary(&level, &payload)),
-                    Err(e) => warn!("level cache {}: not saved: {e:#}", path.display()),
-                }
-                lap.lap("level cache saved");
+                // (Written on a thread of its own: 200 MB took seconds of the first load.)
+                info!("level cache {}: saving, {}", path.display(), cache::summary(&level, &payload));
+                cache::write_in_background(cache::MAGIC, path.clone(), *key, payload, "level cache".into());
+                lap.lap("level cache made");
             }
         }
         // `AC1_GRAB_AUDIT=<file.tsv>`: the authored guidance against what was built from it (`grab_audit`).
