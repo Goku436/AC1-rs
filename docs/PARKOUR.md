@@ -837,6 +837,49 @@ walls (the root as much higher). The climbing stance (`climb_wait_1m`, 469 frame
 hips 0.08 m higher and 0.09 m nearer the wall, the head 0.09 m higher and 0.19 m further back, with the hands and feet
 within 0.1 m: AC1 leans the chest into the wall more. Not yet traced (the clip, ours' climbing IK or AC1's).
 
+### The routes re-cut, climbing along them (2026-10-13)
+The route files cut from the live logs were lost; the 21 routes are cut again from the raw logs
+(`reports/live-logs-20261012/`, 2476-3228 s) by `livelog runs` (the logs split at teleports, each part's start, facing,
+input span, modes) and `livelog cut` (one route's frames and events out of the rotated files). The driver,
+`F:/Claude/ac1-wt/reports/climb-routes/routes.py` (data, not in the repo), holds each route's live-log window and redoes
+it all:
+
+    cargo build --release -p ac1 --bin ac1 --example livelog            (CARGO_TARGET_DIR as the worktree's)
+    python -I routes.py cut [route...]       livelog cut <route>.real.txt --from s --to s --dir <live logs>
+    python -I routes.py ours [route...]      one headless control-mode Damascus game, a `run` line per route, AC1_RECORD
+    python -I routes.py compare [route...]   livelog compare <route>.real.txt <route>.ours.txt --game <install>
+    python -I routes.py show [route...]      the run settings ours gets
+
+Ours' inputs are the running game's pad as logged (the stick, high profile bit 0x1000, legs bit 0), timed from its first
+press held 0.3 s (a camera-alignment blip before it is left out); on the ground ours is steered the way the real one ran
+(`AC1_HEADINGS`), elsewhere the stick's way from the logged camera (off the ground the run's way shows nothing). Mean root
+gap (m) from when each starts moving; before = this code at dev 978b735 with the same cuts, the 2026-10-12 figure in
+brackets:
+
+| route | before | after | what it was |
+|---|---|---|---|
+| `seams_free_west` | 9.01 (0.56) | 0.42 | a 2 cm crack between two roofs' collision at x 37.99: the ray down fell through, ours stepped off and fell 8 m (`ground_over_crack`: AC1 walks off at a guidance edge's line, 0xDA3F40, never at a crack) |
+| `roof2_free_south` | 1.32 | 0.22 | the same: a crack on the way |
+| `wall1_standjump` | 1.36 (0.09) | 0.09 | the script did not pass the legs on while the high profile's stance change played (the player's input does): no jump |
+| `roof1_free_south` | 1.05 (1.21) | 0.90 | the rim beam's edge jump fired 0.28 m short of a parapet, onto it as a perch and on; now only once up on the rim: one 2.3 m jump onto the next roof's rim (0.05 m at the landing). Left: AC1 comes down on the rim into NarrowObject and stands 0.1 s before running on; ours runs on at once and leads by about 1 m from there |
+| `wall1_hang_right` | 0.32 | 0.03 | the hang's lead-hand reach went on where AC1's sweep is blocked (a beam 0.6 m under the hold, 0.9 m on): AC1 sweeps a capsule (r 0.15) from 0.2 m over the lead hand, 0.75 m out, down to the hang's root (1.1 m under the hands, free 2.4), 1.55 m along, and refuses under 0.7 m past its radius (0xDD9640, read in Ghidra; Banned445's port has it as a sphere) |
+| `wall1_hang_down` | 0.28 | 0.19 | the back eject onto the beam behind came down as on the ground and ran 0.76 m on before balancing; now onto the beam as NarrowObject (as `jump_freestep`). Left: AC1's reception steps 0.3 m on into the crouched wait |
+| `ladder68_walk` | 0.47 (0.52) | 0.28 | onto the ladder from its foot always with the high profile's entry; now AC1's by profile and foot (`HumanLadderData` 7 / 8: walking, `xx_l_wait_hipm_footl_tr_l_ladder_climb_up_r`). Left: the running game's root goes 0.5 m in toward the wall over the 8 m climb (a leaning ladder?), ours' stays out |
+| `hay70_free` | 1.08 (0.54) | 1.08 | pulled up onto the haystack's rim with the stick held away from the hay, the running game stood on it (NarrowObject) and free ran on at a target 4.4 m off; ours dove back in (the dive is right with the stick let go, the 2026-10-10 recording). Now on the rim as a perch; left: from it ours' query picks the box's own far rim 0.9 m off where AC1 jumps 4.4 m |
+| `wall1_hang_up2` | (mis-cut) | 0.17 | the run's start had a 0.2 s stick blip; cut after it |
+| `roof2_run_east` | 0.73 | 0.73 | the second ledge stop: after pulling up, the running game's turn broke into the ledge stop 0.09 s in and pulled down again before W was let go; ours turned round into the run first and stopped 0.35 s later, too late for the pull-down. Not changed (ground turns) |
+| `ladder68_free` | 0.98 | 0.98 | the running game stumbled over something at 35.5 m (`xx_stumble_sprint_right`, 1.7 s lost; not in ours' city), then the same wall run and rebound loop |
+| `wall1_*` others, `wall0_*`, `crate_climb`, roof runs | 0.05-0.42 | same | |
+
+Climbing in general, where the live logs have none of it (no corner, side leap or drop in any of the 21 routes; the
+climbing seen is the wall run's catch, the hang's steps, up the wall, the ejects): checked against Banned445's port and
+the exe. The climbing stance turns inside corners before the reaches and outside ones after (`xx_l_climb_1m_corner_<side>_090_<in|out>`,
+TrySideJump 0xDF29E0 near / far), steps off sideways onto the ground first (0xDF4670), and the hangs turn corners about
+the hands (TryTurnCorner 0xDD3BB0); ours does all of these. Not done as AC1 does: TrySideLedgeGrab (0xDF22C0), from the
+climbing stance round a corner straight into a hang on the side wall's ledge (`xx_l_climb_1m_<l|r|ul|...>_hang<wall|free>`
+turned onto that wall); ours goes into the hang along its own wall and then round the corner. AC1's free-hang shimmy uses
+the same sweep, 2.4 m down.
+
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
 climbing stance (short / long tables, 10-way stick, redirects), the hangs (ledge-jump table, the sideways order), the
