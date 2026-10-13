@@ -13,7 +13,7 @@ const DEFAULT_GAME_DIR: &str = "P:/SteamLibrary/steamapps/common/Assassins Creed
 struct Scenario {
     name: &'static str,
     /// The systems it goes through (`AC1_SCENARIO_TAGS` picks by these): ground, jump, climb, hang, beam, ladder, bars,
-    /// hay, vault, wallrun, ragdoll, misc, fight.
+    /// hay, vault, wallrun, ragdoll, misc, fight, masyaf (a Masyaf spot).
     tags: &'static [&'static str],
     env: &'static [(&'static str, &'static str)],
     secs: f32,
@@ -2082,6 +2082,44 @@ const SCENARIOS: &[Scenario] = &[
         want: &["running jump at the wall's ledge [40.45, 11.77, -24.75]", "drop -> hangwall_open via xx_hangwall_reception_front_straight_max_c"],
         never: &["xx_h_jumpfalling01", "fall_tr_climb", "EMBED"],
     },
+    // Masyaf (2026-10-13): its two leaps of faith. The siege's (M05_S17_Trigger_LOFJump): off the scaffold on the tower over
+    // the fortress gate (`Scaffold_Leap1`), 44 m down into `Hay_Bale_01 Group_001` 5.9 m out; the tutorial tower's
+    // (`M05_T40_Scene_TUT_ReachHighPoint`, `Maysaf_TowerTrap`): off its top's north side into `Group_009` 13 m out, 13.4 m
+    // down. AC1's search casts past the haystack's own collision (the heaps stand 2.1 m, over the 1.85 m its way ends at),
+    // blends its four takeoffs and dives by the way, and flies the dive to the hay; ours found neither (a plain running
+    // jump: an 85 m fall past the siege hay), then dived 9 m short of the tower's, then died on the heap's top.
+    Scenario {
+        name: "Masyaf: the siege's leap of faith off the fortress tower's scaffold, 44 m down into its hay",
+        tags: &["hay", "jump", "masyaf"],
+        env: &[
+            ("AC1_LEVEL", "masyaf"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "196.2,67,170,124"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-2.5"),
+            ("AC1_LEGS", "0-2.5"),
+            ("AC1_STOP", "2.5"),
+        ],
+        secs: 7.0,
+        want: &["-> faith via xx_h_freestep_footr_to_faith_jump_800cm_long_3000cm_down at [194.", "-> hay via xx_h_faith_jump_landing at [194."],
+        never: &["landed from", "dead via", "EMBED"],
+    },
+    Scenario {
+        name: "Masyaf: the leap of faith off the tutorial tower's top into its hay 13 m out",
+        tags: &["hay", "jump", "masyaf"],
+        env: &[
+            ("AC1_LEVEL", "masyaf"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "160.3,87.5,-1.4,105"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-1.5"),
+            ("AC1_LEGS", "0-1.5"),
+            ("AC1_STOP", "1.5"),
+        ],
+        secs: 5.0,
+        want: &["-> faith via xx_h_freestep_footr_to_faith_jump_", "-> hay via xx_h_faith_jump_landing at [160."],
+        never: &["landed from", "dead via", "EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
@@ -2151,7 +2189,8 @@ fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
 }
 
 /// The systems scenarios are tagged with.
-const TAGS: &[&str] = &["ground", "jump", "climb", "hang", "beam", "ladder", "bars", "hay", "vault", "wallrun", "ragdoll", "misc", "combo", "eject", "fight"];
+const TAGS: &[&str] =
+    &["ground", "jump", "climb", "hang", "beam", "ladder", "bars", "hay", "vault", "wallrun", "ragdoll", "misc", "combo", "eject", "fight", "masyaf"];
 
 /// Every scenario is tagged with known systems (no game needed). `AC1_SCENARIO_LIST=1` prints them: count, then
 /// `tags<TAB>name` lines (for the pipeline page).
