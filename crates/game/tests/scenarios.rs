@@ -2120,6 +2120,16 @@ const SCENARIOS: &[Scenario] = &[
         want: &["-> faith via xx_h_freestep_footr_to_faith_jump_", "-> hay via xx_h_faith_jump_landing at [160."],
         never: &["landed from", "dead via", "EMBED"],
     },
+    // Masyaf's climbing sweep (2026-10-13), wall w18 in the village below the fortress: up the wall, into the free hang
+    // under its top, over it onto the roof 4.1 m up.
+    Scenario {
+        name: "Masyaf village: up a house wall, the free hang under its top and over onto the roof",
+        tags: &["climb", "masyaf"],
+        env: &[("AC1_LEVEL", "masyaf"), ("AC1_NO_CROWD", "1"), ("AC1_START", "78.20,85.12,5.1,71.50"), ("AC1_CLIMB", "up=11")],
+        secs: 12.0,
+        want: &["1m -> free_1m via xx_l_climb_1m_u_hangfree", "hangknee -> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [78.1"],
+        never: &["EMBED", "letgo"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
