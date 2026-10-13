@@ -20,7 +20,11 @@
 //! - water (`GFX_Water_Puddle`: rivers, fountains, puddles): two scrolling copies of one normal map on the world's x, y
 //!   (the `UVTransform` panners, `forge::material::UvTransform`), averaged and scaled by `BumpFactor`; its cube map along
 //!   the view's reflection, times `CubeMapIntensity` and `Color`, lit by the ambient cube and the sun, plus the sun's
-//!   Phong highlight at `SpecularPower`; alpha `Opacity` times the vertex alpha (the puddles' and banks' faded rims).
+//!   Phong highlight at `SpecularPower`; alpha `Opacity` times the vertex alpha (the puddles' and banks' faded rims);
+//! - `Env_Standard_WaterBlend` (river walls and piers, the vizier's palace basins: AC1 swaps them in by the entities'
+//!   material overrides): below `WorldOceanLevel` the vertex-coloured diffuse goes to `WaterColorVertical` by
+//!   `saturate((level - z) * WaterFalloff)` before it is lit, and `WaterColorHorizontal` x (1 + the view's vertical
+//!   component) is added unlit, by the same weight.
 
 use bevy::asset::embedded_asset;
 use bevy::mesh::VertexAttributeValues;
@@ -68,8 +72,11 @@ pub struct CityParams {
     pub wave2b: Vec4,
     /// The water's opacity, bump factor, cube map intensity, specular power.
     pub water: Vec4,
-    /// The water's colour.
+    /// The water's colour; `Env_Standard_WaterBlend`'s vertical water colour.
     pub water_color: Vec4,
+    /// `Env_Standard_WaterBlend` (walls and basin floors under a river's or a fountain's water): the water's level (the
+    /// game's z, metres), its falloff (per metre below it), whether it is on; its horizontal colour is `color1`.
+    pub wet: Vec4,
 }
 
 impl Default for CityParams {
@@ -89,6 +96,7 @@ impl Default for CityParams {
             wave2b: Vec4::ZERO,
             water: Vec4::new(1.0, 0.0, 1.0, 1.0),
             water_color: Vec4::ONE,
+            wet: Vec4::ZERO,
         }
     }
 }
@@ -173,6 +181,9 @@ const NO_VERTEX_COLOUR: [u32; 3] = [0x2a8f_90e8, 0x14c1_2ed2, 0x28c1_a6d5];
 /// (its pixel shader's alpha is the diffuse's times the vertex's): blended over what is behind them.
 const FADE_OUT: u32 = 0x3dcd_c04d;
 
+/// `Env_Standard_WaterBlend`: a diffuse and normal map whose colour goes to the water's under its level (see `CityParams::wet`).
+const WATER_BLEND: u32 = 0x0631_6c2b;
+
 /// Whether a material's template blends it over what is behind (see `FADE_OUT`; the water is blended by its kind).
 pub fn blends(m: &GameMaterial) -> bool {
     m.template == FADE_OUT
@@ -223,6 +234,13 @@ pub fn params_of(m: &GameMaterial) -> CityParams {
                 p.mode.y = s;
             }
             p.mode.z = m.scalar("AlphaValue").unwrap_or(1.0);
+            if m.template == WATER_BLEND
+                && let Some(level) = m.scalar("WorldOceanLevel")
+            {
+                p.wet = Vec4::new(level, m.scalar("WaterFalloff").unwrap_or(1.0), 1.0, 0.0);
+                p.water_color = color(m, &["WaterColorVertical"]);
+                p.color1 = color(m, &["WaterColorHorizontal"]);
+            }
         }
     }
     p
@@ -392,6 +410,21 @@ mod tests {
         let mut s = material(vec![]);
         s.params = vec![(SATURATION, Param::Scalar(0.49)), (SATURATION_COLOR, Param::Color([0.8, 0.8, 0.78, 1.0]))];
         assert_eq!((params_of(&s).tint, params_of(&s).mode.y), (Vec4::new(0.8, 0.8, 0.78, 1.0), 0.49));
+    }
+
+    #[test]
+    fn water_blend_takes_its_level_and_colours() {
+        let mut m = material(vec![
+            ("WorldOceanLevel", Param::Scalar(9.8)),
+            ("WaterFalloff", Param::Scalar(1.37)),
+            ("WaterColorVertical", Param::Color([0.12, 0.14, 0.13, 0.0])),
+            ("WaterColorHorizontal", Param::Color([0.04, 0.05, 0.04, 1.0])),
+        ]);
+        assert_eq!(params_of(&m).wet, Vec4::ZERO, "only its template's");
+        m.template = WATER_BLEND;
+        let p = params_of(&m);
+        assert_eq!(p.wet, Vec4::new(9.8, 1.37, 1.0, 0.0));
+        assert_eq!((p.water_color, p.color1), (Vec4::new(0.12, 0.14, 0.13, 1.0), Vec4::new(0.04, 0.05, 0.04, 1.0)));
     }
 
     #[test]

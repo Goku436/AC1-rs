@@ -35,6 +35,8 @@ struct CityParams {
     // opacity, bump factor, cube intensity, specular power
     water: vec4<f32>,
     water_color: vec4<f32>,
+    // `Env_Standard_WaterBlend`: the water's level (game z), falloff, on
+    wet: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> look: WorldLook;
@@ -258,9 +260,20 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         albedo = mix(vec3<f32>(grey), albedo, params.mode.y) * space(look, params.tint.rgb);
     }
     let cut = alpha_discard(p.material, vec4<f32>(albedo, alpha));
+    // `Env_Standard_WaterBlend`: under the water's level, toward its vertical colour (lit), plus its horizontal colour by
+    // the view's vertical component (unlit). (Game z = Bevy y.)
+    var under = 0.0;
+    if params.wet.z > 0.5 {
+        under = clamp((params.wet.x - p.world_position.y) * params.wet.y, 0.0, 1.0);
+        albedo = mix(albedo, space(look, params.water_color.rgb), under);
+    }
     var color = albedo * space(look, ambient_cube(look.env_cube, to_game(N), look.bend.x)) * occlusion(look, ao_raw);
     let sun = sun_shade(p.world_position, p.world_normal, receives, in.position.xy);
     color += albedo * space(look, look.sun.rgb) * max(dot(N, sun.xyz), 0.0) * sun.w;
+    if params.wet.z > 0.5 {
+        let vz = normalize(p.world_position.xyz - view_bindings::view.world_position.xyz).y;
+        color += space(look, params.color1.rgb) * (1.0 + vz) * under;
+    }
     color = fog(look, color, distance(view_bindings::view.world_position.xyz, p.world_position.xyz));
     out.color = vec4<f32>(finish(look, color), cut.a);
     return out;

@@ -1210,9 +1210,15 @@ its glow materials' pass (`GFX_Glow*`), none of which Altaïr or the city's wall
 (Damascus 27 MB) and each drawn part's `MeshTag` points at its first vertex's byte; the vertex shader reads its own.
 `AC1_PLAIN_CITY=1` keeps `StandardMaterial` for the city. On the roof camera the new city shader costs 2.0 ms of GPU a
 frame against 2.3 ms for `StandardMaterial`. Chosen by eye against shots of the running game (not found in the
-executable): the occlusion's mapping (a quarter of the ambient kept where closed in), the fog's density (the ramp ends
+executable): the occlusion's mapping (see below), the fog's density (the ramp ends
 at near + (far - near) / density), the clear colour behind the sky dome (the fog colour halfway to white), the character
 cube's `Tint` left out (multiplied in it yellows the white robe) and how `Saturation`/`Scale`/`Bias` apply.
+The occlusion's mapping (`g_AOParams` is the shaders' global constant 0; where the executable fills it is not found):
+`saturate(max(2 v, 0.25))` since 2026-10-13 (an open wall's byte, about 110, gives 0.86 of the ambient; 0.85 for meshes
+with none), matched against the running game's shots by brightness percentiles (`AC1_AO="scale,bias,floor,none"` to
+try others): with the earlier `0.75 v + 0.25` the shade came out a third too dark (roof spot, real / ours: 10th
+percentile 50 / 42, now 49; 25th 84 / 77, now 85; the bureau's and the alley's shaded walls ~0.7 of the game's).
+Altaïr's character cube with its `Tint` multiplied in was tried again against the same shots: too yellow, left out.
 Materials whose template cuts out alpha (`*Alpha*`, `Plants`, `Env_Foliage*`) are alpha-tested whatever their mesh's name,
 and an assassins' bureau's outside shell (`BA_Bureau_Ext`) casts no shadow: its roof shaded the open courtyard (AC1
 swaps it for the inside one there). Side-by-sides of the running game, before and after: `reports/visuals/` (not in the
@@ -1247,6 +1253,18 @@ with their parameters named from the template's constants. Damascus: `GEN_Standa
 - `Env_Foliage_FadeOut` (moss, lichen, the `Ground_*` patches over streets): alpha = diffuse alpha x vertex alpha,
   blended when the material has no alpha test of its own (its vertex colour is (177, 83, 0) on the street patches:
   drawn opaque they were red-orange stripes).
+- `Env_Standard_WaterBlend` (9 materials: the river's walls, piers and pillars, the vizier's palace basins and fountain
+  walls; no mesh names them, entities swap them in by their material overrides): the diffuse x vertex colour goes to
+  `WaterColorVertical` by `saturate((WorldOceanLevel - z) * WaterFalloff)` (z the world's height) before it is lit by
+  the ambient cube x occlusion and the sun, then `WaterColorHorizontal` x (1 + the view direction's z) is added unlit by
+  the same weight: walls darken to murky water below the waterline. Drawn since 2026-10-13.
+- The fountains and courtyard pools (2026-10-13, `examples/meshmats`): every fountain, wall fountain, well, riad pool
+  and the vizier's and the Great Mosque's basins carry a `DAM_Water_Fountain_01A` submesh (`GFX_Water_Puddle`, no
+  diffuse map in the template: the normal map `GEN_Water_Fountain_01A_NormalMap` panned at 0.4 and 1 per metre, the
+  level's water cube `DAM_Cubemap_Water_01A` (a street scene, +Y the sky; `examples/cubefaces`), `Color` (0.32, 0.44,
+  0.43), opacity 0.6); their maps all load. Their "texture" in AC1 is that reflection, the ripples and the basin floor
+  seen through; the jets, rings and foam are effects (`GFX_Water_FontaineMarket_03`, `GFX_Water_03` diffuse maps), not
+  drawn. In shade the reflection is the ambient x the occlusion x the cube x `Color`: dark, as the shader has it.
 - Not drawn yet: `GEN_Standard_Specular`'s and `GEN_Cubemap`'s highlights and reflections, `Env_ColoringMask_TexStrip`'s
   colour masks (vases), `Env_DistrictColorTheme` (tarps), `GFX_Light*`, the glow passes.
 Ours (`city_material.rs`/`.wgsl`): one shader, the kind and values per material in a uniform, the layers' and water's
@@ -1318,7 +1336,10 @@ is drawn while it overlaps a square box round the camera (128 m half-side), ever
 terrain in coarse cells stay); the other cells' buildings are drawn by their stand-in spans, each hidden once its cell's
 own meshes are all drawn. Past a vertex budget (nearest first) the rest draw at their coarsest level. Meshes are kept as
 their compact bodies (Damascus 51 MB) and built for the GPU on loader threads, nearest first; an instance keeps its old
-level (or its cell's stand-in shows) until the new mesh is there, and a mesh nothing has drawn for 5 s leaves the GPU.
+level until the new mesh is there (a cell's stand-in shows only while one of its wanted meshes has nothing drawn yet:
+until 2026-10-13 it also showed while an instance waited for a new level, so the cell's blurred merged mesh was drawn
+over its own for a frame or a few at every level change: the "blinking textures" as the camera moved), and a mesh
+nothing has drawn for 5 s leaves the GPU.
 Headless runs draw nothing: no city meshes, materials or textures are made.
 
 `AC1_DETAIL`, else the graphics menu's city detail and texture size (F8, `settings.rs`; default medium):

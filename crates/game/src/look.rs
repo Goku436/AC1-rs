@@ -56,9 +56,18 @@ fn cube(c: &AmbientCube) -> [Vec4; 6] {
 }
 
 /// The baked occlusion's mapping onto the ambient (`saturate(max(v * scale + bias, floor))`): AC1 sets it at run time
-/// (`g_AOParams`, not found); a quarter of the ambient kept where a vertex is closed in, chosen by eye against the
-/// running game's streets and courtyards; and the factor for meshes with none (the stand-ins).
-const AO: Vec4 = Vec4::new(0.75, 0.25, 0.0, 0.75);
+/// (`g_AOParams`, its shader constant 0, not found where it is filled); the byte doubled (128 fully open: an open
+/// wall's bytes are about 110, so about 0.86 of the ambient), a quarter kept where a vertex is closed in, and the factor
+/// for meshes with none (the stand-ins). Matched against the running game's shots of Damascus' roofs and bureau
+/// (reports/look2/light): its shade's brightness percentiles; with the earlier `0.75 v + 0.25` the shade was a third too
+/// dark.
+const AO: Vec4 = Vec4::new(2.0, 0.0, 0.25, 0.85);
+
+/// The occlusion's mapping: `AO`, or `AC1_AO="scale,bias,floor,none"` (to match it against shots of the running game).
+fn ao_params() -> Vec4 {
+    let v: Vec<f32> = std::env::var("AC1_AO").map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+    if v.len() == 4 { Vec4::new(v[0], v[1], v[2], v[3]) } else { AO }
+}
 
 impl Look {
     pub fn from_data(pair: &AmbiancePair) -> Self {
@@ -84,7 +93,7 @@ impl Look {
             // this matches the running game's haze, light at 50 m and thick on the far hills.)
             fog: Vec4::new(fog.near, fog.density.max(1e-3) / (fog.far - fog.near).max(1e-3), fog.intensity, if fog.enabled { 1.0 } else { 0.0 }),
             bend: Vec4::new(s.environment_ambient.top_bend, char_cube.top_bend, 0.0, 0.0),
-            ao: AO,
+            ao: ao_params(),
             balance_r: Vec4::new(cb.shifts[0][0], cb.shifts[0][1], cb.shifts[0][2], 0.0),
             balance_g: Vec4::new(cb.shifts[1][0], cb.shifts[1][1], cb.shifts[1][2], 0.0),
             balance_b: Vec4::new(cb.shifts[2][0], cb.shifts[2][1], cb.shifts[2][2], 0.0),
