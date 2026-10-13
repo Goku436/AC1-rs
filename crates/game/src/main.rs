@@ -94,6 +94,7 @@ mod nav;
 mod net;
 mod npc;
 mod pad;
+mod particle_material;
 mod particles;
 mod preload;
 mod probe;

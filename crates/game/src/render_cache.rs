@@ -27,7 +27,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// Bump when code outside `SOURCES` changes what is found to draw, or the payload's layout changes.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 const MAGIC: &[u8; 8] = b"AC1DRAWN";
 
@@ -72,6 +72,8 @@ pub struct CityDraw {
     pub fake_jobs: Vec<FakeJob>,
     /// Every placement's baked occlusion, a byte per vertex.
     pub ao: Vec<u8>,
+    /// The effects the cells place (`particles::WorldFx`; its forge file left empty here).
+    pub effects: crate::particles::WorldFx,
 }
 
 /// The city a forge holds (`DataPC_Damascus.forge` -> `damascus`).
@@ -162,7 +164,7 @@ fn read_params(r: &mut R) -> Result<crate::city_material::CityParams> {
 
 /// The drawn city as the cache's payload.
 pub fn write_draw(d: &CityDraw) -> Vec<u8> {
-    let CityDraw { recipes, textures, meshes, instances, cells, fake_blocks, fake_jobs, ao } = d;
+    let CityDraw { recipes, textures, meshes, instances, cells, fake_blocks, fake_jobs, ao, effects } = d;
     let size = textures.iter().map(|t| t.1.len()).sum::<usize>() + meshes.iter().map(|m| m.body.len()).sum::<usize>() + ao.len();
     let mut w = W(Vec::with_capacity(size + (16 << 20)));
     w.vec(recipes, |w, r| {
@@ -221,6 +223,16 @@ pub fn write_draw(d: &CityDraw) -> Vec<u8> {
         w.opt(cell.as_ref(), |w, c| w.len(*c));
     });
     w.bytes(ao);
+    let systems: Vec<(&u32, &(String, Vec<u8>))> = effects.systems.iter().collect();
+    w.vec(&systems, |w, (id, (name, body))| {
+        w.u32(**id);
+        w.str(name);
+        w.bytes(body);
+    });
+    w.vec(&effects.placed, |w, (m, id)| {
+        write_mat4(w, m);
+        w.u32(*id);
+    });
     w.0
 }
 
@@ -285,6 +297,12 @@ pub fn read_draw(d: &[u8]) -> Result<CityDraw> {
         Ok(FakeJob { block, idx, material, world, cell: r.opt(|r| r.index(cells.len()))? })
     })?;
     let ao = r.bytes()?.to_vec();
+    let mut effects = crate::particles::WorldFx::default();
+    for (id, name, body) in r.vec(12, |r| Ok((r.u32()?, r.str()?, r.bytes()?.to_vec())))? {
+        effects.systems.insert(id, (name, body));
+    }
+    effects.placed = r.vec(68, |r| Ok((read_mat4(r)?, r.u32()?)))?;
+    ensure!(effects.placed.iter().all(|p| effects.systems.contains_key(&p.1)), "render cache: an effect's particle system is not held");
     ensure!(r.p == d.len(), "render cache has {} bytes past its end at {:#x}", d.len() - r.p, r.p);
     // (What the indices point into.)
     let ids: std::collections::HashSet<u32> = textures.iter().map(|t| t.0).collect();
@@ -300,7 +318,7 @@ pub fn read_draw(d: &[u8]) -> Result<CityDraw> {
         ensure!(i.ao.iter().flatten().all(|a| *a as usize <= ao.len()), "render cache: instance {k}'s occlusion starts past its bytes");
     }
     ensure!(fake_jobs.iter().all(|j| slot(&j.material)), "render cache: a stand-in piece has a material slot past {}", recipes.len());
-    Ok(CityDraw { recipes, textures, meshes, instances, cells, fake_blocks, fake_jobs, ao })
+    Ok(CityDraw { recipes, textures, meshes, instances, cells, fake_blocks, fake_jobs, ao, effects })
 }
 
 #[cfg(test)]
@@ -337,6 +355,11 @@ mod tests {
             fake_blocks: vec![Arc::from(&[9u8; 5][..])],
             fake_jobs: vec![FakeJob { block: 0, idx: vec![0, 1, 2], material: 1, world: Mat4::IDENTITY, cell: Some(0) }],
             ao: vec![1, 2, 3],
+            effects: crate::particles::WorldFx {
+                forge_file: String::new(),
+                systems: [(5, ("GFX_Object_Water".to_string(), vec![1, 2]))].into_iter().collect(),
+                placed: vec![(Mat4::from_translation(Vec3::X), 5)],
+            },
         }
     }
 
@@ -347,6 +370,8 @@ mod tests {
         assert_eq!(write_draw(&back), bytes);
         assert_eq!(back.recipes, sample().recipes);
         assert_eq!(back.fake_jobs, sample().fake_jobs);
+        assert_eq!(back.effects.placed, sample().effects.placed);
+        assert_eq!(back.effects.systems, sample().effects.systems);
         assert!(back.instances[0].levels[2].until.is_infinite());
     }
 
