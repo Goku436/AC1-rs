@@ -1693,10 +1693,13 @@ const SCENARIOS: &[Scenario] = &[
     },
     // User report 2026-10-13 (recording 194384): pulled down off a Damascus roof's edge at (73.6, 11.9, -56.6), down and left
     // along the house front into a free hang under a window's pointed cap (pieces 0.2-0.6 m long, its top sloping 30
-    // degrees), then up: the user's build pulled up one-handed onto the cap's point and fell 7.4 m off it. Now up switches
-    // onto the wall under it (AC1's CanPullup) and hangs there; no pull-up onto the sloping point.
+    // degrees), then up: the user's build pulled up one-handed onto the cap's point and fell 7.4 m off it. Up switches onto
+    // the wall under it (AC1's CanPullup), then pulls up as AC1 does (its room test leaves 0.35 m over the edge free, and
+    // the balcony floor behind the cap is 0.31 m over the grip; ours turned down any top over 0.2 m), one-handed (the cap
+    // drops away to either side, AC1's PullupNeedsOneHand) and standing where the two-hand pull-up does, 0.3 m in from the
+    // wrists, on the floor behind the cap's point (ours stood where the one-hand clips end, on the point, and fell).
     Scenario {
-        name: "Damascus: up from the free hang under a window's pointed cap does not pull up onto its point and fall (user report 2026-10-13)",
+        name: "Damascus: up from the free hang under a window's pointed cap pulls up onto the floor behind it, not onto its point (user report 2026-10-13)",
         tags: &["climb", "hang"],
         env: &[
             ("AC1_LEVEL", "damascus"),
@@ -1706,8 +1709,12 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=1.85,downleft=0.5,left=1.2,up=6"),
         ],
         secs: 12.0,
-        want: &["2m -> free_1m via xx_l_climb_1m_l_hangfree", "free_1m -> hangwall_open via xx_h_hangfree_tr_hangwall"],
-        never: &["onehand_footl_to_freestep_entry", "landing_damage", "EMBED"],
+        want: &[
+            "2m -> free_1m via xx_l_climb_1m_l_hangfree",
+            "free_1m -> hangwall_open via xx_h_hangfree_tr_hangwall",
+            "hangknee -> top via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [73.33, 11.5",
+        ],
+        never: &["-> fall via", "landing_damage", "EMBED"],
     },
 ];
 

@@ -248,6 +248,10 @@ impl LandInto {
 
 /// A top-out onto a floor at most this far under the grip (m): the hands hold a lip in front of it.
 const TOP_OUT_LIP: f32 = 0.45;
+/// A top-out onto a floor at most this far over the grip (m): AC1's room test (0xB2E240) leaves the first 0.35 m over
+/// the edge free to 0.3 m in, and tests nothing further in; it tests no floor. (A window cap in Damascus, recording
+/// 194384: the hold 0.31 m under the balcony floor behind it; ours turned down any top over 0.2 m.)
+const TOP_OUT_STEP_UP: f32 = 0.35;
 
 /// AC1's ground landing (`HumanInAir`): `xx_h_landing_<forward|straight>_<soft|hard>_footr_tr_<into>`, `_a` the impact and
 /// `_b` going on: forward when coming down moving, straight when dropping; into the wait on the same foot, or the walk,
@@ -7061,7 +7065,7 @@ impl WallClimb {
         // the grip, down to `TOP_OUT_LIP`, is a floor behind a lip the hands hold (a parapet's, in Damascus: the floor
         // 0.21 m under the edge refused every pull-up there); the pull-up comes down onto it.
         let below = (wrist.y + GRIP_DOWN) - top.point.y;
-        if !(-0.2..=TOP_OUT_LIP).contains(&below) || top.normal.y < 0.8 {
+        if !(-TOP_OUT_STEP_UP..=TOP_OUT_LIP).contains(&below) || top.normal.y < 0.8 {
             debug!("climb: no top-out: top at {:.2}, grip at {:.2}, slope {:.2}", top.point.y, wrist.y + GRIP_DOWN, top.normal.y);
             return false;
         }
@@ -7092,11 +7096,20 @@ impl WallClimb {
             None
         };
         let travel = |c: &[Arc<Clip>]| world_rot(root.rotation) * c.iter().map(|c| root_motion_at(c, c.frames())).sum::<Vec3>();
+        // Where the two-hand pull-up stands up (AC1's stand: the root steered to `STAND_FROM_WRISTS` in from where the
+        // hands held, onto the top's height).
+        let stand_at = {
+            let end = root.translation + travel(&clips);
+            let edge = Vec3::new(wrist.x, end.y, wrist.z);
+            (edge - self.normal * STAND_FROM_WRISTS).with_y(top.point.y)
+        };
         let (clips, correct, end) = match one {
             Some(one) => {
-                // Onto a post: end on it, balancing; else where the two-hand pull-up would have.
+                // Onto a post: end on it, balancing; else where the two-hand pull-up does (AC1's Pullup_Start 0xDDBE80
+                // steers both onto one point in from the hands; ours ended the one-hand one where its clips put the
+                // root, 0.1 m in: on a Damascus window cap's point, recording 194384, and fell off it).
                 let perch = level.perch_at(top.point, PERCH_REACH);
-                let want = perch.map_or(root.translation + travel(&clips), |(_, q)| q);
+                let want = perch.map_or(stand_at, |(_, q)| q);
                 let correct = want - (root.translation + travel(&one));
                 self.perch = perch.map(|(i, _)| i);
                 debug!("climb: one-hand pull-up{}", if perch.is_some() { " onto a post" } else { "" });
