@@ -414,3 +414,50 @@ pub fn render(time: Res<Time>, mut commands: Commands, mut replay: ResMut<Replay
     *n += 1;
     commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
 }
+
+/// Scanning a replay for bodies in walls (`AC1_REPLAY_SCAN=1`): once the level is in, every frame's two roots are checked
+/// against its collision (the body's capsule pushed out, the chest moved through a wall face since the last frame, the
+/// chest inside a solid) and the frames that are logged as `scan:` lines, then exit.
+pub fn scan(replay: Res<Replay>, level: Option<Res<crate::level::Level>>, mut done: Local<bool>, mut exit: MessageWriter<AppExit>) {
+    if *done || std::env::var("AC1_REPLAY_SCAN").is_err() {
+        return;
+    }
+    let Some(level) = level else { return };
+    if level.tris.is_empty() {
+        return;
+    }
+    *done = true;
+    let mut last: [Option<Vec3>; 2] = [None, None];
+    for f in &replay.frames {
+        for (i, a) in f.actors.iter().enumerate() {
+            let Some(a) = a else {
+                last[i] = None;
+                continue;
+            };
+            let root = a.root.0;
+            let chest = root + Vec3::Y * 1.0;
+            let push = level.capsule_push(root).length();
+            let inside = level.inside_solid(chest);
+            let cross = last[i].and_then(|p| {
+                let d = chest - (p + Vec3::Y * 1.0);
+                let n = d.length();
+                (n > 1e-4 && n < 3.0).then(|| level.raycast(p + Vec3::Y * 1.0, d / n, n)).flatten().filter(|h| h.normal.y.abs() < 0.5)
+            });
+            if push > 0.05 || inside || cross.is_some() {
+                let fwd = a.root.1 * Vec3::NEG_Z;
+                let yaw = fwd.x.atan2(-fwd.z).to_degrees();
+                info!(
+                    "scan: t {:.3} who {} root {:.2},{:.2},{:.2} yaw {yaw:.0} push {push:.2} inside {inside} cross {}",
+                    f.t,
+                    if i == 0 { "us" } else { "friend" },
+                    root.x,
+                    root.y,
+                    root.z,
+                    cross.map_or("-".to_string(), |h| format!("{:.2}", h.point))
+                );
+            }
+            last[i] = Some(root);
+        }
+    }
+    exit.write(AppExit::Success);
+}
