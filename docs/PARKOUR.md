@@ -1032,6 +1032,13 @@ Fixed, by AC1's rule:
   out over the facade) the ray fell short, the jump flew the plain arc, met the wall under the edge and fell 2 m onto a
   window's frame (AC1's own holds there).
 
+- **The jump up from the climb and the swing back hang at AC1's free hang root** (2.4 m under the hold, 0xDD6730): both end
+  in the free wait, its wrists 2.3 m over the root; at the fall catch's 2.1 the hands hung 0.2 m over the edge through
+  the swing back's 2 s (62377).
+- **The stance's hands reach AC1's goals** (the grid cell's holds, up to 0.3 m along and 0.15 up or down off the clip's
+  hands): ours pulled a hand onto a hold only within 0.2 m; on a Damascus window box's frame both gripped the air (85785).
+  A goal within 0.5 m is reached, eased from the nearest hold.
+
 Not done: the climbing stance's hang round a corner (TrySideLedgeGrab 0xDF22C0, its side columns' hand row into a hang
 on the side wall, the hang's boxes and the path round the corner, 0xB2A410): no test spot with a side wall's ledge and
 no climbing holds was found, and ours' corner hangs would need the lateral path test. The routes `roof2_run_east` (a
