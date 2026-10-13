@@ -973,8 +973,8 @@ const LADDER_SIDE_REACH: f32 = 0.45;
 const TURN_BREAK: f32 = 0.5;
 /// The hold a top-out climbs over: within this (m) of where the pull-up's first frame puts the wrists.
 const TOP_OUT_EDGE_REACH: f32 = 0.5;
-/// Where a top-out stands, this far in from the edge (m: the inside-a-solid check).
-const TOP_OUT_STAND_IN: f32 = 0.5;
+/// A top-out's body reaches this far (m) past where it stands up (the inside-a-solid check).
+const TOP_OUT_STAND_BODY: f32 = 0.25;
 /// A steered move bends toward the stick at up to this (rad/s) on top of its clips' own turn.
 const STEER_RATE: f32 = 4.0;
 /// Rebounding off a ladder: speed out from the wall and up (m/s), as the wall run's rebound.
@@ -6653,13 +6653,16 @@ impl WallClimb {
         }
         // Room to climb out: AC1's three empty boxes over the edge (`climb_out_room`, 0xB2E240; a window sill with the
         // window's lintel or the room's wall just behind it fails them).
-        let stand = top.point - self.normal * TOP_OUT_STAND_IN;
+        // (Where he stands up, `STAND_FROM_WRISTS` in from the wrists, and the body's depth past that: on a cornice 0.8 m deep
+        // in front of the wall going on up, the point 0.95 m in that this tested was inside that wall, and the free hang
+        // under the cornice stepped a hand up and down onto its edge for ever, the sweep's `flipflop`.)
+        let stand = Vec3::new(wrist.x, top.point.y, wrist.z) - self.normal * (STAND_FROM_WRISTS + TOP_OUT_STAND_BODY);
         // (A haystack's rim: the hay heaped past it is in the way of the boxes, not of the climb into it.)
         let hay = level.haystacks.iter().find(|h| (h.centre - top.point).with_y(0.0).length() < h.half + 0.3 && (top.point.y - h.top()).abs() < 0.3).copied();
         let open = hay.is_some() || climb_out_room(level, edge, self.normal);
         // (Ours: the top found is a beam's or a ledge piece's stuck into a building, inside it.)
         if !open || (hay.is_none() && found.is_some() && level.inside_solid(stand + Vec3::Y * 0.5)) {
-            debug!("climb: no top-out: no room over the edge at {edge:.2} (boxes clear {open})");
+            debug!("climb: no top-out: no room over the edge at {edge:.2} (boxes clear {open}; top {:.2}, wrists {wrist:.2})", top.point);
             return false;
         }
         // Nothing to stand on beside the hands (a post, the end of a wall): pull up with one hand.
@@ -7604,6 +7607,16 @@ impl WallClimb {
         let along = Vec3::Y.cross(n).normalize_or_zero();
         // (The edge held: the free hang's root hangs `JUMP_HOLD_FREE_HANG` under it, just out from it.)
         let mid = root.translation + Vec3::Y * JUMP_HOLD_FREE_HANG - n * 0.05;
+        // (The edge the hands are on at rest: the free hang settles `FREE_ROOT_DOWN` under it, 0.3 m over `mid`, so it read as
+        // a row 0.3 m up and the hand stepped onto the edge it held, the settle took the root back down, and again, for as
+        // long as the stick was held up under a top it could not climb onto: the sweep's `flipflop`.)
+        let held = level
+            .ledges
+            .iter()
+            .filter(|l| l.out.with_y(0.0).normalize_or_zero().dot(n) > HANG_STEP_FACING)
+            .map(|l| l.closest(root.translation + Vec3::Y * FREE_ROOT_DOWN))
+            .filter(|q| q.distance(root.translation + Vec3::Y * FREE_ROOT_DOWN) < HANG_ROOT_HOLD_REACH)
+            .min_by(|a, b| a.distance(root.translation + Vec3::Y * FREE_ROOT_DOWN).total_cmp(&b.distance(root.translation + Vec3::Y * FREE_ROOT_DOWN)));
         let Some(row) = level
             .ledges
             .iter()
@@ -7614,7 +7627,8 @@ impl WallClimb {
                 (HANG_STEP_UP.contains(&d.y)
                     && d.dot(along).abs() <= HANG_STEP_ALONG
                     && d.dot(n).abs() <= HANG_STEP_DEPTH
-                    && (q - mid).with_y(0.0).length() + (q.y - mid.y).abs() > HANG_STEP_HELD)
+                    && (q - mid).with_y(0.0).length() + (q.y - mid.y).abs() > HANG_STEP_HELD
+                    && held.is_none_or(|h| q.y - h.y >= *HANG_STEP_UP.start()))
                     .then_some((q, d.y))
             })
             .max_by(|a, b| a.1.total_cmp(&b.1))
