@@ -55,18 +55,42 @@ fn cube(c: &AmbientCube) -> [Vec4; 6] {
     c.shader_faces().map(|f| Vec4::new(f[0], f[1], f[2], 0.0))
 }
 
-/// The baked occlusion's mapping onto the ambient (`saturate(max(v * scale + bias, floor))`): AC1 sets it at run time
-/// (`g_AOParams`, its shader constant 0, not found where it is filled); the byte doubled (128 fully open: an open
-/// wall's bytes are about 110, so about 0.86 of the ambient), a quarter kept where a vertex is closed in, and the factor
-/// for meshes with none (the stand-ins). Matched against the running game's shots of Damascus' roofs and bureau
-/// (reports/look2/light): its shade's brightness percentiles; with the earlier `0.75 v + 0.25` the shade was a third too
-/// dark.
-const AO: Vec4 = Vec4::new(2.0, 0.0, 0.25, 0.85);
+/// The baked occlusion's mapping onto the ambient (`saturate(max(v * scale + bias, floor))`, `g_AOParams`) when the
+/// level has no `AOSettings`: the bytes as they are. A level's own comes from its `World` (`forge::ambiance::AoSettings`;
+/// Damascus: 1.5 v + 0.1, at least 0.55). The w: the factor for meshes with none (the stand-ins), the level's mapping of
+/// an open wall's byte (about 110).
+const AO: Vec4 = Vec4::new(1.0, 0.0, 0.0, 0.43);
 
-/// The occlusion's mapping: `AO`, or `AC1_AO="scale,bias,floor,none"` (to match it against shots of the running game).
-fn ao_params() -> Vec4 {
+/// An open wall's occlusion byte (0..1): what meshes with none (the stand-ins) are lit as.
+const AO_OPEN: f32 = 110.0 / 255.0;
+
+/// The occlusion's mapping: the level's, or `AC1_AO="scale,bias,floor,none"` (to try others against shots of the running
+/// game).
+fn ao_params(level: Option<&forge::ambiance::AoSettings>) -> Vec4 {
     let v: Vec<f32> = std::env::var("AC1_AO").map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
-    if v.len() == 4 { Vec4::new(v[0], v[1], v[2], v[3]) } else { AO }
+    if v.len() == 4 {
+        return Vec4::new(v[0], v[1], v[2], v[3]);
+    }
+    match level {
+        Some(a) => {
+            let [x, y, z] = a.shader_params();
+            Vec4::new(x, y, z, a.factor(AO_OPEN))
+        }
+        None => AO,
+    }
+}
+
+/// The fog's ramp as the shaders take it (`g_FogParams`: start, 1 / length, most): `AC1_FOGP="start,scale,max"` to
+/// try others.
+fn fog_ramp(fog: &forge::ambiance::Fog) -> Vec3 {
+    let v: Vec<f32> = std::env::var("AC1_FOGP").map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+    if v.len() == 3 {
+        return Vec3::new(v[0], v[1], v[2]);
+    }
+    // From `FogNear` to `FogFar`, at most `FogIntensity`. (Where the executable fills `g_FogParams` is not found; this
+    // reading matches the running game's haze on the roofs, reports/look3: the green dome 35 m off at the game's
+    // brightness. `FogDensity` is left out: slowing the ramp by it, as before, left the near city crisp.)
+    Vec3::new(fog.near, 1.0 / (fog.far - fog.near).max(1e-3), fog.intensity)
 }
 
 impl Look {
@@ -78,22 +102,16 @@ impl Look {
         let fog = &a.fog;
         let cb = &a.color_balance;
         let cc = &a.colour_control;
-        // (The character cube's `Tint` left out: how the game applies it is not found, and multiplied in it turns Altaïr's
-        // white robe yellow where the running game shows it white.)
-        let mut cc_cube = *char_cube;
-        cc_cube.tint = [1.0; 3];
         let world = WorldLook {
             env_cube: cube(&s.environment_ambient),
-            char_cube: cube(&cc_cube),
+            char_cube: cube(char_cube),
             sun: col(s.sun.color, s.sun.intensity),
             char_sun: col(char_sun.color, char_sun.intensity),
             char_sun_dir: to_bevy(char_sun.toward()).extend(0.0),
             fog_color: col(fog.color, 1.0),
-            // (`FogDensity` slows the ramp: full at near + (far - near) / density. How the game folds it in is not found;
-            // this matches the running game's haze, light at 50 m and thick on the far hills.)
-            fog: Vec4::new(fog.near, fog.density.max(1e-3) / (fog.far - fog.near).max(1e-3), fog.intensity, if fog.enabled { 1.0 } else { 0.0 }),
+            fog: fog_ramp(fog).extend(if fog.enabled { 1.0 } else { 0.0 }),
             bend: Vec4::new(s.environment_ambient.top_bend, char_cube.top_bend, 0.0, 0.0),
-            ao: ao_params(),
+            ao: ao_params(pair.ao.as_ref()),
             balance_r: Vec4::new(cb.shifts[0][0], cb.shifts[0][1], cb.shifts[0][2], 0.0),
             balance_g: Vec4::new(cb.shifts[1][0], cb.shifts[1][1], cb.shifts[1][2], 0.0),
             balance_b: Vec4::new(cb.shifts[2][0], cb.shifts[2][1], cb.shifts[2][2], 0.0),
@@ -107,7 +125,8 @@ impl Look {
                 if std::env::var("AC1_SHOW_LAYERS").is_ok() { 1.0 } else { 0.0 },
             ),
         };
-        Self { world, sun_dir: to_bevy(s.sun.toward()), fog_near: fog.near, fog_far: fog.near + (fog.far - fog.near) / fog.density.max(1e-3) }
+        let r = world.fog;
+        Self { world, sun_dir: to_bevy(s.sun.toward()), fog_near: r.x, fog_far: r.x + 1.0 / r.y.max(1e-6) }
     }
 
     /// The level's look from the game data: the city's own (`AC1_LEVEL`), Masyaf's for the test level.

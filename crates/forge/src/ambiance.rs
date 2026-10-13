@@ -26,6 +26,12 @@
 //!   game's Z-up world), `Tint` (f32 RGBA), f32 `Saturation`, `Scale`, `Bias`, `NormalTopBendFactor`; then `Layers`:
 //!   u32 count, each an inline `SkyLayer` (u8 kind, u32 id, u32 class f82f9659, u32 `Mesh`, u32 material).
 //!
+//! `World` (fbb63e47, one per level, beside its `WorldAmbiance`) holds an inline `AOSettings` (eac8d5c4; the executable's
+//! reflection names its fields `Enable`, `MinValue`, `Scale`, `Bias`; streamed as u8 `Enable`, f32 `MinValue`, `Scale`,
+//! `Bias`): the baked occlusion's mapping. The renderer sets the vertex shaders' `g_AOParams` to (`Scale`, `Bias` when
+//! `Enable` else 1, `MinValue`), and the shaders take `saturate(max(v * x + y, z))` of the vertex's byte `v` (0..1).
+//! Damascus: on, 0.55, 1.5, 0.1; Kingdom: on, 0, 1, 0 (the bytes as they are).
+//!
 //! How the game uses them (its DX9 shaders, in the `MaterialTemplate`s and the executable): the world's pixel shaders
 //! light a surface by the ambient cube (each face weighted by the squared normal component on its side, the normal's Z
 //! first scaled by `NormalTopBendFactor`), times the baked occlusion (`forge::instance`), plus the sun (N.L, shadows)
@@ -46,6 +52,8 @@ const CLASS_SKY_LAYER: u32 = 0xf82f_9659;
 const CLASS_COLOUR_CONTROL: u32 = 0x583f_4578;
 const CLASS_COLOR_BALANCE: u32 = 0xa882_0575;
 const CLASS_GLOW: u32 = 0x93dd_eac0;
+pub const CLASS_WORLD: u32 = 0xfbb6_3e47;
+const CLASS_AO_SETTINGS: u32 = 0xeac8_d5c4;
 
 fn u32_at(d: &[u8], p: usize) -> Result<u32> {
     let s = d.get(p..p + 4).with_context(|| format!("short at {p:#x}"))?;
@@ -105,15 +113,83 @@ impl AmbientCube {
         Ok(Self { faces, tint: [f(24)?, f(25)?, f(26)?], saturation: f(28)?, scale: f(29)?, bias: f(30)?, top_bend: f(31)? })
     }
 
-    /// The faces as the shaders get them. The game builds them from the stored faces with `Tint`, `Saturation`,
-    /// `Scale` and `Bias` (how exactly is not found yet: `?`); here each face is desaturated toward its luminance by
-    /// `Saturation`, tinted, scaled and biased, the identity for the environment cubes (tint 1, saturation 1, scale 1,
-    /// bias 0).
+    /// The faces as the shaders get them, as the executable builds them each frame from the stored faces: each face
+    /// times `Tint`, its HSV saturation times `Saturation`, then times `Scale` plus `Bias` (the identity for the
+    /// environment cubes: tint 1, saturation 1, scale 1, bias 0).
     pub fn shader_faces(&self) -> [[f32; 3]; 6] {
         self.faces.map(|c| {
-            let l = c[0] * 0.3086 + c[1] * 0.6094 + c[2] * 0.082;
-            std::array::from_fn(|k| ((l + (c[k] - l) * self.saturation) * self.tint[k] * self.scale + self.bias).max(0.0))
+            let t: [f32; 3] = std::array::from_fn(|k| c[k] * self.tint[k]);
+            let (h, s, v) = rgb_to_hsv(t);
+            let rgb = hsv_to_rgb(h, s * self.saturation, v);
+            rgb.map(|x| (x * self.scale + self.bias).max(0.0))
         })
+    }
+}
+
+/// RGB to hue (0..1), saturation, value.
+fn rgb_to_hsv(c: [f32; 3]) -> (f32, f32, f32) {
+    let max = c[0].max(c[1]).max(c[2]);
+    let min = c[0].min(c[1]).min(c[2]);
+    let d = max - min;
+    if max == 0.0 || d == 0.0 {
+        return (0.0, 0.0, max);
+    }
+    let mut h = if c[0] == max {
+        (c[1] - c[2]) / d
+    } else if c[1] == max {
+        (c[2] - c[0]) / d + 2.0
+    } else {
+        (c[0] - c[1]) / d + 4.0
+    };
+    if h < 0.0 {
+        h += 6.0;
+    }
+    (h / 6.0, d / max, max)
+}
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
+    if s <= 0.0 {
+        return [v; 3];
+    }
+    let h6 = (h * 6.0).rem_euclid(6.0);
+    let i = h6.floor();
+    let f = h6 - i;
+    let (p, q, t) = (v * (1.0 - s), v * (1.0 - f * s), v * (1.0 - (1.0 - f) * s));
+    match i as u32 {
+        0 => [v, t, p],
+        1 => [q, v, p],
+        2 => [p, v, t],
+        3 => [p, q, v],
+        4 => [t, p, v],
+        _ => [v, p, q],
+    }
+}
+
+/// The level's `AOSettings` (in its `World`): how the baked occlusion bytes map onto the ambient.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AoSettings {
+    pub enabled: bool,
+    pub min: f32,
+    pub scale: f32,
+    pub bias: f32,
+}
+
+impl AoSettings {
+    /// The `World` body's `AOSettings`.
+    pub fn parse_world(b: &[u8]) -> Result<Self> {
+        let p = find(b, CLASS_AO_SETTINGS, 0).context("no AOSettings")?;
+        Ok(Self { enabled: u8_at(b, p + 4)? != 0, min: f32_at(b, p + 5)?, scale: f32_at(b, p + 9)?, bias: f32_at(b, p + 13)? })
+    }
+
+    /// `g_AOParams` as the renderer sets it: (scale, bias, floor) of `saturate(max(v * scale + bias, floor))`.
+    pub fn shader_params(&self) -> [f32; 3] {
+        [self.scale, if self.enabled { self.bias } else { 1.0 }, self.min]
+    }
+
+    /// The factor on the ambient of an occlusion byte (0..1).
+    pub fn factor(&self, v: f32) -> f32 {
+        let [x, y, z] = self.shader_params();
+        (v * x + y).max(z).clamp(0.0, 1.0)
     }
 }
 
@@ -265,15 +341,18 @@ impl Sky {
 pub struct AmbiancePair {
     pub ambiance: Ambiance,
     pub sky: Sky,
+    /// The level's `World`'s occlusion mapping (none when its `World` is not among the objects).
+    pub ao: Option<AoSettings>,
 }
 
 /// A level's ambiance and sky, from the objects of its data files: the first `WorldAmbiance` and the sky it links.
 pub fn find_in<'a>(objects: impl IntoIterator<Item = &'a crate::Object<'a>> + Clone) -> Result<AmbiancePair> {
     let amb = objects.clone().into_iter().find(|o| o.class == CLASS_WORLD_AMBIANCE).context("no WorldAmbiance")?;
     let a = Ambiance::parse(amb.body).with_context(|| amb.name.clone())?;
-    let sky = objects.into_iter().find(|o| o.class == CLASS_LAYERED_SKY && o.id == a.sky).context("its LayeredSky is not there")?;
+    let sky = objects.clone().into_iter().find(|o| o.class == CLASS_LAYERED_SKY && o.id == a.sky).context("its LayeredSky is not there")?;
     let s = Sky::parse(sky.body).with_context(|| sky.name.clone())?;
-    Ok(AmbiancePair { ambiance: a, sky: s })
+    let ao = objects.into_iter().filter(|o| o.class == CLASS_WORLD).find_map(|o| AoSettings::parse_world(o.body).ok());
+    Ok(AmbiancePair { ambiance: a, sky: s, ao })
 }
 
 #[cfg(test)]
@@ -288,6 +367,43 @@ mod tests {
                 assert!((f[k] - [0.2, 0.4, 0.6][k]).abs() < 1e-6);
             }
         }
+    }
+
+    #[test]
+    fn cube_tint_then_hsv_saturation() {
+        // Tinted to (0.5, 0.25, 0.25): value 0.5, saturation 0.5; halved: 0.25 -> (0.5, 0.375, 0.375); scale 2, bias 0.1.
+        let c = AmbientCube { faces: [[0.5, 0.5, 0.5]; 6], tint: [1.0, 0.5, 0.5], saturation: 0.5, scale: 2.0, bias: 0.1, top_bend: 1.0 };
+        let f = c.shader_faces()[0];
+        for (a, b) in f.iter().zip([1.1, 0.85, 0.85]) {
+            assert!((a - b).abs() < 1e-5, "{f:?}");
+        }
+    }
+
+    #[test]
+    fn hsv_round_trip() {
+        for c in [[0.9, 0.2, 0.1], [0.1, 0.8, 0.3], [0.2, 0.3, 0.7], [0.5, 0.5, 0.5], [0.0, 0.0, 0.0]] {
+            let (h, s, v) = rgb_to_hsv(c);
+            let r = hsv_to_rgb(h, s, v);
+            for k in 0..3 {
+                assert!((r[k] - c[k]).abs() < 1e-5, "{c:?} -> {r:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn ao_settings_from_a_world_body() {
+        let mut b = vec![0u8; 8];
+        b.extend_from_slice(&CLASS_AO_SETTINGS.to_le_bytes());
+        b.push(1);
+        for v in [0.55f32, 1.5, 0.1] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        let ao = AoSettings::parse_world(&b).unwrap();
+        assert_eq!(ao.shader_params(), [1.5, 0.1, 0.55]);
+        assert!((ao.factor(0.0) - 0.55).abs() < 1e-6 && (ao.factor(0.6) - 1.0).abs() < 1e-6);
+        let off = AoSettings { enabled: false, ..ao };
+        assert_eq!(off.factor(0.0), 1.0);
+        assert!(AoSettings::parse_world(&b[..12]).is_err());
     }
 
     #[test]
