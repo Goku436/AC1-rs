@@ -1558,6 +1558,20 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     platform(walls, -99.0, -96.0, z, 2.0);
     beam(walls, level, -96.0, -92.0, z, 2.0);
 
+    // G24 (the hangs, audit LEDGE-15): a bare wall 4.4 m tall. Along its first 3.5 m one hold row 2.75 m up: the standing
+    // jump's band into AC1's wall-free hang, then up onto the wall in place. Along its last 3.5 m a row 2.4 m up under a slab
+    // sticking out 0.8 m, its edge 3.9 m up: from the wall hang, up, AC1's swing back onto the slab's edge.
+    let z = 264.0;
+    walls.cuboid(Vec3::new(-92.0, 0.0, z - 4.0), Vec3::new(-88.0, 4.4, z + 4.0));
+    hold_rows(strips, level, Vec3::new(-92.0, 0.0, z - 4.0), Vec3::Z, 3.5, Vec3::NEG_X, &[2.75]);
+    hold_rows(strips, level, Vec3::new(-92.0, 0.0, z + 0.5), Vec3::Z, 3.5, Vec3::NEG_X, &[2.4]);
+    walls.cuboid(Vec3::new(-92.8, 3.7, z + 0.5), Vec3::new(-92.0, 3.9, z + 4.0));
+    hold_rows(strips, level, Vec3::new(-92.8, 0.0, z + 0.5), Vec3::Z, 3.5, Vec3::NEG_X, &[3.9]);
+    // Beside it a slab 1.6 m thick, 3 m up, holds along its top edge and 0.65 m under it: pulled down off its top into the
+    // wall hang, down: the feet find no wall under the lower hold, AC1's switch into the free hang.
+    walls.cuboid(Vec3::new(-92.0, 3.0, z + 6.0), Vec3::new(-88.0, 4.6, z + 10.0));
+    hold_rows(strips, level, Vec3::new(-92.0, 0.0, z + 6.0), Vec3::Z, 4.0, Vec3::NEG_X, &[4.6, 3.95]);
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -1575,6 +1589,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G14: a block in the way up the wall", Vec3::new(-95.0, 4.0, 184.0)),
         ("G16: a free-standing ladder", Vec3::new(-92.0, 4.0, 204.0)),
         ("G17: a beam to a wall, climbed from", Vec3::new(-95.0, 4.0, 214.0)),
+        ("G24: the wall-free hang, the swing back", Vec3::new(-95.0, 4.0, 264.0)),
     ]
 }
 
