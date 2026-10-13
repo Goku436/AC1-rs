@@ -36,7 +36,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
 | Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
 | Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; every distinct resource and stream with a header decodes (`bao scan`): IMA-ADPCM 38211/38211 resources and 2176/2176 streams, interleaved tracks (IMA mono or stereo, or Ogg Vorbis pages) 29/29 and 76/76, Ogg Vorbis 13743/13743 and 110/110 (6636 of those Ogg resources are a stream's start, cut); the 4169 headerless streams (speech) decode joined to their start for 3716, the other 453 have no start in any forge. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks, the leap of faith) on the surface's sound material (cities: from `CollisionMaterial`) and AC1's switch values (character kind, weapon sheathed, city), placed and panned with AC1's roll-off; the city's placed sounds (Damascus: 1292 trigger zones: fountains, braziers, flags, kiosks, gardens, palms), its ambience loops (116 region links, 36 sets, 11 streamed loops) and their one-off sounds at AC1's intervals; M mutes, F8 sets the volume |
-| City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); lit as AC1 lights them ("How AC1 lights its world": the level's sun, ambient cube, baked occlusion, fog and colour grade from its `WorldAmbiance`/`LayeredSky`), three shadow cascades in 120 m (the first 12 m); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
+| City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); lit as AC1 lights them ("How AC1 lights its world": the level's sun, ambient cube, baked occlusion, fog and colour grade from its `WorldAmbiance`/`LayeredSky`), three shadow cascades in 120 m (the first 12 m); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming"); gameplay data saved after the first load ("City load time and the level cache") | first version |
 | Level light and grade (`WorldAmbiance` 21c2d472, `LayeredSky` 24d32cf8: fog, post effects, suns, ambient cubes, sky layers) | done: 14/14 levels read (`examples/ambcheck`) |
 | Baked occlusion (`MeshInstanceData` / `CompiledMeshInstance`: a byte per vertex per placed mesh) | done: 17436/17436 Damascus entities and groups, every stream a byte per vertex of its mesh (`examples/aocheck`) |
 | Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); combat removed for now; scholar crowds to blend into | first version |
@@ -1282,7 +1282,59 @@ Headless runs draw nothing: no city meshes, materials or textures are made.
 | full | everything, no stand-ins | full detail always | none | 512 px (the city as drawn before streaming, to compare) |
 
 Most of Damascus' 28 s is gameplay set-up after the city's 10 s load (holds, beams, ladders, hay against the built
-collision); streaming only what is drawn leaves that as it is.
+collision); streaming only what is drawn leaves that as it is. Since 2026-10-13 that set-up is saved after the first load
+(next section).
+
+## City load time and the level cache (2026-10-13)
+Every city load logs each phase's time (`load: <phase> <s>`, and `load: <city> ready in <s>`; `AC1_FPS=1` adds the time
+to the first frame). Where a cold Damascus load went before (headless, with the machine shared: 32 s from launch): its
+1,387 data files read and decompressed 3 s and the shared forge's 251 a further 3 s (one by one), the entities placed
+3 s, navigation 1 s, then the gameplay set-up against the built collision 21 s: the thin beams swung from as bars 14 s
+(every pair of the 190,000 holds), narrow tops 3.6 s, carving round ladders 1.9 s (the hold list copied once per
+ladder), beam perches 0.8 s. Drawn, also the levels of detail 1.5 s (every entity's bytes scanned on one core), DataPC's
+Game Fix 0.6 s and the render store 2 s.
+
+Two changes (`level_cache.rs`, `level.rs`, `city.rs`):
+- The first load does less: the beam bars test each hold against the later holds within 0.1 m of its height only (0.1 m
+  height bands), on all cores; carving goes ledge by ledge through the ladders; the shared forge's data files are read in
+  waves on all cores; the reference scans (shared props, levels of detail, each placement's references) run on all
+  cores; Game Fix is read on a thread meanwhile. The same holds, beams and bars in the same order: the saved gameplay
+  data of a build before these changes and after them are the same bytes (but for the navigation links, below).
+- The level cache: once a city is built, `Level` (collision triangles and their sound materials, holds, authored
+  guidance, ladders, bars, kiosk pieces, perches, beam tops, haystacks, benches, viewpoints, the navigation mesh and its
+  links, the start, the crowd's loop) is written to `ac1-cache/<city>-<variant>.level` beside the executable (git-ignored
+  `target/`; `AC1_CACHE_DIR` elsewhere; Damascus 208 MB, Masyaf 118 MB) and read back on the next load (0.5 s for
+  Damascus): headless runs, the scenarios among them, then read no game file for the city at all; drawn runs still read
+  and place the city's meshes and textures but skip its collision shapes, guidance, holds and navigation. Its key: a
+  version constant (`CACHE_VERSION`, bumped when code outside `SOURCES` changes the data), the source text of the files
+  that build it (`city.rs`, `level.rs`, `nav.rs`, `beam_pairs.rs`, forge's parsers it uses), the city, the env switches
+  that change the build (`AC1_COLLISION`, `AC1_GEOMETRY_HOLDS`, `AC1_PAIRED_BEAMS`, `AC1_NO_LIPS`, `AC1_POSE_PROPS`: each
+  set of values its own file), and the size and modification time of the forges read. A file with another key, cut
+  short, with a bad checksum or a count running past its end is not used (the city is built and the file rewritten);
+  files are written whole and renamed into place (scenario games load the city side by side). `AC1_NO_CACHE=1` and the
+  switches whose output comes from the build itself (`AC1_SHOW_COLLISION`, `AC1_COLLISION_SWEEP`, `AC1_MESHES_AT`,
+  `AC1_PROP_STATS`) leave it alone.
+- The navigation graph's links were made in a hash map's order, and which border edges were joined changed from run to
+  run (22 links of Damascus' 300,535 triangles); they are made in the edges' order now, each triangle's sorted.
+- Equivalence: `AC1_CACHE_CHECK=1` builds the city anyway and compares its bytes with the cache file and with itself
+  read back; `AC1_SCENARIOS=1 cargo test --release -p ac1 --test level_cache` does it for Damascus and Masyaf in fresh
+  directories (a build, a second build against the first's file, a load from it).
+
+| City (2026-10-13, a loaded machine: other builds and scenario runs beside it) | Before | After, first load | After, cached |
+|---|---|---|---|
+| Damascus headless (process, launch to exit) | 55.6 s | 32.0 s (city ready 25.5 s) | 6.1 s (city 1.1 s) |
+| Masyaf headless | 22.4 s | 17.4 s (city 6.6 s) | 10.8 s (city 0.7 s) |
+| Damascus windowed, to the first frame | 87.3 s | 73.1 s | 27.4 s |
+| Masyaf windowed, to the first frame | 28.7 s | 32.4 s | 18.1 s |
+
+On a quieter machine (earlier the same day): Damascus headless city 32 s before, 13.4 s first load, 0.5 s cached;
+windowed 46 s to the first frame before, 16.4 s cached (the city's drawn part 11.6 s: reading 3.5 s, levels of detail and
+Game Fix 2.3 s, placing 3.4 s, the render store 2.1 s). What is left of a cached load is the drawn city (its meshes and
+textures are still read and placed from the game's files: caching the render store is open) and Altaïr's and the clip
+library's load (1.7-4 s). Scenarios (2 games at a time, the same loaded machine): the 22 Damascus ones 100 s with the cache in
+place against 119 s from an empty one (only the first two build; report #13's scenario sets `AC1_NO_CACHE`, as it checks
+the build's own log); the whole suite 140/140 either way (435 s, 446 s): most of it is the test level and the runs
+themselves.
 
 ## Graphics settings and online play (the F8 and F10 menus)
 Both menus are drawn as the F2 map menu (`menu.rs`): Up / Down pick a row, Left / Right (or a click, the right button

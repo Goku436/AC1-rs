@@ -30,6 +30,11 @@ Full format notes and status table are in `docs/NOTES.md` (the README is the sho
 
 ## Commands
 - Run: `cargo run -p ac1` (`AC1_GAME_DIR` overrides the install path; `AC1_LEVEL=masyaf` / `damascus` loads a city)
+- City cache: a city's gameplay data (collision, holds, guidance, beams, objects, navigation) is saved after its first load
+  to `ac1-cache/` beside the executable (`crates/game/src/level_cache.rs`; `AC1_NO_CACHE=1` bypasses it, `AC1_CACHE_CHECK=1`
+  compares a fresh build with it, `AC1_SCENARIOS=1 cargo test --release -p ac1 --test level_cache` checks both cities). Its key
+  covers the game files and the source of the files that build the data; bump `level_cache::CACHE_VERSION` whenever code
+  outside its `SOURCES` list changes what a city's gameplay data holds, or `Level` gains a field (`write_level` names them all)
 - List an archive: `cargo run --release -p forge --bin forge -- list "<game>/DataPC_Masyaf.forge"`
 - Class histogram: `cargo run --release -p forge --bin catalog -- "<game>"` (class ids are CRC32 of class names; it names them from the game's exe, see docs/NOTES.md "Class names")
 - Check before finishing: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`

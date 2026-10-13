@@ -1265,6 +1265,8 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_HIGH", "0-5"),
             ("AC1_LEGS", "0-5"),
             ("AC1_PATH", "225.37,-15.75;225.6,-18.2;226.3,-19.4;227.5,-20.6"),
+            // (The city built, not read from the level cache: the undrawn count is the build's log.)
+            ("AC1_NO_CACHE", "1"),
         ],
         secs: 3.0,
         want: &["0 entities collided with and none of their meshes drawn", "via xx_h_wallingfront_entry_footl_a at [226."],

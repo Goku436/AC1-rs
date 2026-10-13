@@ -92,22 +92,25 @@ fn shared_datas(game_dir: &Path, forge_file: &str, city: &[Vec<u8>]) -> Result<V
         let ids_in = |b: &[u8], classes: &[u32]| -> Vec<u32> {
             (0..b.len().saturating_sub(3)).map(|k| u32_at(b, k)).filter(|id| class_of.get(id).is_some_and(|c| classes.contains(c))).collect()
         };
-        let mut queue: Vec<u32> = objects
-            .iter()
-            .filter(|o| o.class == CLASS_ENTITY || o.class == CLASS_ENTITY_GROUP)
-            .flat_map(|o| ids_in(o.body, &[&[CLASS_MESH, CLASS_MATERIAL][..], &shapes].concat()))
-            .collect();
-        let mut kept: HashMap<String, Vec<u8>> = HashMap::new();
+        // (The entities scanned on all cores.)
+        let entities: Vec<&Object> = objects.iter().filter(|o| o.class == CLASS_ENTITY || o.class == CLASS_ENTITY_GROUP).collect();
+        let first = [&[CLASS_MESH, CLASS_MATERIAL][..], &shapes].concat();
+        let mut queue: Vec<u32> = crate::level::par_map(&entities, |o| ids_in(o.body, &first)).into_iter().flatten().collect();
+        // (By name: the same order every load, whichever object led to which file first.)
+        let mut kept: std::collections::BTreeMap<String, Vec<u8>> = std::collections::BTreeMap::new();
         // Per data file: each object's body as a range of it.
         let mut places: HashMap<String, HashMap<u32, std::ops::Range<usize>>> = HashMap::new();
-        while let Some(id) = queue.pop() {
-            if !seen.insert(id) {
-                continue;
-            }
-            let file = idx.objects[&id].datafile.clone();
-            if !kept.contains_key(&file) {
-                let Some(e) = forge.entries.iter().find(|e| e.name == file) else { continue };
-                let data = forge.read(e)?;
+        // In waves: the ids found so far, the data files they are in read together on all cores (one by one, the 251
+        // Damascus takes from the shared forge took seconds), then what those ids refer to.
+        while !queue.is_empty() {
+            let wave: Vec<u32> = queue.drain(..).filter(|id| seen.insert(*id)).collect();
+            let mut files: Vec<&str> =
+                wave.iter().filter_map(|id| idx.objects.get(id)).map(|p| p.datafile.as_str()).filter(|f| !kept.contains_key(*f)).collect();
+            files.sort_unstable();
+            files.dedup();
+            let entries: Vec<&forge::Entry> = files.iter().filter_map(|f| forge.entries.iter().find(|e| e.name == *f)).collect();
+            for (e, data) in entries.iter().zip(read_each(&forge, &entries)) {
+                let data = data?;
                 let base = data.as_ptr() as usize;
                 let ranges = forge::parse_objects(&data)
                     .unwrap_or_default()
@@ -117,11 +120,14 @@ fn shared_datas(game_dir: &Path, forge_file: &str, city: &[Vec<u8>]) -> Result<V
                         (o.id, start..start + o.body.len())
                     })
                     .collect();
-                places.insert(file.clone(), ranges);
-                kept.insert(file.clone(), data);
+                places.insert(e.name.clone(), ranges);
+                kept.insert(e.name.clone(), data);
             }
-            if let Some(r) = places.get(&file).and_then(|m| m.get(&id)) {
-                queue.extend(ids_in(&kept[&file][r.clone()], &[CLASS_MATERIAL, CLASS_TEXTURE_SET, CLASS_MAP_SPEC, CLASS_TEXTURE]));
+            for id in wave {
+                let Some(file) = idx.objects.get(&id).map(|p| &p.datafile) else { continue };
+                if let Some(r) = places.get(file).and_then(|m| m.get(&id)) {
+                    queue.extend(ids_in(&kept[file][r.clone()], &[CLASS_MATERIAL, CLASS_TEXTURE_SET, CLASS_MAP_SPEC, CLASS_TEXTURE]));
+                }
             }
         }
         info!("city: {} data files from {name}", kept.len());
@@ -132,12 +138,16 @@ fn shared_datas(game_dir: &Path, forge_file: &str, city: &[Vec<u8>]) -> Result<V
 
 /// Data files read and decompressed on all cores, in their order (Damascus' 1,387 took 7.5 s on one).
 fn read_all(forge: &forge::Forge, entries: &[&forge::Entry]) -> Vec<Vec<u8>> {
+    read_each(forge, entries).into_iter().map(|d| d.unwrap_or_default()).collect()
+}
+
+/// `read_all`, each file's error kept. (Every entry gets its result: a thread that fails leaves its files' errors.)
+fn read_each(forge: &forge::Forge, entries: &[&forge::Entry]) -> Vec<Result<Vec<u8>>> {
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let chunk = entries.len().div_ceil(threads).max(1);
     std::thread::scope(|sc| {
-        let jobs: Vec<_> =
-            entries.chunks(chunk).map(|part| sc.spawn(move || part.iter().map(|e| forge.read(e).unwrap_or_default()).collect::<Vec<_>>())).collect();
-        jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
+        let jobs: Vec<_> = entries.chunks(chunk).map(|part| (part.len(), sc.spawn(move || part.iter().map(|e| forge.read(e)).collect::<Vec<_>>()))).collect();
+        jobs.into_iter().flat_map(|(n, j)| j.join().unwrap_or_else(|_| (0..n).map(|_| Err(anyhow::anyhow!("a reading thread failed"))).collect())).collect()
     })
 }
 
@@ -579,11 +589,13 @@ pub fn spawn_city(
 }
 
 /// How a city is drawn: `bc`, its textures stay block-compressed on the GPU; `render`, it is drawn at all (not
-/// headless).
+/// headless); `gameplay`, its gameplay data is built too (collision shapes, guidance, holds and lips, navigation; off
+/// when the level cache holds them, `level_cache`).
 #[derive(Clone, Copy)]
 pub struct RenderOpts {
     pub bc: bool,
     pub render: bool,
+    pub gameplay: bool,
 }
 
 /// A prop taken from a city to place elsewhere: its entity's name, where it goes (Bevy, Y up) and its turn
@@ -668,6 +680,18 @@ fn spawn_world(
 ) -> Result<Vec3> {
     let bc = opts.bc;
     let t0 = std::time::Instant::now();
+    // (The time of each phase, `load: ...`; only for a city, not the picked props.)
+    let mut lap = crate::level_cache::Lap::start();
+    let mut lap = |what: &str| {
+        if picks.is_none() {
+            lap.lap(what);
+        }
+    };
+    // (DataPC's Game Fix, read on a thread of its own meanwhile, when drawn.)
+    let fix_file = opts.render.then(|| {
+        let dir = game_dir.to_path_buf();
+        std::thread::spawn(move || game_fix(&dir))
+    });
     let forge = forge::Forge::open(game_dir.join(forge_file)).with_context(|| format!("open {forge_file}"))?;
     let mut datas: Vec<Vec<u8>> = match picks {
         Some(p) => {
@@ -676,24 +700,27 @@ fn spawn_world(
         }
         None => read_all(&forge, &forge.entries.iter().collect::<Vec<_>>()),
     };
+    lap("read the city's data files");
     let shared = shared_datas(game_dir, forge_file, &datas).unwrap_or_else(|e| {
         warn!("city: shared props not loaded: {e:#}");
         vec![]
     });
     let shared_files = shared.len();
     datas.extend(shared);
+    lap("read the shared props' data files");
     let objects: Vec<Vec<Object>> = datas.iter().map(|d| forge::parse_objects(d).unwrap_or_default()).collect();
     let mut index = Index::default();
     for o in objects.iter().flatten() {
         index.entry(o.id).or_insert(o);
     }
+    lap("objects indexed");
     // Drawn only: the shared forge's data files holding the levels of detail of the shared props (their `LODSelector`s,
     // `_LOD_*` meshes and those meshes' materials), in an index of their own over the gameplay one (which stays as it
     // is). Not when nothing is drawn (headless) or for picked props (drawn at full detail).
     let lod_files = if opts.render && picks.is_none() { lod_datas(game_dir, &objects, &index) } else { vec![] };
     let lod_objects: Vec<Vec<Object>> = lod_files.iter().map(|d| forge::parse_objects(d).unwrap_or_default()).collect();
     // (And DataPC's "Game Fix" for its textures: the water's normal map is kept there.)
-    let fix_file = if opts.render { game_fix(game_dir) } else { vec![] };
+    let fix_file = fix_file.and_then(|j| j.join().ok()).unwrap_or_default();
     let fix_objects = forge::parse_objects(&fix_file).unwrap_or_default();
     // (Headless: none, nothing is drawn.)
     let mut rindex = if opts.render { index.clone() } else { Index::default() };
@@ -702,6 +729,9 @@ fn spawn_world(
     }
     for o in fix_objects.iter().filter(|o| matches!(o.class, forge::CLASS_TEXTURE | CLASS_MAP_SPEC | CLASS_TEXTURE_SET)) {
         rindex.entry(o.id).or_insert(o);
+    }
+    if opts.render {
+        lap("levels of detail, Game Fix (drawn)");
     }
     // Material -> texture set -> diffuse map spec -> texture; layered ("Multi") materials have no
     // plain diffuse spec, so then the first map spec with a texture.
@@ -909,6 +939,9 @@ fn spawn_world(
     let mut tops: HashMap<usize, f32> = HashMap::new();
     // What happens to each placed mesh, by its kind (`PropStats`).
     let mut stats = PropStats::default();
+    // (What each placement refers to, scanned on all cores first: every byte offset of every entity looked up, a second
+    // of the Damascus load on one.)
+    let all_refs_of: Vec<Vec<(usize, &Object)>> = crate::level::par_map(&placements, |&(id, body)| refs_all(&index, body, id));
     for (pi, &(ent_id, body)) in placements.iter().enumerate() {
         let picked = moved.get(pi).copied().flatten();
         let Some(mut m) = picked.map(|x| x.0).or_else(|| transform(body)) else { continue };
@@ -920,10 +953,12 @@ fn spawn_world(
         let tris_before = level.tris.len();
         let world = to_bevy * m;
         // (What it refers to, scanned once, by class after.)
-        let all_refs = refs_all(&index, body, ent_id);
+        let all_refs = &all_refs_of[pi];
         let refs_of = |class: u32| all_refs.iter().filter(|(_, r)| r.class == class).copied().collect::<Vec<_>>();
         // AC1's authored climbing markup on this entity (`forge::guidance`): its enabled edges, in the world.
-        for g in forge::guidance::find_in_entity(body).into_iter().flatten().filter(|g| g.active) {
+        // (Not when the gameplay data is the level cache's.)
+        let guides = if opts.gameplay { forge::guidance::find_in_entity(body) } else { vec![] };
+        for g in guides.into_iter().flatten().filter(|g| g.active) {
             // (Its source, for the grab data's audit: the group or entity, and the entity's first mesh.)
             let src = {
                 let owner = group_of.get(&ent_id).copied().or_else(|| index.get(&ent_id).map(|o| o.name.as_str())).unwrap_or("-");
@@ -967,6 +1002,10 @@ fn spawn_world(
                 continue;
             };
             has_shape = true;
+            // (Its triangles not made when the gameplay data is the level cache's.)
+            if !opts.gameplay {
+                continue;
+            }
             if !forge::shape::stops_player(rb.layer) || !blocks_player(&so.name) {
                 debug!(
                     "city: left out shape {} ({}) at {:.1}",
@@ -1171,7 +1210,7 @@ fn spawn_world(
                         faces.push((tri, if n.dot(vn) < 0.0 { -n } else { n }));
                     }
                 }
-                let holds = has_holds(&mesh.name) && solid(&mesh.name);
+                let holds = opts.gameplay && has_holds(&mesh.name) && solid(&mesh.name);
                 let ledges = if holds { edge_ledges(&faces) } else { vec![] };
                 let lips = if holds { lip_candidates(&faces) } else { vec![] };
                 Some((subs, tris, ledges, lips))
@@ -1292,6 +1331,7 @@ fn spawn_world(
             }
         }
     }
+    lap("entities placed");
     info!("city {forge_file}: {} hay and hiding places by their component ({} with no mesh named for one), {} by mesh name only", marked.0, marked.1, marked.2);
     info!("city {forge_file}: {undrawn} entities collided with and none of their meshes drawn");
     stats.log(forge_file);
@@ -1336,10 +1376,11 @@ fn spawn_world(
         info!("city {forge_file}: detail {detail:?}");
         let render = crate::stream::CityRender::new(store, bank.list.clone(), bank.layers.clone(), detail, commands, meshes);
         commands.insert_resource(render);
+        lap("render store (drawn)");
     }
     // Navigation meshes: every cell's walkable triangles (already in world space).
     let mut nav_tris = vec![];
-    for o in objects.iter().flatten().filter(|o| o.class == forge::navmesh::CLASS_NAV_MESH_MANAGER) {
+    for o in objects.iter().flatten().filter(|o| opts.gameplay && o.class == forge::navmesh::CLASS_NAV_MESH_MANAGER) {
         match forge::navmesh::parse_nav_mesh(o.body) {
             Ok(pieces) => {
                 for p in pieces {
@@ -1354,6 +1395,7 @@ fn spawn_world(
         let g = crate::nav::NavGraph::new(nav_tris);
         info!("city {forge_file}: navigation mesh of {} triangles", g.len());
         level.nav = Some(g);
+        lap("navigation mesh");
     }
     // Viewpoints: on each viewpoint structure, the highest beam or post end within reach of it (where one
     // stands to synchronize), else the structure itself.
@@ -1397,14 +1439,12 @@ fn lod_datas(game_dir: &Path, objects: &[Vec<Object>], index: &Index) -> Vec<Vec
             .filter(|id| !index.contains_key(id) && class_of.get(id).is_some_and(|c| classes.contains(c)))
             .collect()
     };
-    let mut queue: Vec<u32> = objects
-        .iter()
-        .flatten()
-        .filter(|o| o.class == CLASS_ENTITY || o.class == CLASS_ENTITY_GROUP)
-        .flat_map(|o| ids_in(o.body, &[CLASS_LOD_SELECTOR]))
-        .collect();
+    // (The entities scanned on all cores: 1.5 s of the Damascus load on one.)
+    let entities: Vec<&Object> = objects.iter().flatten().filter(|o| o.class == CLASS_ENTITY || o.class == CLASS_ENTITY_GROUP).collect();
+    let mut queue: Vec<u32> = crate::level::par_map(&entities, |o| ids_in(o.body, &[CLASS_LOD_SELECTOR])).into_iter().flatten().collect();
     let mut seen = std::collections::HashSet::new();
-    let mut kept: HashMap<String, Vec<u8>> = HashMap::new();
+    // (By name: the same order every load.)
+    let mut kept: std::collections::BTreeMap<String, Vec<u8>> = std::collections::BTreeMap::new();
     let mut places: HashMap<String, HashMap<u32, std::ops::Range<usize>>> = HashMap::new();
     while let Some(id) = queue.pop() {
         if !seen.insert(id) {
