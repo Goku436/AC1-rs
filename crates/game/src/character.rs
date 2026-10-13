@@ -86,12 +86,19 @@ struct Bones {
     /// The middle finger's knuckle (`<side>HandMiddle1`): what AC1's hand effector puts on the hold (HumanIK's hand
     /// effectors via `IKRig__EffectorToHIK` 0x4FA910, Banned445's port; audit ANIM-11).
     knuckles: [Option<usize>; 2],
+    /// The toes (the foot's child): what AC1's foot effector puts on a foot hold.
+    toes: [Option<usize>; 2],
 }
 
 impl Bones {
     fn find(rig: &Rig) -> Option<Bones> {
         let f = |n: &str| rig.find(n);
         let leg = |s: &str| Some(LegBones { upper: f(&format!("{s}UpLeg"))?, lower: f(&format!("{s}Leg"))?, foot: f(&format!("{s}Foot"))? });
+        let toe = |s: &str| {
+            let foot = f(&format!("{s}Foot"))?;
+            let kids: Vec<usize> = (0..rig.len()).filter(|&k| rig.parents[k] == Some(foot)).collect();
+            kids.iter().copied().find(|&k| rig.names[k].as_deref().is_some_and(|n| n.contains("Toe"))).or(kids.first().copied())
+        };
         Some(Bones {
             hips: f("Hips")?,
             spine: [f("Spine")?, f("Spine1")?, f("Spine2")?],
@@ -101,6 +108,7 @@ impl Bones {
             arms: [Arm::from_rig(rig, "Left")?, Arm::from_rig(rig, "Right")?],
             clavicles: [f("LeftClavicle")?, f("RightClavicle")?],
             knuckles: [f("LeftHandMiddle1"), f("RightHandMiddle1")],
+            toes: [toe("Left"), toe("Right")],
         })
     }
 }
@@ -197,6 +205,9 @@ pub struct Character {
     pub wall_hand_w: [f32; 2],
     /// Each climbing foot's pull onto the wall (0..1), changed at most `HAND_IK_RATE` a second.
     pub wall_foot_w: [f32; 2],
+    /// Each climbing limb's goal moved from the hold it finds itself onto the stance's (`WallClimb::limb_goal`; left hand,
+    /// right hand, left foot, right foot), eased at `STANCE_GOAL_RATE`.
+    pub wall_goal_off: [Vec3; 4],
     /// How long (s) he has stood still on the ground (AC1 looks down over an edge after `LOOK_DOWN_STILL`).
     pub still_t: f32,
     /// How long (s) he has been moving on the ground since he stood still or came down from a move: a jump sooner than
@@ -543,6 +554,7 @@ pub fn spawn_character(
         flying: false,
         gait: Default::default(),
         wall_feet: [None; 2],
+        wall_goal_off: [Vec3::ZERO; 4],
         wall_hand_w: [0.0; 2],
         wall_foot_w: [0.0; 2],
         still_t: 0.0,
@@ -970,6 +982,10 @@ const STAND_FADE_SPEED: f32 = 0.5;
 const STAND_FADE: f32 = 0.3;
 /// Climbing feet follow the wall's distance at this rate (1/s).
 const WALL_FOOT_RATE: f32 = 12.0;
+/// A climbing limb's goal moves onto the stance's, and back off it, this fast (m/s); a stance goal further than this from
+/// where the limb finds its own (m) is not on its hold.
+const STANCE_GOAL_RATE: f32 = 0.6;
+const STANCE_GOAL_REACH: f32 = 0.4;
 /// The capsule moves in steps no longer than this (m).
 const CAPSULE_STEP: f32 = 0.15;
 
@@ -2312,7 +2328,17 @@ pub fn animate(
                     _ => 0.0,
                 };
                 ch.wall_hand_w[i] = limb_weight(ch.wall_hand_w[i], want, contacts.is_some(), dt);
-                if let Some((target, _)) = held {
+                // In the climbing stance the hand goes onto the stance's goal on its hold (AC1's grid cell: both hands on
+                // one point in the 1m poses), moved there from the point nearest the wrist, and back, at
+                // `STANCE_GOAL_RATE`. (A goal further than `STANCE_GOAL_REACH` is not on this hold.)
+                let out = ch.wall_hand_t[i].as_ref().filter(|_| grip.is_none()).map_or(n, |l| l.out);
+                let hold = held.map(|(target, _)| crate::climb::grip_hold(target, out));
+                let off = match (hold, w.limb_goal(i).filter(|_| grip.is_none())) {
+                    (Some(h), Some(g)) if g.distance(h) < STANCE_GOAL_REACH => g - h,
+                    _ => Vec3::ZERO,
+                };
+                ch.wall_goal_off[i] += (off - ch.wall_goal_off[i]).clamp_length_max(STANCE_GOAL_RATE * dt);
+                if let Some(hold) = hold.map(|h| h + ch.wall_goal_off[i]) {
                     let wgt = ch.wall_hand_w[i];
                     if wgt > 0.0 {
                         // (AC1's hand effector is the middle finger's knuckle, put on the hold point itself: the wrist
@@ -2320,14 +2346,11 @@ pub fn animate(
                         // Round a corner its targets are laid between the two faces' holds, by the wall's normal as it
                         // turns.)
                         let target = match b.knuckles[i] {
-                            Some(k) => {
-                                let knuckle = world_from_model.transform_point3(pose.model_of(rig, k).pos);
-                                let out = ch.wall_hand_t[i].as_ref().filter(|_| grip.is_none()).map_or(n, |l| l.out);
-                                crate::climb::grip_hold(target, out) - (knuckle - wrist)
-                            }
-                            None => target,
+                            Some(k) => hold - (world_from_model.transform_point3(pose.model_of(rig, k).pos) - wrist),
+                            None => crate::climb::grip_target(hold, out),
                         };
-                        ch.debug_targets.push((target, Color::srgb(0.95, 0.75, 0.2)));
+                        // (Logged as the hold point the knuckle goes to, as ac1-hook logs AC1's goals.)
+                        ch.debug_targets.push((if b.knuckles[i].is_some() { hold } else { target }, Color::srgb(0.95, 0.75, 0.2)));
                         let elbow = pose.model_of(rig, arm.lower).pos;
                         let pole = elbow + Vec3::new(-0.3, 0.0, -0.3);
                         two_bone_ik(&mut pose, rig, arm.upper, arm.lower, arm.hand, to_model(target), Some(pole), None, smooth(wgt) * ww);
@@ -2362,10 +2385,18 @@ pub fn animate(
                     ch.wall_feet[i] = None;
                     continue;
                 }
+                // In the climbing stance the toe goes onto the stance's goal on the foot's hold (AC1's foot effector on its
+                // grid cell's hold: both feet on one point in the 1m poses, the ankle 0.17 m off it), moved there from the
+                // wall's face and back at `STANCE_GOAL_RATE`. [ours: off a stance's holds the ankle stays `0.11` m off the
+                // face.]
+                let toe = b.toes[i].map(|k| world_from_model.transform_point3(pose.model_of(rig, k).pos));
+                let goal = w.limb_goal(2 + i).zip(toe);
+                let off = goal.map(|(g, toe)| g - (toe - ankle) - (ankle - n * d)).filter(|o| o.length() < STANCE_GOAL_REACH).unwrap_or(Vec3::ZERO);
+                ch.wall_goal_off[2 + i] += (off - ch.wall_goal_off[2 + i]).clamp_length_max(STANCE_GOAL_RATE * dt);
                 let wgt = 0.8 * ch.wall_foot_w[i];
                 if wgt > 0.0 {
-                    let t = ankle - n * d;
-                    ch.debug_targets.push((t, Color::srgb(0.2, 0.9, 0.3)));
+                    let t = ankle - n * d + ch.wall_goal_off[2 + i];
+                    ch.debug_targets.push((goal.map_or(t, |(g, _)| g), Color::srgb(0.2, 0.9, 0.3)));
                     let knee = pose.model_of(rig, leg.lower).pos;
                     two_bone_ik(
                         &mut pose,
@@ -2385,6 +2416,7 @@ pub fn animate(
             ch.wall_hand_w = [0.0; 2];
             ch.wall_hand_t = [None; 2];
             ch.wall_foot_w = [0.0; 2];
+            ch.wall_goal_off = [Vec3::ZERO; 4];
         }
 
         // --- Animated: AC1 clip + foot placement onto the level, standing still only (AC1's `IKGroundBiped` 0x432AC0: at

@@ -415,6 +415,8 @@ const VAULT_STANDING_SPEED: f32 = 1.9;
 const VAULT_STEP_IN: f32 = 0.4;
 /// The climbing stance's root rests this far out from its holds (m).
 const CLIMB_ROOT_OUT: f32 = 0.5;
+/// The body's pitch in the climbing stance (`WallClimb::tilt`) turns over at least this long (s).
+const TILT_MIN_SPAN: f32 = 0.2;
 /// The pull-down's wall hang: its root this far out from where the clips put it on the holds, and down (m).
 const PULL_DOWN_HANG: (f32, f32) = (HANG_OUT - 0.122, HANG_DOWN - 0.027);
 /// A wall hang's root rests this far out from the wall's face at its own height (m), eased there this fast (m/s).
@@ -468,6 +470,8 @@ const HOLD_TOLERANCE_UP: f32 = 0.35;
 const GRID_ALONG: f32 = 0.375;
 const GRID_UP: f32 = 0.3;
 const GRID_DEPTH: f32 = 1.0;
+/// AC1's grid columns are this wide (m, `GridTileWidth`).
+const GRID_COL: f32 = 0.75;
 /// A plain move's hand that goes up or down more than this (m) must change holds (half AC1's 0.6 m row).
 const GRID_ROW_MIN: f32 = 0.3;
 /// Room the body needs beside it climbing sideways (m), to its side's wall.
@@ -1207,6 +1211,20 @@ pub struct WallClimb {
     shown: Option<Shown>,
     prev_shown: Option<Shown>,
     last: Option<Pose>,
+    /// The climbing stance's root from its four holds (AC1's `sub_B1CC20`, `climb_frame`), where the move into it ends and
+    /// the stance at rest is held; `None` outside a stance or where its holds were not all found.
+    stance_root: Option<Vec3>,
+    /// The stance's limb goals (left hand, right hand, left foot, right foot): each limb's hold where AC1's grid cell for it
+    /// meets the hold (`stance_goals`), held at rest; through the next move each limb keeps its old goal until its clip
+    /// lets it go (`held_goals`, `released`: AC1's limb IK keeps a contact's goal until the contact track releases it).
+    stance_goals: Option<[Vec3; 4]>,
+    held_goals: Option<[Vec3; 4]>,
+    released: [bool; 4],
+    /// The body pitched about the root (rad, the top toward the wall), as AC1's climbing root frame tilts with a wall whose
+    /// holds lean (`climb_frame`'s facing); turned to `tilt_to` at `tilt_rate` (rad/s) over the move.
+    tilt: f32,
+    tilt_to: f32,
+    tilt_rate: f32,
     /// Last vertical choice, so up/down alternates hands.
     last_hand_up: usize,
     /// Let go once the current move ends.
@@ -1627,6 +1645,95 @@ fn face_turn(level: &Level, targets: &[Vec3; 2], normal: Vec3) -> Option<Quat> {
 /// Both hands' holds in AC1's probe box (`hold_in_box`).
 fn holds_in_box(level: &Level, hands: &[Vec3; 2], normal: Vec3) -> Option<[Vec3; 2]> {
     Some([hold_in_box(level, hands[0], normal)?, hold_in_box(level, hands[1], normal)?])
+}
+
+/// The hold a grip target (`grip_target`) is on: the point on its line, and the line.
+fn hold_of(level: &Level, target: Vec3, normal: Vec3) -> Option<(Vec3, Ledge)> {
+    level
+        .ledges
+        .iter()
+        .filter(|l| l.out.dot(normal) > 0.5)
+        .map(|l| {
+            let q = l.closest(target - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN);
+            (q, *l, grip_target(q, l.out).distance(target))
+        })
+        .filter(|h| h.2 < 0.01)
+        .min_by(|a, b| a.2.total_cmp(&b.2))
+        .map(|(q, l, _)| (q, l))
+}
+
+/// A climbing stance from its four holds: AC1's root and facing (`climb_frame`), and each limb's hold point and line, in
+/// the order left hand, right hand, left foot, right foot.
+struct StanceFrame {
+    root: Vec3,
+    forward: Vec3,
+    holds: [Vec3; 4],
+    lines: [Ledge; 4],
+}
+
+impl StanceFrame {
+    /// The stance whose hands take the holds at `hands` (grip targets, left then right): each hand's hold, and its foot's
+    /// in AC1's grid cell two rows (`FOOT_ROWS`) under it (`hold_in_box`). `None` where a foot has no hold (the ground
+    /// under it).
+    fn find(level: &Level, hands: &[Vec3; 2], normal: Vec3) -> Option<Self> {
+        let foot = |h: Vec3| hold_in_box(level, h - Vec3::Y * FOOT_ROWS, normal).and_then(|t| hold_of(level, t, normal));
+        let all = [hold_of(level, hands[0], normal)?, hold_of(level, hands[1], normal)?, foot(hands[0])?, foot(hands[1])?];
+        let (root, forward) = climb_frame(all.map(|h| h.0), all.map(|h| h.1.out.with_y(0.0).normalize_or(normal)))?;
+        Some(StanceFrame { root, forward, holds: all.map(|h| h.0), lines: all.map(|h| h.1) })
+    }
+
+    /// The limbs' IK goals with the root at `at`, in climbing pose `pose` (`climb_table::POSES`): where each limb's grid
+    /// cell meets its hold. AC1's grid is built round the root, its columns `GRID_COL` wide: in the poses with the hands in
+    /// one column (1m, 1lu, 1ru) both hands' cells, and both feet's, are the column over the root, the hands (and feet) on
+    /// one point (the running game's goals on the bureau's wall: both hands' at the same point straight over the root);
+    /// in the others (2m, 2lu, 2ru) the columns either side of it.
+    fn goals(&self, at: Vec3, pose: usize) -> [Vec3; 4] {
+        let right = self.forward.cross(Vec3::Y).normalize_or_zero();
+        std::array::from_fn(|k| {
+            let x = if pose >= 3 { GRID_COL * if k % 2 == 0 { -0.5 } else { 0.5 } } else { 0.0 };
+            let q = self.holds[k];
+            self.lines[k].closest(q + right * (at + right * x - q).dot(right))
+        })
+    }
+}
+
+/// AC1's climbing root from its four holds (`sub_B1CC20`, called by `ComputeRootFromMove` 0xDEC6E0; the rule as
+/// Banned445's port `climb_pose` reads it, checked against the running game's live log to the millimetre): holds and
+/// their outward normals in the order left hand, right hand, left foot, right foot. The facing into the wall is the mean
+/// of the holds' normals pitched as the line from each hand's hold to its foot's leans (a hold row further in above the
+/// feet pitches the top toward the wall), turned to the rows' own normals as the hands or feet spread past 0.25 m; the
+/// root is `CLIMB_ROOT_OUT` back from the feet's middle along it, on the lower foot's plane, and half the hands' offset
+/// from the feet to the side. (Root, facing.)
+fn climb_frame(holds: [Vec3; 4], normals: [Vec3; 4]) -> Option<(Vec3, Vec3)> {
+    let [hl, hr, fl, fr] = holds;
+    let [nhl, nhr, nfl, nfr] = normals;
+    let spread = |s: f32| ((s - 0.25) * 2.0).clamp(0.0, 1.0);
+    let (sf, sh) = ((fl - fr).with_y(0.0).length(), (hl - hr).with_y(0.0).length());
+    // `n` made square to the line a -> b (`n` itself where they meet).
+    let square = |a: Vec3, b: Vec3, n: Vec3| {
+        let d = b - a;
+        if d.abs().max_element() <= 0.0005 { n } else { (n * d.length_squared() - d * d.dot(n)).normalize_or_zero() }
+    };
+    let rows = square(hl, hr, nhl) * (0.5 * spread(sf)) + square(fl, fr, nfl) * (0.5 * spread(sh));
+    let mut side = ((square(hl, fl, nhl) + square(hr, fr, nhr)) * 0.5).normalize_or_zero();
+    if rows.abs().max_element() > 0.0005 {
+        let angle = side.y.clamp(-1.0, 1.0).acos();
+        let dir = rows.with_y(0.0).normalize_or_zero();
+        side = (Vec3::Y * angle.cos() + dir * angle.sin()).normalize_or_zero();
+    }
+    let mut mean = -(nhl + nhr + nfl + nfr) * 0.25;
+    mean.y = -side.y;
+    let t = spread(sf.max(sh));
+    let forward = (mean * (1.0 - t) - side * t).try_normalize()?;
+    let right = forward.cross(Vec3::Y).try_normalize()?;
+    let up = right.cross(forward).normalize_or_zero();
+    let base = (fl + fr) * 0.5 - forward * CLIMB_ROOT_OUT;
+    let lower = if fr.y <= fl.y { fr } else { fl } - forward * CLIMB_ROOT_OUT;
+    let p = base - up * (base - lower).dot(up);
+    let x = |q: Vec3| (q - p).dot(right);
+    let feet = (x(fl) + x(fr)) * 0.5;
+    let off = (((x(hl) + x(hr)) * 0.5 + feet) * 0.5 - feet).max(x(fl) - 0.1).min(x(fr) + 0.1);
+    Some((p + right * off, forward))
 }
 
 fn holds_within(level: &Level, hands: &[Vec3; 2], normal: Vec3, reach: f32) -> Option<[Vec3; 2]> {
@@ -2713,6 +2820,13 @@ impl WallClimb {
             shown: None,
             prev_shown: None,
             last: None,
+            stance_root: None,
+            stance_goals: None,
+            held_goals: None,
+            released: [false; 4],
+            tilt: 0.0,
+            tilt_to: 0.0,
+            tilt_rate: 0.0,
             last_hand_up: 0,
             want_drop: false,
             eject_after: None,
@@ -4331,7 +4445,8 @@ impl WallClimb {
     fn climb_jump_up(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
         let n = self.normal.with_y(0.0).normalize_or_zero();
         let p = root.translation;
-        let hands = p + Vec3::Y * HANG_CORNER_UP - n * CLIMB_ROOT_OUT;
+        // (Round the hands' holds, AC1's: the stance's goals where it has them, else where they sit off the root.)
+        let hands = self.stance_goals.map_or(p + Vec3::Y * HANG_CORNER_UP - n * CLIMB_ROOT_OUT, |g| (g[0] + g[1]) * 0.5);
         let at = Vec3::new(hands.x, p.y + CLIMB_JUMP_UP, hands.z) + n * CLIMB_JUMP_OUT;
         let Some(q) = level
             .ledges
@@ -6461,6 +6576,13 @@ impl WallClimb {
         self.fade = self.last.clone().map(|p| Fade::new(p, FADE));
         self.mirrored = false;
         self.turn_path = None;
+        // (Out of the stance: upright again over this clip, unless the move sets its own stance, `take_first`.)
+        self.stance_root = None;
+        // (The goals of the stance left, kept by each limb until its clip lets go of it.)
+        self.held_goals = self.stance_goals.take();
+        self.released = [false; 4];
+        self.tilt_to = 0.0;
+        self.tilt_rate = self.tilt.abs() / clip.anim.duration.max(TILT_MIN_SPAN);
         self.mv = Some(Move {
             clip,
             t: 0.0,
@@ -7505,7 +7627,22 @@ impl WallClimb {
             } else {
                 Vec3::ZERO
             };
+            // Into the climbing stance with a hold for each foot: the root AC1 computes from the stance's four holds
+            // (`climb_frame`), where the stance settles once the move is over, and the body pitched with them over the move
+            // (on the bureau's walls, feet on a sill 0.16 m out from the hands' row, the running game's root sat 0.5 m out
+            // from the sill and 0.07 m over it, the body pitched 7.5 degrees into the wall; ours was upright and slid as
+            // deep as the nearest hold round the body). [ours: the move itself still ends where its clip puts the hands on
+            // the holds, as the climbing moves on from there were tuned (the routes round the octagonal tower's cornice,
+            // the balcony's corbels and the gauntlet's block took other ways from AC1's root, some through them).]
+            let frame = crate::climb_table::pose_of(&c.to).and_then(|p| Some((StanceFrame::find(level, &targets, normal)?, p)));
             let err = flat + keep + normal * out - Vec3::Y * down + to_hang + step + stance;
+            // (Where AC1's root stands further out than that, a hold row under the feet sticking out from the hands' (the
+            // bureau's ledge 0.2 m out under its first row), the move ends that far out: there ours' hands and feet went
+            // 0.15 m into the wall and the ledge.)
+            let err = match &frame {
+                Some((f, _)) => err + normal * (f.root - (end.pos + err)).dot(normal).max(0.0),
+                None => err,
+            };
             // Onto holds on a face at an angle to this one (an octagonal tower's next face, a round tower's ring): the body
             // turns about the hands to face them, as AC1 faces its climber along its holds' wall normals (`climb_pose`,
             // Banned445's port of the climb's root from its four holds). (Corners turn on their own.)
@@ -7549,7 +7686,23 @@ impl WallClimb {
                 }
             }
             let tos = chain_states(clips.len(), &self.state, &c.to);
+            let span: f32 = clips.iter().map(|c| c.anim.duration).sum();
             self.start_chain_turned(clips, tos, root, err, None, turn);
+            if let Some((f, pose)) = frame {
+                let at = f.root;
+                debug!(
+                    "climb: the stance's root from its holds at {at:.2}, pitched {:.1} degrees (hands {:.2} {:.2}, feet {:.2} {:.2})",
+                    (-f.forward.y).asin().to_degrees(),
+                    f.holds[0],
+                    f.holds[1],
+                    f.holds[2],
+                    f.holds[3]
+                );
+                self.stance_root = Some(at);
+                self.stance_goals = Some(f.goals(at, pose));
+                self.tilt_to = (-f.forward.y).clamp(-1.0, 1.0).asin();
+                self.tilt_rate = (self.tilt_to - self.tilt).abs() / span.max(TILT_MIN_SPAN);
+            }
             return true;
         }
         false
@@ -8309,6 +8462,15 @@ impl WallClimb {
     #[allow(clippy::too_many_arguments)]
     pub fn update(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig, input: Vec2, leap: bool, dt: f32) {
         self.legs_held = leap;
+        self.tilt += (self.tilt_to - self.tilt).clamp(-self.tilt_rate * dt, self.tilt_rate * dt);
+        // (A limb lets go of the stance's goal once its clip releases it; a clip with no contact track lets them all go.)
+        if self.held_goals.is_some() {
+            use forge::anim::contact::{LEFT_HAND, LEFT_TOE, RIGHT_HAND, RIGHT_TOE};
+            let bits = self.contacts();
+            for (k, bit) in [LEFT_HAND, RIGHT_HAND, LEFT_TOE, RIGHT_TOE].into_iter().enumerate() {
+                self.released[k] |= bits.is_none_or(|c| c & bit == 0);
+            }
+        }
         if std::mem::take(&mut self.snap_turn) {
             self.snap_takeoff(root, rig, base, cr);
         }
@@ -8788,7 +8950,14 @@ impl WallClimb {
         // In the climbing stance at rest, the root 0.5 m out from its holds' plane (AC1's `ComputeRootFromMove` 0xDEC6E0:
         // 0.5 m out from the foot holds, Banned445's port, audit CLIMB-E2; ours sat 0.08-0.25 m nearer the wall on
         // `wall1` and `street_free_east`), eased there. The holds' plane: the nearest holds round the body, facing out.
-        if crate::climb_table::pose_of(&self.state).is_some() && self.mv.is_none() {
+        // (Where the move into it found its four holds, the root AC1 computes from them, `climb_frame`: the nearest hold
+        // round the body is not one of them where a sill sticks out under the feet, and ours slid 0.2 m out on `wall1`.)
+        if crate::climb_table::pose_of(&self.state).is_some()
+            && self.mv.is_none()
+            && let Some(to) = self.stance_root
+        {
+            root.translation += (to - root.translation).clamp_length_max(HANG_SETTLE_SPEED * dt);
+        } else if crate::climb_table::pose_of(&self.state).is_some() && self.mv.is_none() {
             let n = self.normal.with_y(0.0).normalize_or_zero();
             let along = Vec3::Y.cross(n).normalize_or_zero();
             let p = root.translation;
@@ -8967,10 +9136,15 @@ impl WallClimb {
             self.prev_shown = self.shown.take();
         }
         self.shown = shown;
+        self.tilted(&mut pose, cr, rig);
         if let Some(f) = &self.fade {
             let w = f.weight();
             let from = match &f.roll {
-                Some(r) => &r.pose(base, cr, rig, mirror),
+                Some(r) => &{
+                    let mut p = r.pose(base, cr, rig, mirror);
+                    self.tilted(&mut p, cr, rig);
+                    p
+                },
                 None => &f.from,
             };
             let mut faded = from.clone();
@@ -8991,6 +9165,26 @@ impl WallClimb {
         }
         self.last = Some(pose.clone());
         pose
+    }
+
+    /// The body pitched about the root by `tilt` (the top toward the wall), as AC1's climbing root frame is
+    /// (`climb_frame`): the Reference bone turned about the model's left axis.
+    fn tilted(&self, pose: &mut Pose, cr: ClimbRig, rig: &Rig) {
+        let Some(r) = cr.reference.filter(|&r| self.tilt.abs() > 1e-4 && rig.parents[r].is_none()) else { return };
+        let q = Quat::from_rotation_y(self.tilt);
+        pose.local[r].pos = q * pose.local[r].pos;
+        pose.local[r].rot = q * pose.local[r].rot;
+    }
+
+    /// Limb `i`'s IK goal in the climbing stance (0 left hand, 1 right hand, 2 left foot, 3 right foot): the hold point
+    /// AC1's grid gives it (`StanceFrame::goals`), for the hand's knuckle or the foot's toe; at rest, and through the next
+    /// move until the limb's clip lets go of it. `None`: the limb finds its own hold.
+    pub fn limb_goal(&self, i: usize) -> Option<Vec3> {
+        let i = i.min(3);
+        match &self.mv {
+            None => self.stance_goals.map(|g| g[i]),
+            Some(_) => self.held_goals.filter(|_| !self.released[i]).map(|g| g[i]),
+        }
     }
 
     /// True while the hands hang on holds (not while pulling up over the top, turning a corner,
@@ -9033,6 +9227,26 @@ impl WallClimb {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AC1's climbing root from its four holds, against the running game's live log (2026-10-12, Damascus, facing +X):
+    /// holds in one plane put the root 0.5 m out at the feet's height; a sill 0.16 m out under the hands' row pitches it
+    /// 7.5 degrees, 0.5 m out from the sill and 0.07 m over it.
+    #[test]
+    fn climb_frame_matches_the_running_game() {
+        let out = Vec3::NEG_X;
+        let (hand, foot) = (Vec3::new(49.888, 10.642, -20.047), Vec3::new(49.893, 9.380, -20.047));
+        let (root, fwd) = climb_frame([hand, hand, foot, foot], [out; 4]).unwrap();
+        assert!(root.distance(Vec3::new(49.393, 9.378, -20.047)) < 0.01, "{root}");
+        assert!(fwd.y.abs() < 0.01);
+        let (hand, foot) = (Vec3::new(49.64, 10.33, -5.761), Vec3::new(49.483, 9.155, -5.761));
+        let (root, fwd) = climb_frame([hand, hand, foot, foot], [out; 4]).unwrap();
+        assert!(root.distance(Vec3::new(48.988, 9.221, -5.761)) < 0.01, "{root}");
+        assert!(((-fwd.y).asin().to_degrees() - 7.6).abs() < 0.3, "{fwd}");
+        // (The hands a column to the right of the feet: the root half way over, held within 0.1 m of the feet.)
+        let (root, _) =
+            climb_frame([Vec3::new(1.0, 1.2, -0.375), Vec3::new(1.0, 1.2, 0.375), Vec3::new(1.0, 0.0, -0.375), Vec3::new(1.0, 0.0, -0.375)], [out; 4]).unwrap();
+        assert!(root.distance(Vec3::new(0.5, 0.0, -0.275)) < 0.01, "{root}");
+    }
 
     #[test]
     fn lean_guard_refuses_moves_from_hands_leaning_out() {
