@@ -956,6 +956,8 @@ const SHIMMY_SWEEP_UP: f32 = 0.2;
 const SHIMMY_REACH_FREE: f32 = 0.7;
 /// A climb start from the ground reaches a wall this far in front of the root (m), running; standing, a little further.
 const CLIMB_START_REACH: f32 = 1.0;
+/// The climb start takes a hold up to this far over the feet (m) with a foot hold under it (AC1's guard 0xB2E860).
+const CLIMB_START_TOP: f32 = 2.4;
 const CLIMB_START_STILL: f32 = 1.5;
 /// A running jump into the wall hang: each hand, once their middle is on the hold aimed at, takes a hold this near it (m),
 /// else stays on the aimed line.
@@ -3076,9 +3078,19 @@ impl WallClimb {
             info!("climb: no holds on this wall");
             return None;
         };
-        if (target.y - reach.y).abs() > 0.3 || d > 0.8 {
+        // (Higher, up to `CLIMB_START_TOP` over the feet, with a hold for the feet two rows under it: AC1's climb start
+        // (its guard 0xB2E860 probes a foot hold up to 0.9 m over the feet and the hand hold 1.2 m over that, 0.3 m either
+        // way), where ours' clip reaches 1.8 m and took only 0.3 m round that.)
+        let up = target.y - reach.y;
+        let hold = grip_hold(target, normal);
+        let higher =
+            up > 0.3 && hold.y - root.translation.y <= CLIMB_START_TOP && (target - reach).with_y(0.0).length() <= 0.8 && foot_cell(level, hold, normal);
+        if !higher && (up.abs() > 0.3 || d > 0.8) {
             info!("climb: nearest hold {target} is out of reach of the jump ({reach}, {d:.2} m)");
             return None;
+        }
+        if higher {
+            debug!("climb: the climb start onto a hold {:.2} m over the feet (AC1's band, a foot hold under it)", hold.y - root.translation.y);
         }
         // Plan the start so the entry ends with the hands on that hold; ease in from where we stand.
         let mut start = target - r * centre_model;

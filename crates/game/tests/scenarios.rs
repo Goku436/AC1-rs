@@ -1824,6 +1824,17 @@ const SCENARIOS: &[Scenario] = &[
         ],
         never: &["-> fall via", "landing_damage", "EMBED"],
     },
+    // AC1's climb start (its guard 0xB2E860: a foot hold up to 0.9 m over the feet, the hand hold 1.2 m over it, 0.3 m either
+    // way) takes a first hold 2.28 m up with a hold for the feet under it; ours' clip reaches 1.8 m and took holds 0.3 m
+    // round that, and jumped at this one. (A crate in the prop zone.)
+    Scenario {
+        name: "the climb start takes a hold 2.3 m up with a foot hold under it (AC1's band), then over the top",
+        tags: &["climb"],
+        env: &[("AC1_PROPS", "1"), ("AC1_START", "28.19,-32.70,101.9,0.30"), ("AC1_CLIMB", "up=6")],
+        secs: 7.0,
+        want: &["the climb start onto a hold 2.28 m over the feet", "1m -> hangknee via"],
+        never: &["out of reach: jump to the next hold", "EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {

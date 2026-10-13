@@ -27,7 +27,7 @@
 //! Each run is a line in the TSV (`AC1_SWEEP_OUT=<file>`, default `climb-sweep.tsv`): its id, program, start (as
 //! `AC1_START`, to replay it), the classes with where and when, how it ended; then the counts by class are logged and
 //! the game exits. `AC1_SWEEP_NEAR="x,z,r"` keeps to the walls within `r` m of (x, z); `AC1_SWEEP_PROGS=up,side,..`
-//! runs only those programs; `AC1_SWEEP_SEED=k` picks another spread; `AC1_SWEEP_RECORD=dir` writes each run's frames
+//! runs only those programs; `AC1_SWEEP_SEED=k` picks another spread; `AC1_SWEEP_ENTRY="lo,hi"` the walls' first-hold band; `AC1_SWEEP_RECORD=dir` writes each run's frames
 //! (the flight recorder's lines) to `dir/<id>.txt`. Run it headless:
 //! `AC1_HEADLESS=1 AC1_LEVEL=damascus AC1_CLIMB_SWEEP=30 cargo run --release -p ac1` (docs/PARKOUR.md "The climbing
 //! sweep").
@@ -219,6 +219,12 @@ fn pick_spots(level: &Level, n: usize) -> (Spots, Spots) {
     let mut order: Vec<usize> = (0..level.ledges.len()).collect();
     order.sort_by_key(|&i| mix(i, seed));
     let (mut walls, mut edges): (Spots, Spots) = (vec![], vec![]);
+    // (`AC1_SWEEP_ENTRY="lo,hi"`: the first hold's height band instead, m over the ground.)
+    let entry = std::env::var("AC1_SWEEP_ENTRY")
+        .ok()
+        .map(|s| s.split(',').filter_map(|v| v.trim().parse().ok()).collect::<Vec<f32>>())
+        .filter(|v| v.len() == 2)
+        .map_or(ENTRY_UP, |v| (v[0], v[1]));
     for i in order {
         if walls.len() >= n && edges.len() >= n / 2 {
             break;
@@ -240,7 +246,7 @@ fn pick_spots(level: &Level, n: usize) -> (Spots, Spots) {
             let room = level.raycast(g.point + Vec3::Y * 0.1, Vec3::Y, 1.8).is_none();
             let wall = level.raycast(g.point + Vec3::Y * 1.0, -out, 0.9).is_some();
             let free = !level.inside_solid(g.point + Vec3::Y * 1.0) && level.capsule_push(g.point).length() < 0.05;
-            if (ENTRY_UP.0..ENTRY_UP.1).contains(&up) && room && wall && free && walls.iter().all(|w| w.0.distance(g.point) > SPACING) {
+            if (entry.0..entry.1).contains(&up) && room && wall && free && walls.iter().all(|w| w.0.distance(g.point) > SPACING) {
                 walls.push((g.point, out));
                 continue;
             }
