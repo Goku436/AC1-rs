@@ -248,6 +248,10 @@ impl LandInto {
 
 /// A top-out onto a floor at most this far under the grip (m): the hands hold a lip in front of it.
 const TOP_OUT_LIP: f32 = 0.45;
+/// A top-out onto a floor at most this far over the grip (m): AC1's room test (0xB2E240) leaves the first 0.35 m over
+/// the edge free to 0.3 m in, and tests nothing further in; it tests no floor. (A window cap in Damascus, recording
+/// 194384: the hold 0.31 m under the balcony floor behind it; ours turned down any top over 0.2 m.)
+const TOP_OUT_STEP_UP: f32 = 0.35;
 
 /// AC1's ground landing (`HumanInAir`): `xx_h_landing_<forward|straight>_<soft|hard>_footr_tr_<into>`, `_a` the impact and
 /// `_b` going on: forward when coming down moving, straight when dropping; into the wait on the same foot, or the walk,
@@ -952,6 +956,8 @@ const SHIMMY_SWEEP_UP: f32 = 0.2;
 const SHIMMY_REACH_FREE: f32 = 0.7;
 /// A climb start from the ground reaches a wall this far in front of the root (m), running; standing, a little further.
 const CLIMB_START_REACH: f32 = 1.0;
+/// The climb start takes a hold up to this far over the feet (m) with a foot hold under it (AC1's guard 0xB2E860).
+const CLIMB_START_TOP: f32 = 2.4;
 const CLIMB_START_STILL: f32 = 1.5;
 /// A running jump into the wall hang: each hand, once their middle is on the hold aimed at, takes a hold this near it (m),
 /// else stays on the aimed line.
@@ -1342,6 +1348,9 @@ pub struct WallClimb {
     vault_path: Option<VaultPath>,
     /// The wall hang's corner turn, followed instead of its clips' root motion (see `TurnPath`); dropped by the next move.
     turn_path: Option<TurnPath>,
+    /// A running jump's reception onto a knob (`KNOB_LEN`): the wrists' target on it, where both hands go over the reception (AC1's
+    /// limb goals are the hand contacts, both on the knob); dropped by the next move from the hang.
+    knob: Option<Vec3>,
     /// Ground velocity to hand back to locomotion when finished (running landings).
     pub exit_velocity: Vec3,
     /// Wanted world direction of travel (set by the caller; length 0..1), and sprinting.
@@ -1561,9 +1570,20 @@ pub(crate) fn climb_out_room(level: &Level, edge: Vec3, out: Vec3) -> bool {
     let side = d.cross(Vec3::Y);
     let (s, c) = 30f32.to_radians().sin_cos();
     let (tilt_d, tilt_up) = (d * c - Vec3::Y * s, d * s + Vec3::Y * c);
-    level.box_free(edge - d * 0.35 + Vec3::Y * 1.075, [side, d, Vec3::Y], Vec3::new(0.3, 0.65, 0.725))
-        && level.box_free(edge + Vec3::Y * 0.95, [side, d, Vec3::Y], Vec3::new(0.1, 0.1, 0.85))
-        && level.box_free(edge - tilt_d * 0.4, [side, tilt_d, tilt_up], Vec3::new(0.1, 0.1, 0.5))
+    let boxes = [
+        (edge - d * 0.35 + Vec3::Y * 1.075, [side, d, Vec3::Y], Vec3::new(0.3, 0.65, 0.725)),
+        (edge + Vec3::Y * 0.95, [side, d, Vec3::Y], Vec3::new(0.1, 0.1, 0.85)),
+        (edge - tilt_d * 0.4, [side, tilt_d, tilt_up], Vec3::new(0.1, 0.1, 0.5)),
+    ];
+    boxes.iter().enumerate().all(|(k, (c, axes, half))| {
+        let free = level.box_free(*c, *axes, *half);
+        if !free && why() {
+            for t in level.box_hits(*c, *axes, *half).iter().take(4) {
+                debug!("climb: climb-out room box {k} at {c:.2} meets the face {:.2} {:.2} {:.2}", t.a, t.b, t.c);
+            }
+        }
+        free
+    })
 }
 
 /// Room for a climber on ladder `l`'s side facing `out`: nothing where he stands on it (from 0.2 m to 1.8 m up), and
@@ -1578,13 +1598,26 @@ fn ladder_side_free(level: &Level, l: &Ladder, out: Vec3) -> bool {
 /// it): with the root at `root` facing `fwd` (into the wall), nothing in a box from the root up to 1 m, 0.75 m wide and
 /// 0.5 m deep round it, nor in one from 1 m up to 1.8 m, 0.3 m square. A long move to the side (`side` -1 left, +1 right)
 /// widens the first to 1.15 m, 0.05 m back from that side.
-fn climb_body_free(level: &Level, root: Vec3, fwd: Vec3, side: i32) -> bool {
+pub(crate) fn climb_body_free(level: &Level, root: Vec3, fwd: Vec3, side: i32) -> bool {
     let right = fwd.cross(Vec3::Y).normalize_or_zero();
     let axes = [right, fwd, Vec3::Y];
     let (wide, shift) = if side != 0 { (0.575, -0.05 * side as f32) } else { (0.375, 0.0) };
     level.box_free(root + Vec3::Y * 0.5 + right * shift, axes, Vec3::new(wide, 0.25, 0.5))
         && level.box_free(root + Vec3::Y * 1.4, axes, Vec3::new(0.15, 0.15, 0.4))
 }
+
+/// AC1's reach capsule (r `REACH_CAPSULE_R`, `REACH_CAPSULE_H` tall from the root) swept from `from` to `to` (roots), facing
+/// `fwd`: the box round the sweep, its rounded ends left out (`REACH_CAPSULE_R` in at the bottom and top), meets nothing.
+fn reach_sweep_free(level: &Level, from: Vec3, to: Vec3, fwd: Vec3) -> bool {
+    let right = fwd.cross(Vec3::Y).normalize_or_zero();
+    let (lo, hi) = (from.y.min(to.y) + REACH_CAPSULE_R, from.y.max(to.y) + REACH_CAPSULE_H - REACH_CAPSULE_R);
+    let mid = ((from + to) * 0.5).with_y((lo + hi) * 0.5);
+    let flat = (to - from).with_y(0.0);
+    let half = Vec3::new(REACH_CAPSULE_R + flat.dot(right).abs() * 0.5, REACH_CAPSULE_R + flat.dot(fwd).abs() * 0.5, (hi - lo) * 0.5);
+    level.box_free(mid, [right, fwd, Vec3::Y], half)
+}
+const REACH_CAPSULE_R: f32 = 0.35;
+const REACH_CAPSULE_H: f32 = 1.8;
 
 /// AC1's body boxes at a free hang (`Human__FreeHangBodyBoxesFree` 0xB2DD50, as `TrySwitchHangType` 0xDE1060 tests the
 /// switch from the wall hang into it): with the root at `root` facing `fwd` (into the wall), nothing in a box 0.75 m wide,
@@ -1846,8 +1879,17 @@ fn feet_fit_at(level: &Level, feet: &[Vec3; 2], normal: Vec3, want: Feet, hold: 
     match want {
         Feet::Wall => braced > 0,
         Feet::Free => braced == 0,
-        Feet::ToFree => hold.is_some_and(|q| feet_on_wall(level, q, normal) != (true, true)),
-        Feet::ToWall => hold.is_some_and(|q| feet_on_wall(level, q, normal) != (false, false)),
+        // (AC1's foot rays start from the hold point itself, `hold` here being where the wrists go: 0.09 m out and 0.08 m
+        // under it; from there the rays fell short of a wall a little further back, and the switch into the free hang
+        // left both feet on the wall, the sweep's `free-on-wall`.)
+        Feet::ToFree => hold.is_some_and(|q| {
+            let f = feet_on_wall(level, grip_hold(q, normal), normal);
+            if why() {
+                debug!("climb: the switch into the free hang at {:.2}: foot rays {f:?}", grip_hold(q, normal));
+            }
+            f != (true, true)
+        }),
+        Feet::ToWall => hold.is_some_and(|q| feet_on_wall(level, grip_hold(q, normal), normal) != (false, false)),
     }
 }
 
@@ -2991,6 +3033,7 @@ impl WallClimb {
             landed: None,
             vault_path: None,
             turn_path: None,
+            knob: None,
             exit_velocity: Vec3::ZERO,
             move_dir: Vec3::ZERO,
             sprint: false,
@@ -3048,9 +3091,19 @@ impl WallClimb {
             info!("climb: no holds on this wall");
             return None;
         };
-        if (target.y - reach.y).abs() > 0.3 || d > 0.8 {
+        // (Higher, up to `CLIMB_START_TOP` over the feet, with a hold for the feet two rows under it: AC1's climb start
+        // (its guard 0xB2E860 probes a foot hold up to 0.9 m over the feet and the hand hold 1.2 m over that, 0.3 m either
+        // way), where ours' clip reaches 1.8 m and took only 0.3 m round that.)
+        let up = target.y - reach.y;
+        let hold = grip_hold(target, normal);
+        let higher =
+            up > 0.3 && hold.y - root.translation.y <= CLIMB_START_TOP && (target - reach).with_y(0.0).length() <= 0.8 && foot_cell(level, hold, normal);
+        if !higher && (up.abs() > 0.3 || d > 0.8) {
             info!("climb: nearest hold {target} is out of reach of the jump ({reach}, {d:.2} m)");
             return None;
+        }
+        if higher {
+            debug!("climb: the climb start onto a hold {:.2} m over the feet (AC1's band, a foot hold under it)", hold.y - root.translation.y);
         }
         // Plan the start so the entry ends with the hands on that hold; ease in from where we stand.
         let mut start = target - r * centre_model;
@@ -3446,13 +3499,24 @@ impl WallClimb {
         if !wall_hang && footholds(level, hold, out) {
             return None;
         }
-        // (Wall under it for the feet.)
+        // (Wall under it for the feet. Not for AC1's own wall-hang target (0x40): its class has the wall under the edge
+        // already, and it flies the surface flight into the wall hang (a Damascus roof edge 0.45 m out over the facade,
+        // user report 1310993: this ray fell short of the facade, the jump flew the plain arc at the hang's root, met the
+        // wall 0.4 m under the edge and fell 2 m onto a window's frame).)
         let under = hold - Vec3::Y * 1.2 + out * 0.4;
-        level.raycast(under, -out, 0.8).filter(|h| h.normal.dot(out) > 0.7)?;
+        if !wall_hang && level.raycast(under, -out, 0.8).filter(|h| h.normal.dot(out) > 0.7).is_none() {
+            if why() {
+                debug!("climb: no running jump into the wall hang at {hold:.2}: no wall for the feet under it");
+            }
+            return None;
+        }
         let hang = hold + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG;
         let way = (hang - p).with_y(0.0);
         // (Nothing in the way at the chest before the wall.)
         if level.raycast(p + Vec3::Y * 1.2, way.normalize_or_zero(), (way.length() - 0.8).max(0.0)).is_some() {
+            if why() {
+                debug!("climb: no running jump into the wall hang at {hold:.2}: something in the way at the chest");
+            }
             return None;
         }
         // (The wall's lean under the edge, positive overhanging: AC1's angled receptions. The hard one for a fast jump or
@@ -3503,7 +3567,13 @@ impl WallClimb {
         let mut w = WallClimb::new(VAULT, out);
         w.start_chain_carry(clips, tos, &planned, err + hang_offset(rest, out), Some(1));
         w.ease_in(from, root);
+        // (Both hands onto the knob over the reception, as AC1's hand goals: its clips hold them 0.6 m apart, and the
+        // hands-together hang after them showed them come together only then, user report 156949.)
+        w.knob = knob.then_some(grip_target(hold, out));
         debug!("climb: running jump at the wall's ledge {hold:.2}, onto the wall hang ({})", j.reception[0].0);
+        if knob {
+            debug!("climb: both hands onto the knob over the reception");
+        }
         Some(w)
     }
 
@@ -6794,6 +6864,19 @@ impl WallClimb {
     /// game's root went from -0.1 to -179.8 degrees between two frames, and 0.34 m out; audit WALL-8). The root is placed
     /// so the hips stay where they are (across the wall; its height kept), the pose faded from turned and moved with it,
     /// so it shows where it was.
+    /// `snap_takeoff` for an eject started inside `update`, before its first frame is shown, the root turned with it (on
+    /// the next update, as it was, the frame between showed the hang's pose on the root turning away: the hands 0.2-0.3 m
+    /// off for a frame, audit WALL-8's pop).
+    fn snap_now(&mut self, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig) {
+        if !std::mem::take(&mut self.snap_turn) {
+            return;
+        }
+        self.snap_takeoff(root, rig, base, cr);
+        if let Some(m) = self.mv.as_ref().filter(|m| m.ease_rot == Quat::IDENTITY) {
+            root.rotation = m.start_rot;
+        }
+    }
+
     fn snap_takeoff(&mut self, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig) {
         let Some(m) = &mut self.mv else { return };
         if m.ease_rot == Quat::IDENTITY {
@@ -6850,6 +6933,9 @@ impl WallClimb {
         self.fade = self.last.clone().map(|p| Fade::new(p, FADE));
         self.mirrored = false;
         self.turn_path = None;
+        if !matches!(self.state.as_str(), VAULT | DROP) {
+            self.knob = None;
+        }
         // (Out of the stance: upright again over this clip, unless the move sets its own stance, `take_first`.)
         self.stance_root = None;
         // (The goals of the stance left, kept by each limb until its clip lets go of it.)
@@ -7050,7 +7136,7 @@ impl WallClimb {
         // the grip, down to `TOP_OUT_LIP`, is a floor behind a lip the hands hold (a parapet's, in Damascus: the floor
         // 0.21 m under the edge refused every pull-up there); the pull-up comes down onto it.
         let below = (wrist.y + GRIP_DOWN) - top.point.y;
-        if !(-0.2..=TOP_OUT_LIP).contains(&below) || top.normal.y < 0.8 {
+        if !(-TOP_OUT_STEP_UP..=TOP_OUT_LIP).contains(&below) || top.normal.y < 0.8 {
             debug!("climb: no top-out: top at {:.2}, grip at {:.2}, slope {:.2}", top.point.y, wrist.y + GRIP_DOWN, top.normal.y);
             return false;
         }
@@ -7081,11 +7167,20 @@ impl WallClimb {
             None
         };
         let travel = |c: &[Arc<Clip>]| world_rot(root.rotation) * c.iter().map(|c| root_motion_at(c, c.frames())).sum::<Vec3>();
+        // Where the two-hand pull-up stands up (AC1's stand: the root steered to `STAND_FROM_WRISTS` in from where the
+        // hands held, onto the top's height).
+        let stand_at = {
+            let end = root.translation + travel(&clips);
+            let edge = Vec3::new(wrist.x, end.y, wrist.z);
+            (edge - self.normal * STAND_FROM_WRISTS).with_y(top.point.y)
+        };
         let (clips, correct, end) = match one {
             Some(one) => {
-                // Onto a post: end on it, balancing; else where the two-hand pull-up would have.
+                // Onto a post: end on it, balancing; else where the two-hand pull-up does (AC1's Pullup_Start 0xDDBE80
+                // steers both onto one point in from the hands; ours ended the one-hand one where its clips put the
+                // root, 0.1 m in: on a Damascus window cap's point, recording 194384, and fell off it).
                 let perch = level.perch_at(top.point, PERCH_REACH);
-                let want = perch.map_or(root.translation + travel(&clips), |(_, q)| q);
+                let want = perch.map_or(stand_at, |(_, q)| q);
                 let correct = want - (root.translation + travel(&one));
                 self.perch = perch.map(|(i, _)| i);
                 debug!("climb: one-hand pull-up{}", if perch.is_some() { " onto a post" } else { "" });
@@ -7194,6 +7289,16 @@ impl WallClimb {
             let (to, ground) = (0..=20).map(|k| end - self.normal * (k as f32 * 0.05)).find_map(|to| level.ground(to, 0.3, STEP_OFF_MAX).map(|g| (to, g)))?;
             let to = to - self.normal * 0.15;
             let way = (to - root.translation).with_y(0.0);
+            if why() {
+                debug!(
+                    "climb: {} : step off sideways onto {:.2}: inside {}, push {:.2}, way {}",
+                    off.name,
+                    ground.point,
+                    level.inside_solid(ground.point + Vec3::Y * 0.5),
+                    level.capsule_push(to.with_y(ground.point.y)).length(),
+                    level.raycast(root.translation + Vec3::Y * 0.5, way.normalize_or_zero(), way.length()).is_none()
+                );
+            }
             // (Room for the body standing there: not a tower's cornice band 0.2-0.3 m deep under the wall above it, stepped
             // onto and fallen off at once.)
             (!level.inside_solid(ground.point + Vec3::Y * 0.5)
@@ -8034,7 +8139,11 @@ impl WallClimb {
                 let fwd = -normal.with_y(0.0).normalize_or(Vec3::NEG_Z);
                 if !climb_body_free(level, end.pos + err, fwd, if m.long { m.cols.signum() } else { 0 }) {
                     if why() {
-                        debug!("climb: {} : no room for the body there (AC1's body boxes)", c.names[0]);
+                        debug!("climb: {} : no room for the body there (AC1's body boxes) at {:.2}", c.names[0], end.pos + err);
+                        let right = fwd.cross(Vec3::Y).normalize_or_zero();
+                        for t in level.box_hits(end.pos + err + Vec3::Y * 0.5, [right, fwd, Vec3::Y], Vec3::new(0.575, 0.25, 0.5)).iter().take(3) {
+                            debug!("climb:   the box meets the face {:.2} {:.2} {:.2}", t.a, t.b, t.c);
+                        }
                     }
                     continue;
                 }
@@ -8053,6 +8162,19 @@ impl WallClimb {
                         }
                         continue;
                     }
+                }
+            }
+            // AC1's vertical reach (`HumanClimb__StartReachMove` 0xDF6810, its test as Banned445's port reads it): the body's
+            // capsule (0.35 m round, 1.8 m tall, 0.15 m out from the root) swept to the new root must meet nothing; under a
+            // plank walkway sticking out from the wall's top (Damascus, user reports 13501 / 1319499) ours reached up
+            // through it and stood with the body in the planks.
+            if c.table.is_none() && c.names[0].contains("_tr_climb1m_") && (c.names[0].contains("_up_") || c.names[0].contains("_down_")) {
+                let fwd = -normal.with_y(0.0).normalize_or(Vec3::NEG_Z);
+                if !reach_sweep_free(level, root.translation - fwd * 0.15, end.pos + err - fwd * 0.15, fwd) {
+                    if why() {
+                        debug!("climb: {} : the body's sweep up or down meets something (AC1's reach capsule)", c.names[0]);
+                    }
+                    continue;
                 }
             }
             let tos = chain_states(clips.len(), &self.state, &c.to);
@@ -9150,10 +9272,14 @@ impl WallClimb {
             if let Some((input, left)) = self.eject_after.take() {
                 if let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()) {
                     *self = w;
+                    self.snap_now(root, rig, base, cr);
                     return;
                 }
-                // (Nothing to land on that way: the push off into the air, after the same rebound pose.)
+                // (Nothing to land on that way: the push off into the air, after the same rebound pose. Turned away at
+                // once, before its first frame is shown: snapped on the next update, the frame between showed the hang's
+                // pose on the root turning away, the hands 0.2-0.3 m off, audit WALL-8's pop.)
                 if self.back_eject(lib, root, input, left) {
+                    self.snap_now(root, rig, base, cr);
                     return;
                 }
             }
@@ -9630,7 +9756,12 @@ impl WallClimb {
     /// True while the hands hang on holds (not while pulling up over the top, turning a corner,
     /// leaping or leaving the wall, where the clip alone is right).
     pub fn hands_on_wall(&self) -> bool {
-        !off_wall(&self.state) && !self.mv.as_ref().is_some_and(|m| off_wall(&m.to) || m.clip.name.contains("corner"))
+        self.knob_grip().is_some() || (!off_wall(&self.state) && !self.mv.as_ref().is_some_and(|m| off_wall(&m.to) || m.clip.name.contains("corner")))
+    }
+
+    /// Over a running jump's reception onto a knob: the knob's hold point, both hands' goal (AC1's hand contacts on it).
+    pub fn knob_grip(&self) -> Option<Vec3> {
+        self.knob.filter(|_| self.mv.as_ref().is_some_and(|m| m.to == DROP || m.to == HANGWALL))
     }
 
     /// Turning a corner in the wall hang: where hand `i` (0 left, 1 right) goes on the new hold, for the hand IK in place

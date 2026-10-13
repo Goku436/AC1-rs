@@ -950,6 +950,25 @@ fn spawn_world(
     // (What each placement refers to, scanned on all cores first: every byte offset of every entity looked up, a second
     // of the Damascus load on one.)
     let all_refs_of: Vec<Vec<(usize, &Object)>> = crate::level::par_map(&placements, |&(id, body)| refs_all(&index, body, id));
+    // The effects the cells place (`particles::WorldFx`, drawn only): entities whose `Visual` shows a particle system.
+    // (The cells' own: not the missions' data files, whose effects play in their missions, nor the entities `FX`
+    // objects spawn, `GFX_FX_*`, kept in the cells at the origin.)
+    let mut world_fx = crate::particles::WorldFx::default();
+    if opts.render && picks.is_none() {
+        let fx = &mut world_fx;
+        let spawned: std::collections::HashSet<u32> =
+            objects.iter().flatten().filter(|o| o.class == forge::fx::CLASS_FX).flat_map(|o| forge::fx::links(o.body)).collect();
+        for (pi, &(ent_id, body)) in placements.iter().enumerate() {
+            let in_cell = forge.entries.get(placement_file[pi]).is_some_and(|e| e.name.starts_with("Cell")) && !spawned.contains(&ent_id);
+            let system = |id: u32| all_refs_of[pi].iter().any(|(_, r)| r.id == id && r.class == forge::fx::CLASS_PARTICLE_SYSTEM);
+            let Some(m) = transform(body).filter(|_| in_cell) else { continue };
+            for id in forge::fx::shown_systems(body, system) {
+                let Some(ps) = index.get(&id) else { continue };
+                fx.systems.entry(id).or_insert_with(|| (ps.name.clone(), ps.body.to_vec()));
+                fx.placed.push((to_bevy * m, id));
+            }
+        }
+    }
     for (pi, &(ent_id, body)) in placements.iter().enumerate() {
         let picked = moved.get(pi).copied().flatten();
         let Some(mut m) = picked.map(|x| x.0).or_else(|| transform(body)) else { continue };
@@ -1372,6 +1391,7 @@ fn spawn_world(
         });
         draw.textures = textures_of(&bank.recipes, &rindex);
         draw.recipes = std::mem::take(&mut bank.recipes);
+        draw.effects = world_fx;
         info!("city {forge_file}: drawn: found in {:.1}s", t1.elapsed().as_secs_f32());
         lap("render store (drawn)");
         // (Saved for the next load, `render_cache`, written on a thread of its own.)
@@ -1745,7 +1765,9 @@ pub(crate) fn realize(
     forge_file: &str,
 ) -> crate::stream::CityRender {
     let t0 = std::time::Instant::now();
-    let crate::render_cache::CityDraw { recipes, textures, meshes: stored, instances, cells, fake_blocks, fake_jobs, ao } = draw;
+    let crate::render_cache::CityDraw { recipes, textures, meshes: stored, instances, cells, fake_blocks, fake_jobs, ao, effects } = draw;
+    // (The placed effects, for `particles`.)
+    commands.insert_resource(crate::particles::WorldFx { forge_file: forge_file.to_string(), ..effects });
     // (The stand-ins' meshes built on a thread meanwhile.)
     let (fakes, maker) = std::thread::scope(|sc| {
         let fakes = sc.spawn(|| build_fakes(&fake_blocks, &fake_jobs));

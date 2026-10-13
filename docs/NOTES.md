@@ -37,12 +37,12 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
 | Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
 | Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; every distinct resource and stream with a header decodes (`bao scan`): IMA-ADPCM 38211/38211 resources and 2176/2176 streams, interleaved tracks (IMA mono or stereo, or Ogg Vorbis pages) 29/29 and 76/76, Ogg Vorbis 13743/13743 and 110/110 (6636 of those Ogg resources are a stream's start, cut); the 4169 headerless streams (speech) decode joined to their start for 3716, the other 453 have no start in any forge. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks, the leap of faith; the landing grunt AC1's code plays, `OnoJumpLandHeavy`) on the surface's sound material (cities: from `CollisionMaterial`) and AC1's switch values (character kind, weapon sheathed, city), placed and panned with AC1's roll-off; the city's placed sounds (Damascus: 1292 trigger zones: fountains, braziers, flags, kiosks, gardens, palms), its ambience loops (116 region links, 36 sets, 11 streamed loops) and their one-off sounds at AC1's intervals; M mutes, F8 sets the volume |
-| Effects (`FX` 824a23ba, `ParticleSystem` caaa7ee8, `HumanFXPack`, `forge::fx`) | 12/12 particle systems of DataPC's player files parse to their end; the contact table's FX per surface read. Played (`particles`): the surface's dust or straw on contact keys (steps, landings, rolls), the haystack's straw going in and out, as camera-facing sprites of our own; the landing's camera shake (`shake`). Not walked: the FX graphs' operators |
+| Effects (`FX` 824a23ba, `ParticleSystem` caaa7ee8, `HumanFXPack`, `forge::fx`) | 1602/1602 particle systems of every forge parse to their end (`examples/fxcheck`; Damascus 273/273, DataPC 132/132), every `ParticleEmitter` field placed (46 of its 65 serialized properties named); the contact table's FX per surface read; the city's placed effects found (Damascus: 1049 entities whose `Visual` shows a system). Played (`particles`): the surface's dust or straw on contact keys (steps, landings, rolls), the haystack's straw going in and out, the city's fountains, waterfalls, fires, lamps, smoke and flag glints, with AC1's blend, lighting, fog and texture-frame modes (`particle_material`); the landing's camera shake (`shake`). Not walked: the FX graphs' operators; not drawn: the districts' ambient systems (dust, bees, petals, ground fog), the cyclone effect, wind, soft-particle fades, mesh particles |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); lit as AC1 lights them ("How AC1 lights its world": the level's sun, ambient cube, baked occlusion, fog and colour grade from its `WorldAmbiance`/`LayeredSky`), three shadow cascades in 120 m (the first 12 m); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming"); gameplay data and what is drawn saved after the first load ("City load time and the level cache") | first version |
 | Level light and grade (`WorldAmbiance` 21c2d472, `LayeredSky` 24d32cf8: fog, post effects, suns, ambient cubes, sky layers) | done: 14/14 levels read, and the occlusion mapping (`AOSettings` in each `World`) of 13/13 (`examples/ambcheck`) |
 | Baked occlusion (`MeshInstanceData` / `CompiledMeshInstance`: a byte per vertex per placed mesh) | done: 17436/17436 Damascus entities and groups, every stream a byte per vertex of its mesh (`examples/aocheck`) |
 | Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); scholar crowds to blend into; city streets peopled from AC1's crowd data | first version |
-| Combat (`combat`, `fight_data`, docs/COMBAT.md): the fight blocks (`HumanWeapon`, `HumanGround_Fight`, `_ComboKill`, `_CounterKills`, `_Assassination`, `_Fight_Hurt`) picked by the exe's fight tables (attacks by side, distance and foot, combo directions, hit reactions, the 14 assassination types and their choice) | first version: draw / sheathe, the fight stance locked on a guard, the walk in it, attacks and combos (2 timed hits, the paired combo kill), blocks, the paired counter kill, the hidden blade's assassinations played paired, guards that fight back (ours), deaths limp |
+| Combat (`combat`, `fight_data`, `fight_tables`, docs/COMBAT.md): the fight blocks (`HumanWeapon`, `HumanGround_Fight`, `_Fight_Light`, `_Fight_Unarmed`, `Human_Ground_Fight_Dagger`, `_ComboKill`, `_CounterKills`, `_CounterDodge`, `_Assassination`, `_Fight_Hurt`, `HumanInAir`) picked by the exe's fight tables for fists, sword and short blade (attacks by side, distance and foot, the sword's random straight ones, high and low, mobile, combos and their directions, the clips a strike lands with, turns, combo and counter kills, counter dodges, deflects, the 14 assassination types) and its attack state machine (the combo latch) | second version: the weapons' stances, AC1's turns, attacks and combos by its state machine, blocks, deflects and the guard's riposte, counter kills and dodges, mobile attacks, throwing knives, paired kills with the root slid onto the pair's, assassinations on the ground and from above, guards in turns (ours, one at a time), the player's damage and desynchronisation (ours), deaths limp |
 | Player controller, free-running, combat AI, crowds, missions | long-term |
 
 ## Running
@@ -62,8 +62,9 @@ See the header of `crates/game/src/main.rs` for controls and test hooks.
 The mouse looks around (Esc frees the cursor, a click takes it back); WASD moves.
 Fighting (`combat`, docs/COMBAT.md): 1-4 the weapons (short blade, hidden blade, sword, fists; a press selects, the next
 draws, the next sheathes), F the target lock (the fight stance), the left button the weapon hand (attack, held the max one;
-pressed as the strike lands the combo; defending in high profile as a guard's blow comes the counter kill; with the hidden
-blade by a guard not fighting the assassination).
+the short blade at a far target throws a knife; pressed from the strike on through the clip it lands with, the combo;
+defending in high profile as a guard's blow comes the counter kill, Space the counter dodge; running at a guard the mobile
+attack; with the hidden blade by a guard not fighting the assassination, over one below the air assassination).
 - Right button held: high profile (faster, louder).
 - Space (legs): low profile, blend: the praying walk (`_cpm_monk_pray_walking`, `xx_l_pray_wait` standing); among
   scholars Altaïr hides, and with no direction held walks along with the group. High profile: free-run (sprint;
@@ -420,7 +421,9 @@ These IK layers are recreations of the behaviour seen in-game, not ports of the 
 ## Combat
 Removed on 2026-10-05 to get movement right first, rebuilt on 2026-10-13 on AC1's own data: the fight action blocks
 and the executable's fight tables (the attack, combo and hit-reaction tables, the assassination chooser and its tables,
-the weapon tag bones). What is AC1's and what is ours, and what is not done yet: docs/COMBAT.md.
+the weapon tag bones); its second version (2026-10-13) takes every weapon's tables from the exe's initializers
+(`fight_tables`) and follows its attack state machine (the press latch, the clips a strike lands with, the combo's
+directions). What is AC1's and what is ours, and what is not done yet: docs/COMBAT.md.
 
 ## Crowds
 Crowds: scholars (AC1's `CNMT_Scholar`: robe, hood and shoes from Acre's data on the shared human skeleton,
@@ -740,13 +743,33 @@ Read by `forge::fx`; drawn by `crates/game/src/particles.rs`, the shake in `shak
   material or property (`FXProperty`, `PropertyPath`, `MinValue` / `MaxValue`, `FXLinkedValue`). The graph is not walked:
   `fx::links` lists a body's u32s and the game keeps those that are known objects (FX -> entities -> particle systems).
 - `ParticleSystem` (caaa7ee8): u32 ? (2), the emitters (inline `ParticleEmitter`, a1361abc, a fixed 579 bytes), 28 bytes of
-  factors. Emitter fields found (names by CRC32 of guesses against the exe's reflection list, `?` where none): +0x04
-  `EmitterShape`, +0x9d three f32 ? (the shape's size), +0xb1 `MaxParticleCount`, +0xb5 `ParticleRate`, +0xb9
-  `Acceleration` (Z up), +0xce/+0xd2 `Min`/`MaxVelocity`, +0xd6 `DirectionVariation`, +0xde/+0xe2 `Min`/`MaxRotation`,
-  +0xe6/+0xf2 `Min`/`MaxPhaseDuration` (three phases), +0xfe/+0x11e `Min`/`MaxSize` (4 keys of width, height), +0x13e /
-  +0x16e `Min`/`MaxScale` (4 vec3, all 1 here), +0x19e `Color` (4 inline `IColor`s, bytes B G R A), +0x1ce/+0x1de
-  `Min`/`MaxRotationSpeed`, +0x1ee `Mesh`, +0x1f2 `TextureMap`, +0x1f6/+0x1f7 `TextureFrameCountX`/`Y`, +0x214 an inline
-  `WindForce`. 12/12 systems of DataPC's "Rank 9" and "Game Bootstrap Settings" parse to their end. The dust
+  factors. 1602/1602 systems of every forge parse to their end (`examples/fxcheck`; `examples/fxdump` prints a forge's
+  systems' fields and where their textures are).
+- `ParticleEmitter`'s reflection (descriptor at 0x01942e40 in the Dx9 exe, its 87 properties at 0x01942340, 32 bytes
+  each: flags, CRC32 of the name, type, type code) is in stream order: the serialized ones (flag 0x02000000) follow each
+  other with no gaps, so every field's offset follows from the list; names matched by CRC32 of guesses (`?` where none
+  did). The enums' values are in tables beside the strings (`EMITTERSHAPE_POINT` 0 ... `_CYLINDER` 5, `FLOW_ONCE` 0 /
+  `_LOOP` 1 / `_SPAWNONREQUEST` 2, `DIRECTION_EMITTERZ` 0 / `_FROMCENTER` 1 / `_TOCENTER` 2, `TEXTUREANIM_OFF` 0 /
+  `_ONCE` / `_LOOP` / `_PINGPONG`, `LIGHTMODE_NONE` 0 / `_PERVERTEX` 1, `PARTICLETYPE_2D` 0 / `_3D` 1, `PARTICLEFX_NONE` 0
+  / `_CYCLONE` 1; the shared `BlendMode`: `Blend_Copy` 0, `_Additive` 1, `_Substractive` 2, `_Modulate` 3, `_Alpha` 4,
+  then `Dodge`). The layout: +0x00 `ParticleType`, +0x04 `EmitterShape`, +0x08 `FlowMode` (u32s), u8 +0x0c
+  `LocalParticles`, +0x0d ?, +0x0e `DepthFade`, +0x0f `NearFade`, +0x10 ?, +0x11 ?, u32 +0x12 `DirectionMode`, u8 +0x16
+  `CameraRelativeSpawn`, u32 +0x17 `TextureAnimMode`, u8 +0x1b ?, +0x1c `DoubleSided`, +0x1d ?, +0x1e ?, u32 +0x1f
+  `BlendMode`, +0x23 `LightingMode`, u8 +0x27 `GlowEnabled`, +0x28 ?, u32 +0x29 `ParticleEffect`, u8 +0x2d `FogEnabled`,
+  +0x2e `AlphaTestEnabled`, +0x2f `AlphaTestValue`, +0x30 ?, three f32 +0x31 ? ((0, 0, 1) everywhere), inline `IColor`s
+  +0x3d `LightColor`, +0x49 `LightAmbient`, f32 +0x55 `DepthFadeScale` (200), +0x59 `NearFadeScale` (10), 4x4 +0x5d
+  `LocalMatrix` (the emitter in its entity's frame: the fountains' jets turned down by it, their rings 1.6 m lower),
+  three f32 +0x9d `EmitterShapeParams`, f32 +0xa9 `ZMin`, +0xad `Delay`, u32 +0xb1 `MaxParticleCount`, f32 +0xb5
+  `ParticleRate`, vec3 +0xb9 `Acceleration` (world space, Z up), u32 +0xc5 ?, +0xc9 ?, u8 +0xcd ?, f32 +0xce/+0xd2
+  `Min`/`MaxVelocity`, +0xd6 `DirectionVariation` (two f32), +0xde/+0xe2 `Min`/`MaxRotation`, +0xe6/+0xf2
+  `Min`/`MaxPhaseDuration` (three phases), +0xfe/+0x11e `Min`/`MaxSize` (4 keys of width, height; the max is below the
+  min, even negative, in many: read here as the two ends of a random pick), +0x13e/+0x16e `Min`/`MaxScale` (4 vec3),
+  +0x19e `Color` (4 inline `IColor`s, bytes B G R A), +0x1ce/+0x1de `Min`/`MaxRotationSpeed`, +0x1ee `Mesh`, +0x1f2
+  `TextureMap` (a texture, or a map spec linking one), u8 +0x1f6/+0x1f7 ? (the frames across and down), f32 +0x1f8 ?
+  (30 mostly: the frames a second), +0x1fc `GlowIntensity`, +0x200/+0x204/+0x208/+0x20c ?, +0x210 an inline `WindForce`
+  (u8 ?, f32 ?, 2 bytes ?), +0x21f the 8 f32 `EffectParams`, 4 bytes (the empty `SpawnData` slot). Of the 306 emitters
+  of DataPC, Damascus, Common and Jerusalem: 294 alpha blended, 12 additive (flares, the out-of-bounds walls, two
+  fountains' sparkles); 259 lit. The dust
   (`GFX_FX_CollisionMaterial_Default`): 30 particles at 300/s, 0.1-1 m/s up within 2 rad, -2 m/s² down, life 0.34 + 0.88
   + 0.62 s, 0.1 m growing to 1.45 m, white at alpha 0.14 -> 0 over `GFX_Dust_Sand_01`; straw: 20 chips of
   `GFX_Dust_Chips_grass` at 1-3.5 m/s under gravity.
@@ -757,12 +780,38 @@ Read by `forge::fx`; drawn by `crates/game/src/particles.rs`, the shake in `shak
   the punch and sword shakes, critical state, sync, and the haystack's `FX_Clip_Character_Hay_Bal(TopEntry)`,
   `(SideEntry)`, `(Side Exit)` (straw systems at six bones: `RightArm`, `LeftArm`, `Spine1`, `Head`, `LeftForeArm`,
   `RightForeArm`). The contact events' two bytes after the type are 1, 1 in every clip looked at: no FX switch there.
-- Ours (`particles`): the contact keys play their surface's FX at the lower foot (steps) or the root (landings, rolls,
-  hands); the dives into hay play `TopEntry` at their straw sound key, the hop out `Side Exit`. An emitter sends
-  `MaxParticleCount` at `ParticleRate`, each particle going key to key at its phase ends; sprites face the camera,
-  alpha blended, unlit (blend and lighting modes not read), one mesh per texture. `AC1_NO_PARTICLES=1` leaves them out;
-  never headless. Damascus at a run, `AC1_FPS=1`: about 40-44 fps either way, GPU 3.0-3.3 ms (2026-10-13, a shared
-  machine).
+- The city's placed effects: an entity (or a group's member) of a cell whose `Visual` (ec658d29: u8 shown, u32 link)
+  shows a `ParticleSystem` instead of a mesh (`fx::shown_systems`), at the entity's transform; no FX graph, they loop
+  (`FLOW_LOOP`) for ever. Damascus' cells: 1049 (`GFX_Object_Fire_Flare_Particle` 385, no emitters; lanterns' glow and
+  smoke `Lanterne_DeTable_01` 182, chandeliers' `Suspended_Lamp_01A` 120, cages, braziers and torches `FireCage` 106,
+  flags' glints `GFX_Object_Collectible` 100, chimneys 60, the fountains: `Fountain_Medium` 16, `Fountain_R_01a` 14,
+  `Faucet_WallFountain_P_01a` 10, the vizier's basins 21, the Great Mosque's 8, the river's 4 waterfalls with their base
+  and splash, pots' smoke 12, incense 2). The missions' data files place theirs too (Jubair's burning books), left out,
+  and so are the `GFX_FX_*` entities `FX` objects spawn, kept in the cells at the origin. Their textures are in the
+  city's forge, DataPC's "Game Bootstrap Settings" and "Game Fix". Not every fountain has one: the courtyard basin at
+  Bevy (123.9, 0.5, -88.6) has none in AC1's data (still water, its material only). The `Damascus` file's
+  `GFX_Environnement_Damascus_<district>` systems (dust, bees, petals, dandelions, ground fog by district, entities at
+  the origin) are the ambient ones `WorldAreaParticleData` / `WorldParticleSettings` spread round the camera: not drawn.
+- Ours (`particles`, `particle_material`): the contact keys play their surface's FX at the lower foot (steps) or the root
+  (landings, rolls, hands); the dives into hay play `TopEntry` at their straw sound key, the hop out `Side Exit`. The
+  placements the city finds are kept in its render cache (`render_cache`, `CityDraw::effects`). The
+  city's emitters run while the camera is within 100 x their largest particle (30-120 m) and looking their way; one
+  coming into range starts with particles of every age, as if it had been running. An emitter sends from its shape in
+  its `LocalMatrix`, along the matrix's Z tipped by `DirectionVariation` (or from / to the centre), its acceleration in
+  world space; a burst sends `MaxParticleCount` at `ParticleRate`, a loop keeps that many alive at that rate; each
+  particle goes key to key at its phase ends, its texture's frames by `TextureAnimMode`. Sprites face the camera; per
+  texture, blend, lighting, fog and glow one mesh a frame. The shader: texture x colour key as stored, lit
+  (`LIGHTMODE_PERVERTEX`) by the level's ambient cube toward the camera plus the sun by N.L, fogged where `FogEnabled`,
+  then the level's grade; alpha and copy blended (premultiplied), additive added, modulate multiplied; `GlowEnabled`
+  adds the sprite's unlit colour x `GlowIntensity` (AC1's glow pass blurs it: not here). Not run: the scale keys, the
+  cyclone, the wind, soft-particle fades, `ZMin`, 3D (mesh) particles. `AC1_NO_PARTICLES=1` leaves them out; never
+  headless; `AC1_FX_LOG=1` lists the placed effects, `AC1_FPS=1` logs their count and CPU time. Damascus, `AC1_FPS=1`
+  (2026-10-13, a shared machine): 1236-2026 particles, 71-147 of 1423 emitters running, 0.2-0.33 ms CPU a frame; the
+  vizier's pool close up GPU 1.9 ms against 1.4 without, the rooftops' chimneys 2.7-2.8 against 3.4 (noise), the frame
+  rate the same within its noise (37-57 fps, CPU-bound). Shots before / after: `F:/Claude/ac1-wt/reports/worldfx/`.
+- Open, for a shot of the running game: the fire (`GFX_Fire_01` is beige, lit and alpha blended: ours draws the cages'
+  fire near white with the glow added; AC1's glow pass may make it orange), how big and dark the pots' and chimneys'
+  smoke is, and the size keys' reading (min/max ends against base and variation).
 - The landing's camera shake (`shake`): `FX_Camera_Shake_Assassins_Fall`, started by 0xE05940 on a landing from over 3 m
   with intensity `min((drop - 3) / 7, 1)` (its parameter 0xBE93B29C). The FX's tracks (120 ticks of 1/120 s): of the six
   camera channels only the pitch moves, `intensity * envelope * 30 * fBm2D(t, 20 * (200 + 200 t))` degrees, the envelope
@@ -1321,8 +1370,8 @@ with their parameters named from the template's constants. Damascus: `GEN_Standa
   diffuse map in the template: the normal map `GEN_Water_Fountain_01A_NormalMap` panned at 0.4 and 1 per metre, the
   level's water cube `DAM_Cubemap_Water_01A` (a street scene, +Y the sky; `examples/cubefaces`), `Color` (0.32, 0.44,
   0.43), opacity 0.6); their maps all load. Their "texture" in AC1 is that reflection, the ripples and the basin floor
-  seen through; the jets, rings and foam are effects (`GFX_Water_FontaineMarket_03`, `GFX_Water_03` diffuse maps), not
-  drawn. In shade the reflection is the ambient x the occlusion x the cube x `Color`: dark, as the shader has it.
+  seen through; the jets, rings and foam are effects (`GFX_Water_FontaineMarket_03`, `GFX_Water_03` diffuse maps), drawn
+  since 2026-10-13 ("Effects"). In shade the reflection is the ambient x the occlusion x the cube x `Color`: dark, as the shader has it.
 - Not drawn yet: `GEN_Standard_Specular`'s and `GEN_Cubemap`'s highlights and reflections, `Env_ColoringMask_TexStrip`'s
   colour masks (vases), `Env_DistrictColorTheme` (tarps), `GFX_Light*`, the glow passes.
 Ours (`city_material.rs`/`.wgsl`): one shader, the kind and values per material in a uniform, the layers' and water's

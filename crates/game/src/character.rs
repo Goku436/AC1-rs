@@ -614,6 +614,11 @@ pub fn spawn_character(
 }
 
 impl Character {
+    /// Where the character came into the world (a desynchronised player starts again there, `combat`).
+    pub fn spawn_point(&self) -> Vec3 {
+        self.spawn
+    }
+
     /// Pose the skeleton's joints (a pose made elsewhere: the network test's friend).
     pub fn write_joints(&self, pose: &Pose, joints: &mut Query<&mut Transform, Without<Character>>) {
         for (i, &e) in self.joints.iter().enumerate() {
@@ -2371,7 +2376,8 @@ pub fn animate(
                 let same = |a: &crate::level::Ledge, b: &crate::level::Ledge| a.a == b.a && a.b == b.b;
                 // (Round a corner in the wall hang, the hand goes onto the new hold's point, as AC1's hand targets: the
                 // hold kept is the nearest, so none is let go of to switch once round.)
-                let grip = w.corner_grip(i);
+                // (Over a reception onto a knob, both hands onto it, as AC1's hand goals.)
+                let grip = w.corner_grip(i).or_else(|| w.knob_grip());
                 if grip.is_some() {
                     ch.wall_hand_t[i] = near.map(|(l, _, _)| l);
                 }

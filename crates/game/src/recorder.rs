@@ -130,6 +130,11 @@ pub fn record(
             let _ = write!(line, " {:.2},{:.2},{:.2}", p.x, p.y, p.z);
         }
     }
+    // (Not while limp, nor as it goes limp: the ragdoll's root follows the hips, the root jumping under a body that does
+    // not move; nor through the move back to the start after a death.)
+    if ch.limp || ch.ragdoll.is_some() {
+        rec.recent.clear();
+    }
     if std::env::var("AC1_POP_CHECK").is_ok() || std::env::var("AC1_CLIMB_SWEEP").is_ok() {
         let bones: Vec<Vec3> = BONES.iter().filter_map(|b| ch.joint_named(b).and_then(|e| globals.get(e).ok()).map(|g| g.translation())).collect();
         let state = line.split(" | ").nth(1).unwrap_or("").to_string();
