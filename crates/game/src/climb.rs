@@ -3412,13 +3412,22 @@ impl WallClimb {
             debug!("climb: AC1's jump to the wall lands {:.2} m off", err.length());
             return None;
         }
+        // (Onto a knob, a hold shorter than the hands are apart (AC1's short guidance pieces, held at their middle, audit
+        // GUIDE-2): the hands-together hang, as a pole's cap is hung from, both hands on it. With the hands apart they hung
+        // 0.3 m either side of a 0.17 m knob on a Damascus house, too far for their IK: "he grabs the air", user report
+        // 2026-10-13.)
+        let rest = if on_narrow_ledge(level, hold) && targets[0].distance(targets[1]) < end.hands[0].distance(end.hands[1]) - HANDS_APART_SLACK {
+            HANGWALL
+        } else {
+            HANGWALL_OPEN
+        };
         let n = clips.len();
         let tos = (0..n)
             .map(|i| {
                 if i < 2 {
                     VAULT
                 } else if i + 1 == n {
-                    HANGWALL_OPEN
+                    rest
                 } else {
                     DROP
                 }
@@ -3426,7 +3435,7 @@ impl WallClimb {
             })
             .collect();
         let mut w = WallClimb::new(VAULT, out);
-        w.start_chain_carry(clips, tos, &planned, err + hang_offset(HANGWALL_OPEN, out), Some(1));
+        w.start_chain_carry(clips, tos, &planned, err + hang_offset(rest, out), Some(1));
         w.ease_in(from, root);
         debug!("climb: running jump at the wall's ledge {hold:.2}, onto the wall hang ({})", j.reception[0].0);
         Some(w)

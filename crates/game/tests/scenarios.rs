@@ -1580,6 +1580,26 @@ const SCENARIOS: &[Scenario] = &[
         ],
         never: &["EMBED"],
     },
+    // User report 2026-10-13 (recording 156949, "he grabs the air"): from the scaffold's planks at (41, 7.7, -25) a running jump
+    // at the house wall catches a knob 9.99 m up (an authored guidance piece 0.17 m long, `House_P_6x6x8_01a`). The hang
+    // after AC1's reception is the hands-together one, both hands on the knob; it was the hands-apart hang, 0.3 m either
+    // side of it in the air. [ours: the reception itself still holds the hands apart.]
+    Scenario {
+        name: "Damascus: a running jump at a knob on a house wall hangs from it with both hands on it (user report 2026-10-13)",
+        tags: &["jump", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "41.15,-24.3,0,8"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-3"),
+            ("AC1_LEGS", "0-3"),
+            ("AC1_STOP", "0.6"),
+        ],
+        secs: 5.0,
+        want: &["running jump at the wall's ledge [41.14, 9.99, -30.01]", "drop -> hangwall via xx_hangwall_reception_front_straight_max_c at [41.15, 8.87"],
+        never: &["-> hangwall_open via xx_hangwall_reception", "EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
