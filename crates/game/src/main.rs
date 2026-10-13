@@ -44,7 +44,7 @@
 //! AC1_BIND_PROPS (city skinned props left in their bind pose, not stood in their skeleton's pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level; its gameplay data, collision, holds, guidance, beams, objects and navigation, is saved after
-//! the first load and read back after, `level_cache`: AC1_NO_CACHE=1 neither reads nor writes it, AC1_CACHE_DIR=dir puts it there instead of
+//! the first load and read back after, `level_cache`, and so is what it draws, `render_cache`: AC1_NO_CACHE=1 neither reads nor writes them, AC1_CACHE_DIR=dir puts it there instead of
 //! `ac1-cache` beside the executable, AC1_CACHE_CHECK=1 builds the city anyway and compares it with the cache byte for byte; every load logs its
 //! phases' times as `load: ...` lines), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_DETAIL=low|medium|high|ultra|full (how much a city draws: see `stream::Detail`; else the graphics menu's, medium by default; full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
 //! AC1_JUMP=secs[,secs...] (press Space then; with AC1_WALK for a running jump), AC1_HIGH / AC1_LEGS=from-to
