@@ -1864,8 +1864,17 @@ fn feet_fit_at(level: &Level, feet: &[Vec3; 2], normal: Vec3, want: Feet, hold: 
     match want {
         Feet::Wall => braced > 0,
         Feet::Free => braced == 0,
-        Feet::ToFree => hold.is_some_and(|q| feet_on_wall(level, q, normal) != (true, true)),
-        Feet::ToWall => hold.is_some_and(|q| feet_on_wall(level, q, normal) != (false, false)),
+        // (AC1's foot rays start from the hold point itself, `hold` here being where the wrists go: 0.09 m out and 0.08 m
+        // under it; from there the rays fell short of a wall a little further back, and the switch into the free hang
+        // left both feet on the wall, the sweep's `free-on-wall`.)
+        Feet::ToFree => hold.is_some_and(|q| {
+            let f = feet_on_wall(level, grip_hold(q, normal), normal);
+            if why() {
+                debug!("climb: the switch into the free hang at {:.2}: foot rays {f:?}", grip_hold(q, normal));
+            }
+            f != (true, true)
+        }),
+        Feet::ToWall => hold.is_some_and(|q| feet_on_wall(level, grip_hold(q, normal), normal) != (false, false)),
     }
 }
 

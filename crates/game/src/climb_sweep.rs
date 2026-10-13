@@ -465,7 +465,11 @@ pub fn sweep_measure(
         }
         // The feet against the wall (or not), by AC1's foot rays for a hang (`sub_DE0A60`): from 1 m under the hands'
         // hold, 0.5 m out and 0.1 m to either side, 1.2 m in.
-        let hold = hold_dist(&level, holds, (l + r) * 0.5, n).1.unwrap_or((l + r) * 0.5);
+        // (In a free hang, at the hold over the root, AC1's hang point (the root 2.4 m under the holds' middle,
+        // 0xB15AD0): where the switch into it tested its rays. The knuckles rest a few cm off it, and at a wall's end
+        // the rays from there met the wall where AC1's had not.)
+        let mid = if state.starts_with("free_") { root.with_y((l.y + r.y) * 0.5) } else { (l + r) * 0.5 };
+        let hold = hold_dist(&level, holds, mid, n).1.unwrap_or(mid);
         let along = Vec3::Y.cross(n).normalize_or_zero();
         let ray = |s: f32| level.raycast(hold - Vec3::Y + n * 0.5 + along * (0.1 * s), -n, 1.2).is_some_and(|h| h.normal.y.abs() < 0.7);
         let walls = usize::from(ray(-1.0)) + usize::from(ray(1.0));
