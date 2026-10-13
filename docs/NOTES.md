@@ -1077,8 +1077,12 @@ set up against the built collision (`Level::add_city_objects`), logged as "N hay
   A ladder's foot or top is taken before the edge it stands at.
 - benches `Banc_*`: sat on facing away from the wall behind them.
 - poles `Pole_*` lying down (stuck out of a wall, or across a gap): swing bars along their length.
-Skinned props (hay carts, market stalls, scaffolds, storage racks) are drawn in their bind pose; `AC1_POSE_PROPS` stands
-them in their own skeleton's pose instead, which so far changes nothing visible on the carts. A prop's skeleton has 24
+Skinned props (hay carts, market stalls, scaffolds, storage racks) stand in their own skeleton's pose (2026-10-13;
+`AC1_BIND_PROPS=1` draws the bind pose as before). Their bind pose is not how they stand: Damascus's breakable props
+(the entities with two rigid bodies) were drawn turned, the market stalls (`Outdoor_Market_Stall_Skinned`, bind z -3.0..0.4 m,
+posed -0.6..3.2) hanging under their base, the small scaffolds (`Scaffold_2x3x4_01A`) on their side, the storage racks
+(`Storage_01a`) 90 degrees about the vertical; posed, each fits its intact collision shape (`Kiosk_Collision_Intact`,
+`Scaffold_2x3x4_01A`, `Storage_01a`); the tall scaffolds and the carts are the same either way. A prop's skeleton has 24
 bones at most, or any number on an entity with collision shapes (Damascus's `Scaffold_2x3x8`, 69 bones; characters have
 70 and more and no collision): a collided entity left undrawn was solid thin air (user report #13).
 

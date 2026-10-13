@@ -43,7 +43,7 @@ pub struct StoredMesh {
     pub verts: usize,
     /// Its parts' material ids (before an entity's overrides).
     pub materials: Vec<u32>,
-    /// A skinned prop's skeleton to stand it in (`AC1_POSE_PROPS`).
+    /// A skinned prop's skeleton to stand it in (`city::pose_props`).
     pub pose: Option<Arc<forge::skeleton::Skeleton>>,
 }
 
