@@ -610,7 +610,7 @@ fn populate(
     for (e, mut c, tf, mut vis, stick, guard, fighter) in &mut people {
         // The militia walk by the player's locomotion near the player (so `combat` has them), along the lane
         // farther off (its probes cost a millisecond a guard).
-        let calm = guard.is_none_or(|g| !g.hostile) && fighter.is_none_or(|f| !f.fight && !f.dead);
+        let calm = guard.is_none_or(|g| !g.hostile) && fighter.is_none_or(|f| !f.fight && f.idle());
         let d = tf.translation.distance(at);
         if c.guard && !stick && d < GUARD_NEAR {
             commands.entity(e).insert(Controller::default());
@@ -886,7 +886,7 @@ fn patrol(
         if !c.guard {
             continue;
         }
-        if g.hostile || f.fight || f.dead || ch.fighting || ch.limp {
+        if g.hostile || f.fight || !f.idle() || ch.fighting || ch.limp {
             ctl.move_dir = Vec3::ZERO;
             continue;
         }
