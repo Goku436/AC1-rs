@@ -1488,6 +1488,35 @@ const SCENARIOS: &[Scenario] = &[
         ],
         never: &["EMBED"],
     },
+    // The climbing sweep (`AC1_CLIMB_SWEEP`, test level, run e2-hang): pulled down off the roof of the block at (60, 12),
+    // left along its edge to the wall's end, where AC1's TrySwitchHangType (0xDE1060) goes into the free hang (one foot
+    // ray off the wall) after its body boxes (0xB2DD50), the root under the holds (0xB15AD0). Ours ended the root 0.06 m
+    // past the hold line, the legs inside the wall's corner (z 12.00, the face; now 12.06, the hold line).
+    Scenario {
+        name: "pulled down off a roof, left to the wall's end: into the free hang with the body under the holds, not in the wall",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_START", "60.00,11.06,-180,12.89"),
+            ("AC1_WALK", "1.5"),
+            ("AC1_STOP", "1.0-60"),
+            ("AC1_HAND", "1.8"),
+            ("AC1_CLIMB", "nograb,wait=3.5,left=3,right=1"),
+        ],
+        secs: 9.0,
+        want: &["hangwall -> free_1m via xx_h_hangwall_tr_hangfree_left", "-> hangwall_open via xx_h_hangfree_tr_hangwall_right at [58.08, 10.19, 12.06]"],
+        never: &["EMBED"],
+    },
+    // The climbing sweep (test level, run w10-up): under the slab at (-92.9, 164), a cornice 0.8 m deep in front of a wall
+    // going on up, the free hang's pull-up was refused (ours' inside-a-solid probe 0.95 m in, inside that wall) and its hand
+    // step took the edge it held for a row 0.3 m up: up and down onto the same edge four times before it got over.
+    Scenario {
+        name: "free hang under a deep cornice, up: straight over the top, no hand stepping onto the edge it holds",
+        tags: &["hang", "climb"],
+        env: &[("AC1_START", "-92.61,164,-90,0.3"), ("AC1_CLIMB", "up=8")],
+        secs: 9.0,
+        want: &["free_open -> hangknee via xx_h_hangfree_tr_hangwaist_a", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [-92.65, 3.99"],
+        never: &["via xx_h_hangfree_climb_1ru_u_1m", "via xx_h_hangfree_climb_1lu_u_1m", "EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
