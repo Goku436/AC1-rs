@@ -7309,11 +7309,15 @@ impl WallClimb {
                         out.push(Cand::new(format!("xx_h_hangfree_corner_{side}_090_{kind}"), FREE, Feet::Free));
                     }
                 }
-                // (Onto the wall's climbing holds; the hand steps up and down are AC1's vertical rows, `hang_row_step`: here
-                // with the climbing stance's grid box, 1 m deep and 0.3 m up or down of where the clip's hands land, they took
-                // an edge 0.13 m up for a 0.6 m step, the hands in the air over it until the hang settled back down, user
-                // report 2026-10-13.)
-                ("1m" | "open", true) => out.push(Cand::new(format!("xx_h_hangfree_{dir}_climb_1m"), "1m", Feet::Wall)),
+                // (The hand steps here, with the climbing stance's grid box, come after AC1's vertical rows, `try_move`.)
+                ("1m" | "open", true) => {
+                    out.push(Cand::new(format!("xx_h_hangfree_{dir}_climb_1m"), "1m", Feet::Wall));
+                    let mut hands = ["lu", "ru"];
+                    hands.sort_by_key(|h| *h != prefer);
+                    for h in hands {
+                        out.push(Cand::new(format!("xx_h_hangfree_climb_1m_{dir}_1{h}"), format!("free_1{h}"), Feet::Free));
+                    }
+                }
                 (h, true) => out.push(Cand::new(format!("xx_h_hangfree_climb_{h}_{dir}_1m"), FREE, Feet::Free)),
                 _ => {}
             }
@@ -8057,10 +8061,19 @@ impl WallClimb {
                 return true;
             }
         }
-        // From a free hang, down onto an edge just below, in or out (AC1's vertical rows down, its hand step down).
-        if dir == "d" && self.hang_row_step(lib, level, root, false) {
-            return true;
-        }
+        // From a free hang, up or down: onto the wall's climbing holds, else a hand step onto the edge AC1's vertical rows
+        // find, before ours' hand steps by the climbing stance's grid box (1 m deep, 0.3 m up or down of where the clip puts
+        // the hands: under an awning's frame they took a beam 0.13 m up for a 0.6 m step, the hands in the air over it, and
+        // did not find the beams down; user report 2026-10-13).
+        let cands = if vertical && matches!(self.state.as_str(), FREE | FREE_OPEN) {
+            let (onto, steps): (Vec<Cand>, Vec<Cand>) = cands.into_iter().partition(|c| !c.names[0].starts_with("xx_h_hangfree_climb_"));
+            if self.take_first(lib, level, root, rig, base, cr, onto) || self.hang_row_step(lib, level, root, dir == "u") {
+                return true;
+            }
+            steps
+        } else {
+            cands
+        };
         if self.take_first(lib, level, root, rig, base, cr, cands) {
             return true;
         }

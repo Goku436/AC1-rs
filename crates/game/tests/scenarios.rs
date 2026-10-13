@@ -874,7 +874,9 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "gauntlet G12's slab, then down: AC1's free-hang drop onto the holds below, its four clips mixed",
         tags: &["climb", "hang"],
-        env: &[("AC1_START", "-92.6,164,-90,1"), ("AC1_CLIMB", "up=7.5,down=4")],
+        // (Up only into the free hang under the slab: held on, it pulls up onto the slab, a cornice 0.8 m deep in front of the
+        // wall going on up, which AC1's room boxes allow.)
+        env: &[("AC1_START", "-92.6,164,-90,1"), ("AC1_CLIMB", "up=3.5,none=2.5,down=4")],
         secs: 12.0,
         want: &["drop onto the wall below mixed", "-> 2m via xx_h_climbing_hangfree_tr_climb2m_down_"],
         never: &["EMBED"],
@@ -1462,7 +1464,9 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["climb"],
         env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "289.3,42.6,180,16"), ("AC1_CLIMB", "up=8,right=6")],
         secs: 16.0,
-        want: &["onto holds on a face 34 degrees round, turning to it", "1m -> 2m via xx_l_climb_1m_r_2m at [286.5"],
+        // (Round the next angled corner: past it on the climbing holds, as AC1's free-hang body boxes (0xB2DD50) turn down the
+        // swing off the wall into a free hang there, the next face in the way.)
+        want: &["onto holds on a face 34 degrees round, turning to it", "via xx_l_climb_2m_r_1m at [286.56, 21.14"],
         never: &["EMBED", "stepped off the wall sideways"],
     },
     // User report #3: the minaret by the viewpoint at (128, -12) (`Minaret_M_02a`, the wooden balcony on its corbel). The jump
