@@ -1101,7 +1101,8 @@ const SCENARIOS: &[Scenario] = &[
     // Audit JUMP-3: free running south over the bureau's roofs (route roof1_free_south). The running game's first jump,
     // 0.59 s into the run, took the running takeoff; its second, 0.31 s after the first reception handed over to the
     // ground, the impulsion (`xx_h_impultionstraight_footr_to_ground_to_air_front_down_footl`, at y 14.35) and the free-step
-    // takeoff.
+    // takeoff. (The first jump goes 2.3 m onto the next roof's rim, `running jump aimed at [53.00, 11.89, -15.88]`, as the
+    // live log's: ours had jumped onto the parapet 0.3 m on and from it again.)
     Scenario {
         name: "Damascus: free running over the bureau's roofs, the jump soon after a reception takes off with AC1's impulsion",
         tags: &["jump", "combo"],
@@ -1115,13 +1116,53 @@ const SCENARIOS: &[Scenario] = &[
         ],
         secs: 3.0,
         want: &[
-            "via xx_h_run_front_050cm_footr_to_air at [53.00, 11.85, -18.",
+            "via xx_h_run_front_300cm_footr_to_air at [53.00, 11.8",
+            "running jump aimed at [53.00, 11.89, -15.8",
             "via xx_h_impultionstraight_",
             "_to_ground_to_air_front_down_foot",
             "at [53.00, 11.89, -14.",
             "via xx_h_freestep_front_front_300cm_",
         ],
         never: &["EMBED"],
+    },
+    // Live log route seams_free_west (2026-10-12): free running west over the roofs south of the hiding spot, the running
+    // game ran on over a 2 cm crack between two roofs' collision at x 37.99; ours lost the ground there, stepped off and
+    // fell 8 m into the street.
+    Scenario {
+        name: "Damascus: free running over a crack between two roofs runs on (the ground is not lost in it)",
+        tags: &["ground", "combo"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "52,-33.4,90,13.3"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-4"),
+            ("AC1_LEGS", "0-4"),
+        ],
+        secs: 3.5,
+        want: &["walking toward [-1.00, 0.00]"],
+        never: &["EMBED", "step off the edge", "landed from"],
+    },
+    // Live log route wall1_standjump: high profile pressed, then 0.37 s later the legs, held 0.34 s: the running game
+    // crouched and jumped to the bureau wall's hang (the press came during the high profile's stance change, which ours'
+    // script did not pass on).
+    Scenario {
+        name: "Damascus: the standing jump pressed during the high profile's stance change jumps to the bureau wall's hold",
+        tags: &["jump", "hang"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "48.75,-20,-90,5.55"), ("AC1_HIGH", "0-3.2"), ("AC1_LEGS", "0.37-0.71")],
+        secs: 2.5,
+        want: &["crouched for the static jump", "-> leap via xx_h_jumpstraight_footl_to_hangwall_"],
+        never: &["EMBED"],
+    },
+    // Live log route ladder68_walk: walking onto ladder 68 in low profile, the running game stepped on with the low
+    // profile's entry (0x010A34A7); ours played the high profile's.
+    Scenario {
+        name: "Damascus: walking onto a ladder in low profile steps on with AC1's low profile entry",
+        tags: &["ladder"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "33.6,-16.82,-90,5.5"), ("AC1_WALK", "1.9"), ("AC1_STICK", "1")],
+        secs: 4.0,
+        want: &["via xx_l_wait_hipm_footl_tr_l_ladder_climb_up_r", "onto ladder 68"],
+        never: &["EMBED", "tr_h_ladder_climb_up"],
     },
     // Audit ANIM-4 to 6: blends as AC1's move graph gives them. The running jump's takeoff is started by the code: it
     // blends in over its action's in-transition (AROLLBROLL 0.1 s); the swing cycle's items follow one another by cuts
