@@ -43,8 +43,10 @@ pub struct StoredMesh {
     pub verts: usize,
     /// Its parts' material ids (before an entity's overrides).
     pub materials: Vec<u32>,
-    /// A skinned prop's skeleton to stand it in (`city::pose_props`).
+    /// A skinned prop's skeleton to stand it in (`city::pose_props`), and the skeleton object's body it is read from
+    /// (what the render cache keeps).
     pub pose: Option<Arc<forge::skeleton::Skeleton>>,
+    pub skeleton: Option<Arc<[u8]>>,
 }
 
 /// A level of an instance: its mesh (an index into `RenderStore::meshes`; None draws nothing) up to `until` metres.
@@ -74,6 +76,18 @@ pub struct Cell {
     pub min: Vec2,
     pub max: Vec2,
     pub instances: Vec<usize>,
+}
+
+/// A stand-in piece as found: some triangles (`idx`, indices into all its vertices) of a block's merged mesh
+/// (`RenderStore`'s `fake_blocks`: their bodies), its material slot, where it stands and its cell; made into a
+/// `FakePiece` by `city::build_fakes`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FakeJob {
+    pub block: usize,
+    pub idx: Vec<u32>,
+    pub material: u32,
+    pub world: Mat4,
+    pub cell: Option<usize>,
 }
 
 /// A stand-in piece: its mesh and the cell whose objects it stands for (None: always drawn).

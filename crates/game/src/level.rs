@@ -1966,15 +1966,23 @@ pub fn spawn_level(
             level = l;
             lap.lap("the city's gameplay data from the cache");
             if opts.render {
-                // (Only what is drawn: the gameplay data built here is thrown away.)
-                let mut drawn_only = Level::default();
-                let world = crate::city::RenderOpts { gameplay: false, ..opts };
-                if let Err(e) =
-                    crate::city::spawn_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut drawn_only, &dir.0, &crate::city::forge_of(&city), world)
-                {
-                    warn!("no city {city}: {e:#}");
+                let forge = crate::city::forge_of(&city);
+                // The drawn world from its own cache (`render_cache`), else read from the game's files (only what is
+                // drawn: the gameplay data built then is thrown away).
+                if let Some(draw) = crate::render_cache::load(&dir.0, &city) {
+                    lap.lap("the city's world from the render cache");
+                    let detail = crate::stream::Detail::from_env();
+                    let render = crate::city::realize(draw, opts.bc, detail, &mut commands, &mut meshes, &mut mats, &mut images, &forge);
+                    commands.insert_resource(render);
+                    lap.lap("the city's world made (drawn)");
+                } else {
+                    let mut drawn_only = Level::default();
+                    let world = crate::city::RenderOpts { gameplay: false, ..opts };
+                    if let Err(e) = crate::city::spawn_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut drawn_only, &dir.0, &forge, world) {
+                        warn!("no city {city}: {e:#}");
+                    }
+                    lap.lap("the city's world (drawn)");
                 }
-                lap.lap("the city's world (drawn)");
             }
         } else {
             build_city(&mut commands, &mut meshes, &mut mats, &mut images, &mut level, &dir.0, &city, opts, &mut lap);

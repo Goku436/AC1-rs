@@ -91,6 +91,7 @@ mod particles;
 mod probe;
 mod ragdoll;
 mod recorder;
+mod render_cache;
 mod replay;
 mod robe;
 mod settings;
@@ -463,6 +464,8 @@ fn main() {
         .add_systems(PostUpdate, robe::robe_cloth.after(bevy::transform::TransformSystems::Propagate))
         .add_systems(First, wind::advance)
         .run();
+    // (A city's cache files may still be being written on their threads.)
+    level_cache::finish_writes();
 }
 
 #[derive(Resource)]
