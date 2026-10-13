@@ -1689,6 +1689,24 @@ const SCENARIOS: &[Scenario] = &[
         want: &["tr_hangfree_", "_swingback_max", "-> free_1m via xx_h_hangfree_swingback_min_b"],
         never: &["EMBED"],
     },
+    // User report 2026-10-13 (recording 194384): pulled down off a Damascus roof's edge at (73.6, 11.9, -56.6), down and left
+    // along the house front into a free hang under a window's pointed cap (pieces 0.2-0.6 m long, its top sloping 30
+    // degrees), then up: the user's build pulled up one-handed onto the cap's point and fell 7.4 m off it. Now up switches
+    // onto the wall under it (AC1's CanPullup) and hangs there; no pull-up onto the sloping point.
+    Scenario {
+        name: "Damascus: up from the free hang under a window's pointed cap does not pull up onto its point and fall (user report 2026-10-13)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "73.61,-56.64,75.2,12.2"),
+            ("AC1_HAND", "0.5"),
+            ("AC1_CLIMB", "nograb,wait=1.85,downleft=0.5,left=1.2,up=6"),
+        ],
+        secs: 12.0,
+        want: &["2m -> free_1m via xx_l_climb_1m_l_hangfree", "free_1m -> hangwall_open via xx_h_hangfree_tr_hangwall"],
+        never: &["onehand_footl_to_freestep_entry", "landing_damage", "EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
