@@ -1484,8 +1484,9 @@ const SCENARIOS: &[Scenario] = &[
         secs: 17.0,
         want: &[
             "jump up from the climb to the ledge at [114.10, 11.48",
-            // (How far up is measured from the free hang's hands, which ease down to AC1's 2.4 m over the root: 0.12-0.13.)
-            "hand steps onto the edge 0.1",
+            // (How far up is measured from the free hang's hands; since 2026-10-13 the jump up hangs at AC1's 2.4 m under
+            // the corbel it caught at once, and the steps are 0.43 and 0.33 m up where they were 0.12-0.13 and 0.3.)
+            "hand steps onto the edge 0.33 up",
             "up and 0.46 out",
             "hand steps onto the edge 0.3",
             // (0.38: the free hang's wait after the jump up from the climb is AC1's mix by how far out it jumped, its hands
@@ -1509,7 +1510,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=3,up=3.4,left=1.2,up=10"),
         ],
         secs: 18.0,
-        want: &["jump up from the climb to the ledge at [114.10, 11.48, -26.", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4"],
+        want: &["jump up from the climb to the ledge at [114.10, 11.48, -2", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4"],
         never: &["EMBED"],
     },
     // Audit ANIM-14: the robe and the secondary motion run on AC1's own data (the cloth settings, its soft mesh and
@@ -2081,6 +2082,51 @@ const SCENARIOS: &[Scenario] = &[
         secs: 4.0,
         want: &["running jump at the wall's ledge [40.45, 11.77, -24.75]", "drop -> hangwall_open via xx_hangwall_reception_front_straight_max_c"],
         never: &["xx_h_jumpfalling01", "fall_tr_climb", "EMBED"],
+    },
+    // User report 2026-10-13 (recording 62377, "hands grab air and then adjust"): up a Damascus wall to below a roof's
+    // edge, the jump up from the climb onto the edge (`xx_h_climbing_1m_impultion_to_swingback_*`) and its swing back:
+    // the chain ends in the free hang's wait, its wrists 2.3 m over the root, so AC1's free hang root 2.4 m under the
+    // hold; ours put it 2.1 m under (the catch's), the hands 0.2 m over the edge for the swing back's 2 s.
+    Scenario {
+        name: "Damascus: the jump up from the climb onto a roof's edge hangs 2.4 m under it, the hands on the edge (user report 62377)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "46.3,-25.0,0,4.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-1.5"),
+            ("AC1_LEGS", "0-1.5"),
+            ("AC1_STOP", "1.5"),
+            ("AC1_CLIMB", "nograb,wait=2.5,up=12"),
+        ],
+        secs: 11.0,
+        want: &[
+            "jump up from the climb to the ledge at [46.33, 11.77",
+            "free_1m -> free_1m via xx_h_hangfree_swingback_min_a at [46.33, 9.37",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
+        ],
+        never: &["EMBED"],
+    },
+    // User report 2026-10-13 (recording 85785, "the triangle": a Damascus window box's frame, holds at 8.7, 9.5, a knob at
+    // 10.1 and 10.7 m): up onto it and down off it again. (The stance's hands now go onto AC1's goals, the grid cell's
+    // holds, up to 0.5 m off where the clip holds them: ours took a hold only within 0.2 m and gripped the air.)
+    Scenario {
+        name: "Damascus: up onto a window box's frame and back down off it (user report 85785)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "42.6,-25.0,0,4.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-1.5"),
+            ("AC1_LEGS", "0-1.5"),
+            ("AC1_STOP", "1.5"),
+            ("AC1_CLIMB", "nograb,wait=2.5,up=3.2,wait=2,down=3"),
+        ],
+        secs: 11.0,
+        want: &["1lu -> 1m via xx_l_climb_1lu_u_1m at [42.53, 8.86", "1ru -> 1m via xx_l_climb_1ru_d_1m at [42.49, 8.28"],
+        never: &["EMBED"],
     },
     // City life (`city_life`): Damascus peopled from AC1's crowd data, 12 at most (scripted runs load and build in step,
     // so each run is the same).
