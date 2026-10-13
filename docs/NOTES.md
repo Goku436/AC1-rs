@@ -25,7 +25,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Cloth (`ClothComponent`, Altaïr's robe tails) | done on AC1's data (`forge::cloth`, `ik::cloth`): the soft mesh's 146 vertices (44 pinned) and 253 edges, per-vertex pull and collision radius, the entity's `Cloth` settings, the 6 `humanragdoll_forcloth` capsules (thighs, shins, feet) mapped onto bones, the 20 `ClothActionSettings`, AC1's 0.033333 s step, the city's `Wind` |
 | Bone modifiers (secondary motion: hinges, look-ats, compressions, rotation copies, roll bones, spring box) | done (`forge::modifier`, `ik::secondary`): all 56 of Altaïr's (main 31, skirt 20, hood 3, sword tag 2) parse and run every frame after the IK |
 | Wind (`Wind`, a city's `Wind_<City>_001`) | done for Damascus and Masyaf (the test level borrows Masyaf's); AC1's noise tables, checked against a value read from the running game |
-| Viewpoints (`ReachHighPoint_*` groups, entities named `*ReachHighPoint*`) | done: Damascus 12, each with a leap of faith into its hay; Masyaf 1 (the tutorial tower, its hay not found: 19.8 m to the nearest) |
+| Viewpoints (`ReachHighPoint_*` groups, entities named `*ReachHighPoint*`) | done: Damascus 12, each with a leap of faith into its hay; Masyaf 1, not a viewpoint in AC1's data (no `ReachHighPointComponent` in Masyaf): the tutorial's "reach a high point" trigger (`M05_T40_Scene_TUT_ReachHighPoint`) on the tower over the village, its hay (`Hay_Bale_01 Group_009`) 13 m north of its top's edge, 13.4 m down, reached by the leap of faith; and the siege's leap off the fortress tower's scaffold into `Group_001` 44 m down (docs/PARKOUR.md HAY-9) |
 | City parkour objects by mesh name (hay carts, `Ladder_*`, `Banc_*`, `Pole_*`) | done: Damascus 46 haystacks, 301 ladders, 320 benches, 159 swing bars; Masyaf 14, 40, 28, 2; climbing probe 8/20 spots over the top |
 | Navigation meshes (`NavMeshManager`) | done: 1432/1432 parse (67836 pieces, 1.13 M triangles); city routes (A*) |
 | Crowds (`RegionLayout` `CrowdRegion_<City>`, `CrowdDutyRegion`, `CrowdFlow`; `forge::crowd`, the `crowd` tool) | done: Damascus 29/29 regions (16303 triangles), 29 duty regions, 451/451 flows (6.8 km); Acre 40/520, Jerusalem 23/401, Kingdom 16/82, Arsuf 2/0 (Masyaf has no crowd layout); every region and flow parses. Played (`city_life`): townsfolk and militia by the regions' fractions walking the flows round the player ("City life") |
@@ -1229,6 +1229,33 @@ bones at most, or any number on an entity with collision shapes (Damascus's `Sca
 The climbing probe (`AC1_PROBE_CLIMB=n`) takes the n holds nearest the start that hang 1.6-2.6 m over the ground, grabs
 each and holds up for 10 s, and logs how far he got, where the wall's top is and which holds go up it. Damascus: 8 of 20
 over the top, 1.9 m up on average. The rest stop where the next hold is more than a climbing jump above (1.7 m, then 8 m).
+
+## Masyaf (the pass of 2026-10-13)
+Nearly everything before was checked in Damascus; this is Masyaf on its own (`AC1_LEVEL=masyaf`).
+- Viewpoints: Masyaf's data has no `ReachHighPointComponent`. The one viewpoint ours keeps is the tutorial's trigger
+  `M05_T40_Scene_TUT_ReachHighPoint` (its text `MASYAF_UA_REACH_HIGH_POINT`, its sound `snd_success_reach_high_point`)
+  at the top of `Maysaf_TowerTrap`, the tower over the village with the log trap (Bevy (160.3, 104.3, 87.5)); its hay is
+  `Hay_Bale_01 Group_009` on the terrace 13 m north of the top's edge and 13.4 m down, found by AC1's leap of faith
+  search (not the viewpoint's own 12.8 m reach: it is 19.8 m from the trigger). The siege's leap of faith
+  (`M05_S17_Trigger_LOFJump`, the cameras `M05_S17_CamPos_LOF*`, `CAMSauteMauviette`) is off the scaffolds
+  `Scaffold_Leap1`/`2` on `Masyaf_TowerJump` over the fortress gate, 44 m down into `Hay_Bale_01 Group_001`-`003`.
+  Both leap into their hay now (docs/PARKOUR.md HAY-9; scenarios tagged `masyaf`). Hay: 19 haystacks and hiding places
+  in the level (`BhvHayStack` on 8 `Hay_Bale_01` heaps, solid to 2.1 m, and 6 carts; 7 rooftop hiding places).
+- The climbing sweep (`AC1_CLIMB_SWEEP=30`, 30 walls and 15 roof edges, 141 runs, about 95 minutes): runs with each
+  class pop 5, embed 4, stuck 4, free-on-wall 1, death 1; no top-out, let-go, hands-off or no-grab. The walls all went
+  well; the failures are in the roof edges' pull-down and hang (embeds in the free hang's one-handed reach and a 90
+  degree outer corner, stuck sideways), one `drop` off a wall by the fortress whose open ground is a ledge over a 38 m
+  cliff, and one spot whose ground pops the hips at the start. Repros sent on (TSV of each run's start).
+- Load: warm, headless 1.6-2.0 s for the process (the city 0.0 s, read meanwhile); windowed 6.0 s to the first frame
+  (city ready 0.42 s, the rest Bevy's, the GPU's and Altaïr's); first build 4.6 s for the gameplay data headless, 6.4 s for
+  the drawn city with no render cache. No Masyaf-only warning: the `GFX_Final_Map` material has no diffuse map (an
+  effects mesh, `FX_Final_Map`, 2.6 m across at the origin, under the terrain), and Bevy's mesh slab allocator logs
+  "use-after-free" errors as the cells stream (Damascus too).
+- Look: its own ambiance is read (sun 150/38 degrees, (237, 208, 170) x 1.7; fog (178, 170, 160) 0.6 from 9 to 115 m;
+  occlusion 1.7 v + 0.25, at least 0.8), 135 placed effects of 11 particle systems, its wind. Shots at fixed cameras:
+  `reports/masyaf/look/` (not in the repo). No shot of the running game in Masyaf exists to set them against (the save is
+  in Damascus). Open: black cards behind some fortress openings (`Masyaf_TowerJump`'s door and window, a wall's top on
+  the citadel's west), not checked against the game.
 
 ## City notes
 - A city forge (e.g. `DataPC_Masyaf.forge`: 785 data files) has a world file (`Masyaf`, 14000 `BAO_0x...` objects of

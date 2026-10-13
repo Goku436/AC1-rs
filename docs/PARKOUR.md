@@ -638,6 +638,16 @@ in this batch, by audit id:
     feet; across 2 to 8 m, along 9 to 20 m and 40 to 70 degrees off the way from 1.5 m behind the feet, opened as the
     top lies lower (full at 30 m down); in front of the facing; the two-segment clear way (bent at 0.66). [ours] The 3 m
     split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
+    Masyaf (2026-10-13): AC1 casts the clear way with the player and the haystack itself on an ignore list
+    (`FUN_00b1aa90` and two pushes before the casts); ours stopped at the haystack's own collision, so Masyaf's
+    `Hay_Bale_01` heaps (solid to 2.1 m, over the 1.85 m the way ends at) were never found. The takeoff and dive are AC1's
+    blend of its four (1 m / 8 m long by 3 m / 30 m down: l = way / 7.5 m, d = drop to the search top / 27 m, 0xB1EC40's
+    haystack case, Banned445's `jump_blend::faith`), not one pair by the drop (and the short one where a wall stood under
+    the edge); the dive flies to the hay (no plain fall's drift decay, which left the dive at the tutorial tower's hay
+    13 m out 9 m short) and enters at the heap's own top when it stands over the entry height (it landed on the heap,
+    killed by a 35 m fall). Masyaf's two leaps: the siege's off `Scaffold_Leap1` (44 m down, `M05_S17_Trigger_LOFJump`)
+    and the tutorial tower's (13 m out); scenarios tagged `masyaf`. [ours] The hay wait's turn to the heap's own facing
+    shows a 0.13 m pop there (the dive's way and the heap's facing far apart).
   - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
     the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
 - **Towers** (user reports #3-#5, 2026-10-12; GUIDE-2):
