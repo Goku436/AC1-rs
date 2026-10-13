@@ -13,7 +13,7 @@ const DEFAULT_GAME_DIR: &str = "P:/SteamLibrary/steamapps/common/Assassins Creed
 struct Scenario {
     name: &'static str,
     /// The systems it goes through (`AC1_SCENARIO_TAGS` picks by these): ground, jump, climb, hang, beam, ladder, bars,
-    /// hay, vault, wallrun, ragdoll, misc.
+    /// hay, vault, wallrun, ragdoll, misc, fight.
     tags: &'static [&'static str],
     env: &'static [(&'static str, &'static str)],
     secs: f32,
@@ -1691,6 +1691,109 @@ const SCENARIOS: &[Scenario] = &[
         want: &["tr_hangfree_", "_swingback_max", "-> free_1m via xx_h_hangfree_swingback_min_b"],
         never: &["EMBED"],
     },
+    // Combat (`combat`, docs/COMBAT.md): a militia guard at the fight yard (`AC1_GUARDS`), the player 2 m off facing it.
+    Scenario {
+        name: "fight: the sword drawn (3 pressed) and sheathed (3 again), HumanWeapon's upper-body pair over the legs",
+        tags: &["fight"],
+        env: &[("AC1_GUARDS", "26,-45,90"), ("AC1_START", "20,-45,-90"), ("AC1_WEAPON", "0.5:3,2.5:3")],
+        secs: 4.0,
+        want: &["drawing the sword", "drew the sword", "sheathing the sword", "sheathed the sword"],
+        never: &["combat: no clip", "EMBED"],
+    },
+    Scenario {
+        name: "fight: an attack chain on the dummy: AC1's attack by side and distance, then two combo hits pressed as the strikes land",
+        tags: &["fight"],
+        env: &[
+            ("AC1_GUARDS", "22,-45,90"),
+            ("AC1_GUARD_PASSIVE", "1"),
+            ("AC1_GUARD_BLOCK", "0"),
+            ("AC1_GUARD_HP", "5"),
+            ("AC1_START", "20,-45,-90"),
+            ("AC1_WEAPON", "0.5:3"),
+            ("AC1_LOCK", "2.0"),
+            ("AC1_ATTACK", "3.0,combo,combo"),
+        ],
+        secs: 6.0,
+        want: &["fight mode on", "attack xx_h_light_front_", "the strike hits", "combo hit 1 xx_h_light_combo_", "combo hit 2 xx_h_light_combo_"],
+        never: &["the strike misses", "combat: no clip", "EMBED"],
+    },
+    Scenario {
+        name: "fight: the timed hit that would kill is AC1's paired combo kill; the guard goes limp",
+        tags: &["fight", "ragdoll"],
+        env: &[
+            ("AC1_GUARDS", "22,-45,90"),
+            ("AC1_GUARD_PASSIVE", "1"),
+            ("AC1_GUARD_BLOCK", "0"),
+            ("AC1_START", "20,-45,-90"),
+            ("AC1_WEAPON", "0.5:3"),
+            ("AC1_LOCK", "2.0"),
+            ("AC1_ATTACK", "3.0,combo,combo"),
+        ],
+        secs: 8.0,
+        want: &["combo kill xx_h_light_combo_light_0", "Paired xx_h_light_combo_light_0", "limp (the ragdoll)"],
+        never: &["combat: no clip", "EMBED"],
+    },
+    Scenario {
+        name: "fight: a first attack the guard blocks (block reception), the player's blow stopped",
+        tags: &["fight"],
+        env: &[
+            ("AC1_GUARDS", "22,-45,90"),
+            ("AC1_GUARD_PASSIVE", "1"),
+            ("AC1_GUARD_BLOCK", "1"),
+            ("AC1_START", "20,-45,-90"),
+            ("AC1_WEAPON", "0.5:3"),
+            ("AC1_LOCK", "2.0"),
+            ("AC1_ATTACK", "3.0"),
+        ],
+        secs: 5.0,
+        want: &["the strike is blocked", "Block xx_h_light_block_"],
+        never: &["combat: no clip", "EMBED"],
+    },
+    Scenario {
+        name: "fight: defending (high profile), the weapon hand as the guard's blow comes: the paired counter kill",
+        tags: &["fight", "ragdoll"],
+        env: &[
+            ("AC1_GUARDS", "22,-45,90"),
+            ("AC1_START", "20,-45,-90"),
+            ("AC1_WEAPON", "0.5:3"),
+            ("AC1_LOCK", "2.0"),
+            ("AC1_HIGH", "2.5-9"),
+            ("AC1_ATTACK", "counter"),
+        ],
+        secs: 8.0,
+        want: &["counter kill xx_h_light_counter_light_01_kill_", "against xx_h_light_countered_light_01_death_", "limp (the ragdoll)"],
+        never: &["mistimed", "combat: no clip", "EMBED"],
+    },
+    Scenario {
+        name: "fight: defending without the counter: the guard's blow is blocked",
+        tags: &["fight"],
+        env: &[("AC1_GUARDS", "22,-45,90"), ("AC1_START", "20,-45,-90"), ("AC1_WEAPON", "0.5:3"), ("AC1_LOCK", "2.0"), ("AC1_HIGH", "2.5-9")],
+        secs: 6.0,
+        want: &["attack xx_h_light_front_", "the strike is blocked"],
+        never: &["the strike hits", "combat: no clip", "EMBED"],
+    },
+    Scenario {
+        name: "fight: the hidden blade behind an unaware guard in low profile: AC1's stealth back assassination, played paired",
+        tags: &["fight", "ragdoll"],
+        env: &[("AC1_GUARDS", "22,-45,90"), ("AC1_START", "23.2,-45,90"), ("AC1_WEAPON", "0.5:2"), ("AC1_ATTACK", "1.5")],
+        secs: 8.0,
+        want: &[
+            "selected the hidden blade",
+            "assassination type 11",
+            "Paired xx_l_assassina_stealth_back_kill_ass_footr_a",
+            "Paired xx_l_assassina_stealth_back_kill_npc_footm",
+            "limp (the ragdoll)",
+        ],
+        never: &["combat: no clip", "EMBED"],
+    },
+    Scenario {
+        name: "fight: the hidden blade 2.5 m behind a guard in high profile: AC1's running back assassination (type 5)",
+        tags: &["fight", "ragdoll"],
+        env: &[("AC1_GUARDS", "22,-45,90"), ("AC1_START", "24.5,-45,90"), ("AC1_HIGH", "0-9"), ("AC1_WEAPON", "0.5:2"), ("AC1_ATTACK", "1.5")],
+        secs: 6.0,
+        want: &["assassination type 5", "Paired xx_h_assassina_runback_kill_ass_footr_a", "limp (the ragdoll)"],
+        never: &["combat: no clip", "EMBED"],
+    },
     // User report 2026-10-13 (recording 194384): pulled down off a Damascus roof's edge at (73.6, 11.9, -56.6), down and left
     // along the house front into a free hang under a window's pointed cap (pieces 0.2-0.6 m long, its top sloping 30
     // degrees), then up: the user's build pulled up one-handed onto the cap's point and fell 7.4 m off it. Now up switches
@@ -1778,7 +1881,7 @@ fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
 }
 
 /// The systems scenarios are tagged with.
-const TAGS: &[&str] = &["ground", "jump", "climb", "hang", "beam", "ladder", "bars", "hay", "vault", "wallrun", "ragdoll", "misc", "combo", "eject"];
+const TAGS: &[&str] = &["ground", "jump", "climb", "hang", "beam", "ladder", "bars", "hay", "vault", "wallrun", "ragdoll", "misc", "combo", "eject", "fight"];
 
 /// Every scenario is tagged with known systems (no game needed). `AC1_SCENARIO_LIST=1` prints them: count, then
 /// `tags<TAB>name` lines (for the pipeline page).

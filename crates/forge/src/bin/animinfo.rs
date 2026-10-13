@@ -39,6 +39,40 @@ fn main() -> Result<()> {
                     let keys: Vec<String> = t.keys.iter().zip(v).map(|(k, b)| format!("{:.3} {b:06b}", *k as f32 / forge::anim::FPS)).collect();
                     println!("    contacts {}", keys.join(", "));
                 }
+                // `ANIMINFO_BODY=1`: the Reference and Hips bones' translations (clip space, m) and the Reference's yaw, at the
+                // first and the last frame: where a paired clip puts the body against its root.
+                if std::env::var("ANIMINFO_BODY").is_ok() {
+                    for name in ["Reference", "Hips"] {
+                        let h = crc32fast::hash(name.as_bytes());
+                        let pos = |f: f32| a.tracks.iter().filter(|t| t.bone_hash == h).find_map(|t| t.translation_at(f));
+                        let yaw = |f: f32| {
+                            a.tracks
+                                .iter()
+                                .filter(|t| t.bone_hash == h)
+                                .find_map(|t| t.rotation_at(f))
+                                .map(|[qx, qy, qz, qw]| (2.0 * (qw * qz + qx * qy)).atan2(1.0 - 2.0 * (qy * qy + qz * qz)).to_degrees())
+                        };
+                        let fmt = |p: Option<[f32; 3]>| p.map_or("-".into(), |p| format!("({:.2}, {:.2}, {:.2})", p[0], p[1], p[2]));
+                        let y = |v: Option<f32>| v.map_or("-".into(), |v| format!("{v:.0}"));
+                        println!("    {name}: {} yaw {} -> {} yaw {}", fmt(pos(0.0)), y(yaw(0.0)), fmt(pos(f32::MAX)), y(yaw(f32::MAX)));
+                    }
+                }
+                // `ANIMINFO_EVENTS=1`: the event keys (time, kind: a contact's type, a sound's object id, another
+                // event's class id).
+                if std::env::var("ANIMINFO_EVENTS").is_ok() {
+                    let keys: Vec<String> = a
+                        .events
+                        .iter()
+                        .map(|e| match &e.kind {
+                            forge::anim::EventKind::Contact { ty } => {
+                                format!("{:.3} contact {}", e.time, forge::anim::CONTACT_HUMAN.get(*ty as usize).unwrap_or(&"?"))
+                            }
+                            forge::anim::EventKind::Audio { sound } => format!("{:.3} sound {sound:08x}", e.time),
+                            forge::anim::EventKind::Other(c) => format!("{:.3} class {}", e.time, c.map_or("ref".into(), |c| format!("{c:08x}"))),
+                        })
+                        .collect();
+                    println!("    events {}", keys.join(", "));
+                }
                 if std::env::var("ANIMINFO_TURNS").is_ok() {
                     let yaw = |q: [f32; 4]| (2.0 * (q[3] * q[2] + q[0] * q[1])).atan2(1.0 - 2.0 * (q[1] * q[1] + q[2] * q[2])).to_degrees();
                     let end = a.duration * 30.0;
