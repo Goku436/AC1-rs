@@ -39,7 +39,8 @@
 //! `AC1_GUARD_HP=n`, `AC1_GUARD_AWARE=1` (hostile from the start), `AC1_FIGHT_ATTACKERS=n` (guards attacking at once, 1),
 //! `AC1_PLAYER_HEALTH=0..1`, `AC1_WEAPON="secs:key,..."` (a weapon key pressed then), `AC1_LOCK="secs,..."` (F pressed),
 //! `AC1_ATTACK="secs[:held],...,combo,counter,dodge"` (the weapon hand: at a time, held that long; `combo` presses in
-//! the middle of the next combo window, `counter` as the next counter window opens, `dodge` presses the legs then).
+//! the middle of the next combo window, `counter` as the next counter window opens, `dodge` presses the legs then),
+//! `AC1_FIGHT_TRACE=1` (every fight frame's clip and root in the log).
 
 use crate::animation::{AnimLib, Clip, mix_name, root_motion_at, root_rotation_at};
 use crate::character::{Character, Controller, Player, model_to_bevy};

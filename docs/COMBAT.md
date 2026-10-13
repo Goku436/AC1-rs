@@ -2,7 +2,8 @@
 
 Combat came back on 2026-10-13, rebuilt on AC1's own data: the fight action blocks of `Human_ActionKit` and the
 executable's fight tables (AssassinsCreed_Dx9.exe v1.02, read in Ghidra). The code is `crates/game/src/combat.rs`
-(Bevy) and `crates/game/src/fight_data.rs` (the tables and choices, pure, unit-tested). No decompiled code is kept:
+(Bevy), `crates/game/src/fight_data.rs` (the choices, pure, unit-tested) and `crates/game/src/fight_tables.rs` (the
+exe's tables as numbers). No decompiled code is kept:
 the tables are the game's numbers, the logic is written fresh.
 
 Marks as in docs/PARKOUR.md: **[V]** checked by us in the exe or the data, **[ours]** our own (not found in AC1), **[?]**
@@ -28,22 +29,68 @@ not known yet.
   `animinfo` prints a clip's events (`ANIMINFO_EVENTS=1`) and where it puts the body against its root (`ANIMINFO_BODY=1`).
 
 ## 2. The executable's tables **[V]**
-Statics filled at start (initializers 0xF319A0, 0xF324E0, 0xF32E00 ...), per weapon (0 fists, 1 sword, 2 short blade):
-- wind-ups by [strong, max][side front/left/right/back][distance short/medium/long][foot] (0x1A31920, 0x1A31A48);
-- the strikes after them, records {action, the direction the blade ends in, 8} (setter 0xF314C0);
-- combo wind-ups by [direction][strong, max][foot] (0x1A31B70) and their strikes (records at 0x1A34638: each ends in
-  its own direction);
-- hit reactions by [the blow's direction][quick, strong][foot] (0x1A32398), blocked recoils (0x1A322D0), block
-  anticipations and receptions, deflects, turns (0x1A33B20).
-The attack start (0xF3E2F0): kind 0 a first attack picked by side, distance and foot; kind 2 a combo hit; kind 3 one
-at a target over 0.5 m higher or lower (the `_low_` / `_high_` attacks, not done here). The side (0xF3E090): within
-45 degrees of the facing front, to 135 left or right, else back. The distance (the attack setup 0xF47760): the squared
-distance against 2.25 (short) and, for the sword, 6.25 (medium, 9 for the others), else long. The combo's next
-direction: after a hit 0xF4CD50's table [1, 0, 3, 0] (ul -> dl, dl -> ul, dr -> ur, ur -> ul), after a blocked strike
-0xF4CDD0's [3, 2, 0, 1]; the combo stays open while fewer than 2 combo hits have played and the attack was not a max
-one (0xF3B820, the flag at +0xA0C). The tag bones (0xB11020): `RightHand_Weapon_Ref` (0x3FB256E5) is where a drawn
-weapon goes, `P_LeftWaist_Tag` (0x3A835926) the sword's sheath, `P_Dagger_Tag` the short blade's (names found by
-CRC32 against the exe's `BIPEDBONE_*` list).
+Statics filled at start (the initializers 0xF319A0, 0xF324E0, 0xF32E00 ... and the record setters 0xF314C0 for the blades,
+0xF315F0 for the fists; the master reset 0xF39B10), kept as numbers in `crates/game/src/fight_tables.rs`, per weapon
+(0 fists, 1 sword, 2 short blade; the stance tables have a 4th, the hidden blade `blade`):
+- the stances: waits, defence waits, defence walks, walks [weapon][foot] (0x1A31760, 0x1A31784, 0x1A317A8, 0x1A317B0).
+  The light and unarmed waits list no items, only idle variants as associated actions (0xFD645B's first, 0x8C6D0D28,
+  is `xx_h_light_wait_footr`);
+- wind-ups by [strong, max][side front/left/right/back][distance short/medium/long][foot] (0x1A31920, 0x1A31A48) and
+  the strikes after them, records {action, the direction the blade ends in, 8} (0x1A33C18 / 0x1A33F78; the fists' long
+  distance repeats the medium one, the short blade's three distances are one attack);
+- the sword's straight-ahead attacks at medium and long distance: [strong, max][foot][distance][blade direction]
+  (0x1A31D90, strikes 0x1A31FD8): 0xF3E2F0 rolls the direction at random (0..3, moved on by one when it repeats the last,
+  +0x9DC); the sword only;
+- the high and low attacks (a target over 0.5 m higher or lower, kind 3): [weapon][distance][low, high][strong, max]
+  [foot] (0x1A31C38, strikes 0x1A342D8 / 0x1A34488); no combo follows them (+0xA0A);
+- combo wind-ups [weapon][direction][strong, max][foot] (0x1A31B70) and strikes (0x1A34638): the sword's and the short
+  blade's (the short blade has no upper-left combo hit; its direction tables never turn to it);
+- what the attacker plays as its strike lands: `hit` on a body (0x1A32398, 0xF4A0A0: `xx_h_light_hit_<quick|strong>_
+  <dir>_<foot>_a`, 0.27 s) and `blocked` on a block (0x1A322D0, 0xF3B820: `xx_h_blocked_...`), [weapon][the blade's
+  direction][strong, max][foot]. (Round 1 played the `hit` clips on the victim: they are the attacker's.)
+- the combo's next direction (0x170A640..0x170A670): after a strike that landed with one of those clips, the sword's
+  [3, 2, 0, 1] (0xF4CDD0 after a hit, 0xF4CE50 after a block), the others' [1, 2, 3, 1]; after one that met nothing
+  that answered (0xF4CD50), the sword's [1, 0, 3, 0], the others' [1, 3, 1, 2]. (Round 1 had the two sword tables the
+  wrong way round.)
+- the turns on the spot [weapon][45 left, 45 right, 90 left, 90 right, 180][defence, stance][foot] (0x1A33AD0);
+- the paired combo kill [weapon][the combo hit's direction]: the killer's wind-up, step in, kill (0x1A33538, 0x1A3356C,
+  0x1A335A0), the victim's death pose and death indexed by 3 - the direction (0x1A335D4, 0x1A33608);
+- the counter kill: step in and kill [the defender's weapon][kill, slap][the attacker's weapon][direction][the
+  defender's foot] (0x1A32E10 played by 0xF4A2B0, 0x1A33118 by 0xF4A9A0): the `_01` set off the left foot, `_02` off
+  the right; `slap` (`xx_h_light_counter_slap_...`) the non-lethal one;
+- the counter on a max attack (0x1A3341C ...: `xx_h_light_counter_max_light_...`, the attacker `countered_max_light_...
+  _stunned`, `_kicked`), the counter dodge [weapon][side left/right/back][foot] (0x1A32460), a deflected blow's recoil
+  [weapon][direction][foot] (0x1A32738), the mobile attacks [weapon][kind 0 drawn, 3 drawing as it strikes, ...][foot]
+  (0x1A32220, strikes 0x1A34908), the throwing knife's throw and release [the knife's place: belt, leg, shoulder]
+  [side][foot] (0x1A34EF0, 0x1A34F58).
+The attack start (0xF3E2F0): kind 0 a first attack picked by side, distance and foot; kind 2 a combo hit; kind 3 the
+high or low one. The side (0xF3E090): within 45 degrees of the facing front, to 135 left or right, else back. The
+distance (0xF47760): the squared distance against 2.25 (short) and, for the sword, 6.25 (medium, 9 for the others), else
+long. The fists' max attack: a second attack within 2 s of a strong one (the timer at +0xA88). The turn (0xF4BB60, played
+by 0xF38D10): none within 30 degrees, the 45 one to 60, else the 90 one to 135, else the 180, its clip's turn scaled to
+the angle. The tag bones (0xB11020): `RightHand_Weapon_Ref` (0x3FB256E5) is where a drawn weapon goes,
+`P_LeftWaist_Tag` (0x3A835926) the sword's sheath, `P_Dagger_Tag` the short blade's.
+
+The attack's state machine (the fight state's sub-states at +0xB17, entered by 0xF4E6E0, left by 0xF523A0): the wind-up
+(0xF3E2F0) -> the strike (0xF40460, which clears the weapon hand's press latch +0x805 and the max flag +0x804 as it
+starts) -> what it meets: a body (0xF4A0A0, the `hit` clip), a block (0xF3B820, the `blocked` clip), nothing that
+answers (0xF4A050). Each sets the combo flag +0xA0C unless the attack was a max one (+0xA0A), two combo hits have played
+(+0x9E0) or the weapon is not a blade. When the clip playing may be left (the anim graph's flag, 0x501760), a press
+latched since the strike started (+0x805, set by the attack command 0xF3A2F0, reached from `HumanGround`'s handler at
+its vtable +0x158) plays the next combo hit (0xF4DD00 / 0xF4DD40 / 0xF4DD80); if the target is no longer in front, a new
+first attack instead. The max attack is its own command (0xF3A3F0 via +0x154: +0x804), sent by the input interpreter
+(`GoAssassinActionInterpreter`, its hold timing not found). The mobile attack is the command 0xD88BD0 (+0x808 with its
+kind at +0x814).
+
+The fight manager (`FightManager`, update 0xB00DA0) reads per memory block a `FightManagerData` (DataPC.forge,
+`AssassinsCreed`'s missions: two `FightManagerDifficultyData` each, 11 fields, read by 0xCD7430..0xCD74F0): +0/+4 ramp
+the fighters it lets take part (memory block 1: 1-2, block 7: 14-16; 0xAFF460 -> +0x2A8, 0xB00C30 sets the rest aside),
++8/+0xC a share of them sent at once (0..0.3) every +0x10/+0x14 seconds (60..25), +0x1C (8 s) a cool-down, +0x20/+0x24/
++0x28 counts (target switching, the fighters drawn in). Read only in part: `fight_data::FIGHT_MANAGER`.
+
+The `DamageData` (DataPC `Game Bootstrap Settings`) is a tree of per-attack damages (u8 fields, among them `ComboKill`,
+`CounterStrong`, `CounterQuick`, `Throw`, `Arrow` by their CRC32s; values 5, 10, 13, 16, 20, 30, 255), rows not decoded;
+`AssassinsMoraleBank` holds the player's health per memory block (arrays of 20..53), not decoded.
 
 ## 3. Assassinations **[V]**
 - The type (0xF6C480): more than 1 m of height apart, none. High profile, not running: within 1.5 m the walking one
@@ -57,7 +104,11 @@ CRC32 against the exe's `BIPEDBONE_*` list).
   1, 1.656, 1.515, ... m).
 - The kill (0xF6CA30) puts the assassin's root on the victim's (sub_52AAF0): the pair is authored in the victim's
   frame, both roots at its origin, the bodies apart by the Reference bones (`ANIMINFO_BODY=1`: the back kill's
-  assassin 0.55 m behind the shared root).
+  assassin 0.55 m behind the shared root). A paired lead-in is time-scaled to its steer (0xF4A2B0: the clip's speed set
+  so it lasts the steer's time, sub_711130).
+- From the air: the jump code (0xB1EC40) takes a target of kind 0x8000 with `HumanInAir`'s 0x21B4DC3D / 0x21B4DC3E, a
+  9-way blend of `xx_h_air_<front|down|up>_<cm>_<foot>_to_assassinate` by the jump's length and drop. The kill after it
+  is not found (the block's `xx_h_assassina_failure_air_kill_*` leaves the victim standing: the failed one).
 
 ## 4. Input (the manual, `DefaultBindings.map`) **[V]**
 1 short blade and throwing knives, 2 hidden blade, 3 sword, 4 fists: a press selects, a second draws. F target lock:
@@ -67,52 +118,69 @@ combo attack; hold for a slower but stronger attack"); high profile held defends
 hand counter-attacks, the legs counter-dodge, the empty hand counter-grabs. Low profile Space steps, Shift grabs.
 
 ## 5. What ac1-rs does
-- **Weapons**: the keys as the manual; the sword drawn with 0x0C1BB807 (`xx_h_unsheath_grab_upper_body`, then
-  `xx_h_unsheath_upper_body`) and sheathed with 0x0C1BB7D6 (`xx_h_sheath_upper_body`, `_release_upper_body`), over
-  the legs; the weapon changes bone between the two items (ours: AC1's moment not found); in the hand the sheath bone
-  is posed at `RightHand_Weapon_Ref` (`combat::hold_weapon`). The short blade with its `knife` pair; fists
-  `xx_h_unarmed_select_<foot>`; the hidden blade has nothing to draw **[ours]**.
-- **Fight mode**: F, on the nearest guard within 10 m (hostile first), the sword drawn if it is not; in through
-  `xx_h_wait_hipm_<foot>_tr_xx_h_light_wait_<foot>`, out through `xx_h_light_wait_<foot>_tr_xx_h_wait_hipm_<foot>`. In
-  it the stick walks the 8-way blend space's nearest walk (no mix of two) facing the target, turning at 6 rad/s **[ours:
-  AC1 turns with its 45 / 90 / 180 degree clips]**; high profile the defence's wait and walk.
-- **Attacks**: AC1's table pick; strong on a tap, max when held 0.3 s **[ours: the hold]**. The wind-up's root is
-  steered along its own progress so its strike ends 0.95 m from the target **[ours: AC1 steers its discrete moves,
-  sub_711130, the place for an attack not found]**. The blow lands as the strike item starts **[ours]**: the target
-  blocks, is hit (the reaction by the blow's direction, quick for strong attacks, strong for max and combo hits), or
-  dies (`xx_h_light_death_wound_front_<sl|sr>_<foot>`, the side from the blade's direction **[ours]**). A hit or
-  blocked strike returns to the stance at its end; a miss plays the follow-through and its way back.
-- **Combos**: the weapon hand pressed while the strike item plays (the landed blow, 0.2 s) **[ours: the manual's
-  "as soon as your weapon makes contact"]** queues the next hit, AC1's direction table, up to 2 combo hits (AC1's
-  rule); a press during the wind-up spoils it **[ours]**. The combo hit that would kill is the paired combo kill
-  (`HumanGround_ComboKill` light_01..04 by the combo's direction **[ours: which one AC1 picks]**): the killer's wind-up
-  and step in (`_start`, `_position`), then `_a` / `_b` against the victim's `death_pose`, `death_a`, `death_b`.
-- **Counter**: high profile held, the weapon hand from 0.4 s before a guard's blow lands to 0.12 s after **[ours]**:
-  `xx_h_light_counter_light_01_kill_<dir>_step*` then `_position_*_a` / `_b` against
-  `xx_h_light_countered_light_01_death_<dir>_footr_a` / `_b`, `<dir>` the guard's strike's. Out of the window nothing
-  happens **[ours: AC1 leaves the player open]**.
-- **Blocking**: the player defending in the stance blocks a guard's blow (`xx_h_light_block_<max|strong>_rec_<dir>_
-  <foot>`, its `_tr_wait`).
-- **Assassinations**: the hidden blade selected, the weapon hand: AC1's type choice over the guards not fighting;
-  the assassin's lead-in blend by AC1's weights, its root steered so that its last frame's body meets the kill's first
-  (ours: AC1 steers to the victim minus its table distance; the table is used for the choice); the victim's lead-in,
-  then both kills from the victim's root, the victim limp after.
-- **Paired clips**: both sides play from the victim's root. AC1 moves the killer's root there; ours keeps the root
-  where it is and moves the body by the offset (`Character::body_offset`), eased out over the step after the last
-  paired one, so neither the body nor the root jumps **[ours]**.
-- **Deaths**: limp when the death clip ends (`ik::ragdoll` on AC1's `human_ragdoll`); AC1's 0x4000 item bit is not
-  used yet.
-- **Guards** **[ours: AC1's fight AI, `FightManager` / `NPCFighterType` / the `GoalID_Fight*` goals, is not decoded]**:
-  AC1's militia (`MMMA_FreeMission_Militia`, its clip set `mmaa_anim_set`) with the player's sword on its hip (the
-  guards' own weapons are separate entities, not read). It stands until the player locks on it, attacks it, or comes
-  within 4 m in front of it with a weapon drawn; then it fights: faces the player, attacks every 2.2-3.8 s within 2.6 m
-  with AC1's max attacks, blocks a first attack by chance (0.5; never a timed combo hit), takes 3 hits.
-- **Not yet**: counter dodges and grabs, deflects and guard breaks, the low / high attacks (kind 3), mobile attacks,
-  the short blade's and fists' fights, throwing knives, air assassinations, detection and awareness, the player's
-  death, more than one guard attacking in turns.
+- **Weapons**: the keys as the manual; the sword drawn with 0x0C1BB807 and sheathed with 0x0C1BB7D6 over the legs; the
+  short blade with its `knife` pair; fists `xx_h_unarmed_select_<foot>`; the hidden blade has nothing to draw **[ours]**.
+  The moment the weapon changes bone **[ours]**.
+- **Fight mode**: F, on the nearest guard within 10 m (hostile first), with the weapon in hand (the sword drawn if none
+  is), into that weapon's stance (**[V]** tables). Standing, a target over 30 degrees off is faced with AC1's turn clips,
+  their turn scaled to the angle **[V]**; walking in the stance, or within 30 degrees, the facing follows at 6 rad/s
+  **[ours]**. High profile the defence's wait and walk.
+- **Attacks** **[V]**: AC1's table pick by weapon, side, distance and foot; the sword's straight-ahead medium and long
+  ones by a random blade direction; a target over 0.5 m higher or lower the high or low attack; the fists' second attack
+  within 2 s a max one. Strong on a tap, max when held 0.3 s **[ours: the hold]**. The wind-up's root is steered so its
+  strike ends 0.95 m from the target **[ours]**. The blow lands as the strike item starts **[ours: AC1's contact
+  event, 0x502210, not decoded]**: the target blocks, deflects, is hurt or dies; the attacker then plays AC1's `hit` or
+  `blocked` clip and its way back **[V]** (none in the table for its foot: the strike action's own way back, `_tr_wait`).
+- **The victim**: hurt `xx_h_light_hurt_quick_front_light_vertical` for a strong blow, `_strong_front_light_<sl|sr>` for
+  a max or combo one by the blade's side, `_strong_back_common` from behind (the fists' `unarmed_hurt_..._punch` /
+  `_kick`) **[ours: AC1's choice not found]**; dies `xx_h_light_death_wound_front_<sl|sr>` **[ours]**.
+- **Combos** **[V]**: AC1's latch: a press from the strike's start through the `hit` / `blocked` clip plays the next combo
+  hit when that clip ends (a press in the wind-up is dropped as the strike starts); AC1's direction tables; up to 2;
+  not after a max attack; the blades only. The combo hit that would kill is AC1's paired combo kill for its direction.
+  **[ours]**: no combo after a strike that met nothing (AC1 allows one, `[1, 0, 3, 0]`), and a guard never blocks a combo
+  hit.
+- **Counter** (high profile held, the weapon hand from 0.4 s before a guard's blow lands to 0.12 s after **[ours: the
+  window]**): AC1's counter kill by the defender's foot (`_01` / `_02`) **[V]**, against `countered_light_<set>_death`
+  of the guard's blade direction **[ours: AC1 indexes the defender's by 3 - an event's direction, not settled]**.
+  **Counter dodge**: Space in the same window, AC1's `counter_dodge_<left|right|back>` by the stick (back with none)
+  **[V clips, ours the window]**; the guard's blow then misses. Counter grabs and the counter on max attacks: not yet.
+- **Paired clips** **[V]**: both sides play from the victim's root; the killer's root slides onto it over 0.3 s as the
+  paired clip starts, the body held on the pair's root by an offset all along, so neither jumps **[ours: AC1 snaps
+  the root and blends the pose]**.
+- **Mobile attacks**: running over 4 m/s, a guard within 2.5 m and 45 degrees ahead, the weapon hand: AC1's mobile attack
+  (kind 0 drawn, 3 drawing the sword as it strikes) **[V tables, ours the reach]**.
+- **Throwing knives**: the short blade at a target past its medium band (3 m): AC1's belt throw and release by the
+  target's side **[V clips]**, the knife flying at 25 m/s, killing a guard; 5 knives **[ours: speed, count, damage;
+  no knife mesh]**.
+- **Short blade and fists**: the same machinery on their tables and stances **[V]**; the fists no combos (AC1's).
+- **Assassinations**: the hidden blade selected, the weapon hand: AC1's type choice over the guards not fighting, the
+  lead-in blend by AC1's weights, steered so its last frame's body meets the kill **[ours: AC1 steers to the victim minus
+  the table distance]**, then the pair. **From above** (a guard 1.5..7 m below within 3.5 m ahead: a ledge, a beam, a
+  roof's edge, a jump): AC1's `to_assassinate` jump by the drop, stretched to the fall's time and steered through the
+  air so its body lands where the kill starts, then the finish on the ground (types 8 / 9) **[ours: AC1's air kill not
+  found; the victim knocked down under it]**.
+- **Guards** **[ours: AC1's fight AI is the decision tree `DecisionTreeDefault` in code, not decoded]**: any entity with
+  `Guard` and `Fighter` (`Guard::new(seed)`; the street militia's patrol moves one only while it is not hostile and
+  `Fighter::idle`). Hostile when locked on, attacked, a drawn weapon within 4 m in front, or a guard within 15 m
+  fighting (the alarm). They take turns: at most one attacks at once (`AC1_FIGHT_ATTACKERS`; the turn to the one that
+  waited longest; AC1's fight manager numbers are in section 2), every 2.2-3.8 s within 2.6 m, AC1's max attacks;
+  block a first attack by chance (0.5), or deflect it (`AC1_GUARD_DEFLECT`, 0 by default): `xx_h_light_deflect_<dir>`
+  against the attacker's AC1 `deflected` recoil, then strike back at once; 3 hits.
+- **The player hurt**: a strong blow takes 0.1 of the health, a max or combo one 0.15 **[ours: AC1's `DamageData` not
+  decoded]**; at none, the wound death, limp, and desynchronised: back at the spawn with full health after 3 s
+  **[ours: AC1 restarts at the memory's checkpoint]**. The HUD's health bar shows it.
+- **Not yet**: counter grabs and grabs, guard breaks, the counter on a max attack, AC1's hold time for the max attack,
+  its contact frame, the victim's hurt choice, the fight manager's group attacks, detection beyond the alarm, the
+  throwing knife's mesh, the hidden blade's own fight stance (its tables are in), the air kill AC1 plays.
 
-## 6. Scenarios (tag `fight`)
-Draw and sheathe; an attack and two combo hits on a passive dummy; the paired combo kill; a blocked attack; the
-counter kill; the player blocking; the stealth back assassination and the running one. Scripts: `AC1_GUARDS`,
-`AC1_GUARD_BLOCK`, `AC1_GUARD_PASSIVE`, `AC1_GUARD_HP`, `AC1_WEAPON`, `AC1_LOCK`, `AC1_ATTACK` (`combo`, `counter`
-cues press inside the windows), see `combat.rs`'s header.
+## 6. Scenarios (tag `fight`, 20)
+Draw and sheathe; an attack chain with two combo hits (the attacker's `hit` clip, the victim's hurt clip); the paired
+combo kill; a blocked attack; the counter kill; the player blocking; the stealth back and running assassinations; the
+90 degree turn; a press in the wind-up dropped; a deflect and the riposte; the counter dodge; two guards in turns; the
+player's death and desynchronisation; the mobile attack drawing the sword; the short blade's fight; the fists' fight;
+the throwing knife; the high attack on the stairs; the air assassination off the gauntlet's 5 m block. Scripts:
+`AC1_GUARDS`, `AC1_GUARD_BLOCK`, `AC1_GUARD_DEFLECT`, `AC1_GUARD_PASSIVE`, `AC1_GUARD_HP`, `AC1_GUARD_AWARE`,
+`AC1_FIGHT_ATTACKERS`, `AC1_PLAYER_HEALTH`, `AC1_WEAPON`, `AC1_LOCK`, `AC1_ATTACK` (`combo`, `counter`, `dodge` cues),
+`AC1_FIGHT_TRACE`, see `combat.rs`'s header. Screenshots: F:/Claude/ac1-wt/reports/combat2/. The pop check skips a limp
+body (the ragdoll's root jumps under it); the short blade's scenario ends as its strike's way back starts (AC1's knife
+sweeps the hand 0.45 m in a frame there, the clip's own motion).

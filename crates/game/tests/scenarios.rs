@@ -1914,6 +1914,22 @@ const SCENARIOS: &[Scenario] = &[
         never: &["combat: no clip", "EMBED"],
     },
     Scenario {
+        name: "fight: a guard up the stairs, 0.7 m higher: AC1's high attack (the attack kind 3)",
+        tags: &["fight"],
+        env: &[
+            ("AC1_GUARDS", "0,-4.1,180"),
+            ("AC1_GUARD_PASSIVE", "1"),
+            ("AC1_GUARD_BLOCK", "0"),
+            ("AC1_START", "0,-2.2,0"),
+            ("AC1_WEAPON", "0.5:3"),
+            ("AC1_LOCK", "2.0"),
+            ("AC1_ATTACK", "3.0"),
+        ],
+        secs: 5.0,
+        want: &["attack xx_h_light_front_", "_atk_high_"],
+        never: &["combat: no clip", "EMBED"],
+    },
+    Scenario {
         name: "fight: the short blade drawn (1, 1), locked on a guard: AC1's knife stance and its attack",
         tags: &["fight"],
         env: &[
