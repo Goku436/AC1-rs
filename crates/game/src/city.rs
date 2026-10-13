@@ -953,8 +953,9 @@ fn spawn_world(
     // The effects the cells place (`particles::WorldFx`, drawn only): entities whose `Visual` shows a particle system.
     // (The cells' own: not the missions' data files, whose effects play in their missions, nor the entities `FX`
     // objects spawn, `GFX_FX_*`, kept in the cells at the origin.)
+    let mut world_fx = crate::particles::WorldFx::default();
     if opts.render && picks.is_none() {
-        let mut fx = crate::particles::WorldFx { forge_file: forge_file.to_string(), ..default() };
+        let fx = &mut world_fx;
         let spawned: std::collections::HashSet<u32> =
             objects.iter().flatten().filter(|o| o.class == forge::fx::CLASS_FX).flat_map(|o| forge::fx::links(o.body)).collect();
         for (pi, &(ent_id, body)) in placements.iter().enumerate() {
@@ -967,7 +968,6 @@ fn spawn_world(
                 fx.placed.push((to_bevy * m, id));
             }
         }
-        commands.insert_resource(fx);
     }
     for (pi, &(ent_id, body)) in placements.iter().enumerate() {
         let picked = moved.get(pi).copied().flatten();
@@ -1391,6 +1391,7 @@ fn spawn_world(
         });
         draw.textures = textures_of(&bank.recipes, &rindex);
         draw.recipes = std::mem::take(&mut bank.recipes);
+        draw.effects = world_fx;
         info!("city {forge_file}: drawn: found in {:.1}s", t1.elapsed().as_secs_f32());
         lap("render store (drawn)");
         // (Saved for the next load, `render_cache`, written on a thread of its own.)
@@ -1764,7 +1765,9 @@ pub(crate) fn realize(
     forge_file: &str,
 ) -> crate::stream::CityRender {
     let t0 = std::time::Instant::now();
-    let crate::render_cache::CityDraw { recipes, textures, meshes: stored, instances, cells, fake_blocks, fake_jobs, ao } = draw;
+    let crate::render_cache::CityDraw { recipes, textures, meshes: stored, instances, cells, fake_blocks, fake_jobs, ao, effects } = draw;
+    // (The placed effects, for `particles`.)
+    commands.insert_resource(crate::particles::WorldFx { forge_file: forge_file.to_string(), ..effects });
     // (The stand-ins' meshes built on a thread meanwhile.)
     let (fakes, maker) = std::thread::scope(|sc| {
         let fakes = sc.spawn(|| build_fakes(&fake_blocks, &fake_jobs));

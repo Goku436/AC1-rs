@@ -80,7 +80,8 @@ fn game_to_bevy() -> Mat4 {
 #[derive(Resource, Default, Clone)]
 pub struct WorldFx {
     pub forge_file: String,
-    pub systems: HashMap<u32, (String, Vec<u8>)>,
+    /// (By id, in order: the render cache's bytes are the same every build.)
+    pub systems: std::collections::BTreeMap<u32, (String, Vec<u8>)>,
     pub placed: Vec<(Mat4, u32)>,
 }
 
@@ -195,10 +196,7 @@ fn load_world(game_dir: &Path, fx: &WorldFx) -> anyhow::Result<WorldData> {
     let mut at: HashMap<u32, usize> = HashMap::new();
     let mut systems = vec![];
     let mut bad = 0;
-    let mut ids: Vec<&u32> = fx.systems.keys().collect();
-    ids.sort_unstable();
-    for id in ids {
-        let (name, body) = &fx.systems[id];
+    for (id, (name, body)) in &fx.systems {
         match forge::fx::parse_particle_system(body) {
             Ok(ems) => {
                 at.insert(*id, systems.len());
