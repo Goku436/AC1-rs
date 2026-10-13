@@ -21,6 +21,12 @@
 //!   - kind 19, class `TextureSelector`: u32 `?`, u32 class again, u32 mode, u32 channel, u32 set id, u32 map id: a
 //!     texture slot. Mode 0 takes the map spec at `channel` of the material's own texture set, mode 1 of set `set`,
 //!     mode 2 is map `map` itself.
+//!   - kind 19, class `UVTransform` (c52e2125): u32 `?`, u32 class again, f32 `ScaleU`, `ScaleV`, `TranslationU`,
+//!     `TranslationV`, `TranslationSpeedU`, `TranslationSpeedV`, `Rotation`, `RotationSpeed`, u8 `AnimateTranslation`,
+//!     u8 `AnimateRotation` (names by CRC32 from the exe's property list of `UVTransform`; the water's panners). The
+//!     exe makes it a 2x3 matrix each frame, `u = cos r * su * x - sin r * sv * y + tu`, `v = sin r * su * x + cos r * sv
+//!     * y + tv`, the translation (when animated) advancing by its speed times the frame time and wrapped to -1..1, the
+//!     rotation by its speed (wrapped to a turn); `UvTransform::at`.
 //!
 //! A TextureSet body is the map spec ids per channel (u32 each); a TextureMapSpec body ends with its TextureMap's id.
 
@@ -29,6 +35,7 @@ use crate::texture::get_u32;
 use anyhow::{Result, bail, ensure};
 
 pub const CLASS_TEXTURE_SELECTOR: u32 = 0x7d08_460d;
+pub const CLASS_UV_TRANSFORM: u32 = 0xc52e_2125;
 const PARAMS_AT: usize = 0x39;
 
 /// A material parameter's value.
@@ -43,6 +50,40 @@ pub enum Param {
         set: u32,
         map: u32,
     },
+    /// A texture coordinate transform (see the module docs).
+    Uv(UvTransform),
+}
+
+/// A `UVTransform` parameter: how a shader's texture coordinates are scaled, turned and scrolled.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UvTransform {
+    pub scale: [f32; 2],
+    pub translation: [f32; 2],
+    /// Per second, when `animate_translation`.
+    pub translation_speed: [f32; 2],
+    /// Radians.
+    pub rotation: f32,
+    /// Radians per second, when `animate_rotation`.
+    pub rotation_speed: f32,
+    pub animate_translation: bool,
+    pub animate_rotation: bool,
+}
+
+impl UvTransform {
+    /// The transform's matrix rows at `t` seconds: `(u, v) = (row0 . (x, y, 1), row1 . (x, y, 1))`. Animated, the
+    /// translation starts from zero and wraps into -1..1 as the game's does each frame (whole tiles, the same picture).
+    pub fn at(&self, t: f32) -> [[f32; 3]; 2] {
+        let wrap = |x: f32| x - x.trunc();
+        let (tu, tv) = if self.animate_translation {
+            (wrap(self.translation_speed[0] * t), wrap(self.translation_speed[1] * t))
+        } else {
+            (self.translation[0], self.translation[1])
+        };
+        let r = if self.animate_rotation { (self.rotation_speed * t).rem_euclid(std::f32::consts::TAU) } else { self.rotation };
+        let (s, c) = r.sin_cos();
+        let [su, sv] = self.scale;
+        [[c * su, -s * sv, tu], [s * su, c * sv, tv]]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -134,12 +175,27 @@ impl Material {
                     ensure!(mode <= 2 && channel <= 8, "material: texture slot mode {mode} channel {channel} at {:#x}", at + 8);
                     (Param::Map { mode, channel, set: w(at + 16)?, map: w(at + 20)? }, 24)
                 }
+                (19, CLASS_UV_TRANSFORM) if w(at + 4)? == class => {
+                    let f = |k: usize| w(at + 8 + 4 * k).map(f32::from_bits);
+                    ensure!(body.len() >= at + 42, "material: UVTransform truncated at {at:#x}");
+                    let uv = UvTransform {
+                        scale: [f(0)?, f(1)?],
+                        translation: [f(2)?, f(3)?],
+                        translation_speed: [f(4)?, f(5)?],
+                        rotation: f(6)?,
+                        rotation_speed: f(7)?,
+                        animate_translation: body[at + 40] != 0,
+                        animate_rotation: body[at + 41] != 0,
+                    };
+                    (Param::Uv(uv), 42)
+                }
                 _ => bail!("material: parameter type {kind} class {class:08x} at {:#x}", at - 4),
             };
             let finite = match value {
                 Param::Scalar(v) => v.is_finite(),
                 Param::Color(c) => c.iter().all(|v| v.is_finite()),
                 Param::Map { .. } => true,
+                Param::Uv(u) => [u.scale, u.translation, u.translation_speed, [u.rotation, u.rotation_speed]].iter().flatten().all(|v| v.is_finite()),
             };
             ensure!(finite, "material: a non-finite value at {at:#x}");
             params.push((id, value));
@@ -170,6 +226,13 @@ impl Material {
     /// The first texture slot named one of `names`.
     pub fn slot(&self, names: &[&str]) -> Option<Param> {
         names.iter().find_map(|n| self.param(param_id(n)).filter(|p| matches!(p, Param::Map { .. })))
+    }
+
+    pub fn uv_transform(&self, name: &str) -> Option<UvTransform> {
+        match self.param(param_id(name)) {
+            Some(Param::Uv(u)) => Some(u),
+            _ => None,
+        }
     }
 
     pub fn style(&self) -> Option<Style> {
@@ -244,6 +307,28 @@ mod tests {
         for (name, crc) in [("AlphaTestValue", 0x892e_2ecb), ("AlphaTestEnabled", 0x7abb_06a6), ("TwoSided", 0x4035_25b2)] {
             assert_eq!(crc32fast::hash(name.as_bytes()), crc, "{name}");
         }
+    }
+
+    #[test]
+    fn uv_transforms_are_read() {
+        let mut p = material();
+        p[0x35..0x39].copy_from_slice(&3u32.to_le_bytes());
+        for x in [param_id("Wave01"), CLASS_UV_TRANSFORM, 19 << 16, 0, CLASS_UV_TRANSFORM] {
+            p.extend(x.to_le_bytes());
+        }
+        for x in [0.1f32, 0.2, 0.0, 0.0, -0.02, 0.03, 0.0, 0.0] {
+            p.extend(x.to_le_bytes());
+        }
+        p.extend([1, 0]);
+        let m = Material::parse(&p).unwrap();
+        let u = m.uv_transform("Wave01").unwrap();
+        assert_eq!((u.scale, u.translation_speed, u.animate_translation, u.animate_rotation), ([0.1, 0.2], [-0.02, 0.03], true, false));
+        let r = u.at(10.0);
+        assert!((r[0][0] - 0.1).abs() < 1e-6 && (r[1][1] - 0.2).abs() < 1e-6 && (r[0][2] + 0.2).abs() < 1e-5 && (r[1][2] - 0.3).abs() < 1e-5);
+        // (Wrapped into -1..1 as the game does.)
+        assert!((u.at(60.0)[0][2] + 0.2).abs() < 1e-4);
+        assert!(Material::parse(&p[..p.len() - 1]).is_err());
+        assert_eq!(crc32fast::hash(b"UVTransform"), CLASS_UV_TRANSFORM);
     }
 
     #[test]

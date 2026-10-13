@@ -555,7 +555,7 @@ fn gradient_image(g: forge::texture::Gradient) -> Image {
 }
 
 /// A cube map with its mip chain (mip-major, six faces a mip), in its colour space.
-fn cube_image(c: forge::texture::Cube, body: &[u8]) -> Image {
+pub(crate) fn cube_image(c: forge::texture::Cube, body: &[u8]) -> Image {
     use bevy::render::render_resource::{TextureDataOrder, TextureViewDescriptor, TextureViewDimension};
     let s = forge::texture::Sampling::read(body);
     let format = if s.srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm };

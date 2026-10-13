@@ -28,7 +28,8 @@ struct WorldLook {
     levels: vec4<f32>,
     // saturation, brightness, contrast, on
     control: vec4<f32>,
-    // x: light in display (gamma) space as AC1's D3D9 shaders do (1) or linear (0); y: grade on; z: balance on
+    // x: light in display (gamma) space as AC1's D3D9 shaders do (1) or linear (0); y: grade on; z: balance on; w: the
+    // city shows its layer weights (`AC1_SHOW_LAYERS`)
     options: vec4<f32>,
 }
 

@@ -11,7 +11,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Chunked LZO1X decompression | done: 15906/15906 data files decompress (`examples/decodecheck`); 9357 split into objects, the rest are streamed sound (6531 `*_BAO_*`: Ubisoft BAO audio, not object containers; see "Sound") and each forge's `GlobalMetaFile` (18: one 170-byte record, byte-identical in every forge: small ids and values and a 32-bit time of 2014-07-22, likely the build's; nothing about the world, `examples/entryhex`) |
 | Object container (class hash, name, id, body) | done |
 | TextureMap -> PNG (DXT1/3/5, BGRA8) | done, verified visually: 32286/32286 textures decode (`examples/texcheck`); colour space (`GammaSettings`) and sampler (address, filter modes) read and used; cube maps 57/58, ramps (`TextureGradient`) 3/3. Stored levels as they are (`texture_levels`): 32251 block-compressed (27620 DXT1, 1878 DXT3, 2753 DXT5), every one in whole 4x4 blocks at its top level, 30640 with the full mip chain; city textures go to the GPU that way |
-| Material (85c817c3): template and typed parameter table (scalars, colours, texture slots) | 15666/15929 parse (`examples/texcheck`): every character material; the rest carry a parameter class not read yet (c52e2125, 213: glows, skies, water), a 1 at +0x29 (28 trees) or 2/4 at +0x31 (25) |
+| Material (85c817c3): template and typed parameter table (scalars, colours, texture slots) | 15875/15929 parse (`examples/texcheck`; 15666 before the `UVTransform` parameters were read, 2026-10-12): every character and city material; the rest carry a 1 at +0x29 (28 trees), 2/4 at +0x31 (25) or a texture slot mode 3 (1) |
 | Mesh (class 415d9568): skinned verts, submeshes, bone palettes, materials | done, 120 skinned (incl. cloth, type 4) + 31 static of 168 in DataPC |
 | Static meshes (type 0, stride 24) | done: positions `xyz/32768 * |w|/8` m (sword, terrain tiles meeting exactly, houses on their ground); every mesh in every archive parses (43984/43984): vegetation and soft bodies (`Veg_Olivier_*`, `Herbe_Scatter_*`, `*_Softbody`: the cloth-simulation object 0x5755de7f embedded as in the robe, after `u32 0 or 1, u32 1 or 5, u8 0`; static LODs with an empty bone table) and effects meshes (type 2, laid out as the static ones); over 65535 vertices the indices are u32 (6 meshes, all the distant city's merged stand-ins, `Damascus_FakeMesh_26` ...) |
 | Entity (0984415e): meshes, skeletons, material overrides | done for characters |
@@ -533,7 +533,11 @@ no code):
   +0x31 u32 `?` (0/1), +0x35 u32 parameter count, then `{u32 name CRC32, u32 class, u32 type (kind in bits 16..22),
   value}` to the body's end: kind 10 a f32, kind 13 four f32 (a colour), kind 19 class `TextureSelector` a slot
   `{u32 ?, u32 class, u32 mode, u32 channel, u32 set, u32 map}` (mode 0 the material's set's map spec at `channel`,
-  1 set `set`'s, 2 map `map`). A TextureSet body is its map spec ids by channel; a TextureMapSpec ends with its
+  1 set `set`'s, 2 map `map`), kind 19 class `UVTransform` (c52e2125, 42 bytes) `{u32 ?, u32 class, f32 ScaleU,
+  ScaleV, TranslationU, TranslationV, TranslationSpeedU, TranslationSpeedV, Rotation, RotationSpeed, u8
+  AnimateTranslation, u8 AnimateRotation}` (names from the exe's property list of `UVTransform`; its shader setup makes
+  rows `(cos r su, -sin r sv, tu)`, `(sin r su, cos r sv, tv)`, the translation advancing by speed x frame time and
+  wrapped to -1..1: the water's panners). A TextureSet body is its map spec ids by channel; a TextureMapSpec ends with its
   TextureMap's id (`forge::material`; layout from Banned445's repo).
 
 ## Mesh / skeleton notes
@@ -553,13 +557,20 @@ no code):
   placements drawn (958 meshes), 11 skinned drawn in bind pose, 490 skinned not drawn (380 pigeons, the rest NPC body
   parts placed for cutscenes: no prop skeleton), 43 vegetation with soft bodies drawn (`Veg_Olivier_*`, `Herbe_Scatter_*`),
   299 cloth drawn in bind pose (rooftop tarps, flags), 144 left out by name (map markers, helpers). Puddles are
-  submeshes of bushes and roofs with a water material (normal and cube maps only): drawn as a wet patch.
+  submeshes of bushes and roofs with a water material (normal and cube maps only): drawn as AC1's water ("City materials").
 - Cloth mesh (first byte 4, e.g. Altaïr's long robe): u32 4, u32 1, u8 0, an embedded cloth-sim object (class
   0x5755de7f, `SubMesh`: the soft body's own vertices and constraints, read by `forge::cloth`), then the usual bone count, bones and compiled mesh (found by walking back from the compiled tag).
-- Static mesh (first byte 0): no bones, no palettes, stride-24 vertices = the skinned layout without palette
-  indices and weights. The position's w is a scale shared by the mesh (sign varies): positions are
-  `xyz / 32768 * |w| / 8` m, so every mesh uses the full i16 range (sword |w| = 8, a Masyaf terrain tile 3976,
-  the tiles' edges coinciding).
+- Static mesh (first byte 0): no bones, no palettes, stride-24 vertices: i16x4 position, u8x4 normal, u8x4 tangent,
+  the vertex colour (a D3DCOLOR, bytes B G R A: not a binormal), i16x2 uv. The position's w is a scale shared by the
+  mesh (sign varies): positions are `xyz / 32768 * |w| / 8` m, so every mesh uses the full i16 range (sword |w| = 8, a
+  Masyaf terrain tile 3976, the tiles' edges coinciding); its sign is the tangent frame's handedness (the world's vertex
+  shaders take the binormal as normal x tangent times it). The normal's and the tangent's fourth bytes / 255 are the
+  layered materials' blend weights (the shaders' `COLOR1`: the first layer's, the second's). Damascus (`examples/vtxw`):
+  7.39 M of 8.26 M static vertices white, 0.44 M grey, 0.43 M coloured (the stand-ins' baked tints, map markers, the
+  cypresses' (255, 185, 0) that their template ignores), 0.20 M with alpha under 250 (puddle and river rims, moss
+  patches), 3.05 M with a layer weight. Proof of the weights' order: the materials with no second layer
+  (`DAM_Roof_01A`, `DAM_Stairs_Multi_01A`, `DAM_Marbre_Multi_01A`) have every tangent byte 0, the one with no first layer
+  (`DAM_Floor_Multi_Rich_01A`) every normal byte 0.
 - Heads and faces don't receive shadows (the hood's shadow-map shadow made the face black); arms are pushed out of
   walls (where the upper arm or forearm would cross level geometry the hand moves out along the surface, two-bone
   IK bending the elbow away).
@@ -1101,7 +1112,7 @@ over the top, 1.9 m up on average. The rest stop where the next hold is more tha
   (Damascus 251, Masyaf 90).
 - Left out: `_LOD_*` meshes, ground clutter, dead bodies of a mission's scene, `OutOfBound*`/`OOB_*` mission walls,
   `GP_MARK_*` gameplay map markers (big floating letters), `PositionHelper`s and `PillarDust` light shafts. Water
-  surfaces (`*Water*`, `*Lake*`, `*Puddle*`: AC1 shades them itself) get a translucent material and no collision.
+  surfaces (`*Water*`, `*Lake*`, `*Puddle*`) get no collision; they are drawn with their water template ("City materials").
 - Holds come from AC1's own climbing markup (see "Authored guidance"); without it (or with `AC1_GEOMETRY_HOLDS`) the
   runtime makes them from building edges (a walkable top meeting a wall below).
 
@@ -1156,6 +1167,47 @@ Materials whose template cuts out alpha (`*Alpha*`, `Plants`, `Env_Foliage*`) ar
 and an assassins' bureau's outside shell (`BA_Bureau_Ext`) casts no shadow: its roof shaded the open courtyard (AC1
 swaps it for the inside one there). Side-by-sides of the running game, before and after: `reports/visuals/` (not in the
 repo).
+
+### City materials (what each template does with its maps, 2026-10-12)
+From the templates' own DX9 shaders (the `MaterialTemplate` objects hold every variant's bytecode with its constant
+table; disassembled with the Windows SDK's `fxc /dumpbin`, nothing copied) and the material parameters' names (the
+template's graph names each parameter's node: `DiffuseLayer1` -> `Layer1`, `TileFactorLayer1` -> `Operator 31`, ...).
+`examples/templates <game> <city forge> [template] [all]` lists the templates a city's materials use, most used first,
+with their parameters named from the template's constants. Damascus: `GEN_Standard` 13175 submeshes, the layered
+`Env_MultiBlender2*` 2612, `Env_Atlas` 1823, `GEN_DiffuseAlpha` 1576, `GEN_Standard_Specular` 613,
+`Env_Standard_Saturation` 448, `Env_Foliage*` 626, `GFX_Water_Puddle` 159 (Masyaf: 2728, 757, 618, ...).
+- Every world template but `Env_Foliage`, `Plants` and `Env_DistrictColorTheme` multiplies its diffuse by the vertex
+  colour and its alpha by the vertex alpha; `DiffuseColor` (`DiffColor`) tints it; `Env_Standard_Saturation` (its
+  parameters known by CRC32 only: 0x7da142d7 the factor, 0x845f2507 the colour) first takes the vertex-coloured diffuse
+  toward its grey (the mean of r, g, b) by its factor. `GEN_Standard`'s `DiffuseUp` (max(1, x) on the tint) and alpha
+  scale are left at 1.
+- Layered (`Env_MultiBlender2`, `_UVScale[0,1,2]`, `_WorldUV[0,2]`, `_Specular`, `Env_MultiBlender1`): base, first and
+  second layer, diffuse x its colour (`BaseColor`, `Layer1Color`, `Layer2Color`) and normal, each mixed over the last by
+  the vertex's weights: `lerp(lerp(base, l1, w1), l2, w2)`; `_UVScale` scales each layer's UVs by its `TileFactor*`,
+  `_WorldUV[0,2]` maps the base and second layer on the world's x, y times `TileFactor` (the first on its UVs times
+  `TileFactorLayer1`). No alpha (the vertex alpha). `_Specular`'s highlight is not drawn.
+- `GFX_Water_Puddle` (every river, fountain and puddle material of Damascus and Masyaf; Acre's sea is `GFX_Water`, not
+  read): two copies of the `Normal` map (DataPC's `Game Fix` holds it, `GEN_Water_Fountain_01A_NormalMap`) on the world's
+  x, y through the `Wave01`/`Wave02` panners (river: 0.1 and 0.2 per m, scrolling -0.02/-0.03 and 0.02/0.02 a second),
+  averaged, scaled by `BumpFactor`; the view's reflection looks up the `cubemap` (the level's, e.g.
+  `DAM_Cubemap_Water_01A`, along the game's (x, z, y)), times `CubeMapIntensity` and `Color`; lit as `ambient cube x
+  occlusion x R + sun N.L x R + sun N.L x pow(R.V, SpecularPower)`, fogged; alpha `Opacity` x vertex alpha, blended. No
+  Fresnel, no depth tint, no refraction in this template. Its puddles lie at the ground's own height (drawn with a depth
+  bias).
+- `Env_Foliage_FadeOut` (moss, lichen, the `Ground_*` patches over streets): alpha = diffuse alpha x vertex alpha,
+  blended when the material has no alpha test of its own (its vertex colour is (177, 83, 0) on the street patches:
+  drawn opaque they were red-orange stripes).
+- Not drawn yet: `GEN_Standard_Specular`'s and `GEN_Cubemap`'s highlights and reflections, `Env_ColoringMask_TexStrip`'s
+  colour masks (vases), `Env_DistrictColorTheme` (tarps), `GFX_Light*`, the glow passes.
+Ours (`city_material.rs`/`.wgsl`): one shader, the kind and values per material in a uniform, the layers' and water's
+maps in its own slots, the vertex colour as `ATTRIBUTE_COLOR` and the layer weights as `ATTRIBUTE_UV_1` only on parts
+where they are not white / zero; textures are made once per texture (they were per material slot: Damascus 27 MB at
+medium, 34 before). `AC1_SHOW_LAYERS=1` draws the layer weights (red the first, green the second, blue a layered
+material, white water). GPU time at the medium detail's roof and street cameras: 1.21 / 1.25 ms against 1.51 / 1.46 ms
+before (same run conditions; the shared textures). Against the running game (`reports/textures/real_*.png`): the
+outskirts' grass and dirt and the bureau's floor match; the market inside the north gate shows sand in AC1 where ours
+draws `DAM_Outskirt_Nograss_01A`'s first layer (grass), with the data's weights (open: a live check of which mesh and
+weights AC1 draws there).
 
 ## City rendering cost and streaming
 What a city costs to draw, at five fixed cameras (`AC1_FPS=1` logs the time from launch to the first frame and the
