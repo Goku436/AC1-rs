@@ -1522,6 +1522,33 @@ const SCENARIOS: &[Scenario] = &[
         want: &["-> hangwall_open via xx_l_ledge_pulldown_soft_to_hangwall_straight_b", "-> free_1m via xx_h_hangwall_tr_hangfree_down_left"],
         never: &["EMBED"],
     },
+    // Audit LEDGE-15: from a free hang up to a row where a foot finds the wall: AC1's TrySwitchHangType at the hand step's
+    // target, `xx_h_hangfree_tr_hangwall_right` (0x01C32563) with the root interpolated a row up (0x711130, the clip's own
+    // root motion unused); then down again, `xx_h_hangwall_tr_hangfree_down_left`. Ours stepped up in the free hang.
+    Scenario {
+        name: "gauntlet G24: from a free hang up a row onto the wall under it: AC1's switch into the wall hang a row up, then back down",
+        tags: &["jump", "hang"],
+        env: &[("AC1_START", "-92.6,284,-90"), ("AC1_HIGH", "0-2"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,wait=3.5,up=1.0,wait=2.0,down=1.0")],
+        secs: 9.0,
+        want: &[
+            "-> free_1m via xx_h_jumpstraight_footl_to_hangfree_",
+            "the free hang onto the wall a row up",
+            "-> hangwall_open via xx_h_hangfree_tr_hangwall_right",
+            "-> free_1m via xx_h_hangwall_tr_hangfree_down_left",
+        ],
+        never: &["EMBED"],
+    },
+    // Audit LEDGE-15: a wall run under the slab sticking out 0.8 m: AC1's free catch off the run (0x0564BB1D / E, its
+    // `_swingback_min` and `_max` clips mixed by how far out the edge is), on through the connector into the free wait
+    // (`xx_h_hangfree_swingback_min_a/b`), that wait mixed by the same share (0xE37590 sets the wait kind 3 and the weight).
+    Scenario {
+        name: "gauntlet G24: free running at the wall under the slab: AC1's free catch off the wall run, settling under the edge",
+        tags: &["wallrun", "hang"],
+        env: &[("AC1_START", "-98,266.25,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
+        secs: 5.0,
+        want: &["tr_hangfree_", "_swingback_max", "-> free_1m via xx_h_hangfree_swingback_min_b"],
+        never: &["EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {

@@ -1075,6 +1075,9 @@ struct Move {
     turn: Quat,
     turn_span: f32,
     turn_eased: bool,
+    /// The clip's own root motion left out: the root goes on a straight line from `start` by `correct` over the move, as
+    /// AC1's root interpolator takes it (0x711130 / 0x7113F0) where the code drives the root (`free_to_wall_row`).
+    in_place: bool,
 }
 
 impl Move {
@@ -1933,7 +1936,33 @@ fn blend_hang(lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, bas
                         .collect()
                 } else {
                     let w = (q.y - lo) / (hi - lo);
-                    low.names.iter().zip(&high.names).map(|(x, z)| if x == z { x.clone() } else { mix_name(&[(x, 1.0 - w), (z, w)]) }).collect()
+                    // AC1's weights for the free catches (0xE37590: the entry's 0x0564BB1D, probe B; the step's 0x0564BB1E,
+                    // probe C): by height (the 250 / 350 cm clip to the 350 / 400 cm one, ours by the clips' own hand
+                    // heights) and the `max` share by how far out the edge is: its distance across from the point 0.6 m
+                    // out from the walling root, b = 1 - (d - 0.1) / 0.7 for the entry's, 1 - d / 0.7 for the step's, both
+                    // clamped to [0, 1]: [(1-w)(1-b), w(1-b), (1-w)b, w·b] over [min low, min high, max low, max high].
+                    // (The wait after it is mixed by b: `swing_max_share`, `grab`.)
+                    let entry = low.names.last().is_some_and(|n| n.contains("_entry_"));
+                    let b = face.map_or(0.0, |f| {
+                        let d = (q - (f + normal * (WALL_RUN_OUT + 0.6))).with_y(0.0).length();
+                        let off = if entry { 0.1 } else { 0.0 };
+                        (1.0 - (d - off) / 0.7).clamp(0.0, 1.0)
+                    });
+                    let max = |n: &String| n.replace("_swingback_min", "_swingback_max");
+                    low.names
+                        .iter()
+                        .zip(&high.names)
+                        .map(|(x, z)| {
+                            if x == z {
+                                x.clone()
+                            } else if x.contains("_swingback_min") && lib.get(&max(x)).is_some() && lib.get(&max(z)).is_some() {
+                                let (mx, mz) = (max(x), max(z));
+                                mix_name(&[(x, (1.0 - w) * (1.0 - b)), (z, w * (1.0 - b)), (&mx, (1.0 - w) * b), (&mz, w * b)])
+                            } else {
+                                mix_name(&[(x, 1.0 - w), (z, w)])
+                            }
+                        })
+                        .collect()
                 };
                 out.push(GrabOpt { names, catch: low.catch, end: low.end, after: vec![] });
             }
@@ -2009,6 +2038,8 @@ const HANG_STEP_DEPTH: f32 = 0.5;
 const HANG_STEP_ALONG: f32 = 0.2;
 const HANG_STEP_FACING: f32 = 0.5;
 const HANG_STEP_HELD: f32 = 0.2;
+/// The free hang's hand step up or down (`xx_h_hangfree_climb_1m_<u|d>_*`, m): where `free_to_wall_row` looks for the row.
+const FREE_ROW_STEP: f32 = 0.7;
 
 /// A wall run's pull-up lips over the feet (m): AC1's probe A after the entry (0.25-1 h over the root the entry leaves
 /// 1 m up) and probe D's pull-up after the vertical step (0.5-1 h over the root `WALL_RUN_STEP_TOP` up); h = 1 m.
@@ -2672,6 +2703,14 @@ fn swing_settle(lib: &mut AnimLib, clips: &mut Vec<Arc<Clip>>) -> Vec<String> {
         clips.extend(settle);
     }
     tos
+}
+
+/// The `max` share of a free catch mixed by AC1's swing (`_swingback_min` / `_swingback_max`, `blend_hang`): the weight its
+/// free wait is mixed by after it (the catch sets the ledge's wait kind 3 and this weight, 0xE37590's +0x6C / +0x70).
+fn swing_max_share(names: &[String]) -> Option<f32> {
+    let last = names.last().filter(|n| n.contains("_swingback_m"))?;
+    let Some(spec) = last.strip_prefix("mix:") else { return Some(if last.contains("_swingback_max") { 1.0 } else { 0.0 }) };
+    Some(spec.split(',').filter_map(|p| p.rsplit_once('=')).filter(|(n, _)| n.contains("_swingback_max")).filter_map(|(_, w)| w.parse::<f32>().ok()).sum())
 }
 
 fn is_free(state: &str) -> bool {
@@ -3913,7 +3952,16 @@ impl WallClimb {
                 }
                 _ => None,
             };
+            // A wall run's free catch goes on as AC1's graph has it (0xE37590 sets the wait kind 3 with its `max` share): the
+            // connector into the free wait, `swing_settle`, and that wait mixed by the share (audit LEDGE-15).
+            let mut tos = tos;
+            let share = swing_max_share(&opt.names).filter(|_| carry.is_some() && matches!(opt.end, GrabEnd::Hang(FREE, _)));
+            if share.is_some() {
+                let settle = swing_settle(lib, &mut clips);
+                tos.extend(settle.into_iter().skip(2));
+            }
             w.start_chain_carry(clips, tos, &facing, err, carry);
+            w.free_wait = share;
             if let Some((k, warp)) = split
                 && let (Some(m), Some(q)) = (w.mv.as_mut(), w.queue.get_mut(k - 1))
             {
@@ -4419,6 +4467,63 @@ impl WallClimb {
             return true;
         }
         false
+    }
+
+    /// In a free hang, up or down onto the ledge a row up or down where a foot finds the wall under it: AC1's
+    /// TrySwitchHangType (0xDE1060) at the hand step's target (its vertical probe's hold), ahead of the step (0xDE29E0's
+    /// order). Free to wall it takes the switch where either foot ray (`feet_on_wall`) meets the wall, and plays
+    /// `xx_h_hangfree_tr_hangwall_right` (action 0x01C32563; `_left`, 0x01C32562, only going left) while its root
+    /// interpolator (0x711130, over the action's length) takes the root from the free hang to the wall hang under the new
+    /// holds: the clip's own 0.75 m to the right and 1.3 m up are not used (`Move::in_place`). Ours had no switch up or
+    /// down from the free hang (audit LEDGE-15).
+    #[allow(clippy::too_many_arguments)]
+    fn free_to_wall_row(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig, dir: &str) -> bool {
+        if !matches!(self.state.as_str(), FREE | FREE_OPEN) || !matches!(dir, "u" | "d") {
+            return false;
+        }
+        let Some(last) = self.last.as_ref() else { return false };
+        let m = last.model(rig);
+        let r = world_rot(root.rotation);
+        let hands = cr.hands.map(|b| root.translation + r * m[b].pos);
+        let n = self.normal.with_y(0.0).normalize_or_zero();
+        let sign = if dir == "u" { 1.0 } else { -1.0 };
+        // (The hand step's row: a hold for each hand about the free hang's step (`xx_h_hangfree_climb_1m_<u|d>_*`, 0.7 m)
+        // up or down, not the one held, both on one row.)
+        let Some(targets) = holds_within(level, &hands.map(|h| h + Vec3::Y * sign * FREE_ROW_STEP), n, HOLD_TOLERANCE_UP) else { return false };
+        if (0..2).any(|k| (targets[k].y - hands[k].y) * sign < GRID_ROW_MIN) || (targets[0].y - targets[1].y).abs() > GRID_ROW_MIN {
+            return false;
+        }
+        let mid = (targets[0] + targets[1]) * 0.5;
+        // (Not onto a post's cap: ours' one-hand holds, the hand step and the one-hand pull-up take those, as on the Damascus
+        // minaret's balcony railing, user report #3. AC1's own room test there, 0xB2A410 with a 0.5 by 1.1 m body, is not
+        // read yet.)
+        if on_narrow_ledge(level, mid) {
+            return false;
+        }
+        if feet_on_wall(level, mid, n) == (false, false) {
+            if why() {
+                debug!("climb: no switch onto the wall {dir}: no foot on the wall under {mid:.2}");
+            }
+            return false;
+        }
+        let Some(clip) = lib.get("xx_h_hangfree_tr_hangwall_right") else { return false };
+        // (Where the root goes: the clip's last pose with its hands on the new holds, the wall hang's offset as every move
+        // into it has, `take_first`.)
+        let end = end_pose(&clip, rig, base, cr);
+        let land = (0..2).map(|k| targets[k] - (root.translation + r * end.hands[k])).sum::<Vec3>() * 0.5;
+        let correct = land + hang_offset(HANGWALL_OPEN, n);
+        // (The way there clear, as a leap's: the chest's line from where it is to where it ends.)
+        let (from, to) = (root.translation + Vec3::Y * SHIMMY_CHEST, root.translation + correct + Vec3::Y * SHIMMY_CHEST);
+        if let Some(h) = level.raycast(from, (to - from).normalize_or_zero(), (to - from).length()).filter(|h| h.normal.dot(n) < 0.7) {
+            debug!("climb: no switch onto the wall {dir}: something in the way {:.2} m along", h.dist);
+            return false;
+        }
+        debug!("climb: the free hang onto the wall a row {}, to {mid:.2}", if dir == "u" { "up" } else { "down" });
+        self.start_chain(vec![clip], vec![HANGWALL_OPEN.into()], root, correct);
+        if let Some(m) = &mut self.mv {
+            m.in_place = true;
+        }
+        true
     }
 
     /// From the climbing stance, the jump up to a ledge above and out from the wall, into a free hang under it (AC1's
@@ -6574,6 +6679,7 @@ impl WallClimb {
             turn: Quat::IDENTITY,
             turn_span: 0.0,
             turn_eased: false,
+            in_place: false,
         });
     }
 
@@ -7846,6 +7952,17 @@ impl WallClimb {
                 return true;
             }
         }
+        // (From a free hang up or down, the switch onto the wall a row on comes after the moves onto the climbing holds and
+        // before the hand step: AC1's TryTransitionToClimb, then TrySwitchHangType at the step's target, then StartHandStep.)
+        let cands = if vertical && matches!(self.state.as_str(), FREE | FREE_OPEN) {
+            let (climb, step): (Vec<Cand>, Vec<Cand>) = cands.into_iter().partition(|c| c.to == "1m");
+            if self.take_first(lib, level, root, rig, base, cr, climb) || self.free_to_wall_row(lib, level, root, rig, base, cr, dir) {
+                return true;
+            }
+            step
+        } else {
+            cands
+        };
         if self.take_first(lib, level, root, rig, base, cr, cands) {
             return true;
         }
@@ -8609,7 +8726,8 @@ impl WallClimb {
             let frame = m.t.min(dur) * FPS;
             let at = |m: &Move| {
                 let k = (m.t / dur.max(1e-3)).min(1.0);
-                m.start + world_rot(m.start_rot) * root_motion_at(&m.clip, frame) + m.correct * k
+                let motion = if m.in_place { Vec3::ZERO } else { world_rot(m.start_rot) * root_motion_at(&m.clip, frame) };
+                m.start + motion + m.correct * k
             };
             let mut next = at(m);
             if matches!(m.to.as_str(), JUMP | LAND | GROUND | GROUND_ACT | HAY_OUT) {
@@ -8809,6 +8927,7 @@ impl WallClimb {
                     turn: if next.turn != Quat::IDENTITY { next.turn } else { turned },
                     turn_span: 0.0,
                     turn_eased: next.turn != Quat::IDENTITY,
+                    in_place: false,
                 });
                 return;
             }

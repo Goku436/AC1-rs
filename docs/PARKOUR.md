@@ -778,17 +778,29 @@ in this batch, by audit id:
   - Up or down from the wall hang onto a ledge where not both feet find the wall: AC1's TrySwitchHangType (0xDE1060) at the
     hand step's target plays `xx_h_hangwall_tr_hangfree_up_left` / `_down_left` (0x01C3217A / 0x01C3217C) in place of the
     step, into the free hang. Gauntlet G24 (down, off a slab over open air); no scenario up: its foot rays, 1 m under the
-    new hold, meet the wall the hang is on, unless the new ledge stands out from it. Not done: free to wall up or down,
-    where AC1 plays the sideways `hangfree_tr_hangwall_right` (0x01C32563) with its root interpolated a row up or down
-    (ours follows a clip's root motion and finds the holds where it ends: it would need the clip's sideways 0.75 m taken
-    out and the row searched).
+    new hold, meet the wall the hang is on, unless the new ledge stands out from it.
+  - (2026-10-13) Up or down from the free hang onto a ledge a row on where a foot finds the wall: the same TrySwitchHangType
+    at the hand step's target (both hands' targets the vertical probe's hold), after the moves onto the climbing holds and
+    before the step; free to wall it wants either foot ray only. It plays `xx_h_hangfree_tr_hangwall_right` (0x01C32563,
+    up and down; `_left`, 0x01C32562, only going left) while its root interpolator (0x711130, over the action's length)
+    carries the root from the free hang to the wall hang under the new holds: the clip's own 0.75 m to the right and 1.3 m
+    up are left out (`Move::in_place`, `free_to_wall_row`; the row: a hold for each hand about the free step's 0.7 m on).
+    Ours stepped up or down in the free hang. Not onto a post's cap (ours' one-hand holds: the Damascus minaret's railing
+    knob, user report #3, keeps its hand step and one-hand pull-up); AC1's own room test there (0xB2A410, a 0.5 by 1.1 m
+    body) is not read. Gauntlet G24's stepped block (z 284): up from the free hang at 2.7 m onto the wall hang at 3.4 m,
+    and back down through `hangwall_tr_hangfree_down_left`.
   - The swing back (LEDGE-6, `swing_back`) and the jump up from the climb (`climb_jump_up`) go on as the move graph has
     them: out of their last item (0x4CD68F50, 0x1EB21811) the connector 0x0564BB0E into the free wait,
     `xx_h_hangfree_swingback_min_a/b` (weighed [1, 0] by 0xDE1FE0 under the wait kind 3 the jumps set, 0xDDAB00,
     0xDF9650), and the free wait after it mixes `xx_h_hangfree_wait` and `xx_h_hangwallfree_wait` by the jump's `max`
     share (how far out the ledge is), while he hangs from ledges (the kind is reset leaving them, 0xDCD780). Gauntlet G24.
-    (The wall run's free catches set the same, by their `max` share; ours mixes those by height only, so its wait there
-    is the plain one.)
+    The wall run's free catches (2026-10-13; 0xE37590: the entry's 0x0564BB1D, probe B; the step's 0x0564BB1E, probe C)
+    mix four clips, [min low, min high, max low, max high] by [(1-w)(1-b), w(1-b), (1-w)b, w·b]: w by height (ours by the
+    clips' own hand heights, as before), b the `max` share by how far out the edge is, its distance d across from the point
+    0.6 m out from the walling root (ours: the face run up + `WALL_RUN_OUT` + 0.6), b = 1 - (d - 0.1) / 0.7 for the
+    entry's, 1 - d / 0.7 for the step's, clamped; they set the wait kind 3 and its weight b (+0x6C / +0x70), so they go on
+    through the same connector (`swing_settle`) into the free wait mixed by b (`swing_max_share`). Ours played the `min`
+    clips only, into the plain free wait. Gauntlet G24: a wall run under the slab 0.8 m out, b 0.65.
   - `hangfree_strafe_<side>_000cm_<open|close>`: the free shimmy's actions (0x01A2490A-D) mix them with the `_050cm` ones,
     and StartHandStep (0xDDE0C0) sets the weights [0, 1] on every start: the `_000cm` clips are never shown (they have no
     root motion; the root goes by the interpolator). Ours plays the `_050cm` ones whole: as AC1.
@@ -796,8 +808,12 @@ in this batch, by audit id:
     `xx_h_hangwallfree_tr_fall` (0x98F78DA5): no reference in the exe's code, no way into them in the graph. The wall
     run's `step1_footr_tr_hangwallfree_<350|400>cm_swingstraight` (0x0106F36F) is only in a list of actions 0xDCD910
     leaves alone, never started (the walling's free catches are 0x0564BB1D / E). `xx_h_hangwallfree_tr_hangwall`
-    (0x0106F2EA) plays for the ledge's hang type 2, which only 0xE39550 sets, for walling actions (0x035F27xx, 0x02926xxx)
-    in none of the human kit's action blocks: to settle, which character's block holds them.
+    (0x0106F2EA) plays for the ledge's hang type 2, which only 0xE39550 sets: the walling's fourth sub-state (+0x91, run
+    from its update 0xE39C20), which reads the action playing (0x035F27A0 / 0x02926C67 the wall hang, else the wall-free
+    hang) and starts 0x035F27A1 / 0x02926C68 or 0x035F27AD / 0x029240CA. None of those ids is an action (or key, or a
+    transition's target) in any action block of any data file, nor an object in DataPC's index, nor named anywhere else in
+    the exe (searched 2026-10-13): a walling path the shipped game cannot play. Left out; to settle, whether the running
+    game ever enters that sub-state (the walling's +0x3E logged on a wall run).
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
@@ -847,10 +863,10 @@ the input interpreter sends them). Checked by mapping every action id Banned445'
 clips (`forge` example `action_clips`) against the clips our code plays: left unplayed are combat's (hurt
 falls, stumbles), other characters' (`cmaa_*`), the leap of faith's code-driven fall (`xx_h_faith_jump_fall`; ours
 stretches the dive over the whole fall), and in `HumanLedge` (audit LEDGE-15, 2026-10-12, see the audit section's "the
-hangs AC1 has"): the free to wall switch up or down (`hangfree_tr_hangwall_right` with its root a row on), the wall-free
-hang's wait blend after the wall run's free catches, and the clips AC1's code never asks for (`hangwall_tr_hangfree` in
-place, `_up_right`, `_down_right`, `hangwallfree_tr_fall`, `step1_footr_tr_hangwallfree_*`; `hangwallfree_tr_hangwall`
-only for a hang type the human kit's actions never set; `hangfree_strafe_*_000cm_*` are weighed 0).
+hangs AC1 has"; the free to wall switch up or down and the wall run's free catches' `max` share and wait were added
+2026-10-13): the clips AC1's code never asks for (`hangwall_tr_hangfree` in place, `_up_right`, `_down_right`,
+`hangwallfree_tr_fall`, `step1_footr_tr_hangwallfree_*`; `hangwallfree_tr_hangwall` only for a hang type set with walling
+actions no data file has; `hangfree_strafe_*_000cm_*` are weighed 0).
 
 ## Open questions
 - Whether the player's jumps ever use the navigation meshes' jump links (the candidates come from the guidance).
