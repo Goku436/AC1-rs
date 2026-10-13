@@ -7,7 +7,7 @@
 //! running into the wall, then up); at a roof edge `hang` (walk off it with the empty hand: the pull down, then left,
 //! right and up). Each frame of a run is checked, and each run reports these failure classes once (the first time):
 //! - `stuck`: the stick held 2.5 s, hanging, and no progress while holds go on that way (one of AC1's grid cells on:
-//!   within 0.25 m of a point 0.75 m to the side, or 0.6 or 1.2 m up or down).
+//!   within 0.3 m along and 0.15 m up or down of a point 0.75 m to the side, or 0.6 or 1.2 m up or down).
 //! - `topout`: the stick up held 2.5 s with no progress at a hold with a walkable top right behind it.
 //! - `letgo`: off the wall into a fall without being asked (not the `drop` run, not stepping down at the bottom);
 //!   `letgo-down`: the stick down lets go more than 1.2 m over the ground.
@@ -20,7 +20,7 @@
 //! - `feet-air`: resting in a wall stance where neither of AC1's foot rays for a hang (`sub_DE0A60`: 1 m under the
 //!   hold, 0.5 m out, 0.1 m to either side, 1.2 m in) meets the wall; `free-on-wall`: resting in a free hang where both
 //!   do (AC1 hangs on the wall there).
-//! - `no-grab`: a ground or run start that never got onto the wall; `death`: a landing that killed him.
+//! - `no-grab`: a ground or run start that never got onto the wall (nor 0.5 m up it); `death`: a landing that killed him.
 //! Each run is a line in the TSV (`AC1_SWEEP_OUT=<file>`, default `climb-sweep.tsv`): its id, program, start (as
 //! `AC1_START`, to replay it), the classes with where and when, how it ended; then the counts by class are logged and
 //! the game exits. `AC1_SWEEP_NEAR="x,z,r"` keeps to the walls within `r` m of (x, z); `AC1_SWEEP_PROGS=up,side,..`
@@ -173,11 +173,18 @@ fn hold_dist(level: &Level, holds: &Holds, p: Vec3, n: Vec3) -> (f32, Option<Vec
     best
 }
 
-/// A hold facing `n`'s way that the hands at `mid` could go on to along `dir` (world), as AC1's climbing grid has its
-/// cells: within 0.25 m of a point a column (0.75 m) along, or one or two rows (0.6, 1.2 m) up or down.
+/// A hold facing `n`'s way that the hands at `mid` could go on to along `dir` (world), as AC1's climbing grid keeps a cell's
+/// hold: within 0.3 m along the wall and 0.15 m up or down of a point a column (0.75 m) to the side, or one or two rows
+/// (0.6, 1.2 m) up or down.
 fn hold_ahead(level: &Level, holds: &Holds, mid: Vec3, n: Vec3, dir: Vec3) -> bool {
+    let along = Vec3::Y.cross(n).normalize_or_zero();
     let steps: &[f32] = if dir.y.abs() > 0.7 { &[0.6, 1.2] } else { &[0.75] };
-    steps.iter().map(|k| mid + dir * *k).any(|s| holds.near(level, s).filter(|l| l.out.dot(n) > 0.7).any(|l| l.closest(s).distance(s) < 0.25))
+    steps.iter().map(|k| mid + dir * *k).any(|s| {
+        holds.near(level, s).filter(|l| l.out.dot(n) > 0.7).any(|l| {
+            let d = l.closest(s) - s;
+            d.dot(along).abs() <= 0.3 && d.y.abs() <= 0.15 && d.dot(n).abs() <= 0.5
+        })
+    })
 }
 
 /// A walkable top right behind the hold at `hold` (the wall's top: a roof or a ledge to climb onto).
@@ -477,7 +484,7 @@ pub fn sweep_measure(
         return;
     }
     // The run's end.
-    if !m.climbed && prog != "hang" {
+    if !m.climbed && prog != "hang" && m.best_up < 0.5 {
         m.add("no-grab", t, root, format!("ends {state}"));
     }
     let classes: Vec<&str> = m.found.keys().copied().collect();
