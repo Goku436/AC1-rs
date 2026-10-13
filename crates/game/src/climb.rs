@@ -1561,9 +1561,20 @@ pub(crate) fn climb_out_room(level: &Level, edge: Vec3, out: Vec3) -> bool {
     let side = d.cross(Vec3::Y);
     let (s, c) = 30f32.to_radians().sin_cos();
     let (tilt_d, tilt_up) = (d * c - Vec3::Y * s, d * s + Vec3::Y * c);
-    level.box_free(edge - d * 0.35 + Vec3::Y * 1.075, [side, d, Vec3::Y], Vec3::new(0.3, 0.65, 0.725))
-        && level.box_free(edge + Vec3::Y * 0.95, [side, d, Vec3::Y], Vec3::new(0.1, 0.1, 0.85))
-        && level.box_free(edge - tilt_d * 0.4, [side, tilt_d, tilt_up], Vec3::new(0.1, 0.1, 0.5))
+    let boxes = [
+        (edge - d * 0.35 + Vec3::Y * 1.075, [side, d, Vec3::Y], Vec3::new(0.3, 0.65, 0.725)),
+        (edge + Vec3::Y * 0.95, [side, d, Vec3::Y], Vec3::new(0.1, 0.1, 0.85)),
+        (edge - tilt_d * 0.4, [side, tilt_d, tilt_up], Vec3::new(0.1, 0.1, 0.5)),
+    ];
+    boxes.iter().enumerate().all(|(k, (c, axes, half))| {
+        let free = level.box_free(*c, *axes, *half);
+        if !free && why() {
+            for t in level.box_hits(*c, *axes, *half).iter().take(4) {
+                debug!("climb: climb-out room box {k} at {c:.2} meets the face {:.2} {:.2} {:.2}", t.a, t.b, t.c);
+            }
+        }
+        free
+    })
 }
 
 /// Room for a climber on ladder `l`'s side facing `out`: nothing where he stands on it (from 0.2 m to 1.8 m up), and
@@ -1578,7 +1589,7 @@ fn ladder_side_free(level: &Level, l: &Ladder, out: Vec3) -> bool {
 /// it): with the root at `root` facing `fwd` (into the wall), nothing in a box from the root up to 1 m, 0.75 m wide and
 /// 0.5 m deep round it, nor in one from 1 m up to 1.8 m, 0.3 m square. A long move to the side (`side` -1 left, +1 right)
 /// widens the first to 1.15 m, 0.05 m back from that side.
-fn climb_body_free(level: &Level, root: Vec3, fwd: Vec3, side: i32) -> bool {
+pub(crate) fn climb_body_free(level: &Level, root: Vec3, fwd: Vec3, side: i32) -> bool {
     let right = fwd.cross(Vec3::Y).normalize_or_zero();
     let axes = [right, fwd, Vec3::Y];
     let (wide, shift) = if side != 0 { (0.575, -0.05 * side as f32) } else { (0.375, 0.0) };
@@ -7194,6 +7205,16 @@ impl WallClimb {
             let (to, ground) = (0..=20).map(|k| end - self.normal * (k as f32 * 0.05)).find_map(|to| level.ground(to, 0.3, STEP_OFF_MAX).map(|g| (to, g)))?;
             let to = to - self.normal * 0.15;
             let way = (to - root.translation).with_y(0.0);
+            if why() {
+                debug!(
+                    "climb: {} : step off sideways onto {:.2}: inside {}, push {:.2}, way {}",
+                    off.name,
+                    ground.point,
+                    level.inside_solid(ground.point + Vec3::Y * 0.5),
+                    level.capsule_push(to.with_y(ground.point.y)).length(),
+                    level.raycast(root.translation + Vec3::Y * 0.5, way.normalize_or_zero(), way.length()).is_none()
+                );
+            }
             // (Room for the body standing there: not a tower's cornice band 0.2-0.3 m deep under the wall above it, stepped
             // onto and fallen off at once.)
             (!level.inside_solid(ground.point + Vec3::Y * 0.5)
@@ -8034,7 +8055,11 @@ impl WallClimb {
                 let fwd = -normal.with_y(0.0).normalize_or(Vec3::NEG_Z);
                 if !climb_body_free(level, end.pos + err, fwd, if m.long { m.cols.signum() } else { 0 }) {
                     if why() {
-                        debug!("climb: {} : no room for the body there (AC1's body boxes)", c.names[0]);
+                        debug!("climb: {} : no room for the body there (AC1's body boxes) at {:.2}", c.names[0], end.pos + err);
+                        let right = fwd.cross(Vec3::Y).normalize_or_zero();
+                        for t in level.box_hits(end.pos + err + Vec3::Y * 0.5, [right, fwd, Vec3::Y], Vec3::new(0.575, 0.25, 0.5)).iter().take(3) {
+                            debug!("climb:   the box meets the face {:.2} {:.2} {:.2}", t.a, t.b, t.c);
+                        }
                     }
                     continue;
                 }

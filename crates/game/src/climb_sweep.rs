@@ -7,8 +7,10 @@
 //! running into the wall, then up); at a roof edge `hang` (walk off it with the empty hand: the pull down, then left,
 //! right and up). Each frame of a run is checked, and each run reports these failure classes once (the first time):
 //! - `stuck`: the stick held 2.5 s, hanging, and no progress while holds go on that way (one of AC1's grid cells on:
-//!   within 0.3 m along and 0.15 m up or down of a point 0.75 m to the side, or 0.6 or 1.2 m up or down).
-//! - `topout`: the stick up held 2.5 s with no progress at a hold with a walkable top right behind it.
+//!   within 0.3 m along and 0.15 m up or down of a point 0.75 m to the side, or 0.6 or 1.2 m up or down; in a climbing
+//!   stance with its foot cell two rows under it holding too and AC1's body boxes free there, as AC1's grid move wants).
+//! - `topout`: the stick up held 2.5 s with no progress at a hold with a walkable top right behind it and AC1's room to
+//!   climb out over it (`climb::climb_out_room`).
 //! - `letgo`: off the wall into a fall without being asked (not the `drop` run, not stepping down at the bottom);
 //!   `letgo-down`: the stick down lets go more than 1.2 m over the ground.
 //! - `hands-off`: resting (a hang's wait loop, 0.3 s in), a hand's knuckle (AC1's hand effector) over 0.15 m from every hold for
@@ -102,14 +104,16 @@ const SPACING: f32 = 8.0;
 const EMBED_DEPTH: f32 = 0.08;
 
 /// How far `p` is inside a solid (`Level::inside_solid`): the nearest way out, along the six axes (m); 0 outside.
+/// (Inside: five of the six axis rays meet faces from behind, not only three of the four level ones: a Damascus house's
+/// wall over 9.2 m is wound inward, its face met from behind from out in the street, and the climb start under it counted
+/// as `embed` with the hips 0.38 m out from it.)
 fn depth_inside(level: &Level, p: Vec3) -> f32 {
-    if !level.inside_solid(p) {
+    let axes = [Vec3::X, Vec3::NEG_X, Vec3::Y, Vec3::NEG_Y, Vec3::Z, Vec3::NEG_Z];
+    let behind = axes.iter().filter(|d| level.raycast_sided(p, **d, 12.0).is_some_and(|(_, b)| b)).count();
+    if !level.inside_solid(p) || behind < 5 {
         return 0.0;
     }
-    [Vec3::X, Vec3::NEG_X, Vec3::Y, Vec3::NEG_Y, Vec3::Z, Vec3::NEG_Z]
-        .iter()
-        .map(|d| level.raycast(p, *d, 2.0).map_or(2.0, |h| h.dist))
-        .fold(f32::MAX, f32::min)
+    axes.iter().map(|d| level.raycast(p, *d, 2.0).map_or(2.0, |h| h.dist)).fold(f32::MAX, f32::min)
 }
 
 /// Hanging by the hands (on the wall's holds, in a free hang or a wall hang).
@@ -177,14 +181,22 @@ fn hold_dist(level: &Level, holds: &Holds, p: Vec3, n: Vec3) -> (f32, Option<Vec
 /// A hold facing `n`'s way that the hands at `mid` could go on to along `dir` (world), as AC1's climbing grid keeps a cell's
 /// hold: within 0.3 m along the wall and 0.15 m up or down of a point a column (0.75 m) to the side, or one or two rows
 /// (0.6, 1.2 m) up or down.
-fn hold_ahead(level: &Level, holds: &Holds, mid: Vec3, n: Vec3, dir: Vec3) -> bool {
+fn hold_ahead(level: &Level, holds: &Holds, mid: Vec3, n: Vec3, dir: Vec3, stance: bool) -> bool {
     let along = Vec3::Y.cross(n).normalize_or_zero();
     let steps: &[f32] = if dir.y.abs() > 0.7 { &[0.6, 1.2] } else { &[0.75] };
-    steps.iter().map(|k| mid + dir * *k).any(|s| {
-        holds.near(level, s).filter(|l| l.out.dot(n) > 0.7).any(|l| {
-            let d = l.closest(s) - s;
-            d.dot(along).abs() <= 0.3 && d.y.abs() <= 0.15 && d.dot(n).abs() <= 0.5
+    let cell = |s: Vec3| {
+        holds.near(level, s).filter(|l| l.out.dot(n) > 0.7).find_map(|l| {
+            let q = l.closest(s);
+            let d = q - s;
+            (d.dot(along).abs() <= 0.3 && d.y.abs() <= 0.15 && d.dot(n).abs() <= 0.5).then_some(q)
         })
+    };
+    steps.iter().map(|k| mid + dir * *k).any(|s| {
+        let Some(q) = cell(s) else { return false };
+        // (In a climbing stance, AC1's grid move also wants the foot cell two rows under the hands' (`IsGridMoveValid`
+        // 0xDECD70) and the body's boxes free where it ends (`Human__ClimbBodyBoxesFree` 0xB2DF90): without them AC1 has
+        // no move there either.)
+        !stance || (cell(q - Vec3::Y * 1.2).is_some() && crate::climb::climb_body_free(level, q + n * 0.5 - Vec3::Y * 1.2, -n, 0))
     })
 }
 
@@ -477,9 +489,13 @@ pub fn sweep_measure(
             let dir = (right * ctl.climb_dir.x + Vec3::Y * ctl.climb_dir.y).normalize_or_zero();
             let mid = (l + r) * 0.5;
             let at = hold_dist(&level, holds, mid, n).1.unwrap_or(mid);
+            // (A top AC1 climbs out onto: its room over the edge free, `climb_out_room` (0xB2E240). Under a lintel, a
+            // ledge 0.25 m deep before a wall going on up or an overhanging slab AC1 does not pull up either.)
             if ctl.climb_dir.y > 0.5 && top_behind(&level, at, n) {
-                m.add("topout", t, root, format!("{state} {clip}, hold at {at:.2}"));
-            } else if hold_ahead(&level, holds, mid, n, dir) {
+                if crate::climb::climb_out_room(&level, at, n) {
+                    m.add("topout", t, root, format!("{state} {clip}, hold at {at:.2}"));
+                }
+            } else if hold_ahead(&level, holds, mid, n, dir, wall_stance(&state)) {
                 m.add("stuck", t, root, format!("{state} {clip}, stick {:.1},{:.1}", ctl.climb_dir.x, ctl.climb_dir.y));
             }
         }

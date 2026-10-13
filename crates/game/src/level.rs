@@ -1094,6 +1094,21 @@ impl Level {
         self.box_free_but(centre, axes, half, None)
     }
 
+    /// The faces crossing the oriented box (as `box_free` tests it): for tracing why a box is not free.
+    pub fn box_hits(&self, centre: Vec3, axes: [Vec3; 3], half: Vec3) -> Vec<Tri> {
+        let reach = axes[0].abs() * half.x + axes[1].abs() * half.y + axes[2].abs() * half.z;
+        let local = |p: Vec3| {
+            let d = p - centre;
+            Vec3::new(d.dot(axes[0]), d.dot(axes[1]), d.dot(axes[2]))
+        };
+        let half = (half - Vec3::splat(1e-3)).max(Vec3::ZERO);
+        self.tris_near(centre - reach, centre + reach)
+            .into_iter()
+            .map(|i| self.tris[i as usize])
+            .filter(|t| tri_crosses_box([local(t.a), local(t.b), local(t.c)], half))
+            .collect()
+    }
+
     /// `box_free`, the faces lying wholly inside the box `ignore` (world, min and max) left out.
     pub fn box_free_but(&self, centre: Vec3, axes: [Vec3; 3], half: Vec3, ignore: Option<(Vec3, Vec3)>) -> bool {
         let inside = |p: Vec3| ignore.is_some_and(|(lo, hi)| p.cmpge(lo - Vec3::splat(0.05)).all() && p.cmple(hi + Vec3::splat(0.05)).all());
