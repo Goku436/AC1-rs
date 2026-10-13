@@ -13,6 +13,12 @@
 //!   play (ours' named by their action with `--game`, as the live log names a blend by its first clip), the bones
 //!   relative to the root in the body's frame and the limbs' distance to their IK goals. Ours' side is an F9 recording
 //!   or a control run's `AC1_RECORD=<file>` (every frame of the run).
+//! - `livelog runs [dir]`: the scripted runs in a folder of live logs (`ac1-live.2.txt`, `.1`, then `ac1-live.txt`,
+//!   oldest first): the log split where the root jumps (a teleport), each part with its start (game space), facing,
+//!   when the input starts and ends in it, where it ends and its modes; for finding a route's frames to `cut`.
+//! - `livelog cut <out> --from s --to s [--dir dir]`: the frames (and events, into `<out>` with `.events` before its
+//!   extension) between two times of the live logs in `dir` (default `AC1_GAME_DIR`), out of the rotated files: one
+//!   route's real run, to `compare`.
 //! - `livelog names [game dir] [out]`: the action names table for the hook (`ac1-hook.actions.tsv` in the game
 //!   folder by default; with it the hook writes clip names, without it ids, named here with `--game`).
 //!
@@ -439,6 +445,69 @@ fn read_rows(path: &Path) -> Vec<Row> {
     }
 }
 
+/// Every line of a live log's files in `dir`, oldest first: `<stem>.2.txt`, `<stem>.1.txt`, `<stem>.txt` (the hook
+/// starts a file over past its limit, keeping two old ones).
+fn live_lines(dir: &Path, stem: &str) -> impl Iterator<Item = String> {
+    use std::io::BufRead;
+    let files = [format!("{stem}.2.txt"), format!("{stem}.1.txt"), format!("{stem}.txt")];
+    files.into_iter().filter_map(|f| std::fs::File::open(dir.join(f)).ok()).flat_map(|f| std::io::BufReader::new(f).lines().map_while(Result::ok))
+}
+
+/// A live log line's time (frames and events both start with it).
+fn line_time(l: &str) -> Option<f32> {
+    l.split_whitespace().next()?.parse().ok()
+}
+
+/// The live log split at its teleports (the root moving over 0.6 m in a frame), the parts with any input: when, where
+/// (game space), the facing, the input's span from the part's start, where it ends and its modes.
+fn runs(rows: &[Row]) -> String {
+    let mut s = String::new();
+    let mut parts = Vec::new();
+    let mut start = 0;
+    for k in 1..rows.len() {
+        if dist(rows[k].root, rows[k - 1].root) > 0.6 {
+            parts.push(&rows[start..k]);
+            start = k;
+        }
+    }
+    parts.push(&rows[start..]);
+    let held = |r: &Row| {
+        let get = |k: &str| r.kv.get(k).map(String::as_str);
+        get("stick").is_some_and(|v| v != "0.00,0.00") || get("btn").is_some_and(|v| v != "0000")
+    };
+    let game = |p: [f32; 3]| format!("{:.2},{:.2},{:.2}", p[0], -p[2], p[1]);
+    for part in parts {
+        let (Some(first), Some(last)) = (part.first(), part.last()) else { continue };
+        let (Some(a), Some(b)) = (part.iter().find(|r| held(r)), part.iter().rev().find(|r| held(r))) else { continue };
+        let mut modes: Vec<String> = Vec::new();
+        for r in part {
+            let m = mode(r);
+            if modes.last() != Some(&m) {
+                modes.push(m);
+            }
+        }
+        // (The pad's buttons: bit 0 the legs, bit 12 high profile.)
+        let flag = |bit: u16| part.iter().any(|r| r.kv.get("btn").and_then(|v| u16::from_str_radix(v, 16).ok()).is_some_and(|b| b & bit != 0)) as u8;
+        s += &format!(
+            "{:9.2} to {:9.2}: from game {} facing {:.0} (game {:.0}), input {:.2} to {:.2} s (high {} legs {}), ends {} {:.1} m off | {}
+",
+            first.t,
+            last.t,
+            game(first.root),
+            first.yaw,
+            first.yaw + 90.0,
+            a.t - first.t,
+            b.t - first.t,
+            flag(0x1000),
+            flag(1),
+            game(last.root),
+            dist(first.root, last.root),
+            modes.join(" ")
+        );
+    }
+    s
+}
+
 /// `--name value` options and the plain arguments.
 fn options(args: &[String]) -> (Vec<String>, HashMap<String, String>) {
     let (mut plain, mut opts) = (Vec::new(), HashMap::new());
@@ -560,6 +629,28 @@ fn main() {
             let acts = if opts.contains_key("game") { clip_actions(&game).unwrap_or_default() } else { ClipActions::new() };
             print!("{}", compare(&r, &o, num("offset"), num("step").unwrap_or(0.1), &names_from(&opts), &acts).table);
         }
+        Some("runs") => {
+            let dir = plain.get(1).map(PathBuf::from).unwrap_or_else(|| game.clone());
+            print!("{}", runs(&live_lines(&dir, "ac1-live").filter_map(|l| parse(&l)).collect::<Vec<_>>()));
+        }
+        Some("cut") => {
+            let num = |k: &str| opts.get(k).and_then(|s| s.parse::<f32>().ok());
+            let (Some(out), Some(from), Some(to)) = (plain.get(1), num("from"), num("to")) else {
+                eprintln!("usage: livelog cut <out> --from s --to s [--dir dir]");
+                return;
+            };
+            let dir = opts.get("dir").map(PathBuf::from).unwrap_or_else(|| game.clone());
+            let out = PathBuf::from(out);
+            let events = out.with_extension(format!("events.{}", out.extension().and_then(|e| e.to_str()).unwrap_or("txt")));
+            for (stem, path) in [("ac1-live", &out), ("ac1-live-events", &events)] {
+                let lines: Vec<String> = live_lines(&dir, stem).filter(|l| line_time(l).is_some_and(|t| t >= from && t <= to)).collect();
+                let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
+                match std::fs::write(path, text) {
+                    Ok(()) => println!("{} lines to {}", lines.len(), path.display()),
+                    Err(e) => eprintln!("{}: {e}", path.display()),
+                }
+            }
+        }
         Some("names") => {
             let dir = plain.get(1).map(PathBuf::from).unwrap_or(game);
             let out = plain.get(2).map(PathBuf::from).unwrap_or_else(|| dir.join("ac1-hook.actions.tsv"));
@@ -568,7 +659,7 @@ fn main() {
                 Err(e) => eprintln!("names: {e:#}"),
             }
         }
-        _ => eprintln!("usage: livelog tail|summary|compare|names ... (see the file's header)"),
+        _ => eprintln!("usage: livelog tail|summary|compare|runs|cut|names ... (see the file's header)"),
     }
 }
 
