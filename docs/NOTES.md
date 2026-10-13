@@ -1160,9 +1160,15 @@ its glow materials' pass (`GFX_Glow*`), none of which Altaïr or the city's wall
 (Damascus 27 MB) and each drawn part's `MeshTag` points at its first vertex's byte; the vertex shader reads its own.
 `AC1_PLAIN_CITY=1` keeps `StandardMaterial` for the city. On the roof camera the new city shader costs 2.0 ms of GPU a
 frame against 2.3 ms for `StandardMaterial`. Chosen by eye against shots of the running game (not found in the
-executable): the occlusion's mapping (a quarter of the ambient kept where closed in), the fog's density (the ramp ends
+executable): the occlusion's mapping (see below), the fog's density (the ramp ends
 at near + (far - near) / density), the clear colour behind the sky dome (the fog colour halfway to white), the character
 cube's `Tint` left out (multiplied in it yellows the white robe) and how `Saturation`/`Scale`/`Bias` apply.
+The occlusion's mapping (`g_AOParams` is the shaders' global constant 0; where the executable fills it is not found):
+`saturate(max(2 v, 0.25))` since 2026-10-13 (an open wall's byte, about 110, gives 0.86 of the ambient; 0.85 for meshes
+with none), matched against the running game's shots by brightness percentiles (`AC1_AO="scale,bias,floor,none"` to
+try others): with the earlier `0.75 v + 0.25` the shade came out a third too dark (roof spot, real / ours: 10th
+percentile 50 / 42, now 49; 25th 84 / 77, now 85; the bureau's and the alley's shaded walls ~0.7 of the game's).
+Altaïr's character cube with its `Tint` multiplied in was tried again against the same shots: too yellow, left out.
 Materials whose template cuts out alpha (`*Alpha*`, `Plants`, `Env_Foliage*`) are alpha-tested whatever their mesh's name,
 and an assassins' bureau's outside shell (`BA_Bureau_Ext`) casts no shadow: its roof shaded the open courtyard (AC1
 swaps it for the inside one there). Side-by-sides of the running game, before and after: `reports/visuals/` (not in the
