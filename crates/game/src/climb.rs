@@ -6828,6 +6828,19 @@ impl WallClimb {
     /// game's root went from -0.1 to -179.8 degrees between two frames, and 0.34 m out; audit WALL-8). The root is placed
     /// so the hips stay where they are (across the wall; its height kept), the pose faded from turned and moved with it,
     /// so it shows where it was.
+    /// `snap_takeoff` for an eject started inside `update`, before its first frame is shown, the root turned with it (on
+    /// the next update, as it was, the frame between showed the hang's pose on the root turning away: the hands 0.2-0.3 m
+    /// off for a frame, audit WALL-8's pop).
+    fn snap_now(&mut self, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig) {
+        if !std::mem::take(&mut self.snap_turn) {
+            return;
+        }
+        self.snap_takeoff(root, rig, base, cr);
+        if let Some(m) = self.mv.as_ref().filter(|m| m.ease_rot == Quat::IDENTITY) {
+            root.rotation = m.start_rot;
+        }
+    }
+
     fn snap_takeoff(&mut self, root: &Transform, rig: &Rig, base: &Pose, cr: ClimbRig) {
         let Some(m) = &mut self.mv else { return };
         if m.ease_rot == Quat::IDENTITY {
@@ -9210,10 +9223,14 @@ impl WallClimb {
             if let Some((input, left)) = self.eject_after.take() {
                 if let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()) {
                     *self = w;
+                    self.snap_now(root, rig, base, cr);
                     return;
                 }
-                // (Nothing to land on that way: the push off into the air, after the same rebound pose.)
+                // (Nothing to land on that way: the push off into the air, after the same rebound pose. Turned away at
+                // once, before its first frame is shown: snapped on the next update, the frame between showed the hang's
+                // pose on the root turning away, the hands 0.2-0.3 m off, audit WALL-8's pop.)
                 if self.back_eject(lib, root, input, left) {
+                    self.snap_now(root, rig, base, cr);
                     return;
                 }
             }
