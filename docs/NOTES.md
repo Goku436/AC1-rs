@@ -28,6 +28,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Viewpoints (`ReachHighPoint_*` groups, entities named `*ReachHighPoint*`) | done: Damascus 12, each with a leap of faith into its hay; Masyaf 1, not a viewpoint in AC1's data (no `ReachHighPointComponent` in Masyaf): the tutorial's "reach a high point" trigger (`M05_T40_Scene_TUT_ReachHighPoint`) on the tower over the village, its hay (`Hay_Bale_01 Group_009`) 13 m north of its top's edge, 13.4 m down, reached by the leap of faith; and the siege's leap off the fortress tower's scaffold into `Group_001` 44 m down (docs/PARKOUR.md HAY-9) |
 | City parkour objects by mesh name (hay carts, `Ladder_*`, `Banc_*`, `Pole_*`) | done: Damascus 46 haystacks, 301 ladders, 320 benches, 159 swing bars; Masyaf 14, 40, 28, 2; climbing probe 8/20 spots over the top |
 | Navigation meshes (`NavMeshManager`) | done: 1432/1432 parse (67836 pieces, 1.13 M triangles); city routes (A*) |
+| Crowds (`RegionLayout` `CrowdRegion_<City>`, `CrowdDutyRegion`, `CrowdFlow`; `forge::crowd`, the `crowd` tool) | done: Damascus 29/29 regions (16303 triangles), 29 duty regions, 451/451 flows (6.8 km); Acre 40/520, Jerusalem 23/401, Kingdom 16/82, Arsuf 2/0 (Masyaf has no crowd layout); every region and flow parses. Played (`city_life`): townsfolk and militia by the regions' fractions walking the flows round the player ("City life") |
 | Clip sets (`AnimSet`) | done: 81 read; soldiers and townsfolk play their own clips |
 | Flight recorder (F9), controller, scenario suite | done |
 | In-game menus: graphics settings (F8, presets for low-end PCs, saved beside the exe), online (F10: two players over UDP, host / join, replays) | first version ("Graphics settings and online play") |
@@ -40,7 +41,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); lit as AC1 lights them ("How AC1 lights its world": the level's sun, ambient cube, baked occlusion, fog and colour grade from its `WorldAmbiance`/`LayeredSky`), three shadow cascades in 120 m (the first 12 m); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming"); gameplay data and what is drawn saved after the first load ("City load time and the level cache") | first version |
 | Level light and grade (`WorldAmbiance` 21c2d472, `LayeredSky` 24d32cf8: fog, post effects, suns, ambient cubes, sky layers) | done: 14/14 levels read, and the occlusion mapping (`AOSettings` in each `World`) of 13/13 (`examples/ambcheck`) |
 | Baked occlusion (`MeshInstanceData` / `CompiledMeshInstance`: a byte per vertex per placed mesh) | done: 17436/17436 Damascus entities and groups, every stream a byte per vertex of its mesh (`examples/aocheck`) |
-| Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); scholar crowds to blend into | first version |
+| Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); scholar crowds to blend into; city streets peopled from AC1's crowd data | first version |
 | Combat (`combat`, `fight_data`, `fight_tables`, docs/COMBAT.md): the fight blocks (`HumanWeapon`, `HumanGround_Fight`, `_Fight_Light`, `_Fight_Unarmed`, `Human_Ground_Fight_Dagger`, `_ComboKill`, `_CounterKills`, `_CounterDodge`, `_Assassination`, `_Fight_Hurt`, `HumanInAir`) picked by the exe's fight tables for fists, sword and short blade (attacks by side, distance and foot, the sword's random straight ones, high and low, mobile, combos and their directions, the clips a strike lands with, turns, combo and counter kills, counter dodges, deflects, the 14 assassination types) and its attack state machine (the combo latch) | second version: the weapons' stances, AC1's turns, attacks and combos by its state machine, blocks, deflects and the guard's riposte, counter kills and dodges, mobile attacks, throwing knives, paired kills with the root slid onto the pair's, assassinations on the ground and from above, guards in turns (ours, one at a time), the player's damage and desynchronisation (ours), deaths limp |
 | Player controller, free-running, combat AI, crowds, missions | long-term |
 
@@ -429,6 +430,47 @@ Crowds: scholars (AC1's `CNMT_Scholar`: robe, hood and shoes from Acre's data on
 limbs and head from the common data, assembled across forges) walk a loop in a 2x2
 formation with their hands together (`_cpm_monk_pray_walking`). Walking among them (two within 1.4 m, not
 running) the player blends: it walks at their pace in the same praying walk (`xx_l_pray_wait` standing still).
+
+## City life (`forge::crowd`, `city_life`)
+AC1's data (read, `crowd` tool: `crowd <game> [DataPC_<City>.forge]`):
+- `RegionLayout` `CrowdRegion_<City>` (in the data file named after the city): one `RegionCell` per kind of place, each
+  naming a `CrowdDutyRegion` and a `MeshShape` in the layout's loading block (2D triangles, world X/Y); the cell's
+  triangle list matches the shape's triangles one for one (with the neighbour across each edge); its stored area is the
+  triangles' (Damascus "Poor Street" 7281 m², "No Spawn" 28907 m²). Byte layout in `crates/forge/src/crowd.rs`.
+- `CrowdDutyRegion` (copies in the cell data files): `Density` in people per m² (Damascus streets and avenues 0.05-0.09,
+  souks 0.09-0.12, public places 0.03-0.09, "No Spawn" 0.001, "MM Palace" 0.001), a third float (1; 0.001 "No Spawn",
+  10 the "BlobBlackHole", 2 "Medium Street": taken here as the winner where regions overlap, not proven), then
+  `CrowdFraction`s {`Percent`, a `CrowdFractionCharacter` with a `SpawnedCharacterSpecification` naming an `EntityBuilder`,
+  or a `CrowdFractionClique`}. Damascus: poor streets 86-98% `MCxx_Poor`, 3-6% `MMMA_Damascus_Militia`, 5% `MNMA_Thug`
+  cliques; middle-class and rich ones `MCxx_MiddleClass` / `MCxx_Rich` (56-80%), `_Light` variants, 10% militia.
+  `MCxx_*` builders (each in its own data file of `DataPC_Common.forge`) are a table of two builders, half the men's
+  (`MCMA_*`) and half the women's (`MCFA_*`). About 3560 people over the whole of Damascus at those densities.
+- `CrowdFlow` components on the entities `CrowdFlow_*`: polylines (2 points or more, in the entity's frame), widths 1.5-4 m
+  (mostly 2-3), `Filter` 15 (9, 7, 8 on 52), `Weight` 1, and the flows linked at each end (1458 of 1485 links are to
+  flows; the rest to entities not read). Damascus: 451 flows, 6.8 km.
+- The game settings' `GameSetting` +0x28 is 120: the crowd herder (0x74EE40) removes people while its count is over it,
+  and spawns in a loop of up to +0x30 (39) tries a frame while the count is under its target (0x74F600).
+- Bumps: `HumanGround_Hurt` holds the stumbles: `xx_stumble_soft_<20|50>cm_<back|front>_<foot>` (the 20 cm ones with
+  their `_tr_l_wait_*` exits), `xx_stumble_<medium|strong>_<back|front>_to_unbalance_*`, `xx_stumble_unbalance_*_tr_*`,
+  the runner's `xx_stumble_run_*` / `_sprint_*`; the exe fills a table of these reactions at 0xF22300 (not decoded).
+  The charge's shove (`xx_h_charge_run_shove_*`) is `HumanGround_Hurt`'s too.
+
+Ours (`city_life.rs`, see its header): the people kept round the player are those the densities give within 26 m,
+at most 12 / 24 / 32 / 48 by the graphics menu's city detail (AC1_CROWD_MAX); new ones on a flow 22-34 m off (all
+round the player at the first fill), parked beyond 42 m and reused; each a builder's model (4 variants a builder, built
+one at a time on a thread) with its clip set (`cmma_anim_set`, `cfaa_anim_set`, `mmaa_anim_set`) over AC1's
+locomotion; they walk a flow at 0.95-1.35 m/s anywhere across it (more on its right), at its end on to a flow linked
+there (back if none), stop for 2-7 s at a fifth of the ends, slow down and move over for people and the player ahead.
+The player walking into someone: their soft 20 cm stumble; running (2.5 m/s): Altaïr's shove and their 50 cm stumble;
+sprinting (5 m/s): their strong stumble into unbalance. The militia fraction spawns `combat`'s guards (1-3 at once by
+the detail), on the player's locomotion within 20 m (where `combat` fights them), along the flow beyond. Left out: the
+thugs' cliques, beggars and harassers, merchants at their stalls, conversations, and the clothes' colours (the builders'
+colour tables, cells of code 0x0d, are not applied: townsfolk are drawn in their untinted textures).
+Cost (headless, CPU over all threads a frame, Damascus street at (44, -50)): none 5.3 ms, 16 people 7.7 ms, 32 with 3
+militia 13.8 ms; a person is about 0.15 ms (its pose rebuilt every frame within 10 m, every second within 18 m, every
+third beyond: `character::AnimLod`; feet IK only within 8 m), a militia guard by the player's locomotion about 1.3 ms.
+Builders from the common forge's own data files now find their meshes: a LOD selector there is a copy whose meshes are
+in other data files, so `npc::recipe` goes through the index for it (before, a crowd builder gave only the eyes).
 
 ## Research (what is known about AC1 from outside this repo)
 - The QuickBMS scimitar scripts (RetingencyPlan/le_quickbms_script_compendium, `scimitar_new.bms` and

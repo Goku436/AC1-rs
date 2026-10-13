@@ -4697,7 +4697,8 @@ impl WallClimb {
         };
         let Some(mut clips) = [mix("a"), mix("b")].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>() else { return false };
         let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
-        let to = q + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
+        // (Onto AC1's free hang root under the hold, as the jump up from the climb: the chain ends in the free wait.)
+        let to = q + n * 0.05 - Vec3::Y * FREE_ROOT_DOWN;
         debug!("climb: swing back up to the ledge at {q:.2} (out {h:.2}: the wait after it that much wall-free)");
         // Then the swing settling under the ledge: the move graph's way out of the `_b` item (action 0x4CD68F50) into the
         // free wait goes through the connector 0x0564BB0E, `xx_h_hangfree_swingback_<min|max>_a/b` (in place), which AC1
@@ -4830,7 +4831,10 @@ impl WallClimb {
         ]);
         let Some(mut clips) = ["xx_h_climbing_1m_impultion".to_string(), jump].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>() else { return false };
         let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
-        let to = q + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
+        // (The chain ends in the free hang's wait, its wrists 2.3 m over the root: onto AC1's free hang root, `FREE_ROOT_DOWN`
+        // under the hold. At the catch's 2.1 the hands hung 0.2 m over the edge through the swing back's 2 s, gripping air
+        // before the wait's settle took them down onto it, user report 62377.)
+        let to = q + n * 0.05 - Vec3::Y * FREE_ROOT_DOWN;
         debug!("climb: jump up from the climb to the ledge at {q:.2}");
         // (Its action 0x1EB21811 goes on through the same connector as the swing back's, and 0xDF9650 sets the same wait
         // kind 3 with its `max` share: `swing_settle`, audit LEDGE-15.)

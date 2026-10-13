@@ -119,7 +119,10 @@ pub fn recipe(game_dir: &Path, forge_file: &str, datafile: &str, name: &str, see
         if !seen.insert(id) {
             return;
         }
-        if let Some(o) = df.get(id) {
+        // (A LOD selector here whose meshes are not: a copy of a common one, as in the common forge's own builders, each
+        // in a data file of its own; its meshes are found through the index below.)
+        let local = df.get(id).filter(|o| o.class != CLASS_LOD_SELECTOR || df.refs(o).iter().any(|(_, m)| m.class == CLASS_MESH));
+        if let Some(o) = local {
             // A LOD selector: its full-detail mesh (the one without `_LOD` in its name).
             let mesh = match o.class {
                 CLASS_LOD_SELECTOR => df.refs(o).into_iter().map(|(_, m)| m).find(|m| m.class == CLASS_MESH && !m.name.contains("_LOD")),
@@ -241,6 +244,72 @@ pub fn build(game_dir: &Path, forge_file: &str, datafile: &str, name: &str, seed
     Ok((g, r.scale))
 }
 
+/// The common forge's builders by id (its index, cached).
+fn common_builders(game_dir: &Path) -> Result<std::collections::HashMap<u32, String>> {
+    static CACHE: std::sync::OnceLock<std::collections::HashMap<u32, String>> = std::sync::OnceLock::new();
+    if let Some(c) = CACHE.get() {
+        return Ok(c.clone());
+    }
+    let index = forge::index::ForgeIndex::load(&game_dir.join(COMMON))?;
+    let m: std::collections::HashMap<u32, String> =
+        index.objects.iter().filter(|(_, p)| p.class == CLASS_BUILDER).map(|(id, p)| (*id, p.name.clone())).collect();
+    Ok(CACHE.get_or_init(|| m).clone())
+}
+
+/// The builder a crowd builder stands for: AC1's `MCxx_<class>` builders (each in its own data file of the common
+/// forge) are a table of other builders (`MCxx_Poor`: half `MCMA_Poor`, half `MCFA_Poor`) and no base entity; one of
+/// those is picked by weight with `seed`, and so on down. A builder with a base entity is itself.
+pub fn concrete_builder(game_dir: &Path, name: &str, seed: u64) -> Result<String> {
+    let builders = common_builders(game_dir)?;
+    let f = forge::Forge::open(game_dir.join(COMMON))?;
+    let mut rng = Rng(seed.wrapping_mul(0x2545_f491_4f6c_dd1d) | 1);
+    let mut name = name.to_string();
+    for _ in 0..4 {
+        let Some(e) = f.entries.iter().find(|e| e.name == name) else { break };
+        let data = f.read(e)?;
+        let df = DataFile::parse(&data)?;
+        let Some(b) = df.by_name(CLASS_BUILDER, &name) else { break };
+        // (A builder with a base entity of its own is a person's: its rows pick their parts, not other builders.)
+        if df.refs(b).iter().any(|(_, o)| o.class == CLASS_ENTITY) {
+            break;
+        }
+        let (rows, _) = rows(b.body);
+        let choices: Vec<(f32, &String)> =
+            rows.iter().filter_map(|r| r.links.iter().find_map(|(_, id)| builders.get(id)).map(|n| (r.weight, n))).filter(|(_, n)| **n != name).collect();
+        let total: f32 = choices.iter().map(|c| c.0).sum();
+        if choices.is_empty() || total <= 0.0 {
+            break;
+        }
+        let mut pick = rng.next() * total;
+        let next = choices.iter().find(|c| {
+            pick -= c.0;
+            pick <= 0.0
+        });
+        name = next.unwrap_or(&choices[choices.len() - 1]).1.clone();
+    }
+    Ok(name)
+}
+
+/// A crowd member from builder `name` of the common forge (`concrete_builder` first): its model, height scale and
+/// the builder it came from.
+pub fn build_common(game_dir: &Path, name: &str, seed: u64) -> Result<(crate::assets::CharacterData, f32, String)> {
+    let concrete = concrete_builder(game_dir, name, seed)?;
+    let (g, scale) = build(game_dir, COMMON, &concrete, &concrete, seed)?;
+    Ok((g, scale, concrete))
+}
+
+/// The clip set a builder's people walk with, by AC1's naming (`MMMA` soldiers, `xCFx` women, other townsmen).
+pub fn anim_set_of(builder: &str) -> &'static str {
+    let b = builder.as_bytes();
+    if b.get(1) == Some(&b'M') {
+        "mmaa_anim_set"
+    } else if b.get(2) == Some(&b'F') {
+        "cfaa_anim_set"
+    } else {
+        "cmma_anim_set"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,5 +338,13 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[1], Row { weight: 0.75, links: vec![(GRAPHIC_OBJECT, 0x2222)], floats: vec![1.02] });
         assert_eq!(spans[0].1, spans[1].0);
+    }
+
+    #[test]
+    fn clip_sets_by_builder_name() {
+        assert_eq!(anim_set_of("MMMA_Damascus_Militia"), "mmaa_anim_set");
+        assert_eq!(anim_set_of("MCFA_Poor"), "cfaa_anim_set");
+        assert_eq!(anim_set_of("MCMA_Rich"), "cmma_anim_set");
+        assert_eq!(anim_set_of(""), "cmma_anim_set");
     }
 }
