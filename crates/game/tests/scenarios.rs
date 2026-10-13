@@ -1551,6 +1551,30 @@ const SCENARIOS: &[Scenario] = &[
         want: &["-> hangwall_open via xx_l_ledge_pulldown_soft_to_hangwall_straight_b", "-> free_1m via xx_h_hangwall_tr_hangfree_down_left"],
         never: &["EMBED"],
     },
+    // User report 2026-10-13 (recording 214883, "the inverted triangle climbs are bugged, Altair can't go down and when he
+    // goes up he grabs the air"): pulled down off the front of a Damascus awning (`Awning_6x2_Wood_01A`, its frame's beams
+    // under it each 0.13-0.31 m lower and 0.38-0.49 m further in) into a free hang. Down hand-steps along the beams (AC1's
+    // vertical rows down; ours took one with a stance's grid step and stopped), up back along them and over the front
+    // (ours' grid step put the hands 0.46 m over the beam, in the air).
+    Scenario {
+        name: "Damascus awning frame: from the free hang at its front, down its beams hand by hand and back up over it (user report 2026-10-13)",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "82.1,-43.97,-68.3,4.3"),
+            ("AC1_HAND", "0.5"),
+            ("AC1_CLIMB", "nograb,wait=3.5,down=4,up=5"),
+        ],
+        secs: 13.0,
+        want: &[
+            "hand steps onto the edge -0.32 up and -0.38 out at [82.14, 3.72",
+            "hand steps onto the edge -0.12 up and -0.46 out at [82.14, 3.59",
+            "hand steps onto the edge 0.33 up and 0.38 out at [82.14, 4.03",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [82.1",
+        ],
+        never: &["EMBED"],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {
