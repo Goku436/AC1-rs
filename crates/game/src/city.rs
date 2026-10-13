@@ -950,6 +950,25 @@ fn spawn_world(
     // (What each placement refers to, scanned on all cores first: every byte offset of every entity looked up, a second
     // of the Damascus load on one.)
     let all_refs_of: Vec<Vec<(usize, &Object)>> = crate::level::par_map(&placements, |&(id, body)| refs_all(&index, body, id));
+    // The effects the cells place (`particles::WorldFx`, drawn only): entities whose `Visual` shows a particle system.
+    // (The cells' own: not the missions' data files, whose effects play in their missions, nor the entities `FX`
+    // objects spawn, `GFX_FX_*`, kept in the cells at the origin.)
+    if opts.render && picks.is_none() {
+        let mut fx = crate::particles::WorldFx { forge_file: forge_file.to_string(), ..default() };
+        let spawned: std::collections::HashSet<u32> =
+            objects.iter().flatten().filter(|o| o.class == forge::fx::CLASS_FX).flat_map(|o| forge::fx::links(o.body)).collect();
+        for (pi, &(ent_id, body)) in placements.iter().enumerate() {
+            let in_cell = forge.entries.get(placement_file[pi]).is_some_and(|e| e.name.starts_with("Cell")) && !spawned.contains(&ent_id);
+            let system = |id: u32| all_refs_of[pi].iter().any(|(_, r)| r.id == id && r.class == forge::fx::CLASS_PARTICLE_SYSTEM);
+            let Some(m) = transform(body).filter(|_| in_cell) else { continue };
+            for id in forge::fx::shown_systems(body, system) {
+                let Some(ps) = index.get(&id) else { continue };
+                fx.systems.entry(id).or_insert_with(|| (ps.name.clone(), ps.body.to_vec()));
+                fx.placed.push((to_bevy * m, id));
+            }
+        }
+        commands.insert_resource(fx);
+    }
     for (pi, &(ent_id, body)) in placements.iter().enumerate() {
         let picked = moved.get(pi).copied().flatten();
         let Some(mut m) = picked.map(|x| x.0).or_else(|| transform(body)) else { continue };
