@@ -35,7 +35,8 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
 | Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
-| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; every distinct resource and stream with a header decodes (`bao scan`): IMA-ADPCM 38211/38211 resources and 2176/2176 streams, interleaved tracks (IMA mono or stereo, or Ogg Vorbis pages) 29/29 and 76/76, Ogg Vorbis 13743/13743 and 110/110 (6636 of those Ogg resources are a stream's start, cut); the 4169 headerless streams (speech) decode joined to their start for 3716, the other 453 have no start in any forge. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks, the leap of faith) on the surface's sound material (cities: from `CollisionMaterial`) and AC1's switch values (character kind, weapon sheathed, city), placed and panned with AC1's roll-off; the city's placed sounds (Damascus: 1292 trigger zones: fountains, braziers, flags, kiosks, gardens, palms), its ambience loops (116 region links, 36 sets, 11 streamed loops) and their one-off sounds at AC1's intervals; M mutes, F8 sets the volume |
+| Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; every distinct resource and stream with a header decodes (`bao scan`): IMA-ADPCM 38211/38211 resources and 2176/2176 streams, interleaved tracks (IMA mono or stereo, or Ogg Vorbis pages) 29/29 and 76/76, Ogg Vorbis 13743/13743 and 110/110 (6636 of those Ogg resources are a stream's start, cut); the 4169 headerless streams (speech) decode joined to their start for 3716, the other 453 have no start in any forge. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks, the leap of faith; the landing grunt AC1's code plays, `OnoJumpLandHeavy`) on the surface's sound material (cities: from `CollisionMaterial`) and AC1's switch values (character kind, weapon sheathed, city), placed and panned with AC1's roll-off; the city's placed sounds (Damascus: 1292 trigger zones: fountains, braziers, flags, kiosks, gardens, palms), its ambience loops (116 region links, 36 sets, 11 streamed loops) and their one-off sounds at AC1's intervals; M mutes, F8 sets the volume |
+| Effects (`FX` 824a23ba, `ParticleSystem` caaa7ee8, `HumanFXPack`, `forge::fx`) | 12/12 particle systems of DataPC's player files parse to their end; the contact table's FX per surface read. Played (`particles`): the surface's dust or straw on contact keys (steps, landings, rolls), the haystack's straw going in and out, as camera-facing sprites of our own; the landing's camera shake (`shake`). Not walked: the FX graphs' operators |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); lit as AC1 lights them ("How AC1 lights its world": the level's sun, ambient cube, baked occlusion, fog and colour grade from its `WorldAmbiance`/`LayeredSky`), three shadow cascades in 120 m (the first 12 m); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming") | first version |
 | Level light and grade (`WorldAmbiance` 21c2d472, `LayeredSky` 24d32cf8: fog, post effects, suns, ambient cubes, sky layers) | done: 14/14 levels read (`examples/ambcheck`) |
 | Baked occlusion (`MeshInstanceData` / `CompiledMeshInstance`: a byte per vertex per placed mesh) | done: 17436/17436 Damascus entities and groups, every stream a byte per vertex of its mesh (`examples/aocheck`) |
@@ -654,6 +655,14 @@ AC1-Movement-Rewritten (MIT), which first played AC1's sounds.
 - Surfaces: a `MeshShape`'s triangles name `CollisionMaterial`s, whose body +0 is the sound material (0-24: Stone_Clean
   4, Marble 6, Wood_Plank 9, Grass_Short 14, Water_Shallow 19, Metal_Grill 24; `Default` 4001, none). Cities keep it per
   triangle (`Level::tri_sound`); the footsteps' switch 0 is the material under the player (`Level::sound_material_at`).
+- `HumanSoundSet_Altair` ("Rank 9", class 2b315bea): Altaïr's vocal sounds, played by AC1's code, the same
+  `SoundInstance` list (`forge::sound::global_sound_set`); slots by the exe's property order: 12 `OnoGrab`, 16 `OnoDodge`,
+  23 `OnoJumpLandLight` (empty), 25 `OnoJumpLandHeavy` (10b102ff: one of ten grunts, -12 dB), 30 `OnoClimbPullUp`, 31
+  `OnoBodyFallHurt` (empty), 32-34 `OnoEffortLight` / `Medium` / `Heavy`. At run time the set is 20-byte instances from +8
+  (slot k at +8 + 20 k; the calls of the play helper 0x5269B0 pass these offsets): `HumanInAir__SetupToGround_Landing`
+  (0xE05940) plays +0x1FC (25) on a landing from over 3 m, +0x1D4 (23) on the rest. Ours plays them on each ground
+  landing (`Character::landings`); the landing and roll clips' own keys (`ft_land_heavy`, `ft_body_roll`, `ft_land_hands`,
+  the roll's grunt) were already played (checked 2026-10-13: `RUST_LOG=ac1::sound=debug` lists every key fired).
 - Not in AC1's clip data: the free jump's take-off (`xx_h_impultionstraight_*_to_jumpstraight_clear_*`,
   `xx_h_jumpstraight_clear_*` have no keys); it plays `GlobalSoundSet`'s `SoundJumpStart` (103205b7, the event the
   beam take-off clip and Altaïr's `ft_jump_start` name too). The haystack's straw and the leap of faith's rush of air
@@ -678,6 +687,43 @@ AC1-Movement-Rewritten (MIT), which first played AC1's sounds.
   `DataPC_Common.forge` (`BAO_0x3...`, a data file each: 80 for Damascus). Ours starts an emitter's plays as the
   player enters its zone (loops until he leaves it, faded over 0.5 s). Eagles at viewpoints, pigeons (an animation's
   keys: `pigeon_take_off_all`) and the hay cart's deformation clip are not placed here.
+
+## Effects (FX, particles, camera shakes)
+Read by `forge::fx`; drawn by `crates/game/src/particles.rs`, the shake in `shake.rs`.
+- `FX` objects (class 824a23ba, `FX_*`) are graphs of operators: `FXSpawnedEntityOperator` spawns an `Entity`
+  (`GFX_FX_*`) whose `Visual` links a `ParticleSystem`; `FXCameraOperator` drives the camera; `FXTargetEntityOperator` a
+  material or property (`FXProperty`, `PropertyPath`, `MinValue` / `MaxValue`, `FXLinkedValue`). The graph is not walked:
+  `fx::links` lists a body's u32s and the game keeps those that are known objects (FX -> entities -> particle systems).
+- `ParticleSystem` (caaa7ee8): u32 ? (2), the emitters (inline `ParticleEmitter`, a1361abc, a fixed 579 bytes), 28 bytes of
+  factors. Emitter fields found (names by CRC32 of guesses against the exe's reflection list, `?` where none): +0x04
+  `EmitterShape`, +0x9d three f32 ? (the shape's size), +0xb1 `MaxParticleCount`, +0xb5 `ParticleRate`, +0xb9
+  `Acceleration` (Z up), +0xce/+0xd2 `Min`/`MaxVelocity`, +0xd6 `DirectionVariation`, +0xde/+0xe2 `Min`/`MaxRotation`,
+  +0xe6/+0xf2 `Min`/`MaxPhaseDuration` (three phases), +0xfe/+0x11e `Min`/`MaxSize` (4 keys of width, height), +0x13e /
+  +0x16e `Min`/`MaxScale` (4 vec3, all 1 here), +0x19e `Color` (4 inline `IColor`s, bytes B G R A), +0x1ce/+0x1de
+  `Min`/`MaxRotationSpeed`, +0x1ee `Mesh`, +0x1f2 `TextureMap`, +0x1f6/+0x1f7 `TextureFrameCountX`/`Y`, +0x214 an inline
+  `WindForce`. 12/12 systems of DataPC's "Rank 9" and "Game Bootstrap Settings" parse to their end. The dust
+  (`GFX_FX_CollisionMaterial_Default`): 30 particles at 300/s, 0.1-1 m/s up within 2 rad, -2 m/s² down, life 0.34 + 0.88
+  + 0.62 s, 0.1 m growing to 1.45 m, white at alpha 0.14 -> 0 over `GFX_Dust_Sand_01`; straw: 20 chips of
+  `GFX_Dust_Chips_grass` at 1-3.5 m/s under gravity.
+- What plays them: each `ContactTable` entry lists FX (`ContactTable::fx`): every contact type but `ft_pivot`, `ft_step_toe`,
+  `ft_walk_end`, `ft_walk_start` plays its surface's `FX_CollisionMaterial_<surface>` (dirt: the dust and a smoke; sand,
+  mud, stone, wood, ceramic: the dust; straw, grass, puddles their own; marble, pebbles, leaves, snow, glass, polished
+  concrete none). `HumanFXPack_AlTair` (ba42b58e) lists the FX AC1's code plays: +88 `FX_Camera_Shake_Assassins_Fall`,
+  the punch and sword shakes, critical state, sync, and the haystack's `FX_Clip_Character_Hay_Bal(TopEntry)`,
+  `(SideEntry)`, `(Side Exit)` (straw systems at six bones: `RightArm`, `LeftArm`, `Spine1`, `Head`, `LeftForeArm`,
+  `RightForeArm`). The contact events' two bytes after the type are 1, 1 in every clip looked at: no FX switch there.
+- Ours (`particles`): the contact keys play their surface's FX at the lower foot (steps) or the root (landings, rolls,
+  hands); the dives into hay play `TopEntry` at their straw sound key, the hop out `Side Exit`. An emitter sends
+  `MaxParticleCount` at `ParticleRate`, each particle going key to key at its phase ends; sprites face the camera,
+  alpha blended, unlit (blend and lighting modes not read), one mesh per texture. `AC1_NO_PARTICLES=1` leaves them out;
+  never headless. Damascus at a run, `AC1_FPS=1`: about 40-44 fps either way, GPU 3.0-3.3 ms (2026-10-13, a shared
+  machine).
+- The landing's camera shake (`shake`): `FX_Camera_Shake_Assassins_Fall`, started by 0xE05940 on a landing from over 3 m
+  with intensity `min((drop - 3) / 7, 1)` (its parameter 0xBE93B29C). The FX's tracks (120 ticks of 1/120 s): of the six
+  camera channels only the pitch moves, `intensity * envelope * 30 * fBm2D(t, 20 * (200 + 200 t))` degrees, the envelope
+  1.5 -> 0.1 at 0.4 s -> 0 at 1 s, a one-octave fBm (H 0.1, lacunarity 0.1) of Perlin noise (as Banned445's port reads
+  it). Ours: the same curve with our own gradient noise, about the camera's right axis. The pack's other shakes are
+  combat ones. Not checked against the running game.
 
 ## Navigation meshes
 `NavMeshManager_<cell>` (format in `crates/forge/src/navmesh.rs`): pieces, each a walkable polygon with world-space
@@ -1077,8 +1123,12 @@ set up against the built collision (`Level::add_city_objects`), logged as "N hay
   A ladder's foot or top is taken before the edge it stands at.
 - benches `Banc_*`: sat on facing away from the wall behind them.
 - poles `Pole_*` lying down (stuck out of a wall, or across a gap): swing bars along their length.
-Skinned props (hay carts, market stalls, scaffolds, storage racks) are drawn in their bind pose; `AC1_POSE_PROPS` stands
-them in their own skeleton's pose instead, which so far changes nothing visible on the carts. A prop's skeleton has 24
+Skinned props (hay carts, market stalls, scaffolds, storage racks) stand in their own skeleton's pose (2026-10-13;
+`AC1_BIND_PROPS=1` draws the bind pose as before). Their bind pose is not how they stand: Damascus's breakable props
+(the entities with two rigid bodies) were drawn turned, the market stalls (`Outdoor_Market_Stall_Skinned`, bind z -3.0..0.4 m,
+posed -0.6..3.2) hanging under their base, the small scaffolds (`Scaffold_2x3x4_01A`) on their side, the storage racks
+(`Storage_01a`) 90 degrees about the vertical; posed, each fits its intact collision shape (`Kiosk_Collision_Intact`,
+`Scaffold_2x3x4_01A`, `Storage_01a`); the tall scaffolds and the carts are the same either way. A prop's skeleton has 24
 bones at most, or any number on an entity with collision shapes (Damascus's `Scaffold_2x3x8`, 69 bones; characters have
 70 and more and no collision): a collided entity left undrawn was solid thin air (user report #13).
 
@@ -1160,9 +1210,15 @@ its glow materials' pass (`GFX_Glow*`), none of which Altaïr or the city's wall
 (Damascus 27 MB) and each drawn part's `MeshTag` points at its first vertex's byte; the vertex shader reads its own.
 `AC1_PLAIN_CITY=1` keeps `StandardMaterial` for the city. On the roof camera the new city shader costs 2.0 ms of GPU a
 frame against 2.3 ms for `StandardMaterial`. Chosen by eye against shots of the running game (not found in the
-executable): the occlusion's mapping (a quarter of the ambient kept where closed in), the fog's density (the ramp ends
+executable): the occlusion's mapping (see below), the fog's density (the ramp ends
 at near + (far - near) / density), the clear colour behind the sky dome (the fog colour halfway to white), the character
 cube's `Tint` left out (multiplied in it yellows the white robe) and how `Saturation`/`Scale`/`Bias` apply.
+The occlusion's mapping (`g_AOParams` is the shaders' global constant 0; where the executable fills it is not found):
+`saturate(max(2 v, 0.25))` since 2026-10-13 (an open wall's byte, about 110, gives 0.86 of the ambient; 0.85 for meshes
+with none), matched against the running game's shots by brightness percentiles (`AC1_AO="scale,bias,floor,none"` to
+try others): with the earlier `0.75 v + 0.25` the shade came out a third too dark (roof spot, real / ours: 10th
+percentile 50 / 42, now 49; 25th 84 / 77, now 85; the bureau's and the alley's shaded walls ~0.7 of the game's).
+Altaïr's character cube with its `Tint` multiplied in was tried again against the same shots: too yellow, left out.
 Materials whose template cuts out alpha (`*Alpha*`, `Plants`, `Env_Foliage*`) are alpha-tested whatever their mesh's name,
 and an assassins' bureau's outside shell (`BA_Bureau_Ext`) casts no shadow: its roof shaded the open courtyard (AC1
 swaps it for the inside one there). Side-by-sides of the running game, before and after: `reports/visuals/` (not in the
@@ -1197,6 +1253,18 @@ with their parameters named from the template's constants. Damascus: `GEN_Standa
 - `Env_Foliage_FadeOut` (moss, lichen, the `Ground_*` patches over streets): alpha = diffuse alpha x vertex alpha,
   blended when the material has no alpha test of its own (its vertex colour is (177, 83, 0) on the street patches:
   drawn opaque they were red-orange stripes).
+- `Env_Standard_WaterBlend` (9 materials: the river's walls, piers and pillars, the vizier's palace basins and fountain
+  walls; no mesh names them, entities swap them in by their material overrides): the diffuse x vertex colour goes to
+  `WaterColorVertical` by `saturate((WorldOceanLevel - z) * WaterFalloff)` (z the world's height) before it is lit by
+  the ambient cube x occlusion and the sun, then `WaterColorHorizontal` x (1 + the view direction's z) is added unlit by
+  the same weight: walls darken to murky water below the waterline. Drawn since 2026-10-13.
+- The fountains and courtyard pools (2026-10-13, `examples/meshmats`): every fountain, wall fountain, well, riad pool
+  and the vizier's and the Great Mosque's basins carry a `DAM_Water_Fountain_01A` submesh (`GFX_Water_Puddle`, no
+  diffuse map in the template: the normal map `GEN_Water_Fountain_01A_NormalMap` panned at 0.4 and 1 per metre, the
+  level's water cube `DAM_Cubemap_Water_01A` (a street scene, +Y the sky; `examples/cubefaces`), `Color` (0.32, 0.44,
+  0.43), opacity 0.6); their maps all load. Their "texture" in AC1 is that reflection, the ripples and the basin floor
+  seen through; the jets, rings and foam are effects (`GFX_Water_FontaineMarket_03`, `GFX_Water_03` diffuse maps), not
+  drawn. In shade the reflection is the ambient x the occlusion x the cube x `Color`: dark, as the shader has it.
 - Not drawn yet: `GEN_Standard_Specular`'s and `GEN_Cubemap`'s highlights and reflections, `Env_ColoringMask_TexStrip`'s
   colour masks (vases), `Env_DistrictColorTheme` (tarps), `GFX_Light*`, the glow passes.
 Ours (`city_material.rs`/`.wgsl`): one shader, the kind and values per material in a uniform, the layers' and water's
@@ -1268,7 +1336,10 @@ is drawn while it overlaps a square box round the camera (128 m half-side), ever
 terrain in coarse cells stay); the other cells' buildings are drawn by their stand-in spans, each hidden once its cell's
 own meshes are all drawn. Past a vertex budget (nearest first) the rest draw at their coarsest level. Meshes are kept as
 their compact bodies (Damascus 51 MB) and built for the GPU on loader threads, nearest first; an instance keeps its old
-level (or its cell's stand-in shows) until the new mesh is there, and a mesh nothing has drawn for 5 s leaves the GPU.
+level until the new mesh is there (a cell's stand-in shows only while one of its wanted meshes has nothing drawn yet:
+until 2026-10-13 it also showed while an instance waited for a new level, so the cell's blurred merged mesh was drawn
+over its own for a frame or a few at every level change: the "blinking textures" as the camera moved), and a mesh
+nothing has drawn for 5 s leaves the GPU.
 Headless runs draw nothing: no city meshes, materials or textures are made.
 
 `AC1_DETAIL`, else the graphics menu's city detail and texture size (F8, `settings.rs`; default medium):

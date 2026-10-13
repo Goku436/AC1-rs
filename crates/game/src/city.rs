@@ -319,6 +319,14 @@ const HAY_CART_HALF: f32 = 0.9;
 /// shapes (a scaffold's has 69).
 const PROP_SKELETON_BONES: usize = 24;
 
+/// Whether skinned props stand in their skeleton's pose (`AC1_BIND_PROPS=1`: their bind pose, as before 2026-10-13). A
+/// breakable prop's bind pose is not how it stands: Damascus's market stalls (`Outdoor_Market_Stall_Skinned`) hang upside
+/// down from their base, the small scaffolds (`Scaffold_2x3x4_01A`) lie on their side and the storage racks (`Storage_01a`)
+/// are turned 90 degrees about the vertical; posed, each fits its intact collision shape.
+fn pose_props() -> bool {
+    std::env::var("AC1_BIND_PROPS").is_err()
+}
+
 /// Skin `m` once to `skel`'s pose (each bone's model transform times its inverse bind, as characters are
 /// skinned), so a skinned prop stands as placed; bones are matched by id, then by name hash.
 pub(crate) fn pose_skinned(m: &mut forge::mesh::Mesh, skel: &forge::skeleton::Skeleton) {
@@ -1139,7 +1147,7 @@ fn spawn_world(
                 let pm = match parse_mesh(mesh.body) {
                     Ok(pm) if pm.bones.is_empty() => pm,
                     Ok(mut pm) if skel.is_some() => {
-                        if std::env::var("AC1_POSE_PROPS").is_ok() {
+                        if pose_props() {
                             pose_skinned(&mut pm, skel.as_ref().expect("skeleton"));
                         }
                         pm
@@ -1197,7 +1205,7 @@ fn spawn_world(
                         body: std::sync::Arc::from(mesh.body),
                         verts,
                         materials: subs.iter().map(|s| s.0).collect(),
-                        pose: skel.as_ref().filter(|_| std::env::var("AC1_POSE_PROPS").is_ok()).map(|s| std::sync::Arc::new(s.clone())),
+                        pose: skel.as_ref().filter(|_| pose_props()).map(|s| std::sync::Arc::new(s.clone())),
                     });
                     stored.len() - 1
                 });

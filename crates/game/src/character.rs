@@ -155,6 +155,8 @@ pub struct Character {
     pub blend: bool,
     /// The last landing: drop (m) and damage, for the HUD.
     pub last_landing: Option<(f32, f32)>,
+    /// How many ground landings so far: what follows one (the camera's shake, the grunt, the dust) starts when it goes up.
+    pub landings: u32,
     /// Stopped at the edge of a big drop: its outward direction; walking on over it is held back.
     pub edge_lock: Option<Vec3>,
     /// Where the stick asks to go (horizontal, zero when let go): the locomotion banks toward it (`Animator::advance`).
@@ -528,6 +530,7 @@ pub fn spawn_character(
         edge_lock: None,
         want_dir: Vec3::ZERO,
         last_landing: None,
+        landings: 0,
         pose: idle.clone(),
         anim_pose: idle.clone(),
         idle,
@@ -1412,6 +1415,7 @@ pub fn locomotion(
             }
             if let Some(l) = ch.wall.as_mut().and_then(|w| w.landed.take()) {
                 ch.last_landing = Some(l);
+                ch.landings += 1;
             }
             if let Some(w) = &ch.wall {
                 embed_check(&level, tf.translation, &w.state);
