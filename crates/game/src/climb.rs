@@ -548,10 +548,24 @@ const BENCH_WAIT: &str = "xx_rest_sit_idle_040cm_01";
 /// A bench within this (m) can be sat on; the sitter's root ends this far out from its seat line (m).
 const BENCH_REACH: f32 = 1.3;
 const BENCH_SEAT_OUT: f32 = 0.5;
-/// Leap of faith (takeoff, dive) for drops under and over `FAITH_HIGH_DROP`.
-const FAITH_LOW: [&str; 2] = ["xx_h_freestep_footr_to_faith_jump_100cm_long_300cm_down", "xx_h_faith_jump_100cm_long_300cm_down"];
-const FAITH_HIGH: [&str; 2] = ["xx_h_freestep_footr_to_faith_jump_100cm_long_3000cm_down_footr", "xx_h_faith_jump_100cm_long_3000cm_down"];
-const FAITH_HIGH_DROP: f32 = 10.0;
+/// Leap of faith: the takeoffs and dives AC1 blends (1 m / 8 m long by 3 m / 30 m down, in the weights' order of
+/// `faith_weights`).
+const FAITH_TAKEOFFS: [&str; 4] = [
+    "xx_h_freestep_footr_to_faith_jump_100cm_long_300cm_down",
+    "xx_h_freestep_footr_to_faith_jump_800cm_long_300cm_down",
+    "xx_h_freestep_footr_to_faith_jump_100cm_long_3000cm_down_footr",
+    "xx_h_freestep_footr_to_faith_jump_800cm_long_3000cm_down",
+];
+const FAITH_DIVES: [&str; 4] = [
+    "xx_h_faith_jump_100cm_long_300cm_down",
+    "xx_h_faith_jump_800cm_long_300cm_down",
+    "xx_h_faith_jump_100cm_long_3000cm_down",
+    "xx_h_faith_jump_800cm_long_3000cm_down",
+];
+/// The faith blend's bands (0xB1EC40, the haystack case): the length's to `FAITH_NEAR` (m), the drop's from
+/// `FAITH_MIN_DROP` to `FAITH_DOWN` (m, over the haystack's search top).
+const FAITH_NEAR: f32 = 7.5;
+const FAITH_DOWN: f32 = 30.0;
 const FAITH_LAND: &str = "xx_h_faith_jump_landing";
 const AIR_TO_HAY: &str = "xx_h_air_to_haystack";
 const HAY_WAIT: &str = "xx_h_haystack_wait";
@@ -2808,6 +2822,15 @@ struct SupportLimits {
     bend: f32,
 }
 
+/// AC1's faith jump weights (0xB1EC40, the haystack case, Banned445's `jump_blend::faith`), `dist` the way to the hay
+/// and `dz` its search top's height over the feet: l = dist / 7.5 and d = -dz / 27, both to 0..1, for (1 m, 3 m down),
+/// (8 m, 3 m), (1 m, 30 m), (8 m, 30 m).
+fn faith_weights(dist: f32, dz: f32) -> [f32; 4] {
+    let l = (dist / FAITH_NEAR).clamp(0.0, 1.0);
+    let d = (-dz / (FAITH_DOWN - FAITH_MIN_DROP)).clamp(0.0, 1.0);
+    [(1.0 - l) * (1.0 - d), l * (1.0 - d), d * (1.0 - l), d * l]
+}
+
 /// The leap of faith's search (IHuman vt76): (2, 8, 9, 20, -100, -30, 1.2, 40, 70 degrees, 0.66) (reanalysis AIR-26 /
 /// CENSUS-1, the argument use read in 0xE15AA0 here).
 const FAITH_SEARCH: SupportLimits =
@@ -2825,10 +2848,13 @@ fn support_search<'a>(level: &'a Level, feet: Vec3, dir: Vec3, facing: Vec3, l: 
         return None;
     }
     let right = d.cross(Vec3::Y);
-    let clear = |a: Vec3, b: Vec3| {
+    // (AC1 casts with the player and the haystack itself left out, `FUN_00b1aa90` and the two pushes before its casts: a
+    // hit on the haystack's own collision, a heap taller than the 1.85 m the way ends at, does not block it.)
+    let clear = |a: Vec3, b: Vec3, own: Option<(Vec3, Vec3)>| {
         let v = b - a;
         let len = v.length();
-        len < 1e-4 || level.raycast(a, v / len, len).is_none()
+        let its_own = |p: Vec3| own.is_some_and(|(lo, hi)| p.cmpge(lo - Vec3::splat(0.05)).all() && p.cmple(hi + Vec3::splat(0.05)).all());
+        len < 1e-4 || level.raycast(a, v / len, len).is_none_or(|h| its_own(h.point))
     };
     level
         .haystacks
@@ -2853,7 +2879,7 @@ fn support_search<'a>(level: &'a Level, feet: Vec3, dir: Vec3, facing: Vec3, l: 
             }
             let a = feet + Vec3::Y * 0.4;
             let mid = feet + rel.with_y(0.0) * l.bend + Vec3::Y * 0.4;
-            clear(a, mid) && clear(mid, top + Vec3::Y * 0.25)
+            clear(a, mid, h.own) && clear(mid, top + Vec3::Y * 0.25, h.own)
         })
         .min_by(|a, b| (a.centre - feet).length().total_cmp(&(b.centre - feet).length()))
 }
@@ -4747,7 +4773,8 @@ impl WallClimb {
         };
         let Some(mut clips) = [mix("a"), mix("b")].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>() else { return false };
         let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
-        let to = q + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
+        // (Onto AC1's free hang root under the hold, as the jump up from the climb: the chain ends in the free wait.)
+        let to = q + n * 0.05 - Vec3::Y * FREE_ROOT_DOWN;
         debug!("climb: swing back up to the ledge at {q:.2} (out {h:.2}: the wait after it that much wall-free)");
         // Then the swing settling under the ledge: the move graph's way out of the `_b` item (action 0x4CD68F50) into the
         // free wait goes through the connector 0x0564BB0E, `xx_h_hangfree_swingback_<min|max>_a/b` (in place), which AC1
@@ -4880,7 +4907,10 @@ impl WallClimb {
         ]);
         let Some(mut clips) = ["xx_h_climbing_1m_impultion".to_string(), jump].iter().map(|nm| lib.get(nm)).collect::<Option<Vec<_>>>() else { return false };
         let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
-        let to = q + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
+        // (The chain ends in the free hang's wait, its wrists 2.3 m over the root: onto AC1's free hang root, `FREE_ROOT_DOWN`
+        // under the hold. At the catch's 2.1 the hands hung 0.2 m over the edge through the swing back's 2 s, gripping air
+        // before the wait's settle took them down onto it, user report 62377.)
+        let to = q + n * 0.05 - Vec3::Y * FREE_ROOT_DOWN;
         debug!("climb: jump up from the climb to the ledge at {q:.2}");
         // (Its action 0x1EB21811 goes on through the same connector as the swing back's, and 0xDF9650 sets the same wait
         // kind 3 with its `max` share: `swing_settle`, audit LEDGE-15.)
@@ -6765,9 +6795,6 @@ impl WallClimb {
         } else {
             support_search(level, p, fwd, fwd, &FAITH_SEARCH).filter(deep)?
         };
-        let drop = root.translation.y - hay.top();
-        // The high dive's takeoff drops the root about 8 m with little way on: only where nothing is under that drop
-        // (a minaret's balcony is); else the low one, the flight carrying it clear.
         let toward = (hay.centre - root.translation).with_y(0.0).normalize_or(fwd);
         // (The dive goes toward the hay, not the stick's way: an edge there too. Walking along a top by its side edge, the
         // stick's way just over it found the hay 10 m off to the front, and the takeoff, along the top, landed on it, the
@@ -6775,9 +6802,12 @@ impl WallClimb {
         if !at_viewpoint && level.ground(root.translation + toward * 1.2, 0.5, 2.0).is_some() {
             return None;
         }
-        let clear_below = level.raycast(root.translation + toward * 1.2 - Vec3::Y * 0.3, Vec3::NEG_Y, (FAITH_HIGH_DROP - 1.0).min(drop - 0.5)).is_none();
-        let names = if drop > FAITH_HIGH_DROP && clear_below { FAITH_HIGH } else { FAITH_LOW };
-        let (takeoff, dive) = (lib.get(names[0])?, lib.get(names[1])?);
+        // AC1's blend of the four takeoffs and dives by the way to the hay's search top (0xB1EC40, Banned445's
+        // `jump_blend::faith`): ours took one pair by the drop alone, the short one where a wall stood under the edge, and
+        // a hay 13 m out (Masyaf's tutorial tower) was dived at with a 1 m takeoff.
+        let w = faith_weights((hay.seat() - root.translation).with_y(0.0).length(), hay.centre.y + HAY_SEARCH_TOP - root.translation.y);
+        let mut mix = |names: &[&str; 4]| lib.get(&mix_name(&names.iter().zip(w).map(|(n, w)| (*n, w)).collect::<Vec<_>>()));
+        let (takeoff, dive) = (mix(&FAITH_TAKEOFFS)?, mix(&FAITH_DIVES)?);
         lib.get(FAITH_LAND)?;
         let planned = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, toward), ..*root };
         // Where the takeoff leaves us and how fast it is going down; then the time to fall onto the hay,
@@ -6809,7 +6839,10 @@ impl WallClimb {
         }
         let (name, depth) = if self.faith { (FAITH_LAND, 1.6) } else { (AIR_TO_HAY, 1.2) };
         let Some(hay) = level.haystacks.iter().find(|h| {
-            let entry = h.centre.y + depth;
+            // (The leap of faith arrives at its target, AC1's jump to the haystack, over a heap taller than the entry height
+            // too: Masyaf's `Hay_Bale_01` heaps are solid to 2.1 m, and the dive landed on top of one, killed by a 35 m fall.)
+            let own_top = if self.faith { h.own.map_or(f32::MIN, |o| o.1.y + 0.05) } else { f32::MIN };
+            let entry = (h.centre.y + depth).max(own_top);
             h.contains(root.translation, 0.3) && root.translation.y <= entry && root.translation.y - step_y > entry
         }) else {
             return false;
@@ -8893,7 +8926,9 @@ impl WallClimb {
             v.z -= n.z * into;
         // (Not a free jump's flight: AC1 flies that to its made-up target 8 m on and 3 m down, then falls on with the drift
         // easing; slowed from its start, ours came down 3.6 m short of the running game off the seams roof.)
-        } else if !self.aimed && !(self.free_jump && self.fall_top - root.translation.y < FREE_JUMP_DOWN) {
+        // (Nor the leap of faith's: a jump at its haystack target, flown to it; eased off as a plain fall, the dive at the
+        // hay 13 m out from Masyaf's tutorial tower came down 9 m short.)
+        } else if !self.aimed && !self.faith && !(self.free_jump && self.fall_top - root.translation.y < FREE_JUMP_DOWN) {
             // A plain fall (no target: walked off, let go, past a free jump's top): the drift held to `FALL_DRIFT_MAX` and
             // easing off at `FALL_DRIFT_DECAY` (AC1's air update with no contact, 0xE0F643, Banned445's port; the running
             // game's slowed 4.3 m/s² off a Damascus roof).

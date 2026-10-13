@@ -638,6 +638,16 @@ in this batch, by audit id:
     feet; across 2 to 8 m, along 9 to 20 m and 40 to 70 degrees off the way from 1.5 m behind the feet, opened as the
     top lies lower (full at 30 m down); in front of the facing; the two-segment clear way (bent at 0.66). [ours] The 3 m
     split between the faith dive and the hay dive stays, and a viewpoint's hay is still taken whichever way he faces.
+    Masyaf (2026-10-13): AC1 casts the clear way with the player and the haystack itself on an ignore list
+    (`FUN_00b1aa90` and two pushes before the casts); ours stopped at the haystack's own collision, so Masyaf's
+    `Hay_Bale_01` heaps (solid to 2.1 m, over the 1.85 m the way ends at) were never found. The takeoff and dive are AC1's
+    blend of its four (1 m / 8 m long by 3 m / 30 m down: l = way / 7.5 m, d = drop to the search top / 27 m, 0xB1EC40's
+    haystack case, Banned445's `jump_blend::faith`), not one pair by the drop (and the short one where a wall stood under
+    the edge); the dive flies to the hay (no plain fall's drift decay, which left the dive at the tutorial tower's hay
+    13 m out 9 m short) and enters at the heap's own top when it stands over the entry height (it landed on the heap,
+    killed by a 35 m fall). Masyaf's two leaps: the siege's off `Scaffold_Leap1` (44 m down, `M05_S17_Trigger_LOFJump`)
+    and the tutorial tower's (13 m out); scenarios tagged `masyaf`. [ours] The hay wait's turn to the heap's own facing
+    shows a 0.13 m pop there (the dive's way and the heap's facing far apart).
   - INPUT-10: the arrow keys turn the camera (AC1's keyboard right stick); with `HighProfileToggle=1` under `[Input]` in
     the player's `Assassin.ini` (or `AC1_HIGH_TOGGLE=1`) a tap of under 0.5 s flips high profile (0x90B080), held as ever.
 - **Towers** (user reports #3-#5, 2026-10-12; GUIDE-2):
@@ -873,10 +883,11 @@ Fixed from it and from the user's recordings of 2026-10-13:
   (`Awning_6x2_Wood_01A`, beams each 0.13-0.31 m lower and 0.38-0.49 m further in, the user's "inverted triangles") he
   climbs down the beams and back up over the front; the grid step had put the hands 0.46 m over a beam (in the air).
 - A running jump at a knob (an authored piece shorter than the hands are apart, 0.17 m on a Damascus house) ends in
-  the hands-together hang, both hands on it; they hung 0.3 m either side of it. [ours: the reception before it still
-  holds the hands apart.]
+  the hands-together hang, both hands on it; they hung 0.3 m either side of it. The reception before it too (2026-10-13,
+  see below).
 - The window cap in recording 194384 (a pointed top sloping 30 degrees): the user's build pulled up one-handed onto its
-  point and fell 7.4 m; with dev's free-to-wall switch he now hangs on the wall under it (scenario).
+  point and fell 7.4 m; with dev's free-to-wall switch he hung on the wall under it; now he pulls up onto the floor behind
+  the cap (below).
 
 ## The live log comparisons (2026-10-12)
 The route library played again in the running game with ac1-hook's live log on (every frame's root, context, action,
@@ -1017,6 +1028,61 @@ Three user reports in the test world, each a jump at a target ending somewhere A
   feet), which read as reaching down for the lower hold. Now (`wall_hang_eject`): the rebound takeoff, the hang flight
   and `xx_hangwall_reception_front_<straight|30_out|45_in>_min_a..c`, ending 0.44 m out and 1.1 m under the aimed hold
   (where the wall hang's rest puts the root). A hold with no wall under it is still caught by the fall (free hang).
+
+### The climbing round two (2026-10-13)
+The sweep's classes now follow AC1's own checks (`climb_sweep.rs`): `topout` only where AC1's room over the edge is
+free (`climb_out_room`, 0xB2E240), `stuck` in a climbing stance only where AC1's grid move has its foot cell two rows
+under the hand cell and its body boxes free (0xDECD70, 0xB2DF90), `embed` only inside a closed solid (five of six axis
+rays meeting faces from behind), `free-on-wall` measured at the hold over a free hang's root (AC1's hang point, 0xB15AD0).
+Traced with `AC1_CLIMB_WHY` (now also the faces in a refused room box or body box): the four Damascus top-outs and the
+test level's three were all AC1's own room refusals (a lintel 0.5 m over the hold, a ledge 0.25 m deep before a wall
+going on up, a roof face over the hands, the gauntlet's slab); the two sideways stuck spots AC1's (a buttress's side in
+the body box; no foot cell, the feet on the ground); the climb start that "eased the body into a wall" a Damascus wall
+wound inward over 9.2 m (the hips 0.38 m out of it). `AC1_SWEEP_ENTRY="lo,hi"` picks the walls by another first-hold band.
+
+Fixed, by AC1's rule:
+- **Top-outs a step up**: AC1 tests no floor, and its room test leaves 0.35 m over the edge free to 0.3 m in; ours
+  turned down any top over 0.2 m over the grip. Now 0.35 (`TOP_OUT_STEP_UP`). A Damascus roof edge (user report 1300517,
+  the top 0.24 m over the grip of the hang after the free-to-wall switch) and the window cap of 194384 (the balcony
+  floor 0.31 m over the grip).
+- **The one-hand pull-up stands where the two-hand one does** (AC1's Pullup_Start 0xDDBE80 steers both to one point in
+  from the hands): ours ended it where its clips put the root, 0.1 m in, on the window cap's point, and fell.
+- **A knob's reception**: both hands on the knob from the catch on (AC1's hand goals are their contacts); ours had no hand
+  IK in the reception and its clips hold the hands 0.6 m apart for 1.8 s (156949).
+- **The hang-type switch's foot rays** start from the hold point (TrySwitchHangType 0xDE1060), not the wrists' target.
+- **An eject started inside the update** (the wall run hang's, after its rebound pose) snaps its takeoff's turn away at
+  once, the root turned with it (WALL-8's `snap_takeoff` waited a frame: the hands 0.2-0.3 m off for that frame).
+- **The climb start's band**: AC1's guard (0xB2E860, read in Ghidra) probes a foot hold from the feet up to 0.9 m and the
+  hand hold 1.2 m over it, 0.3 m either way: holds up to 2.4 m over the feet with a foot hold under them. Ours took 0.3 m
+  round its clip's 1.8 m and jumped at the rest.
+- **AC1's reach capsule** (StartReachMove 0xDF6810, Banned445's port): the vertical reach sweeps the body's capsule (0.35
+  m, 1.8 m tall, 0.15 m out from the root) to the new root. Under a Damascus plank walkway sticking 2.2 m out over the
+  street from a wall's top (the real AC1 has the same planks, live check 2026-10-13) ours reached up through the planks
+  and stood in them (1319499, 13501). Along the wall either way he climbs on out from under them. [ours: what AC1 does
+  there with the stick up is not seen.]
+- **AC1's wall-hang jump target** (the scorer's 0x40, its class having the wall under the edge) is flown into the wall
+  hang whatever ours' own wall ray finds: off a Damascus roof at the roof edge across the street (1310993; the edge 0.45 m
+  out over the facade) the ray fell short, the jump flew the plain arc, met the wall under the edge and fell 2 m onto a
+  window's frame (AC1's own holds there).
+
+- **The jump up from the climb and the swing back hang at AC1's free hang root** (2.4 m under the hold, 0xDD6730): both end
+  in the free wait, its wrists 2.3 m over the root; at the fall catch's 2.1 the hands hung 0.2 m over the edge through
+  the swing back's 2 s (62377).
+- **The stance's hands reach AC1's goals** (the grid cell's holds, up to 0.3 m along and 0.15 up or down off the clip's
+  hands): ours pulled a hand onto a hold only within 0.2 m; on a Damascus window box's frame both gripped the air (85785).
+  A goal within 0.5 m is reached, eased from the nearest hold.
+
+Not done: the climbing stance's hang round a corner (TrySideLedgeGrab 0xDF22C0, its side columns' hand row into a hang
+on the side wall, the hang's boxes and the path round the corner, 0xB2A410): no test spot with a side wall's ledge and
+no climbing holds was found, and ours' corner hangs would need the lateral path test. The routes `roof2_run_east` (a
+ground turn's break into the ledge stop) and `hay70_free` (from the haystack rim the query takes the box's own far rim,
+0.9 m, where AC1 jumps 4.4 m; whether AC1's query leaves out the object stood on is not read). Pops: the post pull-down's
+0.2 m (the root turning 180 degrees over the 0.47 s `front_orientation` clip, a turn the pop check, relative to the root's
+position only, reads as a jump), the swing back's hand (the clip's own 8 m/s swing), the landings' 0.15-0.18 m.
+
+Sweep runs with each class (dev c4f4154 / this round): Damascus (147 runs) embed 5 / 0, topout 6 / 0, stuck 2 / 0,
+pop 5 / 5, hands-off 2 / 2, flipflop 1 / 1, free-on-wall 1 / 1; test level (102) topout 3 / 0,
+free-on-wall 4 / 1, pop 3 / 3, embed 1 / 1.
 
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
