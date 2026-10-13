@@ -1869,6 +1869,11 @@ fn feet_on_wall(level: &Level, hands: Vec3, normal: Vec3) -> (bool, bool) {
     (hit(start - along * 0.1), hit(start + along * 0.1))
 }
 
+/// A hold shorter than this (m) is a knob, hung from with the hands together: an authored guidance piece under 0.3 m (AC1's
+/// knobs, 0.1-0.25 m, held at their middle, audit GUIDE-2), as ours' holds are the pieces 0.1 m shorter at each end. (The
+/// bureau's 0.42 m sill, 0.22 m here, the running game hung from with the hands apart.)
+const KNOB_LEN: f32 = 0.1;
+
 /// A flight whose knees meet an edge with its top at most this far over the feet (m) lands on it.
 const KNEE_TOP: f32 = 0.7;
 /// Coming down within `EDGE_LAND_REACH` of an edge (m), at most `EDGE_LAND_IN` inside it, with a drop past it of more
@@ -3476,15 +3481,12 @@ impl WallClimb {
             debug!("climb: AC1's jump to the wall lands {:.2} m off", err.length());
             return None;
         }
-        // (Onto a knob, a hold shorter than the hands are apart (AC1's short guidance pieces, held at their middle, audit
+        // (Onto a knob, a hold under `KNOB_LEN` long (AC1's short guidance pieces, held at their middle, audit
         // GUIDE-2): the hands-together hang, as a pole's cap is hung from, both hands on it. With the hands apart they hung
         // 0.3 m either side of a 0.17 m knob on a Damascus house, too far for their IK: "he grabs the air", user report
         // 2026-10-13.)
-        let rest = if on_narrow_ledge(level, hold) && targets[0].distance(targets[1]) < end.hands[0].distance(end.hands[1]) - HANDS_APART_SLACK {
-            HANGWALL
-        } else {
-            HANGWALL_OPEN
-        };
+        let knob = level.ledges.iter().any(|l| l.a.distance(l.b) < KNOB_LEN && l.closest(hold).distance(hold) < 0.1);
+        let rest = if knob { HANGWALL } else { HANGWALL_OPEN };
         let n = clips.len();
         let tos = (0..n)
             .map(|i| {
