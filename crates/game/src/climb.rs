@@ -983,6 +983,11 @@ const LADDER_LEAP_REACH: f32 = 0.8;
 /// (The high stand's entry, rising 0.5 m onto the first rungs, in either profile: the running game walked up to ladder 68
 /// in low profile and got on with it; ours' low one rose nothing and climbed a step behind, audit LADDER-2.)
 const LADDER_ON: &str = "xx_h_wait_hipm_footl_tr_h_ladder_climb_up_r";
+/// The step onto a ladder from its foot by the profile and the foot, [low, high] x [left, right] (`HumanLadderData`'s
+/// enter-from-ground actions, MvtAnimState 7 / 8, as Banned445's port lists them; their first clip the straight
+/// approach): walking onto ladder 68 the running game played the low profile's `xx_l_wait_hipm_footl_tr_l_ladder_climb_up_r`
+/// (0x010A34A7), standing at the foot 0.4 s before it rose; ours, the high profile's always, rose at once.
+const LADDER_ON_GROUND: [[u32; 2]; 2] = [[0x010A_34A7, 0x010A_34A6], [0x010A_251E, 0x010A_2520]];
 /// Low profile climbs a ladder at half rate with the stick pushed less than this.
 const LADDER_SLOW_STICK: f32 = 0.7;
 /// On a kiosk (`HumanKiosk`, see `KioskRun`).
@@ -5889,7 +5894,9 @@ impl WallClimb {
         w.ladder = Some(i);
         if (p.y - l.base.y).abs() < 0.4 {
             // From the foot: the step on ends with the rungs in reach.
-            let clip = lib.get(LADDER_ON)?;
+            let id = LADDER_ON_GROUND[high as usize][!left as usize];
+            let name = lib.graph.action_clips(id).and_then(|items| items.first().and_then(|c| c.first()).cloned());
+            let clip = name.and_then(|n| lib.get(&n)).or_else(|| lib.get(LADDER_ON))?;
             let at = Transform { translation: spot.with_y(p.y) - world_rot(rot) * root_motion_at(&clip, clip.frames()).with_z(0.0), rotation: rot, ..*root };
             w.start(clip, LADDER_R.into(), &at);
         } else {
@@ -6679,8 +6686,21 @@ impl WallClimb {
             None => {
                 let edge = Vec3::new(wrist.x, root.translation.y, wrist.z);
                 let to = (edge - self.normal * STAND_FROM_WRISTS - (root.translation + travel(&clips))).with_y(0.0);
-                // (Onto a haystack's rim: on into the hay, as the running game went, `xx_h_freestep_footr_to_haystack_01`.)
-                match hay.and_then(|h| Some((h.seat(), lib.get("xx_h_freestep_footr_to_haystack_01")?))) {
+                // (Onto a haystack's rim: on into the hay, as the running game went, `xx_h_freestep_footr_to_haystack_01`,
+                // the stick let go by then. With the stick held away from the hay (over 90 degrees off it) it stood on the
+                // rim, a narrow object, and free ran on from it, a jump at a target 4.4 m off (live log route `hay70_free`,
+                // 2026-10-12): the dive is the rim's move toward the hay or with no stick.)
+                let away = hay.is_some_and(|h| {
+                    let s = self.move_dir.with_y(0.0);
+                    s.length() > 0.3 && s.dot((h.centre - root.translation).with_y(0.0)) < 0.0
+                });
+                let rim = if away { level.perch_at(top.point, PERCH_REACH) } else { None };
+                match hay.filter(|_| !away).and_then(|h| Some((h.seat(), lib.get("xx_h_freestep_footr_to_haystack_01")?))) {
+                    _ if let Some((i, q)) = rim => {
+                        self.perch = Some(i);
+                        debug!("climb: pull-up onto a haystack's rim, standing on it (the stick away from the hay)");
+                        (clips.clone(), q - (root.translation + travel(&clips)), PERCH)
+                    }
                     Some((centre, dive)) => {
                         let mut clips = clips;
                         clips.push(dive);
