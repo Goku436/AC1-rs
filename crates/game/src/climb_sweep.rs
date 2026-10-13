@@ -21,6 +21,7 @@
 //!   hold, 0.5 m out, 0.1 m to either side, 1.2 m in) meets the wall; `free-on-wall`: resting in a free hang where both
 //!   do (AC1 hangs on the wall there).
 //! - `no-grab`: a ground or run start that never got onto the wall (nor 0.5 m up it); `death`: a landing that killed him.
+//!
 //! Each run is a line in the TSV (`AC1_SWEEP_OUT=<file>`, default `climb-sweep.tsv`): its id, program, start (as
 //! `AC1_START`, to replay it), the classes with where and when, how it ended; then the counts by class are logged and
 //! the game exits. `AC1_SWEEP_NEAR="x,z,r"` keeps to the walls within `r` m of (x, z); `AC1_SWEEP_PROGS=up,side,..`
@@ -193,7 +194,10 @@ fn top_behind(level: &Level, hold: Vec3, n: Vec3) -> bool {
     level.ground(behind.with_y(hold.y + 1.0), 0.0, 1.4).is_some_and(|g| (g.point.y - hold.y).abs() < 0.3 && g.normal.y > 0.7)
 }
 
-fn pick_spots(level: &Level, n: usize) -> (Vec<(Vec3, Vec3, Ledge)>, Vec<(Vec3, Vec3)>) {
+/// Spots: where to stand and the way out of the wall (the ground under a wall's first hold, or a roof by its edge).
+type Spots = Vec<(Vec3, Vec3)>;
+
+fn pick_spots(level: &Level, n: usize) -> (Spots, Spots) {
     let seed = std::env::var("AC1_SWEEP_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
     let near: Option<(Vec2, f32)> = std::env::var("AC1_SWEEP_NEAR")
         .ok()
@@ -202,7 +206,7 @@ fn pick_spots(level: &Level, n: usize) -> (Vec<(Vec3, Vec3, Ledge)>, Vec<(Vec3, 
         .map(|v| (Vec2::new(v[0], v[1]), v[2]));
     let mut order: Vec<usize> = (0..level.ledges.len()).collect();
     order.sort_by_key(|&i| mix(i, seed));
-    let (mut walls, mut edges): (Vec<(Vec3, Vec3, Ledge)>, Vec<(Vec3, Vec3)>) = (vec![], vec![]);
+    let (mut walls, mut edges): (Spots, Spots) = (vec![], vec![]);
     for i in order {
         if walls.len() >= n && edges.len() >= n / 2 {
             break;
@@ -225,7 +229,7 @@ fn pick_spots(level: &Level, n: usize) -> (Vec<(Vec3, Vec3, Ledge)>, Vec<(Vec3, 
             let wall = level.raycast(g.point + Vec3::Y * 1.0, -out, 0.9).is_some();
             let free = !level.inside_solid(g.point + Vec3::Y * 1.0) && level.capsule_push(g.point).length() < 0.05;
             if (ENTRY_UP.0..ENTRY_UP.1).contains(&up) && room && wall && free && walls.iter().all(|w| w.0.distance(g.point) > SPACING) {
-                walls.push((g.point, out, l.clone()));
+                walls.push((g.point, out));
                 continue;
             }
         }
@@ -253,7 +257,7 @@ fn build_runs(level: &Level, n: usize) -> Vec<Run> {
     let want = |p: &str| only.as_ref().is_none_or(|o| o.iter().any(|x| x == p));
     let mut runs = vec![];
     let start = |p: Vec3, f: Vec3| format!("{:.2},{:.2},{:.1},{:.2}", p.x, p.z, yaw_of(f), p.y + 0.3);
-    for (k, (at, out, _)) in walls.iter().enumerate() {
+    for (k, (at, out)) in walls.iter().enumerate() {
         let face = -*out;
         let s = start(*at, face);
         let progs: [(&'static str, f32, String); 4] = [
