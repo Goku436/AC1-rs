@@ -1649,14 +1649,18 @@ fn run_script(
             ctl.wall_legs = true;
         }
         // Pressing the legs on the ground (as the player's Space); let go within 0.3 s, the tap.
-        // (The release whatever is playing: it ends the static jump's crouch.)
+        // (As the player's: during a ground action too, which a press breaks off where it may (a stance change), and the
+        // release ends the static jump's crouch however long it was held, its own window. Pressed 0.37 s into the high
+        // profile's stance change and held 0.34 s, the running game jumped (live log route `wall1_standjump`); the
+        // script sent nothing while the change played.)
         if let Some((a, b)) = script.legs
-            && (ch.wall.is_none() || ch.wall.as_ref().is_some_and(|w| w.crouch_held().is_some()))
+            && ch.wall.as_ref().is_none_or(|w| w.legs_on_ground())
         {
-            if t > a && t - clock.dt <= a && ch.wall.is_none() {
+            if t > a && t - clock.dt <= a {
                 ctl.legs_press = true;
             }
-            if b - a <= LEGS_BUFFER && t > b && t - clock.dt <= b {
+            let crouched = ch.wall.as_ref().is_some_and(|w| w.crouch_held().is_some());
+            if (b - a <= LEGS_BUFFER || crouched) && t > b && t - clock.dt <= b {
                 ctl.legs_release = true;
             }
             ctl.legs_fresh = (a..a + LEGS_BUFFER).contains(&t) && t < b;
