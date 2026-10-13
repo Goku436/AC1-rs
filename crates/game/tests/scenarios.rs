@@ -1214,7 +1214,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject, 89 degrees off straight away", "the run ends at [21.37, 0.00, 7."],
+        want: &["back eject, 89 degrees off straight away", "the run ends at [21.3", "0.00, 7.37] (game"],
         never: &["EMBED"],
     },
     Scenario {
@@ -1230,7 +1230,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,right=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject, -89 degrees off straight away", "the run ends at [21.37, 0.00, 23."],
+        want: &["back eject, -89 degrees off straight away", "the run ends at [21.3", "0.00, 23.23] (game"],
         never: &["EMBED"],
     },
     // User report #11 (Damascus, by a market stall): the running jump at a house's roof edge flew the surface flight into
@@ -1359,7 +1359,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,downleft=1.2"),
         ],
         secs: 4.5,
-        want: &["via xx_h_hangwall_tr_rebound_footr", "back eject, 45 degrees off straight away", "the run ends at [16.33, 0.00, 10."],
+        want: &["via xx_h_hangwall_tr_rebound_footr", "back eject, 45 degrees off straight away", "the run ends at [16.3", "0.00, 10.14] (game"],
         never: &["EMBED"],
     },
     // The eject goes by the stick as the camera sees it, not the climbing stick in the character's frame (AC1's jump off a
@@ -1379,7 +1379,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,down=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject, 45 degrees off straight away", "-> land via xx_h_landing_damage_footl_roll at [16.33, 0.00, 10."],
+        want: &["back eject, 45 degrees off straight away", "-> land via xx_h_landing_damage_footl_roll at [16.3", "0.00, 10.14] yaw 45"],
         never: &["EMBED"],
     },
     // User report #1 (2026-10-12): stuck in a Damascus rooftop hiding place. The hop out's room was tested along a ray
@@ -1524,7 +1524,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["climb"],
         env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "289.3,42.6,180,16"), ("AC1_CLIMB", "up=8,right=6")],
         secs: 16.0,
-        want: &["onto holds on a face 34 degrees round, turning to it", "1m -> 2m via xx_l_climb_1m_r_2m at [286.6"],
+        want: &["onto holds on a face 34 degrees round, turning to it", "1m -> 2m via xx_l_climb_1m_r_2m at [286.5"],
         never: &["EMBED", "stepped off the wall sideways"],
     },
     // User report #3: the minaret by the viewpoint at (128, -12) (`Minaret_M_02a`, the wooden balcony on its corbel). The jump
@@ -1546,7 +1546,8 @@ const SCENARIOS: &[Scenario] = &[
         ],
         secs: 24.0,
         want: &[
-            "jump up from the climb to the ledge at [129.29, 24.24",
+            "jump up from the climb to the ledge at [129.2",
+            "24.24, -17.75]",
             "free_open -> free_1lu via xx_h_hangfree_climb_1m_u_1lu",
             "-> perch via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [129.37, 25.47",
         ],

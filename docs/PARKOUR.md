@@ -731,7 +731,8 @@ in this batch, by audit id:
     holds it that frame, lands on the hold. Ours aimed the wrist 9 cm out and 8 cm under the hold whatever the hand's
     pose. Not done: the toe as
     the foot's effector: AC1 puts it on a foot hold's point, ours has no foot holds (the feet go onto the wall's face,
-    the ankle 0.11 m off it); it waits for foot holds.
+    the ankle 0.11 m off it); it waits for foot holds. (In the climbing stance at rest, done 2026-10-13: the toe on the
+    stance's foot goal, "The climbing stance's pose".)
   - WALL-21: the wall run takes walls leaning up to 45 degrees either way, as AC1's (`Human__WallingSlopeDir` 0xE14590,
     `Human__WallingSlopeLimit` 0xE14FB0, read in the exe: 45 degrees refuses, the lean held to -10..+20 degrees): a ray
     from 0.75 m out and 1 m up back toward the wall gives its lean, and the entry's contact is 0.5 m out along the
@@ -801,6 +802,8 @@ in this batch, by audit id:
 Open (still ours' own): the hang root against the running game's: 1.13 m under our hold line on `wall1`, 1.01 m under
 the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hold lines (they sit 0.03 m above it on
 `wall1`, 0.09 m over the haystack's top on `hay70`); to settle with the hands' targets read live on those two holds.
+(Read in the live log, 2026-10-13: on `wall1` AC1's two hand goals in `hangwall_wait` are on the hold line, 8.025 m on
+the line at 8.02, and its root 1.131 m under them: the gap is AC1's 1.13 against ours' 1.1, not the hold. `hay70` not yet.)
 
 ## The live log comparisons (2026-10-12)
 The route library played again in the running game with ac1-hook's live log on (every frame's root, context, action,
@@ -835,7 +838,46 @@ within 0.01 m, the hands 0.02-0.03 m (their spread is the hold's); the running g
 IK goals and the feet 0.17 m (ours reaches them), and its hand goals sit 0.1 m over ours' hold lines on the bureau's
 walls (the root as much higher). The climbing stance (`climb_wait_1m`, 469 frames) is the largest steady one: ours'
 hips 0.08 m higher and 0.09 m nearer the wall, the head 0.09 m higher and 0.19 m further back, with the hands and feet
-within 0.1 m: AC1 leans the chest into the wall more. Not yet traced (the clip, ours' climbing IK or AC1's).
+within 0.1 m: AC1 leans the chest into the wall more. Traced and fixed below.
+
+### The climbing stance's pose (2026-10-13)
+Two of the live log's climbs, set side by side frame by frame (the bureau's wall `wall1`, the wall run's hang and two
+reaches up, then 4.9 s in `climb_wait_1m`; and the wall 15 m north, `wall1_sill`, one reach up onto a sill, 7.4 s), and
+ours on the same routes (control runs with `AC1_RECORD`; root, bones and goals by clip):
+- **AC1's limb goals are its grid's hold points.** Both hands' goals are one point, the hold straight over the root, and
+  both feet's one point on the hold two rows under it, in the 1m poses (the 1ru pose: each side's own row, the same
+  column): AC1's hold grid gives one hold a cell, the cell's column centred on the root (`BuildHoldGrid` 0xDF6A40).
+  The goals lie on the authored hold lines (8.025 m on the line at 8.02, 10.642 on 10.64): the "0.1 m over ours' hold
+  lines" was ours' log giving the wrist's target, 0.08 m under the line, not the hold point (now it logs the point the
+  knuckle goes to, as ac1-hook logs AC1's). The "hands 0.11 m short, feet 0.17 m" are AC1's effectors: the middle
+  knuckle on the hand's goal (ANIM-11) and the toe on the foot's (the wrist and ankle, which the logs give, sit that far
+  off): AC1 reaches its goals. Ours now puts both hands' knuckles and both toes on the stance's goals at rest (eased onto
+  them at 0.6 m/s, each limb kept on its goal through the next move until its clip lets it go): the hands 0.13 m apart
+  (AC1 0.13), the ankles 0.17 m off their goal (AC1 0.165), where ours' hands were 0.28 m apart and its ankles 0.11 m
+  off the wall's face.
+- **AC1's stance root comes from the four holds** (`sub_B1CC20` via `ComputeRootFromMove` 0xDEC6E0, Banned445's port
+  `climb_pose`): 0.5 m back from the feet's hold along a facing pitched as the hold rows lean (the hand → foot line), on
+  the lower foot's plane. Checked against both live climbs to the millimetre: on `wall1`'s second row (holds in one
+  plane) the root 0.500 m out from the feet's hold at its height; on its first row (the hands' row 0.2 m deeper than a
+  ledge under the feet) and on `wall1_sill` (a sill 0.16 m out under the hands' row) 0.5 m out from the ledge or sill,
+  0.07 m over it, the body pitched 8.5 and 7.5 degrees into the wall. That pitch was the "chest leant in": the clip is
+  the same, the whole body turns about the root. Ours stood upright, and slid at rest to 0.5 m from the nearest hold
+  round the body: on `wall1` the ledge 1.4 m under the feet, 0.2 m out, so the body hung 0.2 m off the wall with the
+  hands 0.33 m off their holds and no grip. Ours now: the stance settles onto AC1's root from its holds and the body
+  pitches with them over the move (`climb_frame`, `StanceFrame`, `WallClimb::tilt`); a move into the stance ends no
+  nearer the wall than that root (on `wall1`'s first row ours' hands went 0.15 m into the wall and its feet into the
+  ledge through the reach). [ours: the move otherwise still ends where its clip puts the hands on the holds, 0.59 m out
+  from them, as the moves on from there are tuned: taking AC1's root outright sent the routes round the octagonal tower's
+  cornice, the balcony's corbels and the gauntlet's block (G14) other ways, some through the geometry; AC1's own checks on
+  those ways (its reach's capsule sweep, the hang boxes `sub_B2DC80` / `sub_B2DD50`) are not in ours yet.] The jump up
+  from the climb (`TryBackEject`) searches round the hands' goals, as AC1 does, not round where the root puts them.
+- At rest in `climb_wait_1m`, bones from the root (forward, up, right), before / after against the running game:
+  `wall1` hips 0.03 / 0.035 m (the root 0.20 / 0.00 m off AC1's), head 0.05 / 0.03, hands 0.33 off the wall / 0.015-0.025,
+  feet 0.08 / 0.01-0.015; `wall1_sill` hips 0.12 / 0.03, head 0.21 / 0.03, hands 0.07 / 0.05, feet 0.05 / 0.03. The goals
+  within 0.01 m of AC1's in both.
+- Still ours' own: the move itself between the stances (AC1 holds the root still through the reach's first item, 0.27 s,
+  then carries it up linearly; ours follows the clip's root motion with the correction spread over it); the post-adjust
+  hips drop and head clearance (AC1's `ADJUST_SLOPE` 0xE58333 / `ADJUST_HEAD` 0xE58799) are not in ours.
 
 ### The routes re-cut, climbing along them (2026-10-13)
 The route files cut from the live logs were lost; the 21 routes are cut again from the raw logs
