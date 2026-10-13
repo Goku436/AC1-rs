@@ -14,6 +14,7 @@ pub mod ambiance;
 pub mod anim;
 pub mod animset;
 pub mod cloth;
+pub mod crowd;
 pub mod datafile;
 pub mod fx;
 pub mod graph;
