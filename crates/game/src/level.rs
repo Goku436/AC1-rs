@@ -1571,6 +1571,14 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     // wall hang, down: the feet find no wall under the lower hold, AC1's switch into the free hang.
     walls.cuboid(Vec3::new(-92.0, 3.0, z + 6.0), Vec3::new(-88.0, 4.6, z + 10.0));
     hold_rows(strips, level, Vec3::new(-92.0, 0.0, z + 6.0), Vec3::Z, 4.0, Vec3::NEG_X, &[4.6, 3.95]);
+    // Past it (audit LEDGE-15, the switch a row up or down): a block 2.55-4.4 m up with hold rows 2.7 and 3.4 m up on its
+    // face, the wall under it stepped back 0.5 m from 2 to 2.55 m and 1 m below: from the lower row (a free hang, the foot rays
+    // finding nothing) up onto the upper (a foot on the stepped wall: AC1's switch into the wall hang a row up), and back down.
+    let z = 284.0;
+    walls.cuboid(Vec3::new(-92.0, 2.55, z - 4.0), Vec3::new(-88.0, 4.4, z + 4.0));
+    walls.cuboid(Vec3::new(-91.5, 2.0, z - 4.0), Vec3::new(-88.0, 2.55, z + 4.0));
+    walls.cuboid(Vec3::new(-91.0, 0.0, z - 4.0), Vec3::new(-88.0, 2.0, z + 4.0));
+    hold_rows(strips, level, Vec3::new(-92.0, 0.0, z - 4.0), Vec3::Z, 8.0, Vec3::NEG_X, &[2.7, 3.4]);
 
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
@@ -1590,6 +1598,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G16: a free-standing ladder", Vec3::new(-92.0, 4.0, 204.0)),
         ("G17: a beam to a wall, climbed from", Vec3::new(-95.0, 4.0, 214.0)),
         ("G24: the wall-free hang, the swing back", Vec3::new(-95.0, 4.0, 264.0)),
+        ("G24: the free hang onto the wall a row up", Vec3::new(-95.0, 4.0, 284.0)),
     ]
 }
 
