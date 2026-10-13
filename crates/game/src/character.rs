@@ -235,6 +235,12 @@ pub struct Character {
     pub limp: bool,
     /// In AC1's Ghost mode flight (`fly`): no ground, collision or IK; the flight moves the root.
     pub flying: bool,
+    /// In a fight move or the fight stance (`combat`): the fight moves the root and picks the clip, nothing here.
+    pub fighting: bool,
+    /// A weapon drawn in the hand (`combat`): the bone it is carried on, posed at the hand's weapon bone.
+    pub weapon_in_hand: Option<u32>,
+    /// A paired fight clip played from another root (`combat`): the model-space offset of the whole body.
+    pub body_offset: Option<ik::Xform>,
     /// Model-space height of the soles in the idle pose.
     floor: f32,
     ankle_height: f32,
@@ -555,6 +561,9 @@ pub fn spawn_character(
         ragdoll_def: None,
         limp: false,
         flying: false,
+        fighting: false,
+        weapon_in_hand: None,
+        body_offset: None,
         gait: Default::default(),
         wall_feet: [None; 2],
         wall_goal_off: [Vec3::ZERO; 4],
@@ -1038,8 +1047,8 @@ pub fn locomotion(
     let dt = time.delta_secs().min(0.05);
     for (mut tf, mut ch, mut ctl) in &mut q {
         let ch = &mut *ch;
-        // Flying (AC1's Ghost mode): the flight moves the root, nothing here (`fly`).
-        if ch.flying {
+        // Flying (AC1's Ghost mode): the flight moves the root, nothing here (`fly`); so does a fight (`combat`).
+        if ch.flying || ch.fighting {
             continue;
         }
         // (A jump on short notice: from a standstill, or soon after the walk or run starts or a move hands back to the
@@ -2197,6 +2206,14 @@ pub fn animate(
                 layered(&mut pose, &layer, w, rig, &[b.legs[0].upper, b.legs[1].upper]);
             }
         }
+        // A paired fight clip played from the pair's root (`combat`): the whole body moved by the offset.
+        if let Some(o) = ch.body_offset {
+            for (i, l) in pose.local.iter_mut().enumerate() {
+                if rig.parents[i].is_none() {
+                    *l = o.mul(l);
+                }
+            }
+        }
         // (A fade back to the ground is stale once a move plays again: the move fades in from the pose shown itself, and
         // the old pose under it, across a root the move has turned, flips the blend half way (audit ANIM-1: the hands
         // jumped 0.9 m going from the ledge stop into the pull-down).)
@@ -2250,8 +2267,8 @@ pub fn animate(
             pose = limp_pose;
             ch.debug_targets.extend(r.pos.iter().map(|p| (*p, Color::srgb(0.9, 0.2, 0.9))));
         }
-        // (Not flying: AC1's Debug context places nothing.)
-        let ik_on = ch.ik_enabled && ch.ragdoll.is_none() && !ch.flying;
+        // (Not flying: AC1's Debug context places nothing; nor fighting: AC1's fight clips play as they are.)
+        let ik_on = ch.ik_enabled && ch.ragdoll.is_none() && !ch.flying && !ch.fighting;
         let world_from_model = ch.world_from_model(root);
         let model_from_world = world_from_model.inverse();
         let to_model = |p: Vec3| model_from_world.transform_point3(p);
@@ -2606,6 +2623,11 @@ pub fn animate(
             let frame = ik::Xform::new(to_game * pos, (to_game * rot).normalize());
             let wind = wind.as_ref().map_or(Vec3::ZERO, |w| to_game * w.at(pos) * ch.skeleton_wind);
             sec.apply(&mut pose, &ch.rig, frame, wind, dt);
+        }
+
+        // --- A weapon in the hand (`combat`): its carry bone at the hand's weapon bone.
+        if let Some(carry) = ch.weapon_in_hand {
+            crate::combat::hold_weapon(&mut pose, &ch.rig, carry);
         }
 
         // --- Write joints.

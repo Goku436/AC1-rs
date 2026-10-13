@@ -5,7 +5,12 @@
 //! walk; among scholars Altaïr hides, and with no direction walks along with them), high profile free-runs
 //! (sprints, vaults, jumps off edges, runs up or grabs walls on its own), jumps, and leaps while climbing
 //! (held, it leaps up a wall hold to hold and climbs over the top). Shift is the empty hand: a gentle push,
-//! by a scholar a pickpocket, on a wall let go. (Combat is left out for now.) P free camera (WASD fly along the view, Space/E up, Ctrl/Q down,
+//! by a scholar a pickpocket, on a wall let go. Fighting (`combat`, AC1's PC keys from the manual): 1 short blade,
+//! 2 hidden blade, 3 sword, 4 fists (a press selects, the next draws, the next sheathes); F the target lock (the fight
+//! stance on the nearest guard, the sword drawn; F again leaves it); the left button is the weapon hand: an attack (held,
+//! the max one), pressed again as the strike lands the combo; with high profile held (defending) as a guard's blow
+//! comes, the counter kill; with the hidden blade by a guard that is not fighting, the assassination. Two guards stand
+//! in the fight yard east of the start (`AC1_GUARDS`, `AC1_WEAPON`, `AC1_LOCK`, `AC1_ATTACK`: see `combat`). P free camera (WASD fly along the view, Space/E up, Ctrl/Q down,
 //! Shift faster; P again returns to Altaïr), F7 AC1's Ghost mode, the developers' flight (`fly`: no collision, WASD
 //! along the ground by the camera, Space up, Left Ctrl down, the right button × 3, Left Alt × 10, Q held keeps the
 //! facing; F7 again falls out, from rest, or with Shift held at the flight's speed),
@@ -49,7 +54,7 @@
 //! AC1_CAM="yaw,pitch,dist[,focus height]", AC1_SHOT=path.png (saved after AC1_SHOT_SECS, then exit; `-` exits then without one), AC1_SHOTS=file (a list
 //! of fixed cameras, `name eye_x,y,z target_x,y,z` a line, Bevy space: a shot of each, `name.png` beside the file, the first after
 //! AC1_SHOT_SECS, the next every AC1_SHOTS_EVERY s, default 3, then exit; no HUD), AC1_BACKGROUND=1 (open
-//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1, AC1_PLAIN_LOOK=1 (Altaïr without AC1's character shader), AC1_NO_TEXT=1 (start with the text hidden, as F1), AC1_PLAIN_CITY=1 / AC1_LINEAR_LOOK=1 / AC1_NO_GRADE=1 / AC1_NO_SKY=1 (parts of AC1's look off: `look`, `sky`), AC1_SHOW_LAYERS=1 (the city's layered materials' blend weights drawn as colours: `city_material`), AC1_AO="scale,bias,floor,none" (the baked occlusion's mapping, `look`),
+//! on the second monitor if any, unfocused, behind other windows), AC1_WINDOW_AT="x,y" and AC1_WINDOW_SIZE="w,h" (place the window), AC1_NO_IK=1, AC1_PLAIN_LOOK=1 (Altaïr without AC1's character shader), AC1_NO_TEXT=1 (start with the text hidden, as F1), AC1_PLAIN_CITY=1 / AC1_LINEAR_LOOK=1 / AC1_NO_GRADE=1 / AC1_NO_SKY=1 (parts of AC1's look off: `look`, `sky`), AC1_SHOW_LAYERS=1 (the city's layered materials' blend weights drawn as colours: `city_material`), AC1_AO="scale,bias,floor,none" (the baked occlusion's mapping, `look`; the level's `AOSettings` otherwise), AC1_FOGP="start,scale,max" (the fog's ramp, `look`),
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only. AC1_CONTROL=<file> stays open and runs
 //! the scripts written to that file (`run <id> <secs> AC1_START=.. AC1_WALK=.. ...`, `quit`; see `control_runs`): the level
 //! loads once, each run takes seconds. AC1_GROUND_LINE, AC1_HOLDS_AT and AC1_MESHES_AT log the ground along a line, the
@@ -71,7 +76,9 @@ mod climb;
 mod climb_sweep;
 mod climb_table;
 mod collision_view;
+mod combat;
 mod crowd;
+mod fight_data;
 mod fly;
 mod gait;
 mod gallery;
@@ -389,6 +396,7 @@ fn main() {
         .add_systems(PostUpdate, sky::follow.before(bevy::transform::TransformSystems::Propagate))
         .init_resource::<Eagle>()
         .init_resource::<fly::Fly>()
+        .add_plugins(combat::CombatPlugin)
         .init_resource::<collision_view::CollisionView>()
         .add_systems(Update, collision_view::collision_view)
         .init_resource::<recorder::Recorder>()
@@ -1954,6 +1962,7 @@ fn hud(
     let context = match &ch.wall {
         Some(w) => format!("Climb ({})", w.state),
         None if ch.flying => "Debug (Ghost mode)".to_string(),
+        None if ch.fighting => "Fight".to_string(),
         None if ch.blend => "Blend".to_string(),
         None => "Ground".to_string(),
     };
