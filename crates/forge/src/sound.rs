@@ -1051,7 +1051,18 @@ const CLASS_SOUND_INSTANCE: u32 = 0x7e42_f87f;
 /// beam take-off clip names too), 23 `SoundClimbGrab` (empty), 25 `SoundLockOn`, 26 `SoundUnlock`, 28 `SoundPrayStart`.
 pub const SOUND_JUMP_START: usize = 15;
 
-/// A `GlobalSoundSet` body's `SoundInstance`s in order (the slots above): each one's event (`None`: empty).
+/// CRC32("HumanSoundSet"): a character's vocal sounds, played by AC1's code (`HumanSoundSet_Altair` in "Rank 9").
+pub const CLASS_HUMAN_SOUND_SET: u32 = 0x2b31_5bea;
+/// `HumanSoundSet` slots by the exe's property order (names by CRC32 of guesses): 12 `OnoGrab`, 16 `OnoDodge`, 23
+/// `OnoJumpLandLight` (empty for Altaïr), 25 `OnoJumpLandHeavy`, 30 `OnoClimbPullUp`, 31 `OnoBodyFallHurt` (empty), 32-34
+/// `OnoEffortLight` / `Medium` / `Heavy`. At run time the set is an array of 20-byte instances from +8, so slot k sits at
+/// +8 + 20 k: `HumanInAir__SetupToGround_Landing` (0xE05940) plays +0x1D4 (23) on a landing from 3 m or less and +0x1FC
+/// (25) on one from higher.
+pub const ONO_JUMP_LAND_LIGHT: usize = 23;
+pub const ONO_JUMP_LAND_HEAVY: usize = 25;
+
+/// A `GlobalSoundSet` or `HumanSoundSet` body's `SoundInstance`s in order (the slots above): each one's event (`None`:
+/// empty).
 pub fn global_sound_set(body: &[u8]) -> Vec<Option<u32>> {
     let at: Vec<usize> = (0..body.len().saturating_sub(3)).filter(|&k| u32_at(body, k) == Some(CLASS_SOUND_INSTANCE)).collect();
     at.iter()
@@ -1080,6 +1091,8 @@ pub fn collision_sound_material(body: &[u8]) -> Option<u32> {
 #[derive(Clone, Debug, Default)]
 pub struct ContactTable {
     pub groups: Vec<(u32, Vec<Option<u32>>)>,
+    /// Per group (as `groups`), per contact type: the `FX` objects it plays (`fx`).
+    pub fx: Vec<Vec<Vec<u32>>>,
 }
 
 impl ContactTable {
@@ -1088,10 +1101,20 @@ impl ContactTable {
         let g = material.and_then(|m| self.groups.iter().find(|g| g.0 == m)).or(self.groups.first())?;
         g.1.get(ty as usize).copied().flatten()
     }
+
+    /// The `FX` objects contact type `ty` plays on `material` (the first group when there is no group for it): the
+    /// surface's dust (`FX_CollisionMaterial_<surface>`). Altaïr's table gives every type one but `ft_pivot`,
+    /// `ft_step_toe`, `ft_walk_end` and `ft_walk_start`; marble, pebbles, leaves, snow, glass and polished concrete's FX
+    /// spawn nothing.
+    pub fn fx(&self, material: Option<u32>, ty: u32) -> &[u32] {
+        let g = material.and_then(|m| self.groups.iter().position(|g| g.0 == m)).unwrap_or(0);
+        self.fx.get(g).and_then(|t| t.get(ty as usize)).map_or(&[], |v| v.as_slice())
+    }
 }
 
 /// A `ContactTable` body: u32 group count; per group u32 id, u32 class (e1cbf60f), u32 material, u32 n, then n
-/// entries: u8 0 (inline), u32 id, u32 class (11337755), u32 k, k u32 ?, u32 ?, u32 ?, then the `ContactSound`:
+/// entries: u8 0 (inline), u32 id, u32 class (11337755 `ContactTypeTableHuman`), u32 k, k u32 `FX` object ids, u32 ?
+/// (1), u32 ? (0), then the `ContactSound`:
 /// u32 class, u32 ?, the `AudioEvent` (u32 class, u32 handle, u32 ?, a sound reference: u32 ?, u32 class, u32 BAO id,
 /// u32 `SoundBao` object id), u8 ?, u32 contact type.
 pub fn parse_contact_table(body: &[u8]) -> Result<ContactTable> {
@@ -1099,6 +1122,7 @@ pub fn parse_contact_table(body: &[u8]) -> Result<ContactTable> {
     let n = r.u32()? as usize;
     ensure!(n < 1024, "{n} groups at 0x0");
     let mut groups = Vec::with_capacity(n);
+    let mut fx = Vec::with_capacity(n);
     for _ in 0..n {
         r.u32()?;
         r.expect(CLASS_CONTACT_GROUP, "contact group class")?;
@@ -1106,6 +1130,7 @@ pub fn parse_contact_table(body: &[u8]) -> Result<ContactTable> {
         let k = r.u32()? as usize;
         ensure!(k < 256, "{k} contacts at {:#x}", r.at - 4);
         let mut sounds = vec![None; 15];
+        let mut fxs = vec![vec![]; 15];
         for _ in 0..k {
             let at = r.at;
             ensure!(r.u8()? == 0, "contact entry at {at:#x} not inline");
@@ -1113,7 +1138,11 @@ pub fn parse_contact_table(body: &[u8]) -> Result<ContactTable> {
             r.expect(CLASS_CONTACT_ENTRY, "contact entry class")?;
             let m = r.u32()? as usize;
             ensure!(m < 64, "{m} at {:#x}", r.at - 4);
-            r.take(4 * m + 8)?;
+            let mut these = Vec::with_capacity(m);
+            for _ in 0..m {
+                these.push(r.u32()?);
+            }
+            r.take(8)?;
             r.expect(CLASS_CONTACT_SOUND, "ContactSound class")?;
             r.u32()?;
             r.expect(CLASS_AUDIO_EVENT, "AudioEvent class")?;
@@ -1125,11 +1154,15 @@ pub fn parse_contact_table(body: &[u8]) -> Result<ContactTable> {
             if let Some(s) = sounds.get_mut(ty) {
                 *s = Some(sound);
             }
+            if let Some(f) = fxs.get_mut(ty) {
+                *f = these;
+            }
         }
         groups.push((material, sounds));
+        fx.push(fxs);
     }
     ensure!(r.at == body.len(), "{} bytes left at {:#x}", body.len() - r.at, r.at);
-    Ok(ContactTable { groups })
+    Ok(ContactTable { groups, fx })
 }
 
 /// A 16-bit PCM WAV file.
@@ -1171,6 +1204,7 @@ mod tests {
             ("TriggerZone", CLASS_TRIGGER_ZONE),
             ("SoundAmbienceRandomFX", CLASS_AMBIENCE_RANDOM_FX),
             ("GlobalSoundSet", CLASS_GLOBAL_SOUND_SET),
+            ("HumanSoundSet", CLASS_HUMAN_SOUND_SET),
             ("SoundInstance", CLASS_SOUND_INSTANCE),
             ("Entity", CLASS_ENTITY),
             ("EntityGroup", CLASS_ENTITY_GROUP),

@@ -9,6 +9,9 @@
 //! scabbard and gear rattle under the steps), 7 the city (AC1's list of world ids). The rest play their default case.
 //! The free jump's take-off has no key in AC1's data: it plays the `GlobalSoundSet`'s `SoundJumpStart`, the sound AC1's
 //! code plays (the same event the beam take-off clip and the contact table's `ft_jump_start` name).
+//! A landing's grunt is no key either: AC1's landing code (`HumanInAir__SetupToGround_Landing` 0xE05940) plays
+//! Altaïr's `HumanSoundSet` `OnoJumpLandHeavy` on a landing from over 3 m (the damage landing, its roll, the fatal one)
+//! and `OnoJumpLandLight` (empty in Altaïr's set) on the rest.
 //!
 //! In a city (`AC1_LEVEL`), the city's own sounds:
 //! - Placed sounds (`forge::sound::Emitter`, 1292 in Damascus: fountains, braziers and lamps, flags, kiosks, gardens
@@ -146,6 +149,8 @@ struct SoundData {
     bank: Bank,
     contacts: ContactTable,
     global: Vec<Option<u32>>,
+    /// Altaïr's vocal sounds (`HumanSoundSet_Altair`, by slot).
+    human: Vec<Option<u32>>,
 }
 
 /// The data files of `DataPC.forge` that hold the player's sounds.
@@ -156,6 +161,7 @@ fn load(game_dir: &Path) -> anyhow::Result<SoundData> {
     let mut bank = Bank::default();
     let mut contacts = None;
     let mut global = vec![];
+    let mut human = vec![];
     for name in SOUND_FILES {
         let Some(e) = forge.entries.iter().find(|e| e.name == name) else { anyhow::bail!("no data file {name}") };
         let data = forge.read(e)?;
@@ -168,11 +174,13 @@ fn load(game_dir: &Path) -> anyhow::Result<SoundData> {
                 contacts = Some(forge::sound::parse_contact_table(o.body)?);
             } else if o.class == forge::sound::CLASS_GLOBAL_SOUND_SET {
                 global = forge::sound::global_sound_set(o.body);
+            } else if o.class == forge::sound::CLASS_HUMAN_SOUND_SET && o.name == "HumanSoundSet_Altair" {
+                human = forge::sound::global_sound_set(o.body);
             }
         }
     }
     let contacts = contacts.ok_or_else(|| anyhow::anyhow!("no ContactTable_AlTair"))?;
-    Ok(SoundData { bank, contacts, global })
+    Ok(SoundData { bank, contacts, global, human })
 }
 
 /// A city's ambience and placed sounds, and the sound objects they play.
@@ -224,10 +232,10 @@ fn take<T>(slot: &Slot<T>) -> Option<anyhow::Result<T>> {
 }
 
 /// Where a slot's clip was last frame (see `passed`).
-struct Cursor {
-    clip: Arc<crate::animation::Clip>,
-    t: f32,
-    synced: bool,
+pub(crate) struct Cursor {
+    pub(crate) clip: Arc<crate::animation::Clip>,
+    pub(crate) t: f32,
+    pub(crate) synced: bool,
 }
 
 /// Clips whose take-off AC1's data gives no key: they play `SoundJumpStart` as they begin (see the module header).
@@ -247,6 +255,8 @@ const PLACED_FADE: f32 = 0.5;
 const ZONE_SLACK: f32 = 0.5;
 /// A placed sound with no zone read starts within this (m).
 const ZONE_FALLBACK: f32 = 10.0;
+/// A landing from higher than this (m) is AC1's heavy one (`HumanInAir__SetupToGround_Landing` 0xE05940).
+const SAFE_DROP: f32 = 3.0;
 /// Altaïr's sounds come from this high over his root (m).
 const BODY_HEIGHT: f32 = 0.9;
 /// How far a sound straight to one side leans to it (0: not at all, 1: wholly).
@@ -477,7 +487,7 @@ fn load_sounds(mut s: ResMut<Sounds>, dir: Res<crate::GameDir>) {
 /// The event keys a clip passed since last frame: (from, to], or from its start when it has just begun (`from`
 /// `None`); a looping clip whose time went back wrapped round, (from, end] and [0, to]; any other went back to its
 /// start, [0, to].
-fn passed(events: &[AnimEvent], from: Option<f32>, to: f32, looping: bool) -> Vec<&AnimEvent> {
+pub(crate) fn passed(events: &[AnimEvent], from: Option<f32>, to: f32, looping: bool) -> Vec<&AnimEvent> {
     match from {
         Some(f) if to >= f => events.iter().filter(|e| e.time > f && e.time <= to).collect(),
         Some(f) if looping => events.iter().filter(|e| e.time > f).chain(events.iter().filter(|e| e.time <= to)).collect(),
@@ -487,7 +497,7 @@ fn passed(events: &[AnimEvent], from: Option<f32>, to: f32, looping: bool) -> Ve
 
 /// Where the slot's last clip was, on the clip now: the same clip, its time; the step before in a gait (both
 /// `synced`), the same fraction of this one; else none (it has just begun).
-fn from_time(prev: Option<&Cursor>, now: &Playing) -> Option<f32> {
+pub(crate) fn from_time(prev: Option<&Cursor>, now: &Playing) -> Option<f32> {
     let prev = prev?;
     if Arc::ptr_eq(&prev.clip, &now.clip) {
         Some(prev.t)
@@ -552,6 +562,8 @@ enum Fired {
     Contact(u32),
     Audio(u32),
     Event(u32),
+    /// A `HumanSoundSet` event (AC1's code plays it).
+    Ono(u32),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -564,12 +576,15 @@ fn play_clip_events(
     settings: Option<Res<crate::settings::Settings>>,
     players: Query<(&Character, &Transform), With<Player>>,
     cams: Query<&GlobalTransform, With<Camera3d>>,
+    mut landings: Local<u32>,
 ) {
+    let Ok((ch, root)) = players.single() else { return };
+    // (A landing is heard once, as it happens: not later, unmuted.)
+    let landed = std::mem::replace(&mut *landings, ch.landings) != ch.landings;
     if s.muted {
         return;
     }
     let Some(data) = s.data.clone() else { return };
-    let Ok((ch, root)) = players.single() else { return };
     let now = time.elapsed_secs();
     let mut fired: Vec<(String, f32, Fired)> = vec![];
     let slots: Vec<u8> = ch.playing.iter().map(|p| p.slot).collect();
@@ -591,6 +606,14 @@ fn play_clip_events(
         }
         s.cursors.insert(p.slot, Cursor { clip: p.clip.clone(), t: p.t, synced: p.synced });
     }
+    // A ground landing: Altaïr's grunt, played by AC1's code (`OnoJumpLandHeavy` over `SAFE_DROP`, else
+    // `OnoJumpLandLight`, which Altaïr's set leaves empty).
+    if landed && let Some((drop, _)) = ch.last_landing {
+        let slot = if drop > SAFE_DROP { forge::sound::ONO_JUMP_LAND_HEAVY } else { forge::sound::ONO_JUMP_LAND_LIGHT };
+        if let Some(e) = data.human.get(slot).copied().flatten() {
+            fired.push(("landing".into(), 0.0, Fired::Ono(e)));
+        }
+    }
     if fired.is_empty() {
         return;
     }
@@ -607,6 +630,7 @@ fn play_clip_events(
             }
             Fired::Audio(sound) => ("audio", data.bank.bao_of(sound)),
             Fired::Event(e) => ("SoundJumpStart", Some(e)),
+            Fired::Ono(e) => ("OnoJumpLand", Some(e)),
         };
         let Some(event) = event else { continue };
         let voices = data.bank.resolve(event, &switch, &mut s.picker);

@@ -20,7 +20,7 @@
 //! lets go at the next forward swing (S held drops); on a ladder W/S climb, Shift lets go; the tap jump at a
 //! market stall's counter (a kiosk) jumps onto it and runs along it or across it (kiosk K, south of block L). Pulling up onto a post or at the end of a wall uses one hand (pillars P and Q behind block A).
 //! Ground moves: run stops, turning round, turns on the spot, ledge stops and looking down at big drops, the empty
-//! hand at an edge pulls down onto it, running into a tall wall leans on it, rolls off high landings, walking into a
+//! hand at an edge pulls down onto it, running into a tall wall leans on it, rolls off high landings (the camera shakes over 3 m, `shake`; dust and straw from AC1's effects, `particles`), walking into a
 //! haystack dives in (platform E and its haystacks, north of block D).
 //! F1 hides the text (the HUD and the labels), F2 the map menu (1 the test level, 2 Masyaf, 3 Damascus: the game starts
 //! again in it), F8 the graphics settings (`settings`, `menu`: presets Low / Medium / High / Ultra, window mode,
@@ -35,8 +35,8 @@
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render|fallback / AC1_SHOW_COLLISION / AC1_COLLISION_VIEW / AC1_COLLISION_SWEEP (cities: collide with the render meshes, or with them where an entity has no rigid body / draw every collision shape / start with F11's view on / log how the collision lines up with what is drawn, `sweep`), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
-//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_FLY=from-to (the Ghost mode flight then, AC1_WALK its stick; AC1_FLY_UP / AC1_FLY_DOWN=from-to up / down held), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_HEADLESS=1 (no window, no GPU, no audio: the frames run back to back, for the scenarios), AC1_MUTE=1 (start muted), AC1_VOLUME=dB, AC1_STEP=hz (every frame 1/hz s of game time however long it takes; 60 when headless), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
-//! AC1_POSE_PROPS (city props skinned to their skeleton's pose, not bind pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
+//! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_FLY=from-to (the Ghost mode flight then, AC1_WALK its stick; AC1_FLY_UP / AC1_FLY_DOWN=from-to up / down held), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_HEADLESS=1 (no window, no GPU, no audio: the frames run back to back, for the scenarios), AC1_MUTE=1 (start muted), AC1_NO_PARTICLES=1 (no dust or straw: `particles`), AC1_VOLUME=dB, AC1_STEP=hz (every frame 1/hz s of game time however long it takes; 60 when headless), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
+//! AC1_BIND_PROPS (city skinned props left in their bind pose, not stood in their skeleton's pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
 //! city from the game data instead of the test level), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_DETAIL=low|medium|high|ultra|full (how much a city draws: see `stream::Detail`; else the graphics menu's, medium by default; full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
 //! AC1_JUMP=secs[,secs...] (press Space then; with AC1_WALK for a running jump), AC1_HIGH / AC1_LEGS=from-to
@@ -82,12 +82,14 @@ mod nav;
 mod net;
 mod npc;
 mod pad;
+mod particles;
 mod probe;
 mod ragdoll;
 mod recorder;
 mod replay;
 mod robe;
 mod settings;
+mod shake;
 mod sky;
 mod sound;
 mod stream;
@@ -323,6 +325,9 @@ fn main() {
         .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO));
     } else {
         app.add_plugins(plugins.set(WindowPlugin { primary_window: Some(game_window()), ..default() })).add_plugins(sound::SoundPlugin);
+        if std::env::var("AC1_NO_PARTICLES").is_err() {
+            app.add_plugins(particles::ParticlePlugin);
+        }
     }
     // `AC1_STEP=hz` (60 when headless): every frame is that long in game time, however long it takes to run, so a run is
     // the same every time and as fast as the machine goes (a loaded machine slows it down, it no longer changes it).
@@ -1710,8 +1715,16 @@ fn camera_follow(
     joints: Query<&GlobalTransform>,
     mut cams: Query<&mut Transform, (With<Camera3d>, Without<Player>)>,
     eagle: Res<Eagle>,
+    mut fall: Local<(u32, shake::FallShake)>,
 ) {
     let (Ok((target, ch)), Ok(mut tf)) = (chars.single(), cams.single_mut()) else { return };
+    // A heavy landing shakes the camera (AC1's `FX_Camera_Shake_Assassins_Fall`, `shake`).
+    if std::mem::replace(&mut fall.0, ch.landings) != ch.landings
+        && let Some((drop, _)) = ch.last_landing
+    {
+        fall.1.land(drop);
+    }
+    let shake_pitch = fall.1.step(time.delta_secs());
     // Video hook: a camera circling a point (`AC1_ORBIT="x,y,z,radius,height,secs"`, looking at it from `height` above
     // it), once round in `secs` of video at `FRAMES_FPS`, one step a rendered frame (smooth whatever the frame rate).
     if let Some(v) = env_f32s("AC1_ORBIT").filter(|v| v.len() >= 6) {
@@ -1762,6 +1775,8 @@ fn camera_follow(
     let rot = Quat::from_euler(EulerRot::YXZ, cam.yaw, cam.pitch, 0.0);
     tf.translation = focus + rot * Vec3::Z * cam.dist;
     tf.look_at(focus, Vec3::Y);
+    // (About the camera's own right axis, a positive pitch tilting the view up.)
+    tf.rotate_local_x(shake_pitch.to_radians());
     cam.eye = tf.translation;
 }
 
