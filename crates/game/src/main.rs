@@ -7,10 +7,13 @@
 //! (held, it leaps up a wall hold to hold and climbs over the top). Shift is the empty hand: a gentle push,
 //! by a scholar a pickpocket, on a wall let go. Fighting (`combat`, AC1's PC keys from the manual): 1 short blade,
 //! 2 hidden blade, 3 sword, 4 fists (a press selects, the next draws, the next sheathes); F the target lock (the fight
-//! stance on the nearest guard, the sword drawn; F again leaves it); the left button is the weapon hand: an attack (held,
-//! the max one), pressed again as the strike lands the combo; with high profile held (defending) as a guard's blow
-//! comes, the counter kill; with the hidden blade by a guard that is not fighting, the assassination. Two guards stand
-//! in the fight yard east of the start (`AC1_GUARDS`, `AC1_WEAPON`, `AC1_LOCK`, `AC1_ATTACK`: see `combat`). P free camera (WASD fly along the view, Space/E up, Ctrl/Q down,
+//! stance with the weapon in hand, the sword drawn if none is, on the nearest guard; F again leaves it); the left button
+//! is the weapon hand: an attack (held, the max one; the short blade at a far target throws a knife), pressed again from
+//! the strike on through the clip it lands with the combo; with high profile held (defending) as a guard's blow comes,
+//! the counter kill, or Space the counter dodge (to the stick's side); running at a guard, the mobile attack; with the
+//! hidden blade by a guard that is not fighting, the assassination, over one below (a ledge, a beam, a jump) the air
+//! assassination. Two guards stand in the fight yard east of the start (`AC1_GUARDS`, `AC1_WEAPON`, `AC1_LOCK`,
+//! `AC1_ATTACK`, `AC1_PLAYER_HEALTH`, `AC1_FIGHT_ATTACKERS`, `AC1_FIGHT_TRACE`: see `combat`). P free camera (WASD fly along the view, Space/E up, Ctrl/Q down,
 //! Shift faster; P again returns to Altaïr), F7 AC1's Ghost mode, the developers' flight (`fly`: no collision, WASD
 //! along the ground by the camera, Space up, Left Ctrl down, the right button × 3, Left Alt × 10, Q held keeps the
 //! facing; F7 again falls out, from rest, or with Shift held at the flight's speed),
@@ -79,6 +82,7 @@ mod collision_view;
 mod combat;
 mod crowd;
 mod fight_data;
+mod fight_tables;
 mod fly;
 mod gait;
 mod gallery;

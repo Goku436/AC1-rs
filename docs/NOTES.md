@@ -41,7 +41,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Level light and grade (`WorldAmbiance` 21c2d472, `LayeredSky` 24d32cf8: fog, post effects, suns, ambient cubes, sky layers) | done: 14/14 levels read, and the occlusion mapping (`AOSettings` in each `World`) of 13/13 (`examples/ambcheck`) |
 | Baked occlusion (`MeshInstanceData` / `CompiledMeshInstance`: a byte per vertex per placed mesh) | done: 17436/17436 Damascus entities and groups, every stream a byte per vertex of its mesh (`examples/aocheck`) |
 | Bevy runtime: skinned Altaïr with mip-mapped textures, locomotion, IK, climbing/jumping, free running (stepping and jumping onto low obstacles, posts, beams, swing bars, ladders, kiosks); scholar crowds to blend into | first version |
-| Combat (`combat`, `fight_data`, docs/COMBAT.md): the fight blocks (`HumanWeapon`, `HumanGround_Fight`, `_ComboKill`, `_CounterKills`, `_Assassination`, `_Fight_Hurt`) picked by the exe's fight tables (attacks by side, distance and foot, combo directions, hit reactions, the 14 assassination types and their choice) | first version: draw / sheathe, the fight stance locked on a guard, the walk in it, attacks and combos (2 timed hits, the paired combo kill), blocks, the paired counter kill, the hidden blade's assassinations played paired, guards that fight back (ours), deaths limp |
+| Combat (`combat`, `fight_data`, `fight_tables`, docs/COMBAT.md): the fight blocks (`HumanWeapon`, `HumanGround_Fight`, `_Fight_Light`, `_Fight_Unarmed`, `Human_Ground_Fight_Dagger`, `_ComboKill`, `_CounterKills`, `_CounterDodge`, `_Assassination`, `_Fight_Hurt`, `HumanInAir`) picked by the exe's fight tables for fists, sword and short blade (attacks by side, distance and foot, the sword's random straight ones, high and low, mobile, combos and their directions, the clips a strike lands with, turns, combo and counter kills, counter dodges, deflects, the 14 assassination types) and its attack state machine (the combo latch) | second version: the weapons' stances, AC1's turns, attacks and combos by its state machine, blocks, deflects and the guard's riposte, counter kills and dodges, mobile attacks, throwing knives, paired kills with the root slid onto the pair's, assassinations on the ground and from above, guards in turns (ours, one at a time), the player's damage and desynchronisation (ours), deaths limp |
 | Player controller, free-running, combat AI, crowds, missions | long-term |
 
 ## Running
@@ -61,8 +61,9 @@ See the header of `crates/game/src/main.rs` for controls and test hooks.
 The mouse looks around (Esc frees the cursor, a click takes it back); WASD moves.
 Fighting (`combat`, docs/COMBAT.md): 1-4 the weapons (short blade, hidden blade, sword, fists; a press selects, the next
 draws, the next sheathes), F the target lock (the fight stance), the left button the weapon hand (attack, held the max one;
-pressed as the strike lands the combo; defending in high profile as a guard's blow comes the counter kill; with the hidden
-blade by a guard not fighting the assassination).
+the short blade at a far target throws a knife; pressed from the strike on through the clip it lands with, the combo;
+defending in high profile as a guard's blow comes the counter kill, Space the counter dodge; running at a guard the mobile
+attack; with the hidden blade by a guard not fighting the assassination, over one below the air assassination).
 - Right button held: high profile (faster, louder).
 - Space (legs): low profile, blend: the praying walk (`_cpm_monk_pray_walking`, `xx_l_pray_wait` standing); among
   scholars Altaïr hides, and with no direction held walks along with the group. High profile: free-run (sprint;
@@ -419,7 +420,9 @@ These IK layers are recreations of the behaviour seen in-game, not ports of the 
 ## Combat
 Removed on 2026-10-05 to get movement right first, rebuilt on 2026-10-13 on AC1's own data: the fight action blocks
 and the executable's fight tables (the attack, combo and hit-reaction tables, the assassination chooser and its tables,
-the weapon tag bones). What is AC1's and what is ours, and what is not done yet: docs/COMBAT.md.
+the weapon tag bones); its second version (2026-10-13) takes every weapon's tables from the exe's initializers
+(`fight_tables`) and follows its attack state machine (the press latch, the clips a strike lands with, the combo's
+directions). What is AC1's and what is ours, and what is not done yet: docs/COMBAT.md.
 
 ## Crowds
 Crowds: scholars (AC1's `CNMT_Scholar`: robe, hood and shoes from Acre's data on the shared human skeleton,

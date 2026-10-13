@@ -605,6 +605,11 @@ pub fn spawn_character(
 }
 
 impl Character {
+    /// Where the character came into the world (a desynchronised player starts again there, `combat`).
+    pub fn spawn_point(&self) -> Vec3 {
+        self.spawn
+    }
+
     /// Pose the skeleton's joints (a pose made elsewhere: the network test's friend).
     pub fn write_joints(&self, pose: &Pose, joints: &mut Query<&mut Transform, Without<Character>>) {
         for (i, &e) in self.joints.iter().enumerate() {
