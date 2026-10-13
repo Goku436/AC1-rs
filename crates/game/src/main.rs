@@ -39,11 +39,14 @@
 //! [ / ] step through every AC1 clip in the library (Backspace returns to locomotion).
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
-//! AC1_COLLISION=render|fallback / AC1_SHOW_COLLISION / AC1_COLLISION_VIEW / AC1_COLLISION_SWEEP (cities: collide with the render meshes, or with them where an entity has no rigid body / draw every collision shape / start with F11's view on / log how the collision lines up with what is drawn, `sweep`), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`),
+//! AC1_COLLISION=render|fallback / AC1_SHOW_COLLISION / AC1_COLLISION_VIEW / AC1_COLLISION_SWEEP (cities: collide with the render meshes, or with them where an entity has no rigid body / draw every collision shape / start with F11's view on / log how the collision lines up with what is drawn, `sweep`), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`), AC1_CLIMB_SWEEP=n (climbing as a player meets it at n walls and n/2 roof edges, every run's failures by class to AC1_SWEEP_OUT, then exit; see `climb_sweep`),
 //! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_FLY=from-to (the Ghost mode flight then, AC1_WALK its stick; AC1_FLY_UP / AC1_FLY_DOWN=from-to up / down held), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_HEADLESS=1 (no window, no GPU, no audio: the frames run back to back, for the scenarios), AC1_MUTE=1 (start muted), AC1_NO_PARTICLES=1 (no dust or straw: `particles`), AC1_VOLUME=dB, AC1_STEP=hz (every frame 1/hz s of game time however long it takes; 60 when headless), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_BIND_PROPS (city skinned props left in their bind pose, not stood in their skeleton's pose), AC1_NO_CROWD=1, AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
 //! AC1_CROWD_AT=metres (where along its loop the scholar group starts), AC1_LEVEL=masyaf|damascus|... (a
-//! city from the game data instead of the test level), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_DETAIL=low|medium|high|ultra|full (how much a city draws: see `stream::Detail`; else the graphics menu's, medium by default; full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
+//! city from the game data instead of the test level; its gameplay data, collision, holds, guidance, beams, objects and navigation, is saved after
+//! the first load and read back after, `level_cache`: AC1_NO_CACHE=1 neither reads nor writes it, AC1_CACHE_DIR=dir puts it there instead of
+//! `ac1-cache` beside the executable, AC1_CACHE_CHECK=1 builds the city anyway and compares it with the cache byte for byte; every load logs its
+//! phases' times as `load: ...` lines), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_DETAIL=low|medium|high|ultra|full (how much a city draws: see `stream::Detail`; else the graphics menu's, medium by default; full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
 //! AC1_JUMP=secs[,secs...] (press Space then; with AC1_WALK for a running jump), AC1_HIGH / AC1_LEGS=from-to
 //! (hold high profile / the legs), AC1_HAND=secs[,..] (the empty hand),
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
@@ -70,6 +73,7 @@ mod character_material;
 mod city;
 mod city_material;
 mod climb;
+mod climb_sweep;
 mod climb_table;
 mod collision_view;
 mod combat;
@@ -82,6 +86,7 @@ mod grab_audit;
 mod jump;
 mod jump_query;
 mod level;
+mod level_cache;
 mod look;
 mod menu;
 mod move_blend;
@@ -436,6 +441,9 @@ fn main() {
         .init_resource::<ScriptClock>()
         .add_systems(First, tick_script_clock)
         .add_systems(Update, control_runs.before(run_script))
+        .init_resource::<climb_sweep::Sweep>()
+        .add_systems(Update, climb_sweep::sweep_issue.before(control_runs))
+        .add_systems(PostUpdate, climb_sweep::sweep_measure.after(bevy::transform::TransformSystems::Propagate))
         .init_resource::<character::StatuePlay>()
         .add_systems(Update, pause_statues)
         // (What a city draws follows the camera.)
@@ -577,9 +585,14 @@ fn control_runs(
     mut exit: MessageWriter<AppExit>,
     mut state: Local<Control>,
     mut recorder: ResMut<recorder::Recorder>,
+    mut sweep: ResMut<climb_sweep::Sweep>,
 ) {
     static FILE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
-    let Some(file) = FILE.get_or_init(|| std::env::var("AC1_CONTROL").ok().map(PathBuf::from)) else { return };
+    let file = FILE.get_or_init(|| std::env::var("AC1_CONTROL").ok().map(PathBuf::from));
+    // (The climbing sweep, `climb_sweep`, hands its runs over as control lines.)
+    if file.is_none() && sweep.pending.is_none() && state.active.is_none() {
+        return;
+    }
     let Ok((mut tf, mut ctl, mut ch)) = q.single_mut() else { return };
     if let Some((id, secs)) = state.active.clone() {
         if let Some((out, last_clip)) = &mut state.trace {
@@ -606,14 +619,22 @@ fn control_runs(
         }
         return;
     }
-    // (The file looked at four times a second.)
-    state.checked += time.delta_secs();
-    if state.checked < 0.25 {
-        return;
-    }
-    state.checked = 0.0;
-    let Ok(text) = std::fs::read_to_string(file) else { return };
-    let Some(line) = text.lines().map(str::trim).rfind(|l| !l.is_empty()) else { return };
+    let line = match (sweep.pending.take(), file) {
+        (Some(line), _) => line,
+        (None, Some(file)) => {
+            // (The file looked at four times a second.)
+            state.checked += time.delta_secs();
+            if state.checked < 0.25 {
+                return;
+            }
+            state.checked = 0.0;
+            let Ok(text) = std::fs::read_to_string(file) else { return };
+            let Some(line) = text.lines().map(str::trim).rfind(|l| !l.is_empty()) else { return };
+            line.to_string()
+        }
+        (None, None) => return,
+    };
+    let line = line.as_str();
     if state.last.as_deref() == Some(line) {
         return;
     }

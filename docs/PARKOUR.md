@@ -838,6 +838,46 @@ the top on `hay70` (ours now 1.1 under both): AC1's hand targets are not our hol
 (Read in the live log, 2026-10-13: on `wall1` AC1's two hand goals in `hangwall_wait` are on the hold line, 8.025 m on
 the line at 8.02, and its root 1.131 m under them: the gap is AC1's 1.13 against ours' 1.1, not the hold. `hay70` not yet.)
 
+## The climbing sweep (2026-10-12)
+`AC1_CLIMB_SWEEP=n` (`climb_sweep.rs`, any level, headless:
+`AC1_HEADLESS=1 AC1_LEVEL=damascus AC1_CLIMB_SWEEP=30 cargo run --release -p ac1`) climbs a level the way a player does
+and scores it. It picks n walls (a first hold 1.5-2.05 m over open ground, the climb start's reach from standing) and n/2
+roof edges from the level's holds, 8 m apart, and runs scripts at each through the control runs (the level loads once):
+grab and up 16 s, up then left and right, down to the ground, let go, a free run into the wall then up, and at a roof
+edge the pull-down then left, right and up. Every frame is checked; each run reports these classes once: `stuck` (stick
+held 2.5 s, no progress, while one of AC1's grid cells on that way holds), `topout` (up held at a hold with a walkable
+top behind it), `letgo` / `letgo-down`, `hands-off` / `no-hold` (resting, a knuckle over 0.15 / 0.4 m from every hold),
+`embed` (hips or chest over 0.08 m into a solid), `pop` (the pose check's, over 0.15 m), `flipflop` (four state changes
+between two states inside 3 s, the root within 0.25 m), `feet-air` / `free-on-wall` (AC1's hang foot rays, `sub_DE0A60`,
+finding no wall in a wall stance / wall for both feet in a free hang), `no-grab`, `death`. One TSV line a run
+(`AC1_SWEEP_OUT`; its start replays it as `AC1_START` in a control run), the counts by class in the log.
+`AC1_SWEEP_NEAR="x,z,r"`, `AC1_SWEEP_PROGS=up,side,...`, `AC1_SWEEP_SEED`, `AC1_SWEEP_RECORD=dir` (each run's frames).
+About 5 minutes for the test level at 20, 30 for Damascus at 30, two at once. Runs with each class, dev (0dbe38a)
+against these fixes: Damascus (147 runs) embed 7 / 5, topout 6 / 6, pop 5 / 5, stuck 2 / 2, hands-off 2 / 2, flipflop
+1 / 1, free-on-wall 1 / 1; test level (101 runs) topout 4 / 3, free-on-wall 4 / 4, pop 4 / 3, embed 1 / 1, flipflop 1 / 0.
+Left: top-outs refused under four Damascus walls (not traced), the climb start at one Damascus wall easing the body into
+it, two stuck sideways moves, pops of 0.15-0.2 m in the post pull-down and landings.
+
+Fixed from it and from the user's recordings of 2026-10-13:
+- The switch from the wall hang into the free hang (`TrySwitchHangType` 0xDE1060) and the climbing stance's ledge grab
+  into a free hang (`TryLedgeGrab` 0xDF0980) test AC1's free-hang body boxes (0xB2DD50: 0.75 x 0.5 x 2.4 m 0.5 m out and
+  1.2 m up, 0.75 x 0.44 x 1.2 m 0.25 m out and 0.8 m up) at its pose (0xB15AD0: the root 2.4 m under the hands' middle),
+  and put the root there, under the holds: at a wall's end the clip had carried the legs into its corner. On the
+  octagonal tower the swing off the wall at the next angled corner is now turned down, the climb going on round it.
+- A free hang under a cornice 0.8 m deep (test level, the slab at (-92.9, 164)) pulls up onto it: ours' inside-a-solid
+  guard on the top-out probed 0.95 m in from the wrists, inside the wall behind; it now probes where he stands up. Its
+  hand step took the edge held for a row 0.3 m up (it measures from 2.1 m over the root, the hang rests 2.4 m under its
+  hold) and stepped onto it over and over; the edge held is left out.
+- The free hang's hand steps go by AC1's vertical rows (`FindVerticalRows` 0xDD8F70: up 0.1-0.8 m, down within 0.8 m,
+  0.5 m in or out, 0.2 m along) before ours' grid hand steps, and down too: under a Damascus awning's frame
+  (`Awning_6x2_Wood_01A`, beams each 0.13-0.31 m lower and 0.38-0.49 m further in, the user's "inverted triangles") he
+  climbs down the beams and back up over the front; the grid step had put the hands 0.46 m over a beam (in the air).
+- A running jump at a knob (an authored piece shorter than the hands are apart, 0.17 m on a Damascus house) ends in
+  the hands-together hang, both hands on it; they hung 0.3 m either side of it. [ours: the reception before it still
+  holds the hands apart.]
+- The window cap in recording 194384 (a pointed top sloping 30 degrees): the user's build pulled up one-handed onto its
+  point and fell 7.4 m; with dev's free-to-wall switch he now hangs on the wall under it (scenario).
+
 ## The live log comparisons (2026-10-12)
 The route library played again in the running game with ac1-hook's live log on (every frame's root, context, action,
 bones, limb IK goals, input and camera), and in ours by control runs with `AC1_RECORD` (`livelog compare --game`: the

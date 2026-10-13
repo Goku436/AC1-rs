@@ -874,7 +874,9 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "gauntlet G12's slab, then down: AC1's free-hang drop onto the holds below, its four clips mixed",
         tags: &["climb", "hang"],
-        env: &[("AC1_START", "-92.6,164,-90,1"), ("AC1_CLIMB", "up=7.5,down=4")],
+        // (Up only into the free hang under the slab: held on, it pulls up onto the slab, a cornice 0.8 m deep in front of the
+        // wall going on up, which AC1's room boxes allow.)
+        env: &[("AC1_START", "-92.6,164,-90,1"), ("AC1_CLIMB", "up=3.5,none=2.5,down=4")],
         secs: 12.0,
         want: &["drop onto the wall below mixed", "-> 2m via xx_h_climbing_hangfree_tr_climb2m_down_"],
         never: &["EMBED"],
@@ -1265,6 +1267,8 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_HIGH", "0-5"),
             ("AC1_LEGS", "0-5"),
             ("AC1_PATH", "225.37,-15.75;225.6,-18.2;226.3,-19.4;227.5,-20.6"),
+            // (The city built, not read from the level cache: the undrawn count is the build's log.)
+            ("AC1_NO_CACHE", "1"),
         ],
         secs: 3.0,
         want: &["0 entities collided with and none of their meshes drawn", "via xx_h_wallingfront_entry_footl_a at [226."],
@@ -1524,7 +1528,9 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["climb"],
         env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "289.3,42.6,180,16"), ("AC1_CLIMB", "up=8,right=6")],
         secs: 16.0,
-        want: &["onto holds on a face 34 degrees round, turning to it", "1m -> 2m via xx_l_climb_1m_r_2m at [286.5"],
+        // (Round the next angled corner: past it on the climbing holds, as AC1's free-hang body boxes (0xB2DD50) turn down the
+        // swing off the wall into a free hang there, the next face in the way.)
+        want: &["onto holds on a face 34 degrees round, turning to it", "via xx_l_climb_2m_r_1m at [286.56, 21.14"],
         never: &["EMBED", "stepped off the wall sideways"],
     },
     // User report #3: the minaret by the viewpoint at (128, -12) (`Minaret_M_02a`, the wooden balcony on its corbel). The jump
@@ -1552,6 +1558,35 @@ const SCENARIOS: &[Scenario] = &[
             "-> perch via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [129.37, 25.47",
         ],
         never: &["EMBED"],
+    },
+    // The climbing sweep (`AC1_CLIMB_SWEEP`, test level, run e2-hang): pulled down off the roof of the block at (60, 12),
+    // left along its edge to the wall's end, where AC1's TrySwitchHangType (0xDE1060) goes into the free hang (one foot
+    // ray off the wall) after its body boxes (0xB2DD50), the root under the holds (0xB15AD0). Ours ended the root 0.06 m
+    // past the hold line, the legs inside the wall's corner (z 12.00, the face; now 12.06, the hold line).
+    Scenario {
+        name: "pulled down off a roof, left to the wall's end: into the free hang with the body under the holds, not in the wall",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_START", "60.00,11.06,-180,12.89"),
+            ("AC1_WALK", "1.5"),
+            ("AC1_STOP", "1.0-60"),
+            ("AC1_HAND", "1.8"),
+            ("AC1_CLIMB", "nograb,wait=3.5,left=3,right=1"),
+        ],
+        secs: 9.0,
+        want: &["hangwall -> free_1m via xx_h_hangwall_tr_hangfree_left", "-> hangwall_open via xx_h_hangfree_tr_hangwall_right at [58.08, 10.19, 12.06]"],
+        never: &["EMBED"],
+    },
+    // The climbing sweep (test level, run w10-up): under the slab at (-92.9, 164), a cornice 0.8 m deep in front of a wall
+    // going on up, the free hang's pull-up was refused (ours' inside-a-solid probe 0.95 m in, inside that wall) and its hand
+    // step took the edge it held for a row 0.3 m up: up and down onto the same edge four times before it got over.
+    Scenario {
+        name: "free hang under a deep cornice, up: straight over the top, no hand stepping onto the edge it holds",
+        tags: &["hang", "climb"],
+        env: &[("AC1_START", "-92.61,164,-90,0.3"), ("AC1_CLIMB", "up=8")],
+        secs: 9.0,
+        want: &["free_open -> hangknee via xx_h_hangfree_tr_hangwaist_a", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [-92.65, 3.99"],
+        never: &["via xx_h_hangfree_climb_1ru_u_1m", "via xx_h_hangfree_climb_1lu_u_1m", "EMBED"],
     },
     // Audit LEDGE-15 / LEDGE-7: the standing jump at a hold 2.75 m up with the wall under it, AC1's 2.5-3 m band (0xB21DA0):
     // the wall-free hang (flight 0x0121A8B1, reception 0x0121B072, `xx_h_hangwallfree_wait`); up: CanPullup's switch onto the
@@ -1584,6 +1619,50 @@ const SCENARIOS: &[Scenario] = &[
         secs: 9.0,
         want: &["-> hangwall_open via xx_l_ledge_pulldown_soft_to_hangwall_straight_b", "-> free_1m via xx_h_hangwall_tr_hangfree_down_left"],
         never: &["EMBED"],
+    },
+    // User report 2026-10-13 (recording 214883, "the inverted triangle climbs are bugged, Altair can't go down and when he
+    // goes up he grabs the air"): pulled down off the front of a Damascus awning (`Awning_6x2_Wood_01A`, its frame's beams
+    // under it each 0.13-0.31 m lower and 0.38-0.49 m further in) into a free hang. Down hand-steps along the beams (AC1's
+    // vertical rows down; ours took one with a stance's grid step and stopped), up back along them and over the front
+    // (ours' grid step put the hands 0.46 m over the beam, in the air).
+    Scenario {
+        name: "Damascus awning frame: from the free hang at its front, down its beams hand by hand and back up over it (user report 2026-10-13)",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "82.1,-43.97,-68.3,4.3"),
+            ("AC1_HAND", "0.5"),
+            ("AC1_CLIMB", "nograb,wait=3.5,down=4,up=5"),
+        ],
+        secs: 13.0,
+        want: &[
+            "hand steps onto the edge -0.32 up and -0.38 out at [82.14, 3.72",
+            "hand steps onto the edge -0.12 up and -0.46 out at [82.14, 3.59",
+            "hand steps onto the edge 0.33 up and 0.38 out at [82.14, 4.03",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [82.1",
+        ],
+        never: &["EMBED"],
+    },
+    // User report 2026-10-13 (recording 156949, "he grabs the air"): from the scaffold's planks at (41, 7.7, -25) a running jump
+    // at the house wall catches a knob 9.99 m up (an authored guidance piece 0.17 m long, `House_P_6x6x8_01a`). The hang
+    // after AC1's reception is the hands-together one, both hands on the knob; it was the hands-apart hang, 0.3 m either
+    // side of it in the air. [ours: the reception itself still holds the hands apart.]
+    Scenario {
+        name: "Damascus: a running jump at a knob on a house wall hangs from it with both hands on it (user report 2026-10-13)",
+        tags: &["jump", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "41.15,-24.3,0,8"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-3"),
+            ("AC1_LEGS", "0-3"),
+            ("AC1_STOP", "0.6"),
+        ],
+        secs: 5.0,
+        want: &["running jump at the wall's ledge [41.14, 9.99, -30.01]", "drop -> hangwall via xx_hangwall_reception_front_straight_max_c at [41.15, 8.87"],
+        never: &["-> hangwall_open via xx_hangwall_reception", "EMBED"],
     },
     // Audit LEDGE-15: from a free hang up to a row where a foot finds the wall: AC1's TrySwitchHangType at the hand step's
     // target, `xx_h_hangfree_tr_hangwall_right` (0x01C32563) with the root interpolated a row up (0x711130, the clip's own
@@ -1714,6 +1793,24 @@ const SCENARIOS: &[Scenario] = &[
         secs: 6.0,
         want: &["assassination type 5", "Paired xx_h_assassina_runback_kill_ass_footr_a", "limp (the ragdoll)"],
         never: &["combat: no clip", "EMBED"],
+    },
+    // User report 2026-10-13 (recording 194384): pulled down off a Damascus roof's edge at (73.6, 11.9, -56.6), down and left
+    // along the house front into a free hang under a window's pointed cap (pieces 0.2-0.6 m long, its top sloping 30
+    // degrees), then up: the user's build pulled up one-handed onto the cap's point and fell 7.4 m off it. Now up switches
+    // onto the wall under it (AC1's CanPullup) and hangs there; no pull-up onto the sloping point.
+    Scenario {
+        name: "Damascus: up from the free hang under a window's pointed cap does not pull up onto its point and fall (user report 2026-10-13)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "73.61,-56.64,75.2,12.2"),
+            ("AC1_HAND", "0.5"),
+            ("AC1_CLIMB", "nograb,wait=1.85,downleft=0.5,left=1.2,up=6"),
+        ],
+        secs: 12.0,
+        want: &["2m -> free_1m via xx_l_climb_1m_l_hangfree", "free_1m -> hangwall_open via xx_h_hangfree_tr_hangwall"],
+        never: &["onehand_footl_to_freestep_entry", "landing_damage", "EMBED"],
     },
 ];
 

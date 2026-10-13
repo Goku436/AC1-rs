@@ -37,7 +37,7 @@ pub enum SubType {
 }
 
 impl SubType {
-    fn from_u32(v: u32) -> Option<Self> {
+    pub fn from_u32(v: u32) -> Option<Self> {
         Some(match v {
             0 => Self::None,
             1 => Self::LedgeGrab,
