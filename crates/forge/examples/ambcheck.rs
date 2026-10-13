@@ -22,7 +22,7 @@ fn main() -> Result<()> {
             }
             all += 1;
             match forge::ambiance::find_in(objects.iter()) {
-                Ok(forge::ambiance::AmbiancePair { ambiance: a, sky: s }) => {
+                Ok(forge::ambiance::AmbiancePair { ambiance: a, sky: s, ao }) => {
                     ok += 1;
                     println!("{} / {}:", path.file_name().unwrap_or_default().to_string_lossy(), e.name);
                     println!("  {:?}", a.fog);
@@ -33,6 +33,7 @@ fn main() -> Result<()> {
                     println!("  environment {:?}", s.environment_ambient);
                     println!("  character ({}) {:?}", s.use_character_ambient, s.character_ambient);
                     println!("  sky layers (mesh, material) {:x?}", s.layers);
+                    println!("  occlusion {ao:?}");
                 }
                 Err(err) => println!("{} / {}: {err:#}", path.display(), e.name),
             }

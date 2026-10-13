@@ -1253,7 +1253,7 @@ fn spawn_world(
                     .fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(a, b), v| (a.min(v), b.max(v)));
                 drawn.push(Drawn {
                     world,
-                    shadow: !mesh.name.starts_with("BA_Bureau_Ext"),
+                    shadow: !mesh.name.starts_with("BA_Bureau_Ext") && !mesh.name.starts_with("BA_Treilli"),
                     lo,
                     hi,
                     mesh: at,
