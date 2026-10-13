@@ -6434,6 +6434,12 @@ impl WallClimb {
         // The high dive's takeoff drops the root about 8 m with little way on: only where nothing is under that drop
         // (a minaret's balcony is); else the low one, the flight carrying it clear.
         let toward = (hay.centre - root.translation).with_y(0.0).normalize_or(fwd);
+        // (The dive goes toward the hay, not the stick's way: an edge there too. Walking along a top by its side edge, the
+        // stick's way just over it found the hay 10 m off to the front, and the takeoff, along the top, landed on it, the
+        // user's report 2026-10-13.)
+        if !at_viewpoint && level.ground(root.translation + toward * 1.2, 0.5, 2.0).is_some() {
+            return None;
+        }
         let clear_below = level.raycast(root.translation + toward * 1.2 - Vec3::Y * 0.3, Vec3::NEG_Y, (FAITH_HIGH_DROP - 1.0).min(drop - 0.5)).is_none();
         let names = if drop > FAITH_HIGH_DROP && clear_below { FAITH_HIGH } else { FAITH_LOW };
         let (takeoff, dive) = (lib.get(names[0])?, lib.get(names[1])?);
