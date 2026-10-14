@@ -343,6 +343,68 @@ pub fn shown_systems(body: &[u8], is_system: impl Fn(u32) -> bool) -> Vec<u32> {
     out
 }
 
+/// CRC32("WorldParticleSystem"): a city's ambient effect (inline in its `World`, one a district).
+pub const CLASS_WORLD_PARTICLE_SYSTEM: u32 = 0x2270_de6a;
+/// CRC32("WorldParticleData"): a cell's points for the ambient effects (one object a cell, `CellID=<n>`).
+pub const CLASS_WORLD_PARTICLE_DATA: u32 = 0x5730_d30e;
+/// The class of a `WorldParticleData`'s inline bounds (its name is not in the exe's strings).
+const CLASS_PARTICLE_DATA_BOUNDS: u32 = 0x4aec_3476;
+
+/// A city's ambient effect (`WorldParticleSystem`, inline in the level's `World`; Damascus: the four countryside
+/// quarters, three districts and the three master assassins' districts). The exe (0xA0ADD0, every frame): of the points
+/// of its cells (`data`, each a `WorldParticleData`) within 30 m of the camera and in view, the `count` nearest each get
+/// an instance of `entity` (whose `Visual` shows the particle system: dust, leaves, bees, petals, dandelions, ground fog),
+/// upright at the point; the instances left over are taken out of the world.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorldParticleSystem {
+    pub id: u32,
+    /// Its `WorldParticleData` objects (by id).
+    pub data: Vec<u32>,
+    /// The entity it places.
+    pub entity: u32,
+    /// u8 on, u8 the instances at most (10 in every Damascus one).
+    pub on: bool,
+    pub count: u8,
+}
+
+/// The `WorldParticleSystem`s inline in a `World` body: each `u8 0, u32 id, u32 class`, then u8 `?` (1), u32 its parent
+/// (the `World`), u32 n, n u32 `WorldParticleData` ids, u32 the entity, u8 on, u8 count.
+pub fn world_particle_systems(world: &[u8]) -> Vec<WorldParticleSystem> {
+    let tag = CLASS_WORLD_PARTICLE_SYSTEM.to_le_bytes();
+    let mut out = vec![];
+    for k in world.windows(4).enumerate().filter(|(_, w)| *w == tag).map(|(k, _)| k) {
+        let parse = || -> Result<WorldParticleSystem> {
+            ensure!(k >= 5 && world[k - 5] == 0, "no inline object at {:#x}", k.saturating_sub(5));
+            let id = u32_at(world, k - 4)?;
+            let n = u32_at(world, k + 9)? as usize;
+            ensure!(n < 4096, "{n} cells at {:#x}", k + 9);
+            let data = (0..n).map(|i| u32_at(world, k + 13 + 4 * i)).collect::<Result<Vec<u32>>>()?;
+            let e = k + 13 + 4 * n;
+            let entity = u32_at(world, e)?;
+            let Some(&[on, count]) = world.get(e + 4..e + 6) else { bail!("cut short at {:#x}", e + 4) };
+            Ok(WorldParticleSystem { id, data, entity, on: on != 0, count })
+        };
+        if let Ok(w) = parse() {
+            out.push(w);
+        }
+    }
+    out
+}
+
+/// A `WorldParticleData` body's points (game space): its inline bounds (u32 id, u32 class 4aec3476, min and max
+/// vec3, u32 `?`), u32 n and n positions, u32 m and m normals (0 in every Damascus cell: the instances stand upright).
+/// The points lie on a 6.67 m grid over the cell's streets and roofs.
+pub fn world_particle_points(body: &[u8]) -> Result<Vec<[f32; 3]>> {
+    ensure!(u32_at(body, 4)? == CLASS_PARTICLE_DATA_BOUNDS, "no bounds at 0x4");
+    let n = u32_at(body, 0x24)? as usize;
+    ensure!(n < 100_000, "{n} points at 0x24");
+    let pts = (0..n).map(|i| floats::<3>(body, 0x28 + 12 * i)).collect::<Result<Vec<_>>>()?;
+    let at = 0x28 + 12 * n;
+    let m = u32_at(body, at)? as usize;
+    ensure!(body.len() == at + 4 + 12 * m, "{} bytes after the points at {at:#x}", body.len() - at);
+    Ok(pts)
+}
+
 /// `HumanFXPack` slots (byte offsets into its body, a u32 link each): the FX AC1's code plays.
 pub mod pack {
     /// `FX_Camera_Shake_Assassins_Fall` (`HumanInAir__SetupToGround_Landing` 0xE05940, over 3 m).
@@ -422,6 +484,37 @@ mod tests {
         assert!(parse_particle_system(&body[..100]).is_err());
     }
 
+    /// A `World`'s ambient effects and a cell's points, made up as the Damascus data lays them out.
+    #[test]
+    fn world_particle_systems_and_points_read() {
+        let mut w = vec![9u8; 7];
+        for (id, cells, entity) in [(5u32, vec![70u32, 71], 80u32), (6, vec![], 81)] {
+            w.push(0);
+            w.extend(id.to_le_bytes());
+            w.extend(CLASS_WORLD_PARTICLE_SYSTEM.to_le_bytes());
+            w.push(1);
+            w.extend(1u32.to_le_bytes());
+            w.extend((cells.len() as u32).to_le_bytes());
+            cells.iter().for_each(|c| w.extend(c.to_le_bytes()));
+            w.extend(entity.to_le_bytes());
+            w.extend([1, 10]);
+        }
+        let s = world_particle_systems(&w);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0], WorldParticleSystem { id: 5, data: vec![70, 71], entity: 80, on: true, count: 10 });
+        assert_eq!((s[1].entity, s[1].data.len()), (81, 0));
+        let mut b = 3u32.to_le_bytes().to_vec();
+        b.extend(CLASS_PARTICLE_DATA_BOUNDS.to_le_bytes());
+        b.extend([0u8; 28]);
+        b.extend(2u32.to_le_bytes());
+        for v in [160.0f32, 228.0, 0.25, 166.5, 228.0, 0.5] {
+            b.extend(v.to_le_bytes());
+        }
+        b.extend(0u32.to_le_bytes());
+        assert_eq!(world_particle_points(&b).unwrap(), vec![[160.0, 228.0, 0.25], [166.5, 228.0, 0.5]]);
+        assert!(world_particle_points(&b[..b.len() - 1]).is_err());
+    }
+
     #[test]
     fn links_skip_zero_and_none() {
         assert_eq!(links(&[1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff]), vec![1, 0xff00_0000, 0xffff_0000, 0xffff_ff00]);
@@ -452,6 +545,7 @@ mod tests {
             return;
         }
         let (mut n, mut ok, mut placed) = (0, 0, 0);
+        let (mut cells, mut cells_ok, mut points, mut ambient) = (0, 0, 0, vec![]);
         for file in ["DataPC.forge", "DataPC_Damascus.forge"] {
             let forge = crate::Forge::open(dir.join(file)).unwrap();
             let datas: Vec<Vec<u8>> = forge.entries.iter().filter_map(|e| forge.read(e).ok()).collect();
@@ -464,13 +558,27 @@ mod tests {
                         Ok(_) => ok += 1,
                         Err(e) => eprintln!("{file}: {}: {e:#}", o.name),
                     }
+                } else if o.class == CLASS_WORLD_PARTICLE_DATA {
+                    cells += 1;
+                    match world_particle_points(o.body) {
+                        Ok(p) => (cells_ok, points) = (cells_ok + 1, points + p.len()),
+                        Err(e) => eprintln!("{file}: {}: {e:#}", o.name),
+                    }
+                } else if o.class == crate::world::CLASS_WORLD {
+                    ambient.extend(world_particle_systems(o.body));
                 } else if file.contains("Damascus") && !shown_systems(o.body, |id| systems.contains(&id)).is_empty() {
                     placed += 1;
                 }
             }
         }
         eprintln!("particle systems {ok}/{n}; Damascus objects showing one: {placed}");
+        eprintln!("world particle data {cells_ok}/{cells} ({points} points); ambient effects {}", ambient.len());
         assert_eq!(ok, n);
+        assert_eq!(cells_ok, cells);
+        assert!(cells > 100 && points > 1000, "{cells} {points}");
+        assert_eq!(ambient.len(), 10, "Damascus: four countryside quarters, three districts, three masters'");
+        assert!(ambient.iter().all(|a| a.on && a.count == 10));
+        assert_eq!(ambient.iter().map(|a| a.data.len()).sum::<usize>(), 230);
         assert!(n >= 405, "{n}");
         assert!(placed >= 300, "{placed}");
     }

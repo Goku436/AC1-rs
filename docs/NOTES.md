@@ -37,7 +37,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
 | Animation event tracks (sounds, surface contacts) | 21670/22228 clips' events parse (`examples/animcheck`, 20523 keys); the rest hold an `FXEvent` (552, assassinations) or class a9264210 (6), whose fields are not known |
 | Sound (`SoundBao` d8295dcb, streamed BAO files, `forge::sound`, the `bao` tool) | 221707/221707 `SoundBao` objects and 6531/6531 streamed files parse; every distinct resource and stream with a header decodes (`bao scan`): IMA-ADPCM 38211/38211 resources and 2176/2176 streams, interleaved tracks (IMA mono or stereo, or Ogg Vorbis pages) 29/29 and 76/76, Ogg Vorbis 13743/13743 and 110/110 (6636 of those Ogg resources are a stream's start, cut); the 4169 headerless streams (speech) decode joined to their start for 3716, the other 453 have no start in any forge. `ContactTable` read (Altaïr's 24 surface groups). Played in game (`sound.rs`): the player's clip events (steps, starts and stops, landings, rolls, grunts, catches, wall runs, ejects, haystacks, the leap of faith; the landing grunt AC1's code plays, `OnoJumpLandHeavy`) on the surface's sound material (cities: from `CollisionMaterial`) and AC1's switch values (character kind, weapon sheathed, city), placed and panned with AC1's roll-off; the city's placed sounds (Damascus: 1292 trigger zones: fountains, braziers, flags, kiosks, gardens, palms), its ambience loops (116 region links, 36 sets, 11 streamed loops) and their one-off sounds at AC1's intervals; M mutes, F8 sets the volume |
-| Effects (`FX` 824a23ba, `ParticleSystem` caaa7ee8, `HumanFXPack`, `forge::fx`) | 1602/1602 particle systems of every forge parse to their end (`examples/fxcheck`; Damascus 273/273, DataPC 132/132), every `ParticleEmitter` field placed (48 of its 65 serialized properties named; what the exe does with 9 of the unnamed ones found); the contact table's FX per surface read; the city's placed effects found (Damascus: 1049 entities whose `Visual` shows a system). Played (`particles`): the surface's dust or straw on contact keys (steps, landings, rolls), the haystack's straw going in and out, the city's fountains, waterfalls, fires, lamps, smoke and flag glints, with AC1's blend and texture-frame modes, unlit and unfogged as AC1's particle shaders, its view distances and fades, the city's wind, its glow approximated (`particle_material`); the landing's camera shake (`shake`). Not walked: the FX graphs' operators; not drawn: the districts' ambient systems (dust, bees, petals, ground fog), the cyclone effect, soft-particle fades, mesh particles |
+| Effects (`FX` 824a23ba, `ParticleSystem` caaa7ee8, `HumanFXPack`, `forge::fx`) | 1602/1602 particle systems of every forge parse to their end (`examples/fxcheck`; Damascus 273/273, DataPC 132/132), every `ParticleEmitter` field placed (48 of its 65 serialized properties named; what the exe does with 9 of the unnamed ones found); the contact table's FX per surface read; the city's placed effects found (Damascus: 1049 entities whose `Visual` shows a system). Played (`particles`): the surface's dust or straw on contact keys (steps, landings, rolls), the haystack's straw going in and out, the city's fountains, waterfalls, fires, lamps, smoke and flag glints, with AC1's blend and texture-frame modes, unlit and unfogged as AC1's particle shaders, its view distances and fades, the city's wind, its glow approximated (`particle_material`); the districts' ambient effects (`WorldParticleSystem`: 10 in Damascus, 230/230 cells' points read) placed round the camera as AC1's; the landing's camera shake (`shake`). Not walked: the FX graphs' operators; not drawn: the cyclone effect, soft-particle fades, mesh particles (none in DataPC, Common or Damascus) |
 | City levels (`AC1_LEVEL=masyaf`, `damascus`, any `DataPC_<City>.forge`): textured, with water, collision and holds found in the buildings' edges; free camera (P); lit as AC1 lights them ("How AC1 lights its world": the level's sun, ambient cube, baked occlusion, fog and colour grade from its `WorldAmbiance`/`LayeredSky`), three shadow cascades in 120 m (the first 12 m); drawn streamed: AC1's levels of detail, the grid's cells round the camera on loader threads, the stand-ins beyond, BC textures (`AC1_DETAIL`, "City rendering cost and streaming"); gameplay data and what is drawn saved after the first load ("City load time and the level cache") | first version |
 | Level light and grade (`WorldAmbiance` 21c2d472, `LayeredSky` 24d32cf8: fog, post effects, suns, ambient cubes, sky layers) | done: 14/14 levels read, and the occlusion mapping (`AOSettings` in each `World`) of 13/13 (`examples/ambcheck`) |
 | Baked occlusion (`MeshInstanceData` / `CompiledMeshInstance`: a byte per vertex per placed mesh) | done: 17436/17436 Damascus entities and groups, every stream a byte per vertex of its mesh (`examples/aocheck`) |
@@ -815,9 +815,28 @@ Read by `forge::fx`; drawn by `crates/game/src/particles.rs`, the shake in `shak
   and splash, pots' smoke 12, incense 2). The missions' data files place theirs too (Jubair's burning books), left out,
   and so are the `GFX_FX_*` entities `FX` objects spawn, kept in the cells at the origin. Their textures are in the
   city's forge, DataPC's "Game Bootstrap Settings" and "Game Fix". Not every fountain has one: the courtyard basin at
-  Bevy (123.9, 0.5, -88.6) has none in AC1's data (still water, its material only). The `Damascus` file's
-  `GFX_Environnement_Damascus_<district>` systems (dust, bees, petals, dandelions, ground fog by district, entities at
-  the origin) are the ambient ones `WorldAreaParticleData` / `WorldParticleSettings` spread round the camera: not drawn.
+  Bevy (123.9, 0.5, -88.6) has none in AC1's data (still water, its material only).
+- The ambient effects (2026-10-13): the level's `World` (fbb63e47) holds inline `WorldParticleSystem`s (2270de6a; each
+  `u8 0, id, class`, then u8 ? (1), u32 the `World`, u32 n and n `WorldParticleData` ids, u32 an entity, u8 on, u8 the
+  instances at most; `forge::fx::world_particle_systems`). Damascus has 10: the four countryside quarters (bees,
+  dandelions), the poor, medium and rich districts and the three masters' (leaves, bees, dandelions, petals, the souk's
+  ground fog), each placing its `GFX_Environnement_Damascus_<name>` entity (in the `Damascus` file, at the origin) 10
+  times. Each cell has one `WorldParticleData` (5730d30e, `CellID=<n>`: inline bounds (4aec3476: min, max, u32 ?), u32 n
+  positions, u32 m normals (0 everywhere); `forge::fx::world_particle_points`): its points on a 6.67 m grid over streets
+  and roofs; 230/230 cells read, 1318 points, each cell listed by one system. The exe (0xA0ADD0 every frame, 0xA0A690):
+  of its cells in view, the points within 30 m of the camera (squared distance under 901) and in the view frustum,
+  sorted by distance; the nearest `count` each get an instance, upright (with normals: turned to them), the rest of the
+  instances are taken out. `WorldParticleSettings` / `WorldAreaParticleData` are in no data file of DataPC or Damascus.
+  Ours: the city finds them (`city`, kept in the render cache, version 3), `particles` moves 10 instances of each to the
+  nearest points ahead of the camera (or within 6 m) every frame; their emitters then run as any city emitter. Small and
+  sparse, as the data has them: leaves 0.16 m, dandelions 0.1 m, bees 0.04 m, 9-19 an instance.
+- The cyclone (`ParticleEffect` 1, its 8 `EffectParams`; the ambient leaves, bees, dandelions, petals, the fire cage's
+  sparks): the update (0xA84FF0, from 0xA85413) adds to the position, each frame, sine offsets of the particle's own
+  clock at 2 pi x a param (pairs (0xa8, 0xac), (0xb0, 0xb4), (0xb8, 0xbc); the rotation by (0xc0, 0xc4)) minus the same
+  a frame before; which pair goes to which axis does not read consistently from the x87 code (as read, x gets one pair's
+  new value and another's old one, y only an old one), so it is not run: settle it by stepping the running game.
+- The scale keys (`MinScale` / `MaxScale`) are read only for `PARTICLETYPE_3D` (mesh) emitters, of which DataPC,
+  Common and Damascus have none.
 - Ours (`particles`, `particle_material`): the contact keys play their surface's FX at the lower foot (steps) or the root
   (landings, rolls, hands); the dives into hay play `TopEntry` at their straw sound key, the hop out `Side Exit`. The
   placements the city finds are kept in its render cache (`render_cache`, `CityDraw::effects`). The
@@ -831,8 +850,9 @@ Read by `forge::fx`; drawn by `crates/game/src/particles.rs`, the shake in `shak
   glow one mesh a frame. The shader: texture x colour key as stored, unlit and unfogged as AC1's, then the level's
   grade; alpha and copy blended (premultiplied), additive added, modulate multiplied; `GlowEnabled` adds the sprite's
   colour x min(alpha x `GlowIntensity`, 1) in it, and once more as a halo 2.5 times its size at 1 / 2.5² of that
-  (`HALO`: AC1's blurred glow pass, approximated). Not run: the scale keys, the cyclone, soft-particle fades, 3D
-  (mesh) particles, the +0x10 / +0x11 sprite frames (the falls' and splashes'). `AC1_NO_PARTICLES=1` leaves them out; never
+  (`HALO`: AC1's blurred glow pass, approximated). Not run: the cyclone, soft-particle fades, 3D (mesh) particles,
+  the +0x10 / +0x11 sprite frames (the falls' and splashes'). Each batch's mesh starts as one quad of no area (an empty
+  one made Bevy's mesh allocator log a use-after-free error). `AC1_NO_PARTICLES=1` leaves them out; never
   headless; `AC1_FX_LOG=1` lists the placed effects, `AC1_FPS=1` logs their count and CPU time. Damascus, `AC1_FPS=1`
   (2026-10-13, a shared machine): 1236-2026 particles, 71-147 of 1423 emitters running, 0.2-0.33 ms CPU a frame; the
   vizier's pool close up GPU 1.9 ms against 1.4 without, the rooftops' chimneys 2.7-2.8 against 3.4 (noise), the frame
