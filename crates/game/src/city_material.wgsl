@@ -268,6 +268,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         albedo = mix(albedo, space(look, params.water_color.rgb), under);
     }
     var color = albedo * space(look, ambient_cube(look.env_cube, to_game(N), look.bend.x)) * occlusion(look, ao_raw);
+#ifdef SCREEN_SPACE_AMBIENT_OCCLUSION
+    // (The settings' screen-space occlusion on the ambient, at the look's strength.)
+    color *= mix(1.0, textureLoad(view_bindings::screen_space_ambient_occlusion_texture, vec2<i32>(in.position.xy), 0i).r, look.ssao.x);
+#endif
     let sun = sun_shade(p.world_position, p.world_normal, receives, in.position.xy);
     color += albedo * space(look, look.sun.rgb) * max(dot(N, sun.xyz), 0.0) * sun.w;
     if params.wet.z > 0.5 {

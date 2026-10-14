@@ -43,6 +43,15 @@ pub enum Shadows {
     High,
 }
 
+/// Screen-space ambient occlusion (Bevy's SSAO over AC1's baked occlusion), by Bevy's quality levels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Occlusion {
+    Off,
+    Low,
+    Medium,
+    High,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AntiAlias {
     Off,
@@ -73,6 +82,8 @@ pub struct Settings {
     pub textures: u32,
     pub shadows: Shadows,
     pub aa: AntiAlias,
+    /// Screen-space ambient occlusion (needs MSAA off: with it on, the MSAA choices act as FXAA).
+    pub ao: Occlusion,
     pub fog: bool,
     /// The camera's far plane (m); the fog closes in before it.
     pub view: u32,
@@ -95,6 +106,7 @@ impl Default for Settings {
             textures: 512,
             shadows: Shadows::Medium,
             aa: AntiAlias::Msaa4,
+            ao: Occlusion::Off,
             fog: true,
             view: 5000,
             volume: 100,
@@ -160,6 +172,7 @@ impl Settings {
         put("textures", self.textures.to_string());
         put("shadows", word(self.shadows));
         put("anti_alias", word(self.aa));
+        put("ambient_occlusion", word(self.ao));
         put("fog", on_off(self.fog).into());
         put("view_distance", self.view.to_string());
         put("volume", self.volume.to_string());
@@ -196,6 +209,7 @@ impl Settings {
                 "textures" => s.textures = num(v).filter(|t| TEXTURES.contains(t)).unwrap_or(s.textures),
                 "shadows" => s.shadows = from_word(v, &[Shadows::Off, Shadows::Low, Shadows::Medium, Shadows::High]).unwrap_or(s.shadows),
                 "anti_alias" => s.aa = from_word(v, &[AntiAlias::Off, AntiAlias::Fxaa, AntiAlias::Msaa2, AntiAlias::Msaa4]).unwrap_or(s.aa),
+                "ambient_occlusion" => s.ao = from_word(v, &[Occlusion::Off, Occlusion::Low, Occlusion::Medium, Occlusion::High]).unwrap_or(s.ao),
                 "fog" => s.fog = v != "off",
                 "view_distance" => s.view = num(v).filter(|d| (100..=20_000).contains(d)).unwrap_or(s.view),
                 "volume" => s.volume = num(v).filter(|p| *p <= 100).unwrap_or(s.volume),
@@ -341,14 +355,33 @@ pub fn apply(
             w.present_mode = present;
         }
     }
-    // Anti-aliasing: MSAA, or FXAA after the frame.
+    // Anti-aliasing: MSAA, or FXAA after the frame. (Bevy's SSAO needs MSAA off: with it, MSAA is FXAA.)
     let mut c = commands.entity(cam);
-    match s.aa {
+    let aa = match s.aa {
+        AntiAlias::Msaa2 | AntiAlias::Msaa4 if s.ao != Occlusion::Off => AntiAlias::Fxaa,
+        aa => aa,
+    };
+    match aa {
         AntiAlias::Off => c.insert(Msaa::Off).remove::<bevy::anti_alias::fxaa::Fxaa>(),
         AntiAlias::Fxaa => c.insert((Msaa::Off, bevy::anti_alias::fxaa::Fxaa::default())),
         AntiAlias::Msaa2 => c.insert(Msaa::Sample2).remove::<bevy::anti_alias::fxaa::Fxaa>(),
         AntiAlias::Msaa4 => c.insert(Msaa::Sample4).remove::<bevy::anti_alias::fxaa::Fxaa>(),
     };
+    // Screen-space ambient occlusion (its depth and normal prepasses go with it).
+    {
+        use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
+        use bevy::pbr::{ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel as Q};
+        let quality = match s.ao {
+            Occlusion::Off => None,
+            Occlusion::Low => Some(Q::Low),
+            Occlusion::Medium => Some(Q::Medium),
+            Occlusion::High => Some(Q::High),
+        };
+        match quality {
+            Some(q) => c.insert(ScreenSpaceAmbientOcclusion { quality_level: q, ..default() }),
+            None => c.remove::<(ScreenSpaceAmbientOcclusion, DepthPrepass, NormalPrepass)>(),
+        };
+    }
     // The far plane, and the fog closing in before it.
     if let Projection::Perspective(p) = &mut *proj
         && p.far != s.view as f32
@@ -426,6 +459,7 @@ mod tests {
         let mut s = Settings { window: WindowMode::Borderless, resolution: (1920, 1080), vsync: false, frame_cap: 144, ..Settings::default() };
         s.set_preset(Preset::Low);
         s.fog = false;
+        s.ao = Occlusion::Medium;
         s.volume = 40;
         s.join_ip = "192.168.1.20".into();
         s.host_port = 40_000;

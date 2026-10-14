@@ -121,6 +121,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     }
     // The level's character ambient cube.
     var color = diffuse * space(look, ambient_cube(look.char_cube, to_game(N), look.bend.y));
+#ifdef SCREEN_SPACE_AMBIENT_OCCLUSION
+    // (The settings' screen-space occlusion on the ambient, at the look's strength.)
+    color *= mix(1.0, textureLoad(view_bindings::screen_space_ambient_occlusion_texture, vec2<i32>(in.position.xy), 0i).r, look.ssao.y);
+#endif
     // (Parts marked `NotShadowReceiver`, the faces under the hood, take no shadow-map shadows.)
     let receives = (p.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u;
     let view_z = dot(vec4<f32>(view_bindings::view.view_from_world[0].z,
