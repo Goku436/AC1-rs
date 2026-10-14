@@ -52,6 +52,9 @@ pub struct AnimLib {
     replace: HashMap<usize, HashMap<String, String>>,
     /// AC1's move graph over these clips (the data file's action blocks, see `forge::graph`).
     pub graph: forge::graph::MoveGraph,
+    /// The rig `get` binds to (the player's, 0, but while `character::locomotion` moves another character: its own, so
+    /// the moves it starts play clips bound to its bones).
+    pub bound: usize,
 }
 
 impl AnimLib {
@@ -89,7 +92,7 @@ impl AnimLib {
             .collect();
         let graph = forge::graph::MoveGraph::new(blocks.iter().map(|(n, b)| (*n, b)), |id| by_id.get(&id).cloned());
         info!("move graph: {} actions in {} blocks", graph.len(), blocks.len());
-        Ok(Self { data, index, names, cache: HashMap::new(), rigs: vec![], sets, replace: HashMap::new(), graph })
+        Ok(Self { data, index, names, cache: HashMap::new(), rigs: vec![], sets, replace: HashMap::new(), graph, bound: 0 })
     }
 
     /// Bind the player's rig as rig 0 (before any other).
@@ -116,9 +119,9 @@ impl AnimLib {
         self.rigs.len() - 1
     }
 
-    /// A clip bound to the player's rig.
+    /// A clip bound to the player's rig (or to `bound`'s, see there).
     pub fn get(&mut self, name: &str) -> Option<Arc<Clip>> {
-        self.get_for(0, name)
+        self.get_for(self.bound, name)
     }
 
     /// A clip bound to rig `rig`.
@@ -189,14 +192,16 @@ pub fn mix_name(parts: &[(&str, f32)]) -> String {
 pub fn sample(clip: &Clip, frame: f32, pose: &mut Pose, reference: Option<usize>) {
     let fix = Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2);
     for &(t, bone) in &clip.bind {
-        let track = &clip.anim.tracks[t];
+        // (A clip bound to another rig than the pose's: its bones past the pose's left alone, not a crash. A militia guard
+        // walking by the player's locomotion played the player's clips on its 122 bones, `ac1-crash-1791937561`.)
+        let (Some(track), Some(local)) = (clip.anim.tracks.get(t), pose.local.get_mut(bone)) else { continue };
         let is_ref = Some(bone) == reference;
         if let Some([x, y, z, w]) = track.rotation_at(frame) {
             let q = Quat::from_xyzw(x, y, z, w);
-            pose.local[bone].rot = if is_ref { fix * q } else { q };
+            local.rot = if is_ref { fix * q } else { q };
         } else if let Some(p) = track.translation_at(frame) {
             let p = Vec3::from(p);
-            pose.local[bone].pos = if is_ref { fix * p } else { p };
+            local.pos = if is_ref { fix * p } else { p };
         }
     }
 }

@@ -352,6 +352,11 @@ fn idle_pose(rig: &Rig, b: &Bones) -> Pose {
     pose
 }
 
+/// Whether `rig` has the biped bones `spawn_character` needs (a model built from data that lacks them is not spawned).
+pub fn is_biped(rig: &Rig) -> bool {
+    Bones::find(rig).is_some()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_character(
     commands: &mut Commands,
@@ -1063,6 +1068,10 @@ pub fn locomotion(
     let dt = time.delta_secs().min(0.05);
     for (mut tf, mut ch, mut ctl) in &mut q {
         let ch = &mut *ch;
+        // (The moves started here play clips bound to this character's own rig: `AnimLib::bound`.)
+        if let Some(l) = lib.as_deref_mut() {
+            l.bound = ch.rig_id;
+        }
         // Flying (AC1's Ghost mode): the flight moves the root, nothing here (`fly`); so does a fight (`combat`).
         if ch.flying || ch.fighting {
             continue;
@@ -2037,6 +2046,9 @@ pub fn locomotion(
                 tf.translation.y = tf.translation.y.max(g.point.y - STRIDE_STEP * 0.6);
             }
         }
+    }
+    if let Some(l) = lib.as_deref_mut() {
+        l.bound = 0;
     }
 }
 
