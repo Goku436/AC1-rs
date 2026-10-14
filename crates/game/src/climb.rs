@@ -387,6 +387,13 @@ const CATCH_ACROSS: f32 = 0.4;
 /// AC1's air catches look for a hold this far over the feet (m): the ledge catch (climb or wall hang) and the free hang.
 const CATCH_LEDGE_UP: f32 = 1.4;
 const CATCH_FREE_UP: f32 = 1.95;
+/// The automatic catch's boxes (no empty hand held): round the Hips + 0.2 m, the feet + 1.6 m here (Banned445's stand-in
+/// without the pose), 0.9 m up or down; the short fall's free-hang search round the feet + 1.95 m; all 0.5 m on along the
+/// reach (`FindLedgeCatch` 0xE0A9C8-0xE0AA6D, RE/24 AIR-12).
+const CATCH_AUTO_UP: f32 = 1.6;
+const CATCH_AUTO_SHORT_FREE_UP: f32 = 1.95;
+const CATCH_AUTO_HALF_UP: f32 = 0.9;
+const CATCH_ALONG: f32 = 0.5;
 const CATCH_UP: f32 = 0.3;
 /// Catching a wall's holds, the hands end this far out from its face (m).
 const CATCH_HAND_OUT: f32 = 0.08;
@@ -9447,8 +9454,10 @@ impl WallClimb {
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
         // Ahead, or where the stick points (the directional grab: a wall to the side is reached for and caught, turning
         // to it), not behind.
+        // (AC1 reaches along the stick only on the manual grab, the empty hand held; else along the facing
+        // (`HumanInAir` 0xE0BB70's reach, Banned445's port `air.rs`). Ours reached the stick's way on every catch.)
         let stick = self.move_dir.with_y(0.0).normalize_or_zero();
-        let side = (stick != Vec3::ZERO && stick.dot(fwd) < CATCH_SIDE_COS && stick.dot(fwd) > CATCH_BEHIND_COS).then_some(stick);
+        let side = (self.hand_held && stick != Vec3::ZERO && stick.dot(fwd) < CATCH_SIDE_COS && stick.dot(fwd) > CATCH_BEHIND_COS).then_some(stick);
         // AC1's searches (`CheckAirCatch` 0xE0BB70: `FindLedgeCatch` 0xE0A990, `sub_DFFE30` / `FindClimbCatch` 0xE0AC70;
         // Banned445's `air_catches.rs`, audit AIR-17): a hold round the feet + 1.4 m, 0.3 m on along the reach, 0.4 m
         // across and 0.3 m up or down, facing within 70 degrees: the climbing or the wall-hang catch; then one round the
@@ -9458,17 +9467,24 @@ impl WallClimb {
         let long = self.fall_top.is_finite() && self.fall_top - root.translation.y >= CATCH_LONG_FALL;
         let feet_at = root.translation;
         let mut found: Vec<(Vec3, Vec3, Option<bool>)> = vec![];
+        // (The boxes as AC1's `FindLedgeCatch` 0xE0A990 / `sub_DFFE30` / `FindClimbCatch` 0xE0AC70 set them, Banned445's
+        // `air_catches::ledge_search`: 0.5 m on along the reach. The manual grab's round the feet + 1.4 m (the ledge) and
+        // + 1.95 m (the free hang), 0.3 / 0.25 m up or down; the automatic catch's round the Hips + 0.2 m (the feet +
+        // 1.6 m here; the free hang's short-fall search the feet + 1.95 m), 0.9 m up or down: ours' 0.3 m tall box at
+        // the chest missed the holds a jump came in just above or below, the user's "tracking" of mid-air grabs.)
+        let manual = self.hand_held;
+        let (ledge_at, free_at, tall) = if manual {
+            (CATCH_LEDGE_UP, CATCH_FREE_UP, None)
+        } else {
+            (CATCH_AUTO_UP, if long { CATCH_AUTO_UP } else { CATCH_AUTO_SHORT_FREE_UP }, Some(CATCH_AUTO_HALF_UP))
+        };
         for d in std::iter::once(fwd).chain(side) {
-            if let Some((q, n)) = catch_probe(level, feet_at + Vec3::Y * CATCH_LEDGE_UP + d * 0.3, d, Vec3::new(0.4, 0.4, 0.3)) {
+            let ledge_half = Vec3::new(0.4, CATCH_ALONG, tall.unwrap_or(0.3));
+            if let Some((q, n)) = catch_probe(level, feet_at + Vec3::Y * ledge_at + d * CATCH_ALONG, d, ledge_half) {
                 found.push((q, n, Some(false)));
             }
-            let (on, half) = if long {
-                let a = if self.hand_held { 0.5 } else { 0.25 };
-                (a, Vec3::new(0.4, a, 0.25))
-            } else {
-                (0.3, Vec3::new(0.4, 0.4, 0.3))
-            };
-            if let Some((q, n)) = catch_probe(level, feet_at + Vec3::Y * CATCH_FREE_UP + d * on, d, half) {
+            let free_half = Vec3::new(0.4, CATCH_ALONG, tall.unwrap_or(if long { 0.25 } else { 0.3 }));
+            if let Some((q, n)) = catch_probe(level, feet_at + Vec3::Y * free_at + d * CATCH_ALONG, d, free_half) {
                 found.push((q, n, Some(true)));
             }
         }

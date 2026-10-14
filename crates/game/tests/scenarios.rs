@@ -210,9 +210,17 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
-        name: "side grab: free running off the ledge's end, the stick turned to the wall grabs it in the air",
+        name: "side grab: free running off the ledge's end, the stick turned to the wall and the empty hand held grabs it in the air",
         tags: &["jump", "hang"],
-        env: &[("AC1_START", "-5,-50.5,-90,3"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-4"), ("AC1_LEGS", "0-4"), ("AC1_VEER", "1.6,90")],
+        // (AC1 reaches the stick's way only on the manual grab, the empty hand held: without it the catch looks ahead.)
+        env: &[
+            ("AC1_START", "-5,-50.5,-90,3"),
+            ("AC1_WALK", "5.2"),
+            ("AC1_HIGH", "0-4"),
+            ("AC1_LEGS", "0-4"),
+            ("AC1_VEER", "1.6,90"),
+            ("AC1_GRASP", "1.6-3.5"),
+        ],
         secs: 3.5,
         want: &["leap -> 2m via xx_fall_tr_climb_min_b"],
         never: &["landed from", "EMBED"],
