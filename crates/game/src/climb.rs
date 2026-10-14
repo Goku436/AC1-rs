@@ -2993,6 +2993,16 @@ fn support_search<'a>(level: &'a Level, feet: Vec3, dir: Vec3, facing: Vec3, l: 
         .min_by(|a, b| (a.centre - feet).length().total_cmp(&(b.centre - feet).length()))
 }
 
+/// The ledge let-go's haystack search (IHuman vt84, 0xE17DA0, Banned445's port c8e6b69): (1, 5, 2, 10, -100, -30, 0,
+/// 90 degrees, 0.1).
+const LET_GO_SEARCH: SupportLimits = SupportLimits {
+    across: (1.0, 5.0),
+    along: (2.0, 10.0),
+    rise: (-100.0, -30.0, 0.0),
+    angle: (std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2),
+    bend: 0.1,
+};
+
 fn facing(dir: Vec3) -> Quat {
     Quat::from_rotation_arc(Vec3::NEG_Z, dir.with_y(0.0).normalize_or(Vec3::NEG_Z))
 }
@@ -7872,6 +7882,39 @@ impl WallClimb {
     }
 
     /// Let go of the wall now: push off (or release from a free hang) and fall.
+    /// Letting go of a hang over a haystack: AC1's let-go dives into it (the interpreter's ledge state 0xEEC558: the vt84
+    /// search away from the wall, `LET_GO_SEARCH`, then the let-go record knows the hay, 0xDD7810; Banned445's port
+    /// c8e6b69): the release's first item, then the faith dive (`xx_h_faith_jump_*`, by the way and the drop to the hay)
+    /// steered into it, and the faith landing in the hay.
+    fn let_go_dive(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        if !matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN | FREE | FREE_OPEN) {
+            return false;
+        }
+        let away = self.normal.with_y(0.0).normalize_or_zero();
+        let p = root.translation;
+        let Some(hay) = support_search(level, p, away, away, &LET_GO_SEARCH) else { return false };
+        let release = if is_free(&self.state) { "xx_h_hangfree_tr_fall_a" } else { "xx_h_hangwall_tr_fall_a" };
+        let w = faith_weights((hay.seat() - p).with_y(0.0).length(), hay.centre.y + HAY_SEARCH_TOP - p.y);
+        let dive = lib.get(&mix_name(&FAITH_DIVES.iter().zip(w).map(|(n, w)| (*n, w)).collect::<Vec<_>>()));
+        let (Some(release), Some(dive)) = (lib.get(release), dive) else { return false };
+        if lib.get(FAITH_LAND).is_none() {
+            return false;
+        }
+        // (The fall from where the release leaves the root onto the hay's seat: its time under gravity, the speed across
+        // that lands there, the dive stretched over it.)
+        let leave = p + world_rot(root.rotation) * root_motion_at(&release, release.frames());
+        let h = (leave.y - hay.top()).max(0.1);
+        let t = (2.0 * h / GRAVITY).sqrt();
+        let flat = (hay.seat() - leave).with_y(0.0) / t;
+        debug!("climb: let go over the haystack at {:.2}: the faith dive into it", hay.centre);
+        self.fall_top = p.y;
+        self.queue = vec![Queued { rate: dive.anim.duration / t, ..Queued::new(dive, FALL) }];
+        self.fall_with = Some(flat);
+        self.faith = true;
+        self.start(release, DROP.into(), root);
+        true
+    }
+
     fn drop_now(&mut self, lib: &mut AnimLib, root: &Transform) -> bool {
         // (Straight into the fall, near the ground too: AC1's empty hand releases into the air (StartRelease 0xDE96A0, the
         // lost-grip fill), the step down onto the ground is the stick's (audit CLIMB-E16); ours climbed down first within
@@ -8097,6 +8140,15 @@ impl WallClimb {
             Some(m) if hang(&m.to) && hang(&self.state) => {
                 self.mv = None;
                 self.queue.clear();
+                self.let_go_dive(lib, level, root) || self.drop_now(lib, root)
+            }
+            // In the middle of a climbing grid move or corner climb: let go at once too, into AC1's lost-grip fall (the
+            // climb takes the release mid-move only there, HumanClimb's event 3 with the grid-move flag, 0xDF90F0;
+            // Banned445's port 91f7874). Ours waited for the move's end.
+            Some(m) if is_climb_stance(&self.state) && is_climb_stance(&m.to) && grid_move_clip(lib, &m.clip.name) => {
+                debug!("climb: let go in the middle of {}", m.clip.name);
+                self.mv = None;
+                self.queue.clear();
                 self.drop_now(lib, root)
             }
             Some(_) => {
@@ -8104,7 +8156,7 @@ impl WallClimb {
                 true
             }
             None if off_wall(&self.state) => true,
-            None => self.drop_now(lib, root),
+            None => self.let_go_dive(lib, level, root) || self.drop_now(lib, root),
         }
     }
 
@@ -9249,7 +9301,7 @@ impl WallClimb {
         if let Some(v) = self.fall_v
             // (AC1's manual catch is the empty hand held, after 0.3 m of fall from its top (0xE0BB70, Banned445's port); it
             // never catches on the legs held, as ours did walking off an edge, audit AIR-12.)
-            && (self.can_catch || (self.hand_held && self.fall_top - root.translation.y > CATCH_HELD_FALL))
+            && (self.can_catch || (self.hand_held && !self.faith && self.fall_top - root.translation.y > CATCH_HELD_FALL))
             && v.y < 1.0
             && self.try_catch(lib, level, root, rig, base, cr)
         {
@@ -9441,7 +9493,12 @@ impl WallClimb {
         // facing; once per air stay, under 9 m; Banned445's `air_catches.rs`, audit AIR-8: the running game came down on a
         // lip off roof 1 east, stepped off it to the right and fell on to the street).
         // (Not an aimed jump's landing, nor onto a post or beam: their sides are edges too.)
-        if !self.edge_landed && !self.aimed && self.fall_top - ground.point.y < KNEE_CATCH_FALL && level.perch_inside(ground.point, PERCH_REACH).is_none() {
+        if !self.edge_landed
+            && !self.aimed
+            && !self.faith
+            && self.fall_top - ground.point.y < KNEE_CATCH_FALL
+            && level.perch_inside(ground.point, PERCH_REACH).is_none()
+        {
             let p = ground.point;
             let mut n = Vec3::ZERO;
             for l in level.ledges.iter() {
@@ -10579,6 +10636,26 @@ mod tests {
         assert!(!blocked(&level, root, Vec3::NEG_Z * 0.2));
         assert!(!blocked(&level, root, Vec3::X * 0.2));
         assert!(!blocked(&level, Vec3::new(0.0, 0.0, -2.0), Vec3::Z * 0.2));
+    }
+
+    #[test]
+    fn the_let_go_finds_hay_out_from_the_wall_and_below() {
+        // AC1's let-go search (vt84, `LET_GO_SEARCH`): a hang 4 m up on a wall facing -Z; hay just out below it (its box
+        // 2 m deep, opening out as the hay lies lower) is dived at,
+        // not hay behind the wall's line or level with the hang.
+        let hay = |x: f32, y: f32, z: f32| crate::level::HayStack { centre: Vec3::new(x, y, z), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None };
+        let feet = Vec3::new(0.0, 4.0, -0.5);
+        let away = Vec3::NEG_Z;
+        let found = |h: crate::level::HayStack| {
+            let level = Level { haystacks: vec![h], ..default() };
+            support_search(&level, feet, away, away, &LET_GO_SEARCH).is_some()
+        };
+        assert!(found(hay(0.0, 0.0, -2.3)));
+        assert!(found(hay(1.0, 0.0, -2.3)));
+        assert!(!found(hay(0.0, 0.0, -3.5)));
+        assert!(!found(hay(0.0, 0.0, 2.0)));
+        assert!(!found(hay(0.0, 3.5, -3.5)));
+        assert!(!found(hay(0.0, 0.0, -14.0)));
     }
 
     #[test]
