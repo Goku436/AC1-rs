@@ -39,6 +39,16 @@ fn windowed() -> bool {
 const QUIET: &[(&str, &str)] = &[("AC1_NO_CROWD", "1")];
 
 const SCENARIOS: &[Scenario] = &[
+    // AC1's climb takes the release (the empty hand) mid-move in a grid move, into its lost-grip fall (0xDF90F0, Banned445's
+    // port 91f7874); ours waited for the move's end.
+    Scenario {
+        name: "wall A: the empty hand in the middle of a climbing grid move lets go at once (AC1's lost grip)",
+        tags: &["climb"],
+        env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "up=1.9,none=3"), ("AC1_HAND", "3.6")],
+        secs: 5.5,
+        want: &["let go in the middle of xx_l_climb_1ru_u_1lu", "via xx_h_hangwall_tr_fall_a", "-> land"],
+        never: &["EMBED"],
+    },
     // User report 1064093 (test world, the alley at x 35.3 between walls 3 m apart): the wall run's rebound with nothing to
     // land on flew its 550 cm takeoff and the flight 2.4 m and came down 0.5 m into the opposite wall, over and over. A
     // jump's takeoff and flight now move the body's capsule as AC1's proxy does (0xE0DEF0 through the controller): it
