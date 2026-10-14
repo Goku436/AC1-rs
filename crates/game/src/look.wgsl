@@ -31,6 +31,9 @@ struct WorldLook {
     // x: light in display (gamma) space as AC1's D3D9 shaders do (1) or linear (0); y: grade on; z: balance on; w: the
     // city shows its layer weights (`AC1_SHOW_LAYERS`)
     options: vec4<f32>,
+    // Screen-space ambient occlusion on the ambient (the setting, F8): strength x the world's, y the characters'; z the
+    // value an open flat surface gets, read as none.
+    ssao: vec4<f32>,
 }
 
 fn to_srgb(c: vec3<f32>) -> vec3<f32> {

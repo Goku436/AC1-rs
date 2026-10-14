@@ -9,6 +9,10 @@ bevy = "0.19.1"
 forge = { version = "0.1.0", path = "../forge" }
 ik = { version = "0.1.0", path = "../ik" }
 
+[features]
+# Every system timed (Bevy's `trace` spans) for `AC1_PERF=1`'s CPU breakdown (`profile`); off in the builds played.
+profile = ["bevy/trace", "bevy/debug"]
+
 # The live log reader (ac1-hook): its tests run with the crate's.
 [[example]]
 name = "livelog"
