@@ -5,7 +5,8 @@
 //! 99th percentile and worst (ms), the GPU's time a frame by pass (Bevy's render diagnostics: every pass that records a
 //! span; the shadow maps record none, so their cost shows only as a difference with shadows off), and, in a build with
 //! the `profile` feature (`cargo build --release -p ac1 --features profile`: Bevy's `trace` spans on every system), the
-//! systems that took the most CPU, in ms a frame, both worlds (main and render) and all threads summed. At exit a
+//! systems that took the most CPU, in ms a frame, both worlds (main and render) and all threads summed (spans named
+//! `ac1:<part>`, `info_span!("ac1:edge")`, are timed too, as `~<part>`: a look inside one system). At exit a
 //! `perf: run` line sums the run after its first `AC1_PERF_SKIP` seconds (default 8: the city streaming in).
 
 use bevy::prelude::*;

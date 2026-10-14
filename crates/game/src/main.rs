@@ -34,7 +34,7 @@
 //! someone they stumble, running Altaïr shoves through, sprinting knocks them off balance; its militia fight when attacked.
 //! F1 hides the text (the HUD and the labels), F2 the map menu (1 the test level, 2 Masyaf, 3 Damascus: the game starts
 //! again in it), F8 the graphics settings (`settings`, `menu`: presets Low / Medium / High / Ultra, window mode,
-//! resolution, vsync, frame cap, city detail, texture size, shadows, anti-aliasing, fog, view distance, sound volume; saved to
+//! resolution, vsync, frame cap, city detail, texture size, shadows, anti-aliasing, ambient occlusion (SSAO), fog, view distance, sound volume; saved to
 //! `ac1-settings.txt` beside the executable), F10 online (`net`: hosting on / off and its port, joining an IP and port,
 //! the replay recorder; the menus take the arrows, Enter, Esc, typing and the mouse), F4 toggle IK, F5 skeleton,
 //! F3 IK targets, F6 pause the pose gallery and NPC line-up (they only move near the camera anyway), F11 the collision
@@ -51,7 +51,7 @@
 //! city from the game data instead of the test level; its gameplay data, collision, holds, guidance, beams, objects and navigation, is saved after
 //! the first load and read back after, `level_cache`, and so is what it draws, `render_cache`: AC1_NO_CACHE=1 neither reads nor writes them, AC1_CACHE_DIR=dir puts it there instead of
 //! `ac1-cache` beside the executable, AC1_CACHE_CHECK=1 builds the city anyway and compares it with the cache byte for byte; every load logs its
-//! phases' times as `load: ...` lines), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_DETAIL=low|medium|high|ultra|full (how much a city draws: see `stream::Detail`; else the graphics menu's, medium by default; full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
+//! phases' times as `load: ...` lines), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_PERF=1 (the frame-time breakdown, `profile`: wall-clock frame times, the GPU's passes, the meshes seen and casting, and in a `--features profile` build every system's CPU time; AC1_PERF_EVERY / AC1_PERF_SKIP secs), AC1_SSAO="world,characters,flat" (the screen-space occlusion's strength, `look::SSAO_STRENGTH`), AC1_DETAIL=low|medium|high|ultra|full (how much a city draws: see `stream::Detail`; else the graphics menu's, medium by default; full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
 //! AC1_JUMP=secs[,secs...] (press Space then; with AC1_WALK for a running jump), AC1_HIGH / AC1_LEGS=from-to
 //! (hold high profile / the legs), AC1_HAND=secs[,..] (the empty hand),
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
