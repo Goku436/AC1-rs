@@ -184,9 +184,10 @@ const FADE_OUT: u32 = 0x3dcd_c04d;
 /// `Env_Standard_WaterBlend`: a diffuse and normal map whose colour goes to the water's under its level (see `CityParams::wet`).
 const WATER_BLEND: u32 = 0x0631_6c2b;
 
-/// Whether a material's template blends it over what is behind (see `FADE_OUT`; the water is blended by its kind).
+/// Whether a material is blended over what is behind: its template's (see `FADE_OUT`; the water is blended by its kind)
+/// or its own flag (`forge::material::Material::blend`: the stains, dirt trims and ground blends `*_VA`, blood decals).
 pub fn blends(m: &GameMaterial) -> bool {
-    m.template == FADE_OUT
+    m.template == FADE_OUT || m.blend
 }
 
 /// The shader values of a material (see the module docs).
@@ -368,6 +369,7 @@ mod tests {
             alpha_test: None,
             two_sided: false,
             hidden: false,
+            blend: false,
         }
     }
 

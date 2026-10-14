@@ -1335,7 +1335,13 @@ Nearly everything before was checked in Damascus; this is Masyaf on its own (`AC
   occlusion 1.7 v + 0.25, at least 0.8), 135 placed effects of 11 particle systems, its wind. Shots at fixed cameras:
   `reports/masyaf/look/` (not in the repo). No shot of the running game in Masyaf exists to set them against (the save is
   in Damascus). Open: black cards behind some fortress openings (`Masyaf_TowerJump`'s door and window, a wall's top on
-  the citadel's west), not checked against the game.
+  the citadel's west), not checked against the game. Found (2026-10-14, look4): the tower trap's top and the round
+  tower's door and window are `MAS_Dirt_01A` cards (`GEN_Standard`, diffuse (33, 28, 25) with alpha 0 over most of the
+  map, mean 19; `AlphaTestEnabled` with `AlphaTestValue` 0): ours keeps every texel (alpha >= 0), a dark card over the
+  opening; kept only where alpha > 0 they become ragged dark patches with the opening behind (`reports/look4/`
+  `masyaf_*`). Which AC1 does depends on its alpha compare (D3D `GREATER` or `GREATEREQUAL`), not found in the exe
+  (its render states go through a state cache); left as it was. The citadel's wall-top triangles are something else
+  (not these cards). The materials' +0x1E flag, read now as "blended" (`forge::material`), is not set on these.
 
 ## City notes
 - A city forge (e.g. `DataPC_Masyaf.forge`: 785 data files) has a world file (`Masyaf`, 14000 `BAO_0x...` objects of
@@ -1436,7 +1442,14 @@ Materials whose template cuts out alpha (`*Alpha*`, `Plants`, `Env_Foliage*`) ar
 and an assassins' bureau's outside shell (`BA_Bureau_Ext`) and its courtyard trellis (`BA_Treilli_01A`: the running
 game shows no lattice shadows there, reports/visuals' bureau shots) cast no shadow: its roof shaded the open courtyard (AC1
 swaps it for the inside one there). Side-by-sides of the running game, before and after: `reports/visuals/` (not in the
-repo).
+repo). The courtyard's dark vertical band (2026-10-14, look4) is a post of `BA_Bureau_Ext` (gone with that mesh left
+out, `reports/look4/bureau_ext_shown_top_left_out_bottom.png`), not in the running game's shot; leaving the whole shell
+out also takes the courtyard's walls and floor (`BA_Bureau_Int` has none of them): what AC1 hides of it there is not
+found. Also measured then (look3's matched cameras against reports/visuals): the street's sunlit wall that reads 143
+against 208 is mostly the shadow of the eaves over it (ours a wide band, the game's a thin one), not its layered
+material (its weights are read as the template's vertex shader does: the normal's and tangent's fourth bytes / 255);
+the robe's brightness, the cooler shade and the yellower haze were not changed (nothing in the data or the exe found
+that accounts for them); the sky dome was not looked at.
 
 ### City materials (what each template does with its maps, 2026-10-12)
 From the templates' own DX9 shaders (the `MaterialTemplate` objects hold every variant's bytecode with its constant
@@ -1467,6 +1480,10 @@ with their parameters named from the template's constants. Damascus: `GEN_Standa
 - `Env_Foliage_FadeOut` (moss, lichen, the `Ground_*` patches over streets): alpha = diffuse alpha x vertex alpha,
   blended when the material has no alpha test of its own (its vertex colour is (177, 83, 0) on the street patches:
   drawn opaque they were red-orange stripes).
+- A material's own +0x1E flag (2026-10-14, `forge::material`; CRC32 17aace0e, name not found) is set on exactly the
+  materials laid over others: ground blends and dirt `*_VA` (`GEN_DiffuseAlpha`, `GEN_Standard`), `MAS_Trim_Dirt_01A`,
+  blood decals, moss fading out, water, the hay's and beards' cards. Read as "blended": those without an alpha test of
+  their own are blended (with the decals' depth bias) whatever their template.
 - `Env_Standard_WaterBlend` (9 materials: the river's walls, piers and pillars, the vizier's palace basins and fountain
   walls; no mesh names them, entities swap them in by their material overrides): the diffuse x vertex colour goes to
   `WaterColorVertical` by `saturate((WorldOceanLevel - z) * WaterFalloff)` (z the world's height) before it is lit by

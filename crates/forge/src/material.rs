@@ -8,7 +8,10 @@
 //! - +0x17..+0x29 the render flags, a byte each in the order of Material's reflected property list (the exe's class
 //!   descriptor; names by CRC32 of the exe's strings, checked against the materials named for them over every material,
 //!   `examples/matflags`): +0x17 `BlendMode` (0 everywhere), +0x18 `AlphaDisplayMode`, +0x19 `InvertAlpha`,
-//!   +0x1A `AlphaTestValue` (the alpha test's reference, 0..255), +0x20 `InvertCulling`, +0x25 `AlphaTestEnabled`,
+//!   +0x1A `AlphaTestValue` (the alpha test's reference, 0..255), +0x1E 17aace0e (name not found; taken as "blended":
+//!   set on exactly the materials drawn over what is behind them, ground blends and dirt trims `*_VA`, stains, blood,
+//!   moss fading out, water, the hay's and beards' cards; 7 of 1145 distinct flag sets in Masyaf, 7 of 2405 in
+//!   Damascus, `examples/matflags`), +0x20 `InvertCulling`, +0x25 `AlphaTestEnabled`,
 //!   +0x26 `TwoSided`, +0x27 af654d1a (name not found; taken as "hidden": the one shipped material with it set is the
 //!   unused `EyeIris`, and the NPC builders' tables set it to hide beards, hair and head parts: `No_Hair`,
 //!   `Disabled_HeadOBJ`, `*_Beard_Dis_Mat`, `forge::build`); the rest `?` (bools). Leaves, hay, trellises and tarps
@@ -102,6 +105,8 @@ pub struct Material {
     pub two_sided: bool,
     /// Not drawn (+0x27, see the module docs).
     pub hidden: bool,
+    /// Blended over what is behind it by its alpha (+0x1E, see the module docs).
+    pub blend: bool,
 }
 
 /// The offsets of the render flags read (see the module docs).
@@ -109,6 +114,7 @@ const ALPHA_TEST_VALUE: usize = 0x1A;
 const ALPHA_TEST_ENABLED: usize = 0x25;
 const TWO_SIDED: usize = 0x26;
 const HIDDEN: usize = 0x27;
+const BLEND: usize = 0x1E;
 /// The CRC32 an NPC build table names the hidden flag by (`forge::build`).
 pub const HIDDEN_PROPERTY: u32 = 0xaf65_4d1a;
 
@@ -198,6 +204,7 @@ impl Material {
         let alpha_test = (body[ALPHA_TEST_ENABLED] != 0).then(|| body[ALPHA_TEST_VALUE] as f32 / 255.0);
         let two_sided = body[TWO_SIDED] != 0;
         let hidden = body[HIDDEN] != 0;
+        let blend = body[BLEND] != 0;
         let count = w(0x35)? as usize;
         ensure!(count <= 64, "material: {count} parameters at 0x35");
         let mut at = PARAMS_AT;
@@ -240,7 +247,7 @@ impl Material {
             at += size;
         }
         ensure!(at == body.len(), "material: {} bytes after the parameters at {at:#x}", body.len().saturating_sub(at));
-        Ok(Self { template, texture_set, inside, params, alpha_test, two_sided, hidden })
+        Ok(Self { template, texture_set, inside, params, alpha_test, two_sided, hidden, blend })
     }
 
     pub fn param(&self, id: u32) -> Option<Param> {
