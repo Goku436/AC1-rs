@@ -2,15 +2,17 @@
 //! `GetDeviceData`, buffered presses and releases) given keys of ours too: `cmd`'s `key` holds a key down for some
 //! frames, whatever has the focus.
 //!
-//! Out of focus the game's devices cannot be acquired and their reads fail. With `ac1-hook.background` beside the exe,
-//! `Acquire` is answered as done and a failed read as an empty one (plus ours), so the game goes on taking our keys
-//! while another window is in front. Off without the file: answered as done at startup, before its window was in
-//! front, the game never acquired the mouse again and the player could not click in its menus. Without it, a failed
-//! read is ours alone only while we hold something.
+//! Out of focus the game's devices cannot be acquired and their reads fail. In background mode (on by default; off
+//! with the file `ac1-hook.foreground` beside the exe, or `background off`) `Acquire` is answered as done and a failed
+//! read as an empty one (plus ours), so the game goes on taking our keys while another window is in front, and its
+//! window is not told it went behind (`d3d`'s `wndproc`), so it goes on running and drawing. A failed read first tries
+//! the real `Acquire` again, and coming back to the front acquires every device again (`reacquire`): before that, the
+//! game, answered "done" while out of focus, never acquired the mouse again and the player could not click in it.
+//! Out of background mode a failed read is ours alone only while we hold something.
 
 use std::ffi::c_void;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 use crate::{patch, sys};
 
@@ -18,6 +20,9 @@ static CREATE_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static GET_STATE: AtomicUsize = AtomicUsize::new(0);
 static GET_DATA: AtomicUsize = AtomicUsize::new(0);
 static ACQUIRE: AtomicUsize = AtomicUsize::new(0);
+static UNACQUIRE: AtomicUsize = AtomicUsize::new(0);
+/// Devices the game let go of itself (`Unacquire`): not acquired again by us until the game asks.
+static LET_GO: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 static SAID_UNACQUIRED: AtomicBool = AtomicBool::new(false);
 /// The keyboard devices the game made (it makes more than one), and its mice.
 static KEYBOARDS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
@@ -38,6 +43,7 @@ static SEQUENCE: AtomicUsize = AtomicUsize::new(0x7000_0000);
 const SLOT_CREATE_DEVICE: usize = 3;
 /// IDirectInputDevice8::Acquire.
 const SLOT_ACQUIRE: usize = 7;
+const SLOT_UNACQUIRE: usize = 8;
 const SLOT_GET_STATE: usize = 9;
 const SLOT_GET_DATA: usize = 10;
 /// GUID_SysKeyboard {6F1D2B61-D5A0-11CF-BFC7-444553540000}.
@@ -70,6 +76,7 @@ unsafe extern "system" fn create_device(this: *mut c_void, guid: *const [u8; 16]
                 GET_STATE.store(patch::vtable(*out, SLOT_GET_STATE, get_state as *const () as usize), Ordering::SeqCst);
                 GET_DATA.store(patch::vtable(*out, SLOT_GET_DATA, get_data as *const () as usize), Ordering::SeqCst);
                 ACQUIRE.store(patch::vtable(*out, SLOT_ACQUIRE, acquire as *const () as usize), Ordering::SeqCst);
+                UNACQUIRE.store(patch::vtable(*out, SLOT_UNACQUIRE, unacquire as *const () as usize), Ordering::SeqCst);
             }
             sys::log("dinput: mouse made, its reads hooked");
         }
@@ -79,6 +86,7 @@ unsafe extern "system" fn create_device(this: *mut c_void, guid: *const [u8; 16]
                 GET_STATE.store(patch::vtable(*out, SLOT_GET_STATE, get_state as *const () as usize), Ordering::SeqCst);
                 GET_DATA.store(patch::vtable(*out, SLOT_GET_DATA, get_data as *const () as usize), Ordering::SeqCst);
                 ACQUIRE.store(patch::vtable(*out, SLOT_ACQUIRE, acquire as *const () as usize), Ordering::SeqCst);
+                UNACQUIRE.store(patch::vtable(*out, SLOT_UNACQUIRE, unacquire as *const () as usize), Ordering::SeqCst);
             }
             sys::log("dinput: keyboard made, its reads hooked");
         }
@@ -88,7 +96,13 @@ unsafe extern "system" fn create_device(this: *mut c_void, guid: *const [u8; 16]
 
 unsafe extern "system" fn get_state(this: *mut c_void, size: u32, data: *mut u8) -> i32 {
     // SAFETY: the real method, with its signature.
-    let r = unsafe { std::mem::transmute::<usize, GetState>(GET_STATE.load(Ordering::SeqCst))(this, size, data) };
+    let read = || unsafe { std::mem::transmute::<usize, GetState>(GET_STATE.load(Ordering::SeqCst))(this, size, data) };
+    let mut r = read();
+    // (Lost or not acquired: acquired again if it can be, the game in front again; we may have answered its own
+    // Acquire as done.)
+    if r < 0 && real_acquire(this) >= 0 {
+        r = read();
+    }
     // The mouse (DIMOUSESTATE or DIMOUSESTATE2: x, y, wheel, then the buttons): our motion and buttons added.
     if is_mouse(this) && size >= 16 && !data.is_null() {
         if !SAID_MOUSE.swap(true, Ordering::SeqCst) {
@@ -144,7 +158,13 @@ unsafe extern "system" fn get_data(this: *mut c_void, item: u32, data: *mut u8, 
     // SAFETY: the count is the caller's in-out word.
     let room = if count.is_null() { 0 } else { unsafe { *count } };
     // SAFETY: the real method, with its signature.
-    let r = unsafe { std::mem::transmute::<usize, GetData>(GET_DATA.load(Ordering::SeqCst))(this, item, data, count, flags) };
+    let read = |count: *mut u32| unsafe { std::mem::transmute::<usize, GetData>(GET_DATA.load(Ordering::SeqCst))(this, item, data, count, flags) };
+    let mut r = read(count);
+    if r < 0 && !count.is_null() && real_acquire(this) >= 0 {
+        // SAFETY: the caller's in-out count, given back as it was.
+        unsafe { *count = room };
+        r = read(count);
+    }
     if is_keyboard(this) && !data.is_null() && !count.is_null() && item >= 16 {
         if !SAID_DATA.swap(true, Ordering::SeqCst) {
             sys::log("dinput: the game reads the keyboard by GetDeviceData");
@@ -184,6 +204,7 @@ type Acquire = unsafe extern "system" fn(*mut c_void) -> i32;
 
 /// `Acquire`: tried, and answered as done (out of focus it fails, and the game would stop reading the device).
 unsafe extern "system" fn acquire(this: *mut c_void) -> i32 {
+    LET_GO.lock().unwrap().retain(|&d| d != this as usize);
     // SAFETY: the real method, with its signature.
     let r = unsafe { std::mem::transmute::<usize, Acquire>(ACQUIRE.load(Ordering::SeqCst))(this) };
     if r >= 0 || !background() {
@@ -195,18 +216,69 @@ unsafe extern "system" fn acquire(this: *mut c_void) -> i32 {
     0
 }
 
-/// Background mode (`ac1-hook.background` beside the exe), looked at once a second at most.
-fn background() -> bool {
+/// `Unacquire`: the game lets go of the device (for its menus' cursor, say): left so until it acquires it again.
+unsafe extern "system" fn unacquire(this: *mut c_void) -> i32 {
+    {
+        let mut l = LET_GO.lock().unwrap();
+        if !l.contains(&(this as usize)) {
+            l.push(this as usize);
+        }
+    }
+    // SAFETY: the real method, with its signature.
+    unsafe { std::mem::transmute::<usize, Acquire>(UNACQUIRE.load(Ordering::SeqCst))(this) }
+}
+
+/// The real `Acquire` of one of the game's devices (out of focus it fails), unless the game let go of it.
+fn real_acquire(device: *mut c_void) -> i32 {
+    let real = ACQUIRE.load(Ordering::SeqCst);
+    if real == 0 || LET_GO.lock().unwrap().contains(&(device as usize)) {
+        return -1;
+    }
+    // SAFETY: the real method of a live device of the game's, with its signature.
+    unsafe { std::mem::transmute::<usize, Acquire>(real)(device) }
+}
+
+/// The game's window came to the front: acquire its keyboards and mice again (the game, answered "done" while out of
+/// focus, would not).
+pub fn reacquire() {
+    let devices: Vec<usize> = KEYBOARDS.lock().unwrap().iter().chain(MICE.lock().unwrap().iter()).copied().collect();
+    let ok = devices.iter().filter(|&&d| real_acquire(d as *mut c_void) >= 0).count();
+    sys::log(&format!("dinput: in front again: {ok} of {} devices acquired", devices.len()));
+}
+
+/// Background mode by command: 0 by the files, 1 on, 2 off.
+static MODE: AtomicU8 = AtomicU8::new(0);
+
+/// Background mode: on unless `ac1-hook.foreground` is beside the exe (looked at once a second at most) or
+/// `background off` said so.
+pub fn background() -> bool {
+    match MODE.load(Ordering::Relaxed) {
+        1 => return true,
+        2 => return false,
+        _ => {}
+    }
     static AT: Mutex<Option<(std::time::Instant, bool)>> = Mutex::new(None);
     let mut at = AT.lock().unwrap();
     match *at {
         Some((t, on)) if t.elapsed().as_secs_f32() < 1.0 => on,
         _ => {
-            let on = sys::game_file("ac1-hook.background").exists();
+            let on = !sys::game_file("ac1-hook.foreground").exists();
             *at = Some((std::time::Instant::now(), on));
             on
         }
     }
+}
+
+/// `background on|off|auto` (auto: by the file), or `background`: say which.
+pub fn background_command(rest: &str) -> String {
+    match rest.trim() {
+        "on" => MODE.store(1, Ordering::SeqCst),
+        "off" => MODE.store(2, Ordering::SeqCst),
+        "auto" => MODE.store(0, Ordering::SeqCst),
+        "" => {}
+        other => return format!("background: want on, off or auto, got {other}"),
+    }
+    format!("background mode {}", if background() { "on (runs and takes our input behind other windows)" } else { "off" })
 }
 
 fn is_mouse(device: *mut c_void) -> bool {

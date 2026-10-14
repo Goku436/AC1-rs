@@ -6,14 +6,15 @@
 //! `/windowed` mode otherwise makes a borderless window the size of the desktop, and resizing that window afterwards
 //! stops its rendering. The size is set where the device is made and on every `Reset`.
 //!
-//! With `ac1-hook.background` beside the exe, its window is told it was put behind another (`WM_ACTIVATEAPP`,
-//! `WM_ACTIVATE`, `WM_KILLFOCUS`) no more: the game stopped taking any keys out of focus, the scripted ones too
-//! (`wndproc`). Off without the file: with it on, the user could not click in the game.
+//! Its window procedure is ours first (`wndproc`, put in where the device is made): in background mode (`input`; on
+//! by default) the window is not told it was put behind another (`WM_ACTIVATEAPP`, `WM_ACTIVATE`): the game's own
+//! handler of those (0x404820, from its window procedure 0x404C30) pauses it and stops its input, the scripted too.
+//! Coming back to the front is passed on, and the devices are acquired again (`input::reacquire`).
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{patch, sys};
+use crate::{input, patch, sys};
 
 static CREATE9: AtomicUsize = AtomicUsize::new(0);
 static CREATE_DEVICE: AtomicUsize = AtomicUsize::new(0);
@@ -40,24 +41,27 @@ type Release = unsafe extern "system" fn(*mut c_void) -> u32;
 type SaveSurface = unsafe extern "system" fn(*const u8, u32, *mut c_void, *const c_void, *const c_void) -> i32;
 
 const WM_ACTIVATE: u32 = 0x0006;
-const WM_KILLFOCUS: u32 = 0x0008;
 const WM_ACTIVATEAPP: u32 = 0x001c;
 const GWL_WNDPROC: i32 = -4;
 
-/// The game's window procedure, but for being put behind another window: that is not passed on, so the game goes on
-/// as the app in front (and takes the keys `cmd` gives it). Coming back to the front is passed on as usual.
+/// The game's window procedure, but for being put behind another window in background mode: that is not passed on,
+/// so the game goes on as the app in front (and takes the input `cmd` gives it). Coming back to the front is passed
+/// on as usual, and the devices acquired again.
 unsafe extern "system" fn wndproc(window: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize {
-    let deactivated = match msg {
-        WM_ACTIVATEAPP => wparam == 0,
-        WM_ACTIVATE => wparam & 0xffff == 0,
-        WM_KILLFOCUS => true,
-        _ => false,
+    let (deactivated, activated) = match msg {
+        WM_ACTIVATEAPP => (wparam == 0, wparam != 0),
+        WM_ACTIVATE => (wparam & 0xffff == 0, wparam & 0xffff != 0),
+        _ => (false, false),
     };
-    if deactivated {
+    if deactivated && input::background() {
         return 0;
     }
     // SAFETY: the game's own window procedure, with the message it was sent.
-    unsafe { sys::CallWindowProcA(WNDPROC.load(Ordering::SeqCst), window, msg, wparam, lparam) }
+    let r = unsafe { sys::CallWindowProcA(WNDPROC.load(Ordering::SeqCst), window, msg, wparam, lparam) };
+    if activated && msg == WM_ACTIVATE {
+        input::reacquire();
+    }
+    r
 }
 
 /// Hook Direct3D's creation (from `DllMain`: the exe's imports are bound, none of its code has run).
@@ -94,14 +98,13 @@ unsafe extern "system" fn create_device(
 ) -> i32 {
     // SAFETY: the game's D3DPRESENT_PARAMETERS.
     unsafe { place(params, window) };
-    // Its window keeps believing it is in front (`wndproc`), once, when asked for (`ac1-hook.background` beside the exe):
-    // off otherwise, as the user could not click in the game with it on.
-    if !window.is_null() && WNDPROC.load(Ordering::SeqCst) == 0 && sys::game_file("ac1-hook.background").exists() {
+    // Its window procedure ours first (`wndproc`), once.
+    if !window.is_null() && WNDPROC.load(Ordering::SeqCst) == 0 {
         // SAFETY: the game's live window; its procedure swapped for ours, which calls it.
         let old = unsafe { sys::SetWindowLongA(window, GWL_WNDPROC, wndproc as *const () as usize as i32) };
         if old != 0 {
             WNDPROC.store(old as u32 as usize, Ordering::SeqCst);
-            sys::log("window: its deactivation messages are held back (it takes keys behind other windows)");
+            sys::log(&format!("window: its procedure ({:#x}) is ours first (background mode {})", old as u32, if input::background() { "on" } else { "off" }));
         }
     }
     // SAFETY: the real method, with its signature.

@@ -22,6 +22,8 @@ unsafe extern "system" {
     pub fn FlushInstructionCache(process: *mut c_void, addr: *const c_void, size: usize) -> i32;
     #[cfg(target_pointer_width = "32")]
     pub fn GetCurrentProcess() -> *mut c_void;
+    #[cfg(target_pointer_width = "32")]
+    pub fn AddVectoredExceptionHandler(first: u32, handler: usize) -> *mut c_void;
 }
 
 #[cfg(target_pointer_width = "32")]
@@ -87,6 +89,36 @@ pub fn class_of(obj: usize) -> Option<String> {
 
 #[cfg(target_pointer_width = "32")]
 pub const PAGE_READWRITE: u32 = 0x04;
+
+/// Is `addr` in code (an executable page)?
+#[cfg(target_pointer_width = "32")]
+pub fn executable(addr: usize) -> bool {
+    let mut info = MemoryInfo::default();
+    // SAFETY: VirtualQuery only fills the struct.
+    let n = unsafe { VirtualQuery(addr as *const c_void, &mut info, std::mem::size_of::<MemoryInfo>()) };
+    // PAGE_EXECUTE, _READ, _READWRITE, _WRITECOPY
+    n != 0 && info.state == 0x1000 && info.protect & 0xF0 != 0
+}
+
+/// Write `bytes` at `addr` in the game's memory (code or data: made writable for the write, then as it was).
+#[cfg(target_pointer_width = "32")]
+pub fn write(addr: usize, bytes: &[u8]) -> bool {
+    const PAGE_EXECUTE_READWRITE: u32 = 0x40;
+    if !readable(addr, bytes.len()) {
+        return false;
+    }
+    // SAFETY: committed memory of this process, checked above; its protection put back after.
+    unsafe {
+        let mut old = 0;
+        if VirtualProtect(addr as *mut c_void, bytes.len(), PAGE_EXECUTE_READWRITE, &mut old) == 0 {
+            return false;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), addr as *mut u8, bytes.len());
+        VirtualProtect(addr as *mut c_void, bytes.len(), old, &mut old);
+        FlushInstructionCache(GetCurrentProcess(), addr as *const c_void, bytes.len());
+    }
+    true
+}
 
 /// A file beside the game's exe.
 pub fn game_file(name: &str) -> std::path::PathBuf {

@@ -935,6 +935,46 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
   from the root and the camera looks at the player). The reader is the `ac1` example `livelog`: `tail` follows the file
   (`--for secs`), `summary [--last secs]` sums one up, `runs [dir]` lists the scripted runs in a folder of live logs (split at teleports), `cut <out> --from s --to s [--dir dir]` cuts one out of the rotated files, `compare <real> <ours recording>` lines a real run up with an
   ac1-rs F9 recording of the same route from when each starts moving (gaps, modes, clips, when each switch happens), then the poses (with `--game`: ours' clips named by their action, as the live log names a blend by its first clip; for each clip both play, every bone relative to the root in the body's frame and the limbs' distance to their IK goals). A control run (`AC1_CONTROL`) with `AC1_RECORD=<file>` writes the recorder's lines for every frame of the run, the ours side of such a comparison.
+- ac1-hook's driving and measuring commands (2026-10-14, `crates/hook/src/control.rs`, `pad.rs`, `memcmd.rs`,
+  `expr.rs`, `probe.rs`; the command list in `cmd.rs`' header), after what Banned445's ac1lab shows it does. All in
+  `ac1-hook.cmd`, answers in `ac1-hook.log`:
+  - Background mode, on by default (`background on|off|auto`; the file `ac1-hook.foreground` beside the exe turns it
+    off): the game's window procedure (0x404C30, via the thunk 0x4013E3 its `RegisterClassExA` names) sends
+    `WM_ACTIVATE` / `WM_ACTIVATEAPP` to its focus handler 0x404820, which on losing the focus pauses the game and stops
+    its input (flag 0x1A0EC05). Ours goes first and holds back those two going-behind messages, so the game runs,
+    draws and takes our input behind other windows. Earlier, with `ac1-hook.background`, `Acquire` answered as done
+    out of focus left the mouse never acquired again (the user could not click in the game); now a failed read tries
+    the real `Acquire` again, and coming to the front acquires every device again (not one the game itself
+    `Unacquire`d).
+  - The pad (`PadProxyPC`, the interpreter's +0xD0; its `Update` 0x909C90, slot 9 of the vtable at 0x16B13FC):
+    +0x08 the previous frame's 16 buttons (bytes), +0x18 now, +0x30 the clock now and +0x38 each button's press time
+    (u64 each), +0xB8 the buttons as floats, +0x100 the sticks (lx, ly, rx, ry; +y forward), copied from the active
+    device (slots from +0x50C, 0x218 apart, the index at +0x504). Detoured: after the device read, `pad <buttons hex>
+    <lx> <ly> [<rx> <ry> [<updates>]]` holds a state (in place of the device's), `press <button> [updates]` adds one
+    (0..15; `legs` 0, `hand` 3, `high` 12 from the live logs' `btn=`, the rest `?`), `padrec <path>` writes what it
+    holds each update as `ac1lab pad v1` (a `start x y z yaw` line, then `dt buttons lx ly rx ry`), `padplay <path>
+    [frames] [here]` plays one back (by game time, or a record an update), `pad off` gives the device back.
+  - The player's interpreter: `GoAssassinActionInterpreter::Update` (0xEEE700, slot 18 of the vtable at 0x16F52AC)
+    runs in every context: hooked, the one whose +0xD0 is a `PadProxyPC` is the player's (the ground state 0xEE65A0
+    alone found him only on the ground).
+  - The clock: the engine's tick 0x416420 (`thiscall` on the clock, from the frame 0x417470) takes the real time, or
+    by its mode +4 (0 a fixed step 1/(+8) s; 1 a table of steps; 2 capped at +0x2C; 3 averaged over 15 frames), times
+    its speed +0xC, at least 0.1 ms, adds it to the game time +0xC0 (10 µs units) and hands it to 0x93E0F0, which
+    writes the frame's seconds at 0x192DDA8. Detoured: `speed <x>` / `speed off`, `fixed <fps>` / `fixed off` (every
+    frame 1/fps s of game time), `pause` (speed 0: the clock's floor, 0.1 ms a frame, so all but still), `step [n]`
+    (n frames of 1/60 s or the fixed rate, then paused), `resume`, `clock` (its fields); ours only for the tick, the
+    game's own put back after.
+  - Bookmarks: `save <name>` / `load <name>` / `marks` (`ac1-hook.bookmarks` beside the exe: `name x y z yaw`).
+  - Memory: addresses as `expr` reads them (hex; `#` decimal; the names `human`, `entity`, `interp`, `pad`, `clock`,
+    `actions`; `[...]` a pointer read): `peek <address> [bytes]`, `poke <address> <u8|u16|u32|i32|f32|bytes>
+    <value>...`, `fields <address[:type]>...` (u8 u16 u32 i32 f32 x vec3 m4 class ptrclass), `classes <address>
+    [words]`, `components [entity]` (`Entity` +0x74 its components, +0x78 their count, low 14 bits, as its reader
+    0x450E90 walks them; `?` until checked live).
+  - Probes: `probe <name> @<address> [hits=<n>] [field...]` (an `int3` there, our vectored exception handler logs the
+    fields, the registers `eax`..`edi`, `esp`, `ebp`, `eip` among the names, runs the instruction once by the trap
+    flag and puts the `int3` back; 20 hits by default, then it takes itself out), `probe off [name]`, `probes`.
+  Tested without the game: the pad image and files, playback timing, addresses, fields, pokes, bookmarks (`cargo test
+  -p ac1-hook`). Live checks pending: see the status of each in the hook's log when first used.
 - The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
   each, with a `combo` scenario each (`AC1_SCENARIO_TAGS=combo`, about 40 s): G1 box, two beams across a gap, a swing
   bar, down onto a low beam (AC1's beam landing); G2 free running onto a ladder, up, a beam bridge, the leap of faith
