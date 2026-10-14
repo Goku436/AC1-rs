@@ -63,8 +63,12 @@ const POP_RADIUS: f32 = 26.0;
 /// New people appear on a flow this far from the player (m), after the first fill.
 const SPAWN_MIN: f32 = 22.0;
 const SPAWN_MAX: f32 = 34.0;
-/// Farther than this, a person is parked (m).
+/// Farther than this, a person is parked (m): out of the camera's view, or anywhere beyond `DESPAWN_SEEN`.
 const DESPAWN: f32 = 42.0;
+const DESPAWN_SEEN: f32 = 70.0;
+/// A spot within this angle of the camera's forward (degrees) is in its view (wider than any screen's half width, so
+/// people appear and go out of sight, as AC1's do).
+const VIEW_HALF_ANGLE: f32 = 62.0;
 /// Models built per builder (each its own pick of the builder's tables).
 const VARIANTS: usize = 4;
 /// Parked people kept for reuse at most.
@@ -145,6 +149,22 @@ impl Lane {
     fn len(&self) -> f32 {
         *self.cum.last().unwrap_or(&0.0)
     }
+    /// How far along the lane its point nearest `p` is (m).
+    fn nearest(&self, p: Vec3) -> f32 {
+        let q = p.with_y(0.0);
+        let mut best = (f32::MAX, 0.0);
+        for (i, w) in self.pts.windows(2).enumerate() {
+            let (a, b) = (w[0].with_y(0.0), w[1].with_y(0.0));
+            let ab = b - a;
+            let t = ((q - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
+            let d = q.distance(a + ab * t);
+            if d < best.0 {
+                best = (d, self.cum[i] + t * (self.cum[i + 1] - self.cum[i]));
+            }
+        }
+        best.1
+    }
+
     /// The point and direction `s` metres along.
     fn at(&self, s: f32) -> (Vec3, Vec3) {
         let s = s.clamp(0.0, self.len());
@@ -271,8 +291,8 @@ impl CrowdMap {
         n
     }
 
-    /// A place on a lane `lo`..`hi` from `p`, picked by its people: (lane, metres along it).
-    fn spawn_spot(&self, p: Vec3, lo: f32, hi: f32, rng: &mut Rng) -> Option<(usize, f32)> {
+    /// A place on a lane `lo`..`hi` from `p`, picked by its people, where `ok` takes it: (lane, metres along it).
+    fn spawn_spot(&self, p: Vec3, lo: f32, hi: f32, rng: &mut Rng, ok: impl Fn(Vec3) -> bool) -> Option<(usize, f32)> {
         let (a, b) = (cell(p.xz() - Vec2::splat(hi), SEG_CELL), cell(p.xz() + Vec2::splat(hi), SEG_CELL));
         let mut cands: Vec<(usize, usize, f32)> = vec![];
         for x in a.0..=b.0 {
@@ -302,8 +322,9 @@ impl CrowdMap {
             };
             let l = &self.lanes[li];
             let s = l.cum[si] + rng.f() * (l.cum[si + 1] - l.cum[si]);
-            let d = l.at(s).0.with_y(0.0).distance(p.with_y(0.0));
-            if (lo..=hi).contains(&d) {
+            let at = l.at(s).0;
+            let d = at.with_y(0.0).distance(p.with_y(0.0));
+            if (lo..=hi).contains(&d) && ok(at) {
                 return Some((li, s));
             }
         }
@@ -346,6 +367,8 @@ pub struct Life {
     next_check: f32,
     next_log: f32,
     spawned: usize,
+    /// The GPU's copies of each model's parts, by (kind, variant, militia): shared by its people.
+    shared: HashMap<(usize, usize, bool), crate::character::SharedParts>,
 }
 
 /// A person of the city.
@@ -526,6 +549,8 @@ fn want_model(life: &mut Life, k: usize, dir: &std::path::Path) {
 }
 
 fn finish_build(life: &mut Life, k: usize, r: anyhow::Result<Built>) {
+    // (A model without the biped bones cannot be spawned: `spawn_character` needs them.)
+    let r = r.and_then(|b| if crate::character::is_biped(&b.data.rig) { Ok(b) } else { Err(anyhow::anyhow!("{}: no biped bones", b.concrete)) });
     match r {
         Ok(b) => {
             info!("city life: built {} ({}, variant {})", life.kinds[k].builder, b.concrete, life.kinds[k].variants.len());
@@ -578,6 +603,7 @@ fn populate(
     level: Res<Level>,
     mut lib: Option<ResMut<AnimLib>>,
     player: Query<&Transform, (With<Player>, Without<Citizen>)>,
+    cams: Query<&GlobalTransform, With<Camera3d>>,
     mut people: PeopleQuery,
     (mut meshes, mut mats, mut images, mut bindposes): MeshAssets,
 ) {
@@ -603,6 +629,9 @@ fn populate(
     }
     life.next_check = life.clock + 0.25;
     let at = ptf.translation;
+    // (People appear and go out of the camera's view: popping in and out in plain sight read as teleporting.)
+    let cam = cams.iter().next().map(|g| (g.translation(), g.forward().as_vec3()));
+    let seen = |p: Vec3| cam.is_some_and(|(eye, fwd)| (p + Vec3::Y - eye).normalize_or_zero().dot(fwd) > VIEW_HALF_ANGLE.to_radians().cos());
     // Park those far off (the militia go: `combat` keeps fighting whoever exists).
     let mut live = 0;
     let mut guards = 0;
@@ -616,12 +645,18 @@ fn populate(
             commands.entity(e).insert(Controller::default());
         } else if c.guard && stick && calm && d > GUARD_NEAR + 4.0 {
             commands.entity(e).remove::<Controller>();
+            // (Back on its lane from where the locomotion left it: at the nearest point along the lane, the rest as a
+            // knock that eases off, not a jump back to the lane spot it walked from.)
+            c.s = map.lanes[c.lane].nearest(tf.translation);
+            c.knocked = Vec3::ZERO;
+            let (spot, _) = c.spot(&map);
+            c.knocked = (tf.translation - spot).with_y(0.0);
         }
         if c.parked {
             parked.push((e, c.kind));
             continue;
         }
-        if d > DESPAWN && c.stumble <= 0.0 && calm {
+        if d > DESPAWN && c.stumble <= 0.0 && calm && (d > DESPAWN_SEEN || !seen(tf.translation)) {
             if c.guard {
                 commands.entity(e).despawn();
                 debug!("city life: militia gone");
@@ -670,7 +705,7 @@ fn populate(
     let guard_max = env_usize("AC1_CROWD_GUARDS", GUARD_MAX[detail_index()]);
     while live < want && budget > 0 {
         budget -= 1;
-        let Some((lane, s)) = map.spawn_spot(at, lo, hi, &mut rng) else { break };
+        let Some((lane, s)) = map.spawn_spot(at, lo, hi, &mut rng, |p| first || !seen(p)) else { break };
         let Some(region) = map.region_at(map.lanes[lane].at(s).0) else { continue };
         let r = &map.regions[region];
         // Who: a fraction by percent (the cliques left out; the militia only while there are few).
@@ -713,9 +748,13 @@ fn populate(
         if n == 0 {
             continue;
         }
-        let b = life.kinds[k].variants[life.spawned % n].clone();
+        let variant = life.spawned % n;
+        let b = life.kinds[k].variants[variant].clone();
         life.spawned += 1;
-        let mut data = b.data.clone();
+        // (The GPU's copies of the model's parts are shared by everyone of it: once they are made, only what the body
+        // needs is copied, not its meshes and textures again.)
+        let shared = life.shared.entry((k, variant, militia)).or_insert_with(|| crate::character::SharedParts::new(true));
+        let mut data = if shared.made() { light_copy(&b.data) } else { b.data.clone() };
         let set = crate::npc::anim_set_of(&b.concrete);
         if militia {
             if life.sword.is_none() {
@@ -745,7 +784,9 @@ fn populate(
         let (p, dir) = c.spot(&map);
         let mut tf = Transform::from_translation(p).with_scale(Vec3::splat(b.scale));
         place(&mut tf, &level, p, dir);
-        let e = crate::character::spawn_character(&mut commands, data, tf.translation, &mut meshes, &mut mats, &mut images, &mut bindposes, anim, rig_id);
+        let assets = (&mut *meshes, &mut *mats, &mut *images, &mut *bindposes);
+        let shared = life.shared.get_mut(&(k, variant, militia));
+        let e = crate::character::spawn_character_shared(&mut commands, data, tf.translation, assets, anim, rig_id, shared);
         if militia {
             c.side_want = 0.0;
             let hp = env_usize("AC1_GUARD_HP", 3) as i32;
@@ -770,6 +811,38 @@ fn populate(
         live += 1;
     }
     life.rng = Some(rng);
+}
+
+/// A model's data for a body whose parts' GPU copies are made already (`SharedParts`): everything but the meshes (the
+/// cloth's kept, it is simulated per body) and textures.
+fn light_copy(d: &CharacterData) -> CharacterData {
+    let cloth = d.cloth.as_ref().map(|c| c.mesh.as_str());
+    let parts = d
+        .parts
+        .iter()
+        .map(|p| crate::assets::Part {
+            name: p.name.clone(),
+            mesh: if cloth == p.name.split('#').next() { p.mesh.clone() } else { Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, default()) },
+            joints: p.joints.clone(),
+            inverse_binds: p.inverse_binds.clone(),
+            texture: p.texture,
+            normal: p.normal,
+            alpha: p.alpha,
+            material: p.material.clone(),
+            look: p.look.clone(),
+            inside: p.inside.clone(),
+        })
+        .collect();
+    CharacterData {
+        rig: d.rig.clone(),
+        hashes: d.hashes.clone(),
+        parts,
+        textures: HashMap::new(),
+        cloth: d.cloth.clone(),
+        modifiers: d.modifiers.clone(),
+        main_bones: d.main_bones,
+        skeleton_wind: d.skeleton_wind,
+    }
 }
 
 /// Stand a transform at `p` (on the ground under it), facing `dir`.

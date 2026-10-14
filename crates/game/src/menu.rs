@@ -11,7 +11,7 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
-use crate::settings::{AntiAlias, DetailLevel, FRAME_CAPS, Preset, RESOLUTIONS, Settings, Shadows, TEXTURES, VIEWS, VOLUMES, WindowMode, word};
+use crate::settings::{AntiAlias, DetailLevel, FRAME_CAPS, Occlusion, Preset, RESOLUTIONS, Settings, Shadows, TEXTURES, VIEWS, VOLUMES, WindowMode, word};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Which {
@@ -44,6 +44,7 @@ enum Id {
     Textures,
     Shadows,
     AntiAlias,
+    Occlusion,
     Fog,
     View,
     Volume,
@@ -182,7 +183,9 @@ fn rows(which: Which, s: &Settings, net: Option<&crate::net::Net>, recording: bo
                 AntiAlias::Msaa2 => "MSAA 2x",
                 AntiAlias::Msaa4 => "MSAA 4x",
             };
-            out.push(row(Id::AntiAlias, "Anti-aliasing", aa.into(), Kind::Choice));
+            let aa = if s.ao != Occlusion::Off && matches!(s.aa, AntiAlias::Msaa2 | AntiAlias::Msaa4) { format!("{aa} (FXAA with AO)") } else { aa.into() };
+            out.push(row(Id::AntiAlias, "Anti-aliasing", aa, Kind::Choice));
+            out.push(row(Id::Occlusion, "Ambient occlusion (SSAO)", word(s.ao), Kind::Choice));
             out.push(row(Id::Fog, "Fog", on_off(s.fog), Kind::Choice));
             out.push(row(Id::View, "View distance", format!("{} m", s.view), Kind::Choice));
             out.push(row(Id::Volume, "Sound volume (M mutes)", format!("{} %", s.volume), Kind::Choice));
@@ -232,6 +235,7 @@ fn change(id: Id, s: &mut Settings, dir: i32) {
         Id::Textures => s.textures = step(&TEXTURES, s.textures, dir),
         Id::Shadows => s.shadows = step(&[Shadows::Off, Shadows::Low, Shadows::Medium, Shadows::High], s.shadows, dir),
         Id::AntiAlias => s.aa = step(&[AntiAlias::Off, AntiAlias::Fxaa, AntiAlias::Msaa2, AntiAlias::Msaa4], s.aa, dir),
+        Id::Occlusion => s.ao = step(&[Occlusion::Off, Occlusion::Low, Occlusion::Medium, Occlusion::High], s.ao, dir),
         Id::Fog => s.fog ^= true,
         Id::View => s.view = step(&VIEWS, s.view, dir),
         Id::Volume => s.volume = step(&VOLUMES, s.volume, dir),

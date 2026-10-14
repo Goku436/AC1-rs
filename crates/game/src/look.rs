@@ -34,6 +34,8 @@ pub struct WorldLook {
     pub levels: Vec4,
     pub control: Vec4,
     pub options: Vec4,
+    /// Screen-space ambient occlusion's strength on the ambient light (x the world's, y the characters'; `AC1_SSAO`).
+    pub ssao: Vec4,
 }
 
 /// The level's look (a resource), and the sun's direction (toward it, Bevy space).
@@ -44,6 +46,19 @@ pub struct Look {
     /// The fog's distances, where it starts and where it is full (for Bevy's own materials' fog).
     pub fog_near: f32,
     pub fog_far: f32,
+}
+
+/// How much of the screen-space ambient occlusion (the graphics menu's, Bevy's SSAO) darkens the ambient light: the
+/// world's, the characters', and the occlusion an open flat surface gets that is read as none (Bevy's GTAO gives a flat
+/// wall about 0.75: taken as is, the whole of the shade went 15 % darker) (`AC1_SSAO="world,characters,flat"`). AC1
+/// had only its baked occlusion: this adds contact shadows where things meet without darkening the shade as a whole
+/// (tuned by eye on Damascus' streets, shots in reports/perf).
+pub const SSAO_STRENGTH: [f32; 3] = [0.6, 0.45, 0.8];
+
+fn ssao_strength() -> Vec4 {
+    let v: Vec<f32> = std::env::var("AC1_SSAO").map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+    let at = |i: usize| v.get(i).copied().unwrap_or(SSAO_STRENGTH[i]);
+    Vec4::new(at(0), at(1), at(2).max(0.05), 0.0)
 }
 
 /// Game (Z up) to Bevy (Y up).
@@ -124,6 +139,7 @@ impl Look {
                 // (`AC1_SHOW_LAYERS=1`: the city shows its layered materials' blend weights, `city_material.wgsl`.)
                 if std::env::var("AC1_SHOW_LAYERS").is_ok() { 1.0 } else { 0.0 },
             ),
+            ssao: ssao_strength(),
         };
         let r = world.fog;
         Self { world, sun_dir: to_bevy(s.sun.toward()), fog_near: r.x, fog_far: r.x + 1.0 / r.y.max(1e-6) }
@@ -213,6 +229,7 @@ impl Default for Look {
                 levels: Vec4::new(0.0, 1.0, 1.0, 0.0),
                 control: Vec4::new(1.0, 1.0, 1.0, 0.0),
                 options: Vec4::new(1.0, 0.0, 0.0, 0.0),
+                ssao: ssao_strength(),
             },
             sun_dir,
             fog_near: 15.0,
