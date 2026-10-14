@@ -1,0 +1,8 @@
+ac1-level 1
+# The editor scenario's level: wall A of the test level (6 m wide, 2 m deep, 5.99 m tall, hold rows every 0.6 m from
+# 1.79 m up its faces) as a box on empty ground, and a post and a beam beside it.
+base empty
+spawn 0 0 3
+box 0 0 6 0 6 5.99 2 holds
+post 6 0 3 0 0.4 2 0.4
+beam 6 0 9 90 4 2 0.3

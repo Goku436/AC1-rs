@@ -42,6 +42,13 @@
 //! mutes the sound (AC1's own, `sound`: Altaïr's from the clips' event keys, steps, landings, grunts; in a city its placed
 //! sounds, fountains, braziers, flags, kiosks, palms, and its ambience loops and one-off sounds; placed and panned from the camera),
 //! [ / ] step through every AC1 clip in the library (Backspace returns to locomotion).
+//! ` (the key beside 1) is the level editor (`editor`, `level_file`): the free camera flies, the crosshair places pieces
+//! built as the test level's (1-8 or the wheel: box, platform, beam, post, haystack, wall, ladder, swing bar; the left
+//! button places, the right selects; V carries the selection, arrows / PgUp / PgDn move it, R / T turn it 90 / 15
+//! degrees, U/J I/K O/L resize it, C hold rows up its faces, B duplicates, Delete / X deletes, Z undoes, N the 0.25 m
+//! grid, Y saves to `levels/<name>.level` beside the exe, H loads); ` (or P) again plays from the ground under the
+//! camera. `AC1_LEVEL=<file>.level` starts in a saved level, `AC1_LEVEL=empty` on empty ground, AC1_EDITOR=1 in the
+//! editor; online, both players start the same file.
 //!
 //! F9 writes the flight recorder (the last 10 s, `recorder`). A crash writes `ac1-crash-<unix secs>.txt` (its message and backtrace) beside the exe. Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render|fallback / AC1_SHOW_COLLISION / AC1_COLLISION_VIEW / AC1_COLLISION_SWEEP (cities: collide with the render meshes, or with them where an entity has no rigid body / draw every collision shape / start with F11's view on / log how the collision lines up with what is drawn, `sweep`), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`), AC1_CLIMB_SWEEP=n (climbing as a player meets it at n walls and n/2 roof edges, every run's failures by class to AC1_SWEEP_OUT, then exit; see `climb_sweep`),
@@ -85,6 +92,7 @@ mod collision_view;
 mod combat;
 mod crowd;
 mod edge_report;
+mod editor;
 mod fight_data;
 mod fight_tables;
 mod fly;
@@ -96,6 +104,7 @@ mod jump_query;
 mod ledge_grid;
 mod level;
 mod level_cache;
+mod level_file;
 mod look;
 mod menu;
 mod move_blend;
@@ -315,6 +324,17 @@ fn main() {
             None => eprintln!("replay: {path} is not an ac1-rs replay"),
         }
     }
+    // An editor level (`AC1_LEVEL=<file>.level` or `empty`, `editor`) is the test level's kind of world, not a city: it
+    // is handed on as `AC1_LEVEL_FILE`, and everything that reads `AC1_LEVEL` as a city sees none.
+    if let Ok(l) = std::env::var("AC1_LEVEL")
+        && level_file::is_editor_level(&l)
+    {
+        // SAFETY: before any other thread starts.
+        unsafe {
+            std::env::set_var("AC1_LEVEL_FILE", &l);
+            std::env::remove_var("AC1_LEVEL");
+        }
+    }
     let game_dir = std::env::var("AC1_GAME_DIR").unwrap_or_else(|_| r"P:\SteamLibrary\steamapps\common\Assassins Creed".into());
     let cam = env_f32s("AC1_CAM").unwrap_or_default();
     let script = script_from(&|k| std::env::var(k).map_err(|_| ()));
@@ -437,11 +457,12 @@ fn main() {
         })
         .insert_resource(script)
         .add_plugins((look::LookPlugin, character_material::CharacterMaterialPlugin, city_material::CityMaterialPlugin))
-        .add_systems(Startup, (level::spawn_level, setup, sky::spawn, grab_cursor, slow_motion).chain())
+        .add_systems(Startup, (level::spawn_level, editor::start, setup, sky::spawn, grab_cursor, slow_motion).chain())
         .add_systems(PostUpdate, sky::follow.before(bevy::transform::TransformSystems::Propagate))
         .init_resource::<Eagle>()
         .init_resource::<fly::Fly>()
         .add_plugins(combat::CombatPlugin)
+        .add_plugins(editor::EditorPlugin)
         .add_plugins(city_life::CityLifePlugin)
         .init_resource::<collision_view::CollisionView>()
         .add_systems(Update, collision_view::collision_view)
@@ -947,7 +968,9 @@ fn setup(
     // The pose gallery's figures share the player's model (test world only).
     // (Off unless asked for: its hundred figures make the test world slow to load.)
     let scripted = std::env::var("AC1_SHOT").is_ok();
-    let gallery_data = (!level.city && std::env::var("AC1_GALLERY").is_ok()).then(|| data.clone());
+    // (An editor level on empty ground has none of the test level's line-ups and crowds.)
+    let bare = level_file::start_base() == level_file::Base::Empty;
+    let gallery_data = (!level.city && !bare && std::env::var("AC1_GALLERY").is_ok()).then(|| data.clone());
     // (A replay's friend: a second Altaïr, posed from the recording; online, `net::spawn_friend` makes theirs.)
     if replay::replaying() {
         let e = character::spawn_character(&mut commands, data.clone(), at, &mut meshes, &mut mats, &mut images, &mut bindposes, None, 0);
@@ -987,7 +1010,7 @@ fn setup(
     }
     commands.entity(root).insert(Player);
     // NPCs assembled from AC1's builders (`npc`): a line-up south of the flow lane, two of each.
-    let lineup = !level.city && (std::env::var("AC1_NPCS").is_ok() || (!scripted && std::env::var("AC1_NO_NPCS").is_err()));
+    let lineup = !level.city && !bare && (std::env::var("AC1_NPCS").is_ok() || (!scripted && std::env::var("AC1_NO_NPCS").is_err()));
     if lineup && let Some(lib) = lib.as_mut() {
         for (i, (builder, label)) in NPC_LINEUP.iter().enumerate() {
             for v in 0..2u64 {
@@ -1022,7 +1045,7 @@ fn setup(
     // A group of scholars walking a loop, to blend into.
     let mut crowds = crowd::Crowds::default();
     // (In a city only where the ground suits a loop.)
-    if std::env::var("AC1_NO_CROWD").is_err() && (!level.city || level.crowd_path.is_some()) {
+    if std::env::var("AC1_NO_CROWD").is_err() && !bare && (!level.city || level.crowd_path.is_some()) {
         crowds.groups.push(crowd::Group {
             path: level
                 .crowd_path
@@ -1447,7 +1470,8 @@ fn overlay_keys(
             None => c.env_remove("AC1_LEVEL"),
         };
         // (A start or free-camera spot belongs to the map it was given for.)
-        c.env_remove("AC1_START").env_remove("AC1_FREECAM");
+        // (And an editor level, `editor`, is left.)
+        c.env_remove("AC1_START").env_remove("AC1_FREECAM").env_remove("AC1_LEVEL_FILE");
         match c.spawn() {
             Ok(_) => {
                 info!("map menu: starting again in {name}");
@@ -1880,6 +1904,10 @@ fn draw_edges(
     mut gizmos: Gizmos,
 ) {
     let Ok(p) = player.single() else { return };
+    // (The editor rebuilds the level: the edges found are by hold index.)
+    if level.is_changed() {
+        edges.clear();
+    }
     if dbg.edges == 3 {
         return;
     }

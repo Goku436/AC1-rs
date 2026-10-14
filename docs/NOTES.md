@@ -32,6 +32,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Clip sets (`AnimSet`) | done: 81 read; soldiers and townsfolk play their own clips |
 | Flight recorder (F9), controller, scenario suite | done |
 | In-game menus: graphics settings (F8, presets for low-end PCs, saved beside the exe), online (F10: two players over UDP, host / join, replays) | first version ("Graphics settings and online play") |
+| Level editor (the ` key, `editor.rs`, `level_file.rs`): blocks, platforms, beams, posts, haystacks, walls, ladders, swing bars placed with the test level's builders; saved to `levels/<name>.level` (plain text); `AC1_LEVEL=<file>.level` / `empty` | first version ("The level editor") |
 | Ghost mode, AC1's development flight (the Human Debug context, unreachable in retail; F7) | done: no collision, action 0x0006F88B (request 7) plays `Ghost_mode01` then `Ghost_mode02` looping, out with request 33's `xx_h_jump_falling01` and a fall (from Banned445's MIT port, `debug_fly.rs`) |
 | Skeleton (24aecb7c) + bone names (CRC32) | done, 50/50 in DataPC |
 | Animation (0fa3067f): tracks, 16/24/32/48/96-bit quats, packed translations, camera field of view | done, 22228/22228 clips parse (the 16 `vo_*` voice lines have no tracks); the 64-bit quat (104 tracks, all present-day Lucy's) not decoded |
@@ -1823,6 +1824,46 @@ a bad address, "nobody is listening there" when Windows reports the joined port 
 `AC1_JOIN=ip:port` start the same from the environment. Checked between two copies on 127.0.0.1 (windowed and
 headless): each hears and shows the other. Not done: NAT punching, more than two players, anything but poses (no
 shared world state).
+
+## The level editor (2026-10-14)
+
+The ` key (beside 1) turns the editor on and off: `editor.rs` (Bevy: keys, outlines, panel, rebuilds) over
+`level_file.rs` (pure: the pieces, the file, building a piece; unit-tested). It works in the test level and in editor
+levels, not in a city. In it the free camera flies (P's keys: WASD, Space/E up, Ctrl/Q down, Shift fast, Alt slow, the
+mouse looks) and the crosshair aims; the piece to place is outlined where it points, snapped to a 0.25 m grid (N: off,
+steps of 0.05 m). Keys (also on the panel, bottom left):
+
+- 1-8 or the wheel: the kind (box, platform, beam, post, haystack, wall, ladder, bar). Left button: place one there
+  (it is selected). Right button: select the piece under the crosshair (or none).
+- The selection: V carries it with the crosshair (the left button drops it); the arrows move it a step across the
+  ground (along the camera's way, snapped to X or Z), Page Up / Page Down up and down; R turns it 90 degrees, T 15
+  (Shift: the other way; with nothing selected they turn the next piece); U/J width, I/K height, O/L depth; C hold rows
+  up a box's or wall's faces on / off; B duplicates it beside itself; Delete or X deletes it. Z undoes (64 steps).
+- Y saves (type a name, Enter; Esc cancels) to `levels/<name>.level` beside the executable, with Altaïr's place as the
+  level's start. H loads one by name (the panel lists the folder); one on the other base starts the game again in it.
+- ` again (or P) leaves: Altaïr is put on the ground under the camera, facing its way, to play; ` goes back.
+
+Pieces are built with the test level's own code (`level::building` for boxes and walls with holds: a hold along every
+top edge and, with `holds`, rows every 0.6 m from 1.79 m; the gauntlet's cuboids, beam and post perches, bars on two
+uprights, ladders, haystacks), in the piece's frame, turned by its yaw and moved: climbed and jumped as the test
+level's. Haystacks keep an axis-aligned footprint (their turn is not used). Every change rebuilds the level's gameplay
+data (the base's triangles, holds, perches, bars, ladders and haystacks kept, the pieces built again, the raycast and
+hold grids remade: well under a millisecond on empty ground), so a change can be played at once.
+
+The file is plain text, one item a line (`#` comments; Bevy space, metres, degrees):
+
+    ac1-level 1
+    base empty                      # or test: the pieces stand in the test level
+    spawn 0 0 3                     # optional: where Altaïr starts (without AC1_START)
+    box 0 0 6 0 6 5.99 2 holds      # <kind> x y z yaw width height depth [holds]
+
+`x y z` is the middle of the piece's foot. `AC1_LEVEL=<file>.level` starts in one (the path as given, else in
+`levels/`); `AC1_LEVEL=empty` starts on empty ground with no pieces (no line-up, crowd or gallery). `main` hands
+either on as `AC1_LEVEL_FILE`, so nothing takes it for a city. `AC1_EDITOR=1` starts in the editor (screenshots).
+Online: each game builds its own level, so both players start the same file (copied to both machines, the same
+`AC1_LEVEL`); only poses go over the network. A replay records no level file: play it back with the same `AC1_LEVEL`.
+The scenario `a saved editor level: ...` climbs `crates/game/tests/levels/climb_block.level` (wall A as a box).
+Not done: other pieces (ramps, stairs, kiosks, benches), multi-select, a mouse gizmo for moving.
 
 ## Animation notes
 See the header of `crates/forge/src/anim.rs`. In short: per-track blocks
