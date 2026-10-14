@@ -55,6 +55,8 @@ const POP_MIN: f32 = 0.04;
 const POP_FACTOR: f32 = 3.0;
 const POP_SPEED: f32 = 1.5;
 const POP_HITCH: f32 = 2.5;
+/// ...and the world's jerk at least this share of the jump relative to the root.
+const POP_WORLD_SHARE: f32 = 0.5;
 /// Game time (s) before which the pop check stays quiet.
 const POP_START: f32 = 0.25;
 
@@ -87,7 +89,9 @@ fn pop_check(rec: &mut Recorder, t: f32, root: Vec3, bones: Vec<Vec3>, state: St
         let d = rel(3, i).distance(rel(2, i));
         let vp = rel(2, i).distance(rel(1, i)) / dtp;
         let jerk = (v(3, i) - v(2, i)).length() * (f(3).0 - f(2).0);
-        if d > POP_MIN && d / dt > POP_FACTOR * vp + POP_SPEED && jerk > POP_MIN {
+        // (The world's jerk a good part of the jump too: a root moved under a pose kept where it shows (the jump on out of a
+        // kiosk's side, started under the hips 1.1 m behind the clip's root) jumps relative to the root alone.)
+        if d > POP_MIN && d / dt > POP_FACTOR * vp + POP_SPEED && jerk > POP_MIN.max(d * POP_WORLD_SHARE) {
             let line = format!("{name} {d:.3} m at {t:.2} | {} <- {}", f(3).3, f(2).3);
             warn!("POP {line}");
             rec.pops.push((d, line));

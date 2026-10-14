@@ -702,6 +702,10 @@ const LEAN_CLIMB_IN: [f32; 4] = [0.3, 0.2, 0.12, 0.06];
 /// the one nearest the facing (AC1's interpreter takes the edge report vt136 0xB17EF0 picks within 0.75 m at any angle,
 /// the one whose normal is closest to the facing; the guard 0xD9D6C0 wants normal·facing > 0; audit EXTRA-17).
 const PULL_DOWN_REACH: f32 = 0.75;
+/// A pull-down's root turning by more than this (rad) onto the wall is a half turn, eased round the clips' own way, short
+/// of the half by this much (rad) so the way is the same every time.
+const PULL_DOWN_HALF_TURN: f32 = 2.97;
+const PULL_DOWN_TURN_BIAS: f32 = 0.01;
 /// (AC1's pull-down guard, 0xD9D6C0: more than 2 m under the edge.)
 const PULL_DOWN_DROP: f32 = 2.0;
 const PERCH_WAIT: &str = "xx_h_beam_pilotis_wait";
@@ -1076,6 +1080,8 @@ const KIOSK_AT: f32 = 0.05;
 const KIOSK_OFF_SPEED: f32 = 1.7;
 /// A side's free step is taken as off the counter once its root is this far under where it started (m).
 const KIOSK_OFF_DROP: f32 = 0.05;
+/// Off a kiosk side's free step, a body more than this behind the root (m, the hips) starts the jump on out under them.
+const KIOSK_OFF_LAG: f32 = 0.3;
 /// A low obstacle run onto (see `vault`): top height above the feet, and how far ahead it is spotted; tops
 /// up to `STEP_UP_MAX` are stepped onto from stopping against them (`collide`); the root ends this far in from the edge.
 /// (From 0.5 m: AC1's obstacle response starts there (event 42's guard 0xB25230, a contact at least 0.5 m over the
@@ -5890,6 +5896,15 @@ impl WallClimb {
             let offset = if feet == Feet::Wall { normal * PULL_DOWN_HANG.0 - Vec3::Y * PULL_DOWN_HANG.1 } else { hang_offset(to, normal) };
             w.start_chain(clips, tos, &start, err + offset);
             w.ease_in(from, root);
+            // (Turned round onto the wall, a half turn: the root eases round the way the clips' body turns back against it
+            // (their bones keep the body facing the drop while the root comes round). The shortest way round is either way
+            // at 180 degrees: off a Damascus post it went with the clip's turn, the body spinning a whole extra turn in
+            // 0.2 s, the hands 0.2 m a frame.)
+            if let Some(m) = w.mv.as_mut()
+                && m.ease_rot.angle_between(Quat::IDENTITY) > PULL_DOWN_HALF_TURN
+            {
+                m.ease_rot = Quat::from_rotation_y(-(std::f32::consts::PI - PULL_DOWN_TURN_BIAS));
+            }
             debug!("climb: pulling down ({to}), steering {:.2} m", err.length());
             return Some(w);
         }
@@ -7268,14 +7283,35 @@ impl WallClimb {
     /// A `HumanKiosk` stage ended: a front side's entry goes on into its run along the counter, the run off its end into
     /// the air (`_tr_fall` posing the fall); a lateral side's free step jumps on out along the jump's way, at a target
     /// there, else AC1's free step (Banned445's port: 0xE3E320, 0xE3E390, 0xE3BF90).
-    fn kiosk_next(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+    fn kiosk_next(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, cr: ClimbRig) -> bool {
         let Some(mut k) = self.kiosk else { return false };
         if k.side.lateral() {
             self.kiosk = None;
-            let w = jump_target(level, root.translation, k.dir, None)
-                .and_then(|to| Self::jump_freestep(lib, level, root, to, true, self.last.clone()))
-                .or_else(|| Self::free_step(lib, root, k.dir, true, self.last.clone()));
+            // (Where ours cuts the side's free step, at the counter's end, its root has run 1.5 m ahead of the body (the
+            // clip's root leads to where it lands, 4 m on): the jump on out starts under the hips, the pose faded from
+            // kept where it shows. From the root, the fade carried the body 1.5 m in 0.1 s, a pop of 0.3 m a frame.)
+            let (mut from, mut at) = (self.last.clone(), *root);
+            if let Some(pose) = &self.last {
+                let rot = world_rot(root.rotation);
+                let body = rig
+                    .find("Hips")
+                    .map_or_else(|| (pose.model_of(rig, cr.feet[0]).pos + pose.model_of(rig, cr.feet[1]).pos) * 0.5, |h| pose.model_of(rig, h).pos);
+                let lag = (rot * body).with_y(0.0);
+                if lag.length() > KIOSK_OFF_LAG
+                    && let (Some(r), Some(f)) = (cr.reference, from.as_mut())
+                {
+                    f.translate_model(rig, r, rot.inverse() * -lag);
+                    at.translation += lag;
+                }
+            }
+            let w = jump_target(level, at.translation, k.dir, None)
+                .and_then(|to| Self::jump_freestep(lib, level, &at, to, true, from.clone()))
+                .or_else(|| Self::free_step(lib, &at, k.dir, true, from.clone()));
             debug!("climb: off the kiosk's side, on along {:.2}", k.dir);
+            // (The root moved there now, with the pose shown: a frame later, the body showed 1.9 m ahead for a frame.)
+            if w.is_some() {
+                *root = at;
+            }
             return w.map(|w| *self = w).is_some();
         }
         let Some((run, off)) = k.side.run_and_off() else { return false };
@@ -10415,7 +10451,7 @@ impl WallClimb {
             if self.state == SWING && self.swing_next(lib, level, root, &done.clip) {
                 return;
             }
-            if self.state == KIOSK && self.kiosk_next(lib, level, root) {
+            if self.state == KIOSK && self.kiosk_next(lib, level, root, rig, cr) {
                 return;
             }
             // (A fade into the move just done, still under way (a blend longer than its clip: the wall run's ladder entry),

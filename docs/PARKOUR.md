@@ -906,6 +906,19 @@ Fixed from it and from the user's recordings of 2026-10-13:
   point and fell 7.4 m; with dev's free-to-wall switch he hung on the wall under it; now he pulls up onto the floor behind
   the cap (below).
 
+Damascus sweep again (2026-10-14, fix/parkour3, 147 runs): pop 5, hands-off 3, stuck 3, free-on-wall 1, no-grab 1,
+topout 1; flipflop 0. Fixed from it: the post pull-down (`w11-drop`, `w12-drop`): its half turn onto the wall eased the
+root the same way as the clip's own turn (180 degrees: the shortest way is either), the body spinning a whole extra turn
+in 0.2 s; it now eases the way the clip's turn cancels, as off a ledge (pop 0.20 -> 0.15 m, the rest the turn's speed).
+Traced, left: `w14-up` hands-off (hung from a cornice 0.3 m out from the wall's holds after the free-to-wall switch,
+the closed wait's hands 0.3 m inside the hold, no hand IK there), `w2-run` no-grab (the same with ours' collision edge
+tests, `AC1_NO_EDGE_REPORTS`: not from the edge reports). Pops over 0.15 m in the scenarios, by cause: baked into the
+clip (`xx_h_climbing_hangwall_to_swingback_up_max_*_a` frame 13, bones 8-11.5 degrees in a frame), AC1's own blends from a
+frozen pose into a clip that starts fast (`xx_h_collide_full_hand_150cm`, the impulsions' `_to_ground_to_air_*`, the
+rebounds' 550 cm takeoffs), a script driving a low-profile walk at 3 m/s (the horse barrier); fixed: the jump on out of a
+kiosk's side (its clip's root runs 1.1-1.9 m ahead of the body: started under the hips now), and the pop check counted a
+root moved under a pose kept in place (it wants the world's jerk at least half the jump now).
+
 ## The live log comparisons (2026-10-12)
 The route library played again in the running game with ac1-hook's live log on (every frame's root, context, action,
 bones, limb IK goals, input and camera), and in ours by control runs with `AC1_RECORD` (`livelog compare --game`: the
