@@ -887,10 +887,29 @@ const BEAM_CLIMB_AHEAD: f32 = 0.95;
 const BEAM_CLIMB_SIDE: f32 = 0.8;
 /// Running jumps are steered onto a perch they would land within this of.
 const PERCH_MAGNET: f32 = 1.2;
-/// With no target, the free step off a beam goes when there is a floor this far on (m), at most `PERCH_FREE_STEP_DROP`
-/// below.
-const PERCH_FREE_STEP_ON: [f32; 3] = [2.0, 2.5, 3.0];
-const PERCH_FREE_STEP_DROP: f32 = 1.2;
+/// AC1's free jump off a narrow object (`Human__BuildFreeJumpTarget` 0xB1E7F0 by the interpreter's mode, Banned445's
+/// port): over a drop of at most `FREE_JUMP_NEAR_DROP` (m) off a beam, `FREE_JUMP_NEAR` m on (mode 2); else
+/// `EJECT_FREE_ALONG` (mode 0); down to the drop's floor and `FREE_JUMP_UNDER` m more, at most `EJECT_FREE_DOWN`.
+const FREE_JUMP_NEAR_DROP: f32 = 1.0;
+const FREE_JUMP_NEAR: f32 = 3.0;
+const FREE_JUMP_UNDER: f32 = 0.25;
+/// A post's wait leans fully at this angle of the stick off the facing (rad), the lean following it at this rate (/s).
+const POST_LEAN_FULL: f32 = 2.094_395_2;
+const POST_LEAN_RATE: f32 = 3.0;
+/// Not free running: a drop edge under this (m) is hopped off (kinds 1 / 2), `LOW_HOP_AHEAD` m on in low profile (mode 1).
+const LOW_HOP_DROP: f32 = 2.0;
+const LOW_HOP_AHEAD: f32 = 1.0;
+/// Along a beam the drop edge at its end counts within this of it (m: `BeamRunsAlong` 0xF78F00).
+const BEAM_RUNS_ALONG: f32 = 0.4;
+/// A free-step target this far under the start (m), the way to it blocked: AC1's beam set of takeoffs and flights
+/// (`Human__UseBeamFreestepJumpVariants` 0xB145B0).
+const BEAM_VARIANT_DROP: f32 = 0.4;
+/// `Human__FindDropEdgeAhead` 0xB1C100 as the narrow interpreter calls it: the edges crossing the stick's vertical plane
+/// from `DROP_EDGE_ALONG.0` to `.1` m ahead and within `DROP_EDGE_UP` m of the feet's height, facing along the stick, with
+/// at least `DROP_EDGE_MIN` m of drop past them.
+const DROP_EDGE_ALONG: (f32, f32) = (-0.3, 1.1);
+const DROP_EDGE_UP: f32 = 0.3;
+const DROP_EDGE_MIN: f32 = 0.5;
 /// AC1's free step with no target: launched this fast on and up (m/s).
 const FREE_STEP_SPEED: f32 = 5.4;
 const FREE_STEP_UP: f32 = 1.0;
@@ -1409,6 +1428,8 @@ pub struct WallClimb {
     /// Stopped by a wall at a beam's end free running (the way and the speed): AC1's walk holds on there, and the legs
     /// held run up the wall (the narrow object's event 15).
     beam_wall: Option<(Vec3, f32)>,
+    /// On a post, the lean of its wait toward the stick (-1 left .. 1 right; AC1's `NarrowObject+372`).
+    post_lean: f32,
     /// Ladder being climbed.
     ladder: Option<usize>,
     /// On a kiosk's counter (`HumanKiosk`).
@@ -2360,6 +2381,52 @@ fn jump_airtime() -> f32 {
 /// A running flight's slots as the beam set's (`xx_h_air_<way>_<dist>` -> `xx_h_beam_air_...`), which has only the front
 /// and down flights at 050 and 300 cm: the far ones as 300 cm, the rising ones as the front; weights of one clip summed.
 /// A slot with no beam clip keeps its own.
+/// The free-step takeoff's beam set where AC1 has it (`xx_h_beam_freestep_<front|left|right>_<front|down>_<050|300>cm_*`,
+/// action 0x118DA41A / B); the other clips (550 cm, up, back) stay the free step's own, as in that action.
+fn beam_takeoff(lib: &mut AnimLib, takeoff: &[(String, f32)]) -> Vec<(String, f32)> {
+    takeoff
+        .iter()
+        .map(|(name, w)| {
+            let beam = name.replacen("xx_h_freestep_", "xx_h_beam_freestep_", 1);
+            (if lib.get(&beam).is_some() { beam } else { name.clone() }, *w)
+        })
+        .collect()
+}
+
+/// AC1's drop edge ahead of `pos` along `dir` (`Human__FindDropEdgeAhead` 0xB1C100 with the narrow interpreter's
+/// arguments, Banned445's port): the hold edges crossing the vertical plane along `dir` within `DROP_EDGE_ALONG` and
+/// `DROP_EDGE_UP`, facing along it, not steep, with at least `DROP_EDGE_MIN` of drop past them (measured down from 0.25 m
+/// out); the nearest to the zone's rear. Its drop (m).
+fn drop_edge_ahead(level: &Level, pos: Vec3, dir: Vec3) -> Option<f32> {
+    let f = dir.with_y(0.0).normalize_or_zero();
+    if f == Vec3::ZERO {
+        return None;
+    }
+    let side = f.cross(Vec3::Y);
+    let rear = pos + f * DROP_EDGE_ALONG.0 - Vec3::Y * DROP_EDGE_UP;
+    let near = pos + f * (DROP_EDGE_ALONG.0 + DROP_EDGE_ALONG.1) * 0.5;
+    level
+        .ledges
+        .iter()
+        .filter(|l| (((l.a + l.b) * 0.5) - near).with_y(0.0).length() < 1.0 + l.a.distance(l.b) * 0.5)
+        .filter(|l| l.out.dot(f) >= 0.0 && (l.b.y - l.a.y).abs() < 0.5 * (l.b - l.a).with_y(0.0).length())
+        .filter_map(|l| {
+            let (s0, s1) = ((l.a - pos).dot(side), (l.b - pos).dot(side));
+            if s0 * s1 > 0.0 || (s0 - s1).abs() < 1e-6 {
+                return None;
+            }
+            let x = l.a.lerp(l.b, s0 / (s0 - s1));
+            let along = (x - pos).dot(f);
+            if !(DROP_EDGE_ALONG.0..=DROP_EDGE_ALONG.1).contains(&along) || (x.y - pos.y).abs() > DROP_EDGE_UP {
+                return None;
+            }
+            let drop = level.ground(x + l.out * 0.25 + Vec3::Y * 0.05, 0.0, 10.0).map_or(10.0, |g| x.y - g.point.y);
+            (drop >= DROP_EDGE_MIN).then_some(((x - rear).length_squared(), drop))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, d)| d)
+}
+
 fn beam_flight(lib: &mut AnimLib, flight: &[(String, f32)]) -> Vec<(String, f32)> {
     let mut out: Vec<(String, f32)> = Vec::new();
     for (name, w) in flight {
@@ -3179,6 +3246,7 @@ impl WallClimb {
             freestep_left: true,
             cycle: None,
             beam_wall: None,
+            post_lean: 0.0,
             ladder: None,
             kiosk: None,
             mirrored: false,
@@ -5750,6 +5818,9 @@ impl WallClimb {
         let q = line.closest(root.translation);
         root.translation = root.translation.lerp(q, 1.0 - (-10.0 * dt).exp());
         let dir = self.move_dir.with_y(0.0);
+        if line.axis() == Vec3::ZERO {
+            self.post_wait(lib, root, dir, dt);
+        }
         if dir.length() < 0.3 {
             self.beam_wall = None;
             return;
@@ -5820,14 +5891,50 @@ impl WallClimb {
             self.finished = true;
             return;
         }
+        // (Not free running, toward a low drop: AC1's hop off, see `low_hop`.)
+        if !self.sprint && self.low_hop(lib, level, root, dir) {
+            return;
+        }
         // (Free running only, any way: AC1 jumps off a beam or post on high profile with the legs (0xEE9AF0 / 0xEE8EC0);
         // high profile alone, the stick off the side only turns to the side wait, audit NARROW-7.)
         if self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir)) {
             return;
         }
-        // (On a post he turns on the spot; on a beam the turns above face him.)
-        if axis == Vec3::ZERO || self.beam_stance.is_none() {
+        // (On a beam the turns above face him; on a post he leans, `post_wait`.)
+        if axis != Vec3::ZERO && self.beam_stance.is_none() {
             root.rotation = root.rotation.slerp(facing(dir), 1.0 - (-6.0 * dt).exp());
+        }
+    }
+
+    /// On a post, the body kept facing as it is: the wait leans toward the stick, AC1's pilotis wait (action 0x388E97DA,
+    /// `xx_h_beam_pilotis_wait` with `_left` and `_right` by the lean, 0xE51960, Banned445's port): the lean follows the
+    /// stick's signed angle off the facing (120 degrees full) at 3/s, back to upright with the stick let go. Ours turned the
+    /// body to the stick on the spot.
+    fn post_wait(&mut self, lib: &mut AnimLib, root: &Transform, dir: Vec3, dt: f32) {
+        if self.impulsion || self.mv.is_some() || self.beam_stance.is_some() {
+            return;
+        }
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let want = if dir.length() >= 0.3 {
+            let d = dir.normalize();
+            let ang = d.dot(fwd).clamp(-1.0, 1.0).acos().min(POST_LEAN_FULL);
+            d.dot(fwd.cross(Vec3::Y)).signum() * ang / POST_LEAN_FULL
+        } else {
+            0.0
+        };
+        self.post_lean += (want - self.post_lean) * (dt * POST_LEAN_RATE).min(1.0);
+        // (In steps of 0.05: each lean a mix of its own.)
+        let l = (self.post_lean * 20.0).round() / 20.0;
+        let name = if l == 0.0 {
+            PERCH_WAIT.to_string()
+        } else {
+            let side = if l > 0.0 { "xx_h_beam_pilotis_wait_right" } else { "xx_h_beam_pilotis_wait_left" };
+            mix_name(&[(PERCH_WAIT, 1.0 - l.abs()), (side, l.abs())])
+        };
+        if self.wait.as_ref().is_some_and(|w| w.name != name)
+            && let Some(w) = lib.get(&name)
+        {
+            self.wait = Some(w);
         }
     }
 
@@ -5886,15 +5993,24 @@ impl WallClimb {
         }
     }
 
+    /// Along a beam at the crouch jog (high profile, or free running), else the crouch walk.
+    fn beam_jog(&self) -> bool {
+        self.high || self.sprint
+    }
+
     fn start_beam_walk(&mut self, lib: &mut AnimLib, dir: Vec3) {
-        let names: [String; 2] = if self.sprint { BEAM_JOG.map(String::from) } else { BEAM_WALK.map(String::from) };
+        // (The crouch jog in high profile, the crouch walk in low: AC1's speed band by profile, band 2 in high, 1 in low
+        // (`GetSpeedBand` 0xE53090, Banned445's port fa7114b); ours jogged free running only.)
+        let jog = self.beam_jog();
+        let names: [String; 2] = if jog { BEAM_JOG.map(String::from) } else { BEAM_WALK.map(String::from) };
         let (Some(a), Some(b)) = (lib.get(&names[0]), lib.get(&names[1])) else { return };
+        debug!("climb: along the beam at the {}", if jog { "crouch jog" } else { "crouch walk" });
         let speed = root_motion_at(&a, a.frames()).length() / a.anim.duration.max(1e-3);
         // From the crouch on a foot facing along the beam: AC1's start (0x34662CB4 / B5) on into the other foot's step.
         let feet = ["footl", "footr"];
         let intro = match self.beam_stance {
             Some(BeamStance::Along(f)) => {
-                let (p, gait) = if self.sprint { ("h", "crouchjog") } else { ("l", "crouchwalk") };
+                let (p, gait) = if jog { ("h", "crouchjog") } else { ("l", "crouchwalk") };
                 lib.get(&format!("xx_{p}_beam_crouchwait_{}_tr_{gait}_{}", feet[f], feet[1 - f])).map(|c| {
                     let v = root_motion_at(&c, c.frames()).length() / c.anim.duration.max(1e-3);
                     (f, c, v)
@@ -5906,7 +6022,7 @@ impl WallClimb {
         // (Free running, from `BEAM_SPRINT_START` up to the jog's own speed at `BEAM_ACCEL`: the running game went along
         // a Damascus beam from 2.1 to 3.7 m/s at about 2.4 m/s² (roof1_free_sw), then held the crouch jog's 3.7 m/s
         // (AC1's beam speed model: up at 2 m/s², down at 3, Banned445's reanalysis NARROW-1).)
-        let v = if self.sprint { BEAM_SPRINT_START.min(speed) } else { speed };
+        let v = if jog { BEAM_SPRINT_START.min(speed) } else { speed };
         self.cycle = Some(Cycle { clips: [a, b], foot, phase: 0.0, dir, speed, v, intro: intro.map(|(_, c, v)| (c, 0.0, v)) });
         self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
     }
@@ -5936,7 +6052,7 @@ impl WallClimb {
         // Jogging, the stick 40-140 degrees off the way: hop across onto a beam beside (AC1's corner hop, its event taken
         // before the walk's stick test).
         if let Some(cy) = &self.cycle {
-            let (dir, jog) = (cy.dir, self.sprint && cy.intro.is_none());
+            let (dir, jog) = (cy.dir, self.beam_jog() && cy.intro.is_none());
             if jog && stick != Vec3::ZERO && (-CORNER_HOP_COS..CORNER_HOP_COS).contains(&stick.dot(dir)) && self.corner_hop(lib, level, root, dir, stick) {
                 return;
             }
@@ -5956,7 +6072,7 @@ impl WallClimb {
             let foot = cy.foot;
             let feet = ["footl", "footr"];
             let names = [format!("xx_h_beam_crouchjog_stop_{}", feet[foot]), format!("xx_h_beam_crouchjog_stop_{0}_tr_crouchwait_{0}", feet[foot])];
-            let clips = if self.sprint && cy.intro.is_none() { names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() } else { None };
+            let clips = if (self.high || self.sprint) && cy.intro.is_none() { names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() } else { None };
             stop(self, lib);
             if let Some(clips) = clips {
                 let r = Transform { translation: line.closest(root.translation), ..*root };
@@ -6003,6 +6119,11 @@ impl WallClimb {
                 if walled {
                     self.beam_wall = Some((dir, v));
                 } else if self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir) {
+                    return;
+                }
+            } else if !walled {
+                root.translation = q;
+                if self.low_hop(lib, level, root, dir) {
                     return;
                 }
             }
@@ -6191,14 +6312,6 @@ impl WallClimb {
             *self = w;
             return true;
         }
-        // (No target, a floor a step down ahead: AC1's free step off it all the same, low and fast. Off a beam ending a
-        // Damascus roof it came down 0.74 m below 2.5 m on in 0.45 s, off a 0.57 m block 1.07 m below 3.2 m on in 0.6 s: both
-        // a launch of `FREE_STEP_SPEED` on and `FREE_STEP_UP` up under gravity. A beam's only, over at most
-        // `PERCH_FREE_STEP_DROP`: off a post, or over a deeper drop (G1's beam stuck out of a wall, the street 1.5 m below, a
-        // platform further on), the jump below.)
-        let beam = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() != Vec3::ZERO);
-        let floor =
-            beam && PERCH_FREE_STEP_ON.iter().any(|&d| level.ground(from + dir * d, 0.3, PERCH_FREE_STEP_DROP).is_some_and(|g| g.point.y < from.y - 0.2));
         // (No top: a swing bar ahead, as AC1 jumps from a narrow object at a free hang in its reach zone 7, down to level
         // with the feet; the running game swung from a thin beam 5.6 m across from the one it stood on.)
         if to.is_none()
@@ -6207,34 +6320,130 @@ impl WallClimb {
         {
             return true;
         }
-        if to.is_none()
-            && floor
-            && let Some(w) = Self::free_step(lib, root, dir, self.freestep_left, self.last.clone())
-        {
-            *self = w;
+        let beam = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() != Vec3::ZERO);
+        if let Some(to) = to {
+            // (A target the free-step clips can't make: flown at on a ballistic arc from the post's crouch. Ours.)
+            let dir = (to - from).with_y(0.0).normalize_or(dir);
+            let (v, flight) = ballistic(from, to);
+            let (Some(takeoff), Some(push), Some(air)) = (lib.get(PERCH_TAKEOFF), lib.get(PERCH_PUSH), lib.get(JUMP_AIR)) else { return false };
+            let planned = Transform { rotation: facing(dir), ..*root };
+            let flight = (flight - push.anim.duration).max(0.1);
+            self.queue = vec![Queued::new(push, JUMP), Queued { rate: air.anim.duration / flight, ..Queued::new(air, FALL) }];
+            self.fall_with = Some(v);
+            self.can_catch = true;
+            self.aimed = true;
+            self.perch = None;
+            self.cycle = None;
+            self.start(takeoff, JUMP.into(), &planned);
+            if let Some(m) = &mut self.mv {
+                m.ease_rot = root.rotation * planned.rotation.inverse();
+            }
             return true;
         }
-        // Face where it goes.
-        let dir = to.map_or(dir, |q| (q - from).with_y(0.0).normalize_or(dir));
-        let (v, flight) = match to {
-            Some(to) => ballistic(from, to),
-            None => (dir * 3.5 + Vec3::Y * 3.0, jump_airtime()),
+        // No target: AC1's free jump off a narrow object, free running (the interpreter's jump kind 0 with Legs held,
+        // BeamState 0xEEAAA0 / NarrowObjectState 0xEE9564, Banned445's port): only over a drop edge ahead along the stick
+        // (`Human__FindDropEdgeAhead` 0xB1C100); off a beam 3 m on with a drop of 1 m or less, 8 m on with the stick within
+        // 45 degrees of the facing (from a post always 8 m), each down to the drop's floor + 0.25 m, at most 3 m
+        // (`Human__BuildFreeJumpTarget` 0xB1E7F0). No drop edge: the small hop query only (kind 4), no free jump. Ours
+        // crouched and leapt 3.5 m on, 3 m up, anywhere: off a beam across the way the running game free-stepped 3 m on
+        // (`roof1_free_south`), ours went straight up.
+        let Some(d) = drop_edge_ahead(level, from, dir) else { return false };
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let forward = dir.with_y(0.0).normalize_or_zero().dot(fwd) >= std::f32::consts::FRAC_1_SQRT_2;
+        let ahead = match (beam, d <= FREE_JUMP_NEAR_DROP, forward) {
+            (true, true, _) => FREE_JUMP_NEAR,
+            (true, false, true) | (false, _, _) => EJECT_FREE_ALONG,
+            (true, false, false) => return false,
         };
-        let (Some(takeoff), Some(push), Some(air)) = (lib.get(PERCH_TAKEOFF), lib.get(PERCH_PUSH), lib.get(JUMP_AIR)) else { return false };
-        let planned = Transform { rotation: facing(dir), ..*root };
-        // The crouch, the push off (AC1's `HumanNarrowObject` starts it from the crouch), then the flight.
-        let flight = (flight - push.anim.duration).max(0.1);
-        self.queue = vec![Queued::new(push, JUMP), Queued { rate: air.anim.duration / flight, ..Queued::new(air, FALL) }];
-        self.fall_with = Some(v);
-        self.can_catch = true;
-        self.aimed = true;
-        self.perch = None;
-        self.cycle = None;
-        self.start(takeoff, JUMP.into(), &planned);
-        if let Some(m) = &mut self.mv {
-            m.ease_rot = root.rotation * planned.rotation.inverse();
+        match Self::narrow_free_jump(lib, level, root, dir, ahead, (d + FREE_JUMP_UNDER).min(EJECT_FREE_DOWN), self.freestep_left, self.last.clone()) {
+            Some(w) => {
+                *self = w;
+                true
+            }
+            None => false,
         }
-        true
+    }
+
+    /// Not free running, the stick toward a drop edge under 2 m (within 45 degrees of the facing, or any way in high
+    /// profile): AC1's hop off (the narrow interpreter's jump kinds 1 / 2, BeamState 0xEEAAA0 / NarrowObjectState 0xEE9564,
+    /// Banned445's port): its free jump 1 m on (low profile) or 3 m (high), down to the drop's floor + 0.25 m. Along a beam
+    /// only within 0.4 m of the drop edge at its end (`BeamRunsAlong` 0xF78F00 under NARROW-11's gate: walking to the end of
+    /// a beam over a low roof he hops down at the end, not 1.1 m before it). Ours stopped at the end.
+    fn low_hop(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3) -> bool {
+        let p = root.translation;
+        let dir = dir.with_y(0.0).normalize_or_zero();
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let forward = dir.dot(fwd) >= std::f32::consts::FRAC_1_SQRT_2;
+        if dir == Vec3::ZERO || !(self.high || forward) {
+            return false;
+        }
+        let Some(d) = drop_edge_ahead(level, p, dir).filter(|d| *d < LOW_HOP_DROP) else { return false };
+        if let Some(line) = self.perch.and_then(|i| level.perches.get(i).copied()) {
+            let axis = line.axis();
+            if forward && axis != Vec3::ZERO && fwd.dot(axis).abs() > std::f32::consts::FRAC_1_SQRT_2 {
+                let end = if dir.dot(axis) > 0.0 { line.b } else { line.a };
+                if (end - p).with_y(0.0).dot(dir) > BEAM_RUNS_ALONG {
+                    return false;
+                }
+            }
+        }
+        let ahead = if self.high { FREE_JUMP_NEAR } else { LOW_HOP_AHEAD };
+        match Self::narrow_free_jump(lib, level, root, dir, ahead, (d + FREE_JUMP_UNDER).min(EJECT_FREE_DOWN), self.freestep_left, self.last.clone()) {
+            Some(w) => {
+                *self = w;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// AC1's free jump off a narrow object at its made-up target `ahead` m on along `dir` and `down` m below: the free-step
+    /// takeoff (the group by the way it goes off the facing) and flight, swapped for the beam set
+    /// (`xx_h_beam_freestep_*_to_air`, `xx_h_beam_air_*_to_freestep`) when the target lies over 0.4 m below and the way
+    /// to it is blocked (`Human__UseBeamFreestepJumpVariants` 0xB145B0, Banned445's port), flown at the target, then the
+    /// fall.
+    #[allow(clippy::too_many_arguments)]
+    fn narrow_free_jump(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        dir: Vec3,
+        ahead: f32,
+        down: f32,
+        left: bool,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
+        let p = root.translation;
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let aim = dir.with_y(0.0).normalize_or_zero();
+        if aim == Vec3::ZERO {
+            return None;
+        }
+        let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
+        let to = p + aim * ahead - Vec3::Y * down;
+        let mut j = crate::jump::freestep(-down, ahead, angle, left, 0.0);
+        let blocked = level.raycast(p + Vec3::Y * 0.5, (to - p).normalize_or(aim), (to - p).length()).is_some();
+        if down > BEAM_VARIANT_DROP && blocked {
+            j.takeoff = beam_takeoff(lib, &j.takeoff);
+            j.flight = beam_flight(lib, &j.flight);
+        }
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, air) = (mix(&j.takeoff)?, mix(&j.flight)?);
+        let planned = Transform { rotation: facing(aim), ..*root };
+        let off = p + world_rot(planned.rotation) * root_motion_at(&takeoff, takeoff.frames());
+        let (v, t) = ballistic(off, to);
+        debug!("climb: free jump off the narrow object at {to:.2} ({ahead:.0} m on, {down:.2} m down) via {}", takeoff.name);
+        let mut w = WallClimb::new(JUMP, planned.rotation * Vec3::Z);
+        w.queue = vec![Queued { rate: air.anim.duration / t.max(0.1), ..Queued::new(air, FALL) }];
+        w.fall_with = Some(v);
+        w.can_catch = true;
+        w.aimed = true;
+        w.start(takeoff, JUMP.into(), &planned);
+        w.ease_in(from, root);
+        Some(w)
     }
 
     /// From a post or beam, a free step's jump at the swing bar at `q`: AC1's free-step takeoff and `_to_swing` flight,

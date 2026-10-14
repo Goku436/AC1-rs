@@ -407,6 +407,8 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   0x67DA30 builds each beam's volumes: the top and both sides, tilted ±5° about the beam's line, 0.15 m past its
   half width, 0.5 m along the up normal. So city beams are the authored guidance beams, which we already load (937 in
   Damascus → 1141 perches). **[V]**
+  Since 2026-10-14 ours builds a city's beams that way (`beam_pairs`) and its posts by `sub_B2B600`: see "Beams as AC1
+  does them".
 
 ## 9. Wall run, ladders, hay, swing bars
 - **Wall run over a thin wall**: removed 2026-10-10. AC1's walling classifier (0xE341D0) never returns the pass-over
@@ -541,7 +543,7 @@ in this batch, by audit id:
   `AC1_PAIRED_BEAMS=1` builds beams and posts as AC1's runtime does, pairing facing hold edges (`beam_pairs.rs`, after
   Banned445's decode) in place of ours' mesh-name beams and single-hold tops; not the default yet (31 of 41 routes
   against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
-  beam the running game lands on).
+  beam the running game lands on); the default since 2026-10-14, see "Beams as AC1 does them").
 - **Fourth batch** (WALL-8): an eject's takeoff turns the root away from the wall in one frame, as AC1's does (it was
   eased round over the takeoff), the hips kept where the rebound pose left them. (WALL-16 to 18) The wall run's catch
   into the wall hang (probe D) as the exe has it: the highest edge first, its height blend over 1.5 m (ours had the
@@ -1084,6 +1086,58 @@ position only, reads as a jump), the swing back's hand (the clip's own 8 m/s swi
 Sweep runs with each class (dev c4f4154 / this round): Damascus (147 runs) embed 5 / 0, topout 6 / 0, stuck 2 / 0,
 pop 5 / 5, hands-off 2 / 2, flipflop 1 / 1, free-on-wall 1 / 1; test level (102) topout 3 / 0,
 free-on-wall 4 / 1, pop 3 / 3, embed 1 / 1.
+
+## Beams as AC1 does them (2026-10-14)
+The online friend "went into walls, specially from beams" (replay 1791930058, user report 2026-10-13). `AC1_REPLAY_SCAN=1`
+(with `AC1_REPLAY`) checks every frame's two roots against the city's collision (the capsule pushed out, the chest through
+a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It found ours' own beams: a drum's plinth
+0.3 m deep against its wall (the friend balancing along it, the capsule 0.35 m into the drum) and a window box's sill (us,
+0.45 m into the box), both beams invented from mesh names or single-hold tops. AC1 has neither. Now, in the cities:
+- **Where beams and posts come from [V, B]**: AC1's beams only, its paired authored hold edges (`beam_pairs`, the
+  `AC1_PAIRED_BEAMS` build, now the default; `AC1_OLD_BEAMS=1` keeps ours' old set), cut wherever anything stands in their
+  workspace (0.5 m over the top, side planes 0.15 m past the half-width), so never against a wall; and AC1's posts
+  (`sub_B2B600`, read in Ghidra: from a hold edge's middle, the edge facing back within 0.3 m, one facing on within 1.3 m,
+  one to each side within 0.6 m of between them, all within 0.5 m in height and 30 degrees of the search, front-back and
+  side-side at most 0.7 m apart; the top the four points' mean, kept only with a 0.4 m capsule free from 0.6 to 1.4 m over
+  it): 5218 beams and 1374 posts in Damascus. No mesh-name beams, no single-hold narrow tops, no stub-end holds.
+- **Catching a beam from the air or arriving on it [V]** (`sub_116D960`, the air catch 0xE0B890 and the free-step
+  arrival): no floor within 0.5 m under the top at half-width + 0.2 m to either side, and no wall across 0.2 m over it.
+- **From the ground [B]**: AC1's mount guard (event 72, 0xD9F4C0): the stick past 0.35, the beam piece running from its
+  nearer end within 90 degrees of the stick at any angle, head room from the feet to the entry 0.5 m on along it. Ours took a
+  beam only walking within 30 degrees of it. (The test level keeps ours' rule.)
+- **Speed [B]**: the crouch jog in high profile, the crouch walk in low (AC1's speed band by profile); ours jogged only
+  free running.
+- **Ends [B]**: free running to a beam's end that runs into a wall holds there (no drop edge past it: AC1's
+  `BeamRunsAlong` 0xF78F00 leaps only within 0.4 m of the drop edge at the end) and the legs held run up the wall (event 15
+  reads the legs held). Ours leapt straight up into a balcony's floor (report #9).
+- **Jumps with no target [B]**: AC1's free jump off a narrow object (the narrow interpreter's jump kinds, BeamState
+  0xEEAAA0 / NarrowObjectState 0xEE9564, `BuildFreeJumpTarget` 0xB1E7F0): free running, only over a drop edge ahead along
+  the stick (`FindDropEdgeAhead` 0xB1C100: the hold edges crossing the stick's plane 0.3 m back to 1.1 m on, within 0.3 m
+  in height, a drop of 0.5 m or more past them), 3 m on over a drop of 1 m or less from a beam, else 8 m on (the stick within
+  45 degrees of the facing; from a post always), down to the drop's floor + 0.25 m, at most 3 m; the beam set of takeoffs and
+  flights (`xx_h_beam_freestep_*`, `xx_h_beam_air_*`) where the target is over 0.4 m down and the way to it blocked
+  (0xB145B0). No drop edge: no free jump. Ours crouched and leapt 3.5 m on and 3 m up anywhere: on route `roof1_free_south`,
+  on a beam across the way, it went straight up where the running game free-stepped on (end gap 2.14 -> 0.49 m). Not free
+  running, the stick toward a drop edge under 2 m (within 45 degrees of the facing, or any way in high profile; along a beam
+  only within 0.4 m of its end): the hop off, 1 m on in low profile, 3 m in high (kinds 1 / 2).
+- **Posts [B]**: the body keeps its facing and the pilotis wait leans toward the stick (`_wait`, `_left`, `_right` by the
+  stick's angle, 120 degrees full, at 3/s; 0xE51960); ours turned the body on the spot.
+- **Climbing onto a narrow top**: the lean's climb needs room for the body on the top (the capsule clear of walls), as the
+  plinth had none.
+- Measured on the live-log routes with a beam in them (`wall1_*`, `roof*`, `seams_free_west`, `hay70_free`): unchanged or
+  better (`roof1_free_south` 0.82 -> 0.77 mean). Scenarios: the plinth and window box have no beam; the lean does not climb
+  the plinth; `roof2_run_south` runs on over the roof's end as ground (AC1's, ours had a beam there); the high profile jog;
+  the post's lean.
+
+Left (Banned445's port has them; ours does not yet): the walk's speed ramp blending walk and jog by speed (+2 / -3 m/s²,
+the jog stop by it); the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
+jump kind on the legs held without a press; the hop off sideways in high profile before the quarter turn (ours turns
+first); event 17 (walking into an obstacle on a beam searches a hand target); the free-step stay (every free-step landing
+plays its reception in NarrowObject and may jump on from half of it; ours lands on the ground or the perch); the beam ends
+extended to the drop edge past them and the support re-found every frame (one runtime report, chains walked through);
+the side entry's 30/90 blend checked live; the corner hop chain from the hop's end; the turn round under a beam from a free
+hang (a ledge move). The window-box side leap through a building's corner in the same replay is the in-air wall test's
+(single rays at 0.3 / 1.0 m), passed on to the wall-kick work.
 
 ## Banned445's port, 2026-10-13 round
 Banned445's AC1-Movement-Rewritten (MIT) moved on 233 commits (c81c555..5f081fa), each read from the exe. Ported here
