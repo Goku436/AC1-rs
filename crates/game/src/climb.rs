@@ -486,6 +486,8 @@ const GRID_UP: f32 = 0.3;
 const GRID_DEPTH: f32 = 1.0;
 /// AC1's grid columns are this wide (m, `GridTileWidth`).
 const GRID_COL: f32 = 0.75;
+/// A hold snapped to a grid cell is kept within this of the cell's middle along the wall (m, `BuildHoldGrid` 0xDF6A40).
+const GRID_CELL_ALONG: f32 = 0.3;
 /// A plain move's hand that goes up or down more than this (m) must change holds (half AC1's 0.6 m row).
 const GRID_ROW_MIN: f32 = 0.3;
 /// Room the body needs beside it climbing sideways (m), to its side's wall.
@@ -1942,6 +1944,40 @@ fn foot_cell(level: &Level, hand: Vec3, normal: Vec3) -> bool {
             d.dot(along).abs() <= GRID_ALONG && d.y.abs() <= FOOT_CELL_UP && d.dot(normal).abs() <= GRID_DEPTH
         })
 }
+/// Somewhere to go sideways from the climbing stance at `root` (facing the wall `normal`) other than the wall's holds: ground
+/// within a step-off's drop beside it, or a hold on a wall turned from this one (a corner) within 1.5 m that way.
+fn side_exit_toward(level: &Level, root: &Transform, normal: Vec3, right: bool) -> bool {
+    let n = normal.with_y(0.0).normalize_or_zero();
+    let way = (-n).cross(Vec3::Y).normalize_or_zero() * if right { 1.0 } else { -1.0 };
+    let p = root.translation;
+    [0.75, 1.0, 1.5].iter().any(|d| level.ground(p + way * *d + Vec3::Y * 0.3, 0.3, STEP_OFF_MAX).is_some())
+        || level.ledges.iter().filter(|l| l.out.dot(n).abs() < 0.7).any(|l| {
+            let d = l.closest(p + Vec3::Y * 1.9 + way * 0.75) - (p + Vec3::Y * 1.9);
+            d.dot(way) > 0.0 && d.length() < 1.5
+        })
+}
+
+/// Climbing holds a reach from the climbing stance at `root` (facing the wall `normal`) could take toward the stick `input`
+/// (x right, y up): on the same wall, 0.75 to 3.5 m along that way, from 1.2 m under to 0.6 m over the hands' height
+/// (sideways), or 0.8 to 2.4 m up or down within a column. A gate for ours' bringing the hands level before a reach.
+fn reach_holds_toward(level: &Level, root: &Transform, normal: Vec3, input: Vec2) -> bool {
+    let n = normal.with_y(0.0).normalize_or_zero();
+    let right = (-n).cross(Vec3::Y).normalize_or_zero();
+    let hands = root.translation + Vec3::Y * 1.9;
+    let side = input.x.abs() > input.y.abs();
+    level.ledges.iter().filter(|l| l.out.dot(normal) > 0.7).any(|l| {
+        let probe = if side { hands + right * input.x.signum() * 2.0 } else { hands + Vec3::Y * input.y.signum() * 1.5 };
+        let d = l.closest(probe) - hands;
+        let (along, up) = (d.dot(right), d.y);
+        d.dot(n).abs() <= 1.0
+            && if side {
+                (0.75..=3.5).contains(&(along * input.x.signum())) && (-1.2..=0.6).contains(&up)
+            } else {
+                along.abs() <= GRID_COL && (0.8..=2.4).contains(&(up * input.y.signum()))
+            }
+    })
+}
+
 /// AC1's vertical reach's holds (`FindVerticalReachHolds` 0xDE8400, Banned445's port): from the feet (`feet`, on the
 /// stance's foot holds) a foot hold 1.2 m up or down (then 1.8 m), in a box 0.2 m across (also tried 0.4 m
 /// to either side), 0.5 m in or out and 0.4 m up or down, with a hand hold 1.2 m over it (0.375 m across, 0.3 up or
@@ -8550,7 +8586,9 @@ impl WallClimb {
             let up = c.names.first().is_some_and(|n| n.contains("_up_"));
             // (The climb's own reach up or down onto climbing holds, AC1's `ReachOtherSurfaceVertical` 0xDF0050: the feet's
             // hold is searched 1.2 m from the feet, then 0.6 m further, no more.)
-            let vreach = c.names.first().is_some_and(|n| n.starts_with("xx_h_climbing_climb1m_tr_climb1m_"));
+            // (On a level with AC1's authored holds: the test level's holds come from its boxes' edges, with no foot holds
+            // down to the ground, where its climbs down end.)
+            let vreach = !level.authored.is_empty() && c.names.first().is_some_and(|n| n.starts_with("xx_h_climbing_climb1m_tr_climb1m_"));
             let drops: &[f32] = if vreach && !up {
                 &[0.0, 0.6]
             } else if leap && !up {
@@ -8907,6 +8945,32 @@ impl WallClimb {
                 && crate::climb_table::pose_of(&c.to).is_some()
             {
                 let fwd = -normal.with_y(0.0).normalize_or(Vec3::NEG_Z);
+                // (A move a column sideways from a pose with both hands in the root's column (1m, 1lu, 1ru): the moving
+                // side's hand cell is a column, `GRID_COL`, along from the root's, its hold within `GRID_CELL_ALONG` of the
+                // cell's middle (AC1's grid round the root, `BuildHoldGrid` 0xDF6A40; `IsGridMoveValid` 0xDECD70). Ours took
+                // a hold anywhere near the clip's end hand: at the bureau's wall, a column of holds 0.45 m wide, the running
+                // game looked round left and right at its sides, ours shuffled 0.3 m on (live route `w1_stance_side`).)
+                if !m.long
+                    && m.cols != 0
+                    && matches!(self.state.as_str(), "1m" | "1lu" | "1ru")
+                    // (Not onto holds on a face turned from this one, where the grid is the new face's: the octagonal
+                    // tower's angled faces.)
+                    && turn == Quat::IDENTITY
+                    && let Some(k) = match m.side {
+                        crate::climb_table::Side::L => Some(0),
+                        crate::climb_table::Side::R => Some(1),
+                        crate::climb_table::Side::Both => None,
+                    }
+                {
+                    let right = fwd.cross(Vec3::Y).normalize_or_zero();
+                    let off = (targets[k] - root.translation).dot(right) - m.cols as f32 * GRID_COL;
+                    if off.abs() > GRID_CELL_ALONG {
+                        if why() {
+                            debug!("climb: {} : no hold in the hand's grid cell a column along ({off:.2} m off it)", c.names[0]);
+                        }
+                        continue;
+                    }
+                }
                 if !climb_body_free(level, end.pos + err, fwd, if m.long { m.cols.signum() } else { 0 }) {
                     if why() {
                         debug!("climb: {} : no room for the body there (AC1's body boxes) at {:.2}", c.names[0], end.pos + err);
@@ -9249,7 +9313,10 @@ impl WallClimb {
         if !vertical && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.hang_corner(lib, level, root, rig, cr, dir == "r", true) {
             return true;
         }
-        if !is_rest(&self.state) && leap && dir != "u" {
+        // (Only toward holds a reach could take: AC1 reaches from any pose and with nothing in reach looks round; ours'
+        // reach clips start from the level pose, so it brings the hands level first, and did so with nothing to reach: a
+        // move up the running game never made, live route `w1_stance_side`.)
+        if !is_rest(&self.state) && leap && dir != "u" && (!is_climb_stance(&self.state) || reach_holds_toward(level, root, self.normal, input)) {
             // Reaches start with the hands level: bring them level first.
             for d in ["u", "d"] {
                 let back: Vec<_> = self.candidates(lib, d, Vec2::ZERO).into_iter().filter(|c| is_rest(&c.to)).collect();
@@ -9290,8 +9357,11 @@ impl WallClimb {
         if (dir == "d" || (input.y < 0.0 && input.y.abs() >= input.x.abs() * 0.4)) && self.try_step_off(lib, level, root) {
             return true;
         }
-        // Sideways but stuck (end of the holds): settle back to hands level, from where corners start.
-        if !vertical && !is_rest(&self.state) {
+        // Sideways but stuck (end of the holds): settle back to hands level, from where ours' corners and step-offs start
+        // (AC1's start from any pose, from the feet). Only with ground or a corner's holds that way: with neither AC1 looks
+        // round (`OnNoMoveFound` 0xDF4410); at the bureau's wall the running game, in the 1ru pose with the stick left,
+        // looked round left where ours settled down a row (live route `w1_stance_side`).
+        if !vertical && !is_rest(&self.state) && (!is_climb_stance(&self.state) || side_exit_toward(level, root, self.normal, dir == "r")) {
             for d in [dir, "d", "u"] {
                 let back: Vec<_> = self.candidates(lib, d, Vec2::ZERO).into_iter().filter(|c| is_rest(&c.to)).collect();
                 if self.take_first(lib, level, root, rig, base, cr, back) {
