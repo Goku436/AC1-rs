@@ -969,6 +969,9 @@ const TOP_OUT_WALK: f32 = 1.9;
 const TOP_OUT_JOG: f32 = 3.5;
 /// Running on faster than this (m/s) after a jump, its reception ends once its step is taken.
 const RECEPTION_CUT_SPEED: f32 = 2.0;
+/// Onto a top, the reception plays this much longer (s) past its step before the run takes over: AC1's free-step stay
+/// (the running game's last arrival on route `roof2_free_east` stood 0.17 s in it before walking on).
+const RECEPTION_STAY: f32 = 0.17;
 /// The directional grab in the air: the stick more than this far off the facing (cos) and not behind it (cos) searches
 /// for holds that way too, and for a wall this far (m).
 const CATCH_SIDE_COS: f32 = 0.94;
@@ -4028,8 +4031,11 @@ impl WallClimb {
         // (The reception ends once its step is taken, not standing out the rest of it (played faster instead, its
         // front-loaded step lurched the root to 16 m/s); onto a beam too: the running game free-stepped on 0.09 s after
         // coming down on one.)
+        // (Onto a top, not a beam, AC1 plays the reception out in the free-step stay a little past that before the run takes
+        // over: `RECEPTION_STAY`, the running game's last arrival on route `roof2_free_east`.)
+        let stay = if onto_beam.is_none() { RECEPTION_STAY } else { 0.0 };
         if let (Some(f), Some(r)) = (cut, w.queue.last()) {
-            w.cut = Some((r.clip.name.clone(), f / FPS));
+            w.cut = Some((r.clip.name.clone(), f / FPS + stay));
         }
         w.ease_in(from, root);
         debug!(
@@ -4087,10 +4093,12 @@ impl WallClimb {
         if let (Some(f), Some(r)) = (cut, w.queue.last()) {
             w.cut = Some((r.clip.name.clone(), f / FPS));
         }
-        // (Down on a top, on at a run the way it jumped: the reception leads into the run in AC1's graph. Onto another post
-        // or beam it balances there first.)
+        // (Down on a top, on the way it jumped: the reception hands over to the ground at the walk, which the free run
+        // then speeds up (the running game's last arrival on route `roof2_free_east` went into HumanGround on
+        // `xx_l_walk_slow_hipm_footl`; ours handed over at the run and led by 1.1 m). Onto another post or beam it
+        // balances there first.)
         if level.perch_inside(to, PERCH_REACH).is_none() {
-            w.exit_velocity = aim * PERCH_OFF_RUN;
+            w.exit_velocity = aim * PERCH_OFF_WALK;
         }
         w.ease_in(from, root);
         debug!("climb: free-step jump aimed at {to:.2}, {:.0} degrees off the facing ({} then {})", angle.to_degrees(), takeoff.name, flight.name);
