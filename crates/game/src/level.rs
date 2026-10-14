@@ -627,6 +627,92 @@ impl Level {
         n
     }
 
+    /// AC1's posts (pilotis): `sub_B2B600` over every authored hold edge, as the narrow object's search runs it from each
+    /// (read in Ghidra; Banned445's AC1-Movement-Rewritten `find_pilotis`, MIT, written here anew). From the edge's middle,
+    /// facing into its top: the edge itself (an outward normal within 45 degrees of back, within 0.3 m), one facing the
+    /// other way within 1.3 m ahead, and from between those two one each side within 0.6 m, all within 0.5 m in height and
+    /// 30 degrees of their search's way; the front and back at most 0.7 m apart and the two sides too; the top the mean of
+    /// the four, kept only where a capsule of 0.4 m from 0.6 to 1.4 m over it is free (`sub_B2A290`). So a post is a top at
+    /// most 0.7 m square, open over it: never one against a wall. The paired beams lying on a post's own top (its edges
+    /// pair across it too) go: the post is what AC1 stands on there. Returns how many.
+    pub fn add_pilotis(&mut self) -> usize {
+        let edges: Vec<&Authored> = self.authored.iter().filter(|e| e.kind == forge::guidance::SubType::LedgeGrab && e.out != Vec3::ZERO).collect();
+        let key = |p: Vec3| ((p.x / 2.0).floor() as i32, (p.z / 2.0).floor() as i32);
+        let mut grid: FastMap<(i32, i32), Vec<usize>> = FastMap::default();
+        for (i, e) in edges.iter().enumerate() {
+            let (lo, hi) = (e.a.min(e.b), e.a.max(e.b));
+            for x in key(lo).0..=key(hi).0 {
+                for z in key(lo).1..=key(hi).1 {
+                    grid.entry((x, z)).or_default().push(i);
+                }
+            }
+        }
+        let line = |e: &Authored| Line { a: e.a, b: e.b };
+        let flat = |a: Vec3, b: Vec3| (a - b).with_y(0.0).length();
+        let found = par_map(&edges, |seed| -> Option<Vec3> {
+            let mid = (seed.a + seed.b) * 0.5;
+            let f = -seed.out.with_y(0.0).normalize_or_zero();
+            let r = f.cross(Vec3::Y);
+            let (k0, k1) = (key(mid - Vec3::splat(1.5)), key(mid + Vec3::splat(1.5)));
+            let mut near: Vec<usize> =
+                (k0.0..=k1.0).flat_map(|x| (k0.1..=k1.1).map(move |z| (x, z))).flat_map(|k| grid.get(&k).into_iter().flatten().copied()).collect();
+            near.sort_unstable();
+            near.dedup();
+            // (The edges whose nearest point to the edge's middle lies in the box: 0.6 m to either side, 0.6 m back or on,
+            // 0.5 m up or down.)
+            let boxed: Vec<&Authored> = near
+                .into_iter()
+                .map(|i| edges[i])
+                .filter(|e| {
+                    let d = line(e).closest(mid) - mid;
+                    d.dot(r).abs() <= 0.6 && d.dot(f).abs() <= 0.6 && d.y.abs() <= 0.5
+                })
+                .collect();
+            let find = |from: Vec3, d: Vec3, max: f32| -> Option<Vec3> {
+                boxed
+                    .iter()
+                    .filter(|e| e.out.with_y(0.0).normalize_or_zero().dot(d) >= std::f32::consts::FRAC_PI_4.cos())
+                    .map(|e| line(e).closest(from))
+                    .filter(|q| {
+                        let w = (*q - from).with_y(0.0);
+                        w.length() < max && (q.y - from.y).abs() <= 0.5 && w.normalize_or(d).dot(d) >= std::f32::consts::FRAC_PI_6.cos()
+                    })
+                    .min_by(|a, b| flat(*a, from).total_cmp(&flat(*b, from)))
+            };
+            let back = find(mid, -f, 0.3)?;
+            let front = find(mid, f, 1.3)?;
+            let m = (back + front) * 0.5;
+            let left = find(m, -r, 0.6)?;
+            let right = find(m, r, 0.6)?;
+            let near = [back, front, left, right].iter().map(|q| flat(*q, mid)).fold(f32::INFINITY, f32::min);
+            if near > 0.375 || flat(back, front) > 0.7 || flat(left, right) > 0.7 {
+                return None;
+            }
+            let top = (back + front + left + right) * 0.25;
+            self.capsule_free(top + Vec3::Y * 0.6, top + Vec3::Y * 1.4, 0.4).then_some(top)
+        });
+        let mut tops: Vec<Vec3> = vec![];
+        for t in found.into_iter().flatten() {
+            if !tops.iter().any(|q| q.distance(t) < 0.1) {
+                tops.push(t);
+            }
+        }
+        // (A paired beam lying on a post's top, within its 0.7 m: the post's own.)
+        self.perches.retain(|l| !tops.iter().any(|t| l.a.distance(*t) < 0.5 && l.b.distance(*t) < 0.5));
+        let n = tops.len();
+        self.perches.extend(tops.into_iter().map(|t| Line { a: t, b: t }));
+        n
+    }
+
+    /// No face within `r` of the segment `a`-`b` (a capsule's room).
+    pub fn capsule_free(&self, a: Vec3, b: Vec3, r: f32) -> bool {
+        let pad = Vec3::splat(r);
+        self.tris_near(a.min(b) - pad, a.max(b) + pad).into_iter().all(|i| {
+            let (p, q) = segment_triangle(a, b, &self.tris[i as usize]);
+            p.distance_squared(q) >= r * r
+        })
+    }
+
     /// Each ladder's top as the walkable top it leads onto (a probe down just in from its top), not its rails' top: the
     /// rails stood 0.33 m over ladder 68's roof and ours climbed a step too many (audit LADDER-3). Returns how many moved.
     pub fn settle_ladder_tops(&mut self) -> usize {
@@ -1859,15 +1945,16 @@ fn build_city(
         info!("{buried} authored holds left out: inside a wall, no way to them from in front");
         lap.lap("buried holds");
     }
-    // (`AC1_PAIRED_BEAMS=1`: AC1's beams and posts, the pairs of its own holds as its runtime finds them, no beams from
-    // mesh names or single-hold tops (audit GUIDE-5). Not yet the default: on the route library it lands 31 of 41
-    // within 1 m against 34 with ours' own, the jump query and the beam walk having been tuned on those; a roof's
-    // edge beam with its floor 0.12 m under it is cut away by the workspace's side planes, where the running game
-    // lands on it.)
-    if authored.is_some() && std::env::var("AC1_PAIRED_BEAMS").is_ok() {
+    // AC1's beams and posts: the pairs of its own holds as its runtime finds them (`beam_pairs`) and its posts
+    // (`add_pilotis`), no beams from mesh names or single-hold tops (audit GUIDE-5): those stood him balancing on a
+    // drum's plinth against its wall and inside a window box, where the online friend walked into the walls (user report
+    // 2026-10-13). `AC1_OLD_BEAMS=1` keeps ours' own, to compare.
+    if authored.is_some() && std::env::var("AC1_OLD_BEAMS").is_err() {
         let n = level.pair_beams();
-        info!("{n} beams and posts paired from the authored holds");
-        lap.lap("paired beams");
+        info!("{n} beams paired from the authored holds");
+        let posts = level.add_pilotis();
+        info!("{posts} posts (pilotis) from the authored holds");
+        lap.lap("paired beams, posts");
     } else {
         level.add_beam_perches();
         lap.lap("beam perches");

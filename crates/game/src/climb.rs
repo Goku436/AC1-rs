@@ -1079,6 +1079,8 @@ const BEAM_BACK_COS: f32 = -0.707;
 const BEAM_JUMP_ON_LEFT: f32 = 2.0;
 /// Ground this near a perch's line (m) is the perch itself, not ground to step off onto.
 const PERCH_OWN: f32 = 0.35;
+/// A top is room to stand on when the body's capsule there is pushed out of walls no further than this (m).
+const TOP_ROOM_PUSH: f32 = 0.05;
 /// Stepping off a perch onto ground ahead: the speed it walks (or, free running, runs) off at (m/s).
 const PERCH_OFF_WALK: f32 = 1.9;
 const PERCH_OFF_RUN: f32 = 5.2;
@@ -5205,8 +5207,11 @@ impl WallClimb {
             return false;
         };
         let h = top.point.y - p.y;
-        // (Room to stand on it.)
-        if level.raycast(top.point + Vec3::Y * 0.1, Vec3::Y, 1.6).is_some() {
+        // (Room to stand on it: nothing over it, and the body's capsule clear of any wall there. A Damascus drum's plinth,
+        // 0.3 m deep against the drum's wall, was climbed onto and stood on with the body half in the wall: user report
+        // 2026-10-13, the online friend "inside walls". A haystack's rim stands by its heap, which is not a wall.)
+        let on_hay = level.haystacks.iter().any(|hs| (hs.centre - top.point).with_y(0.0).length() < hs.half + 0.3 && (top.point.y - hs.top()).abs() < 0.3);
+        if level.raycast(top.point + Vec3::Y * 0.1, Vec3::Y, 1.6).is_some() || (!on_hay && level.capsule_push(top.point).length() > TOP_ROOM_PUSH) {
             return false;
         }
         let mix = ((h - LEAN_MIN_HEIGHT) / (LEAN_TALL - LEAN_MIN_HEIGHT)).clamp(0.0, 1.0);

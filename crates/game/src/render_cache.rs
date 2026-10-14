@@ -53,7 +53,7 @@ const SOURCES: &[&str] = &[
 
 /// Env switches that change what is found to draw (a skinned prop's pose follows its collision, `AC1_COLLISION`;
 /// `AC1_BIND_PROPS`; `AC1_PLAIN_CITY` drops the city shader).
-const VARIANT_ENV: &[&str] = &["AC1_COLLISION", "AC1_GEOMETRY_HOLDS", "AC1_PAIRED_BEAMS", "AC1_NO_LIPS", "AC1_POSE_PROPS", "AC1_BIND_PROPS", "AC1_PLAIN_CITY"];
+const VARIANT_ENV: &[&str] = &["AC1_COLLISION", "AC1_GEOMETRY_HOLDS", "AC1_OLD_BEAMS", "AC1_NO_LIPS", "AC1_POSE_PROPS", "AC1_BIND_PROPS", "AC1_PLAIN_CITY"];
 
 const KIND: CacheKind = CacheKind { ext: "draw", version: VERSION, sources: SOURCES, variant_env: VARIANT_ENV };
 

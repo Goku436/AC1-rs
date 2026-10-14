@@ -443,11 +443,12 @@ pub fn scan(replay: Res<Replay>, level: Option<Res<crate::level::Level>>, mut do
                 let n = d.length();
                 (n > 1e-4 && n < 3.0).then(|| level.raycast(p + Vec3::Y * 1.0, d / n, n)).flatten().filter(|h| h.normal.y.abs() < 0.5)
             });
+            let perch = level.perch_at(root, 0.2).is_some();
             if push > 0.05 || inside || cross.is_some() {
                 let fwd = a.root.1 * Vec3::NEG_Z;
                 let yaw = fwd.x.atan2(-fwd.z).to_degrees();
                 info!(
-                    "scan: t {:.3} who {} root {:.2},{:.2},{:.2} yaw {yaw:.0} push {push:.2} inside {inside} cross {}",
+                    "scan: t {:.3} who {} root {:.2},{:.2},{:.2} yaw {yaw:.0} push {push:.2} inside {inside} cross {} perch {perch}",
                     f.t,
                     if i == 0 { "us" } else { "friend" },
                     root.x,
