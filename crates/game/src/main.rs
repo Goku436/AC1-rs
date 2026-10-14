@@ -105,6 +105,7 @@ mod particle_material;
 mod particles;
 mod preload;
 mod probe;
+mod profile;
 mod ragdoll;
 mod recorder;
 mod render_cache;
@@ -361,6 +362,9 @@ fn main() {
     // (The controller only with `AC1_PAD=1`: Bevy's gamepad backend takes the pad over even with the window in the
     // background, from every copy the tests start, and another game could not use it.)
     let plugins = DefaultPlugins.build();
+    // (`AC1_PERF=1` in a `profile` build: every system's CPU time, `profile`.)
+    #[cfg(feature = "profile")]
+    let plugins = plugins.set(bevy::log::LogPlugin { custom_layer: profile::layer, ..default() });
     let plugins = if std::env::var("AC1_PAD").is_ok() { plugins } else { plugins.disable::<bevy::gilrs::GilrsPlugin>() };
     if headless {
         // `AC1_HEADLESS=1`: no window and no GPU (the scenarios read only the log): the frames run back to back.
@@ -385,9 +389,10 @@ fn main() {
     if let Some(hz) = step.filter(|hz| *hz > 0.0) {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / hz)));
     }
-    if std::env::var("AC1_FPS").is_ok() && !headless {
+    if (std::env::var("AC1_FPS").is_ok() || std::env::var("AC1_PERF").is_ok()) && !headless {
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     }
+    app.add_plugins(profile::ProfilePlugin);
     // The level's light and grade from AC1's data (`look`): the city's own, Masyaf's for the test level; and its sky.
     let (world_look, sky) = look_job.join().unwrap_or_else(|_| {
         let dir = std::path::Path::new(&game_dir);
