@@ -875,6 +875,9 @@ const PERCH_MAGNET: f32 = 1.2;
 const FREE_JUMP_NEAR_DROP: f32 = 1.0;
 const FREE_JUMP_NEAR: f32 = 3.0;
 const FREE_JUMP_UNDER: f32 = 0.25;
+/// A post's wait leans fully at this angle of the stick off the facing (rad), the lean following it at this rate (/s).
+const POST_LEAN_FULL: f32 = 2.094_395_2;
+const POST_LEAN_RATE: f32 = 3.0;
 /// Not free running: a drop edge under this (m) is hopped off (kinds 1 / 2), `LOW_HOP_AHEAD` m on in low profile (mode 1).
 const LOW_HOP_DROP: f32 = 2.0;
 const LOW_HOP_AHEAD: f32 = 1.0;
@@ -1407,6 +1410,8 @@ pub struct WallClimb {
     /// Stopped by a wall at a beam's end free running (the way and the speed): AC1's walk holds on there, and the legs
     /// held run up the wall (the narrow object's event 15).
     beam_wall: Option<(Vec3, f32)>,
+    /// On a post, the lean of its wait toward the stick (-1 left .. 1 right; AC1's `NarrowObject+372`).
+    post_lean: f32,
     /// Ladder being climbed.
     ladder: Option<usize>,
     /// On a kiosk's counter (`HumanKiosk`).
@@ -3143,6 +3148,7 @@ impl WallClimb {
             freestep_left: true,
             cycle: None,
             beam_wall: None,
+            post_lean: 0.0,
             ladder: None,
             kiosk: None,
             mirrored: false,
@@ -5635,6 +5641,9 @@ impl WallClimb {
         let q = line.closest(root.translation);
         root.translation = root.translation.lerp(q, 1.0 - (-10.0 * dt).exp());
         let dir = self.move_dir.with_y(0.0);
+        if line.axis() == Vec3::ZERO {
+            self.post_wait(lib, root, dir, dt);
+        }
         if dir.length() < 0.3 {
             self.beam_wall = None;
             return;
@@ -5714,9 +5723,41 @@ impl WallClimb {
         if self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir)) {
             return;
         }
-        // (On a post he turns on the spot; on a beam the turns above face him.)
-        if axis == Vec3::ZERO || self.beam_stance.is_none() {
+        // (On a beam the turns above face him; on a post he leans, `post_wait`.)
+        if axis != Vec3::ZERO && self.beam_stance.is_none() {
             root.rotation = root.rotation.slerp(facing(dir), 1.0 - (-6.0 * dt).exp());
+        }
+    }
+
+    /// On a post, the body kept facing as it is: the wait leans toward the stick, AC1's pilotis wait (action 0x388E97DA,
+    /// `xx_h_beam_pilotis_wait` with `_left` and `_right` by the lean, 0xE51960, Banned445's port): the lean follows the
+    /// stick's signed angle off the facing (120 degrees full) at 3/s, back to upright with the stick let go. Ours turned the
+    /// body to the stick on the spot.
+    fn post_wait(&mut self, lib: &mut AnimLib, root: &Transform, dir: Vec3, dt: f32) {
+        if self.impulsion || self.mv.is_some() || self.beam_stance.is_some() {
+            return;
+        }
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let want = if dir.length() >= 0.3 {
+            let d = dir.normalize();
+            let ang = d.dot(fwd).clamp(-1.0, 1.0).acos().min(POST_LEAN_FULL);
+            d.dot(fwd.cross(Vec3::Y)).signum() * ang / POST_LEAN_FULL
+        } else {
+            0.0
+        };
+        self.post_lean += (want - self.post_lean) * (dt * POST_LEAN_RATE).min(1.0);
+        // (In steps of 0.05: each lean a mix of its own.)
+        let l = (self.post_lean * 20.0).round() / 20.0;
+        let name = if l == 0.0 {
+            PERCH_WAIT.to_string()
+        } else {
+            let side = if l > 0.0 { "xx_h_beam_pilotis_wait_right" } else { "xx_h_beam_pilotis_wait_left" };
+            mix_name(&[(PERCH_WAIT, 1.0 - l.abs()), (side, l.abs())])
+        };
+        if self.wait.as_ref().is_some_and(|w| w.name != name)
+            && let Some(w) = lib.get(&name)
+        {
+            self.wait = Some(w);
         }
     }
 

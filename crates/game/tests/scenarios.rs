@@ -183,6 +183,16 @@ const SCENARIOS: &[Scenario] = &[
         want: &["crouched to jump straight up", "straight up off the perch", "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a"],
         never: &["EMBED", "landed from 2", "-> ground"],
     },
+    // AC1's pilotis wait (0xE51960): on a post the body keeps its facing and the wait leans toward the stick (90 degrees
+    // off: three quarters of `_wait_left`); ours turned the body on the spot.
+    Scenario {
+        name: "standing on a post, the stick to the left: the wait leans left, the body keeps its facing",
+        tags: &["beam"],
+        env: &[("AC1_START", "38.6,0,-90,3"), ("AC1_WALK", "1.5"), ("AC1_VEER", "0.8,90")],
+        secs: 2.5,
+        want: &["xx_h_beam_pilotis_wait=0.25,xx_h_beam_pilotis_wait_left=0.75"],
+        never: &["EMBED", "-> ground", "landed from", "-> jump"],
+    },
     Scenario {
         name: "running onto the beam to B4 at 15 degrees: onto it once, along it, off its end (it flickered ground/perch)",
         tags: &["beam", "ground"],
