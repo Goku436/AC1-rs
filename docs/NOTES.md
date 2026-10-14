@@ -468,7 +468,13 @@ thugs' cliques, beggars and harassers, merchants at their stalls, conversations,
 colour tables, cells of code 0x0d, are not applied: townsfolk are drawn in their untinted textures).
 Cost (headless, CPU over all threads a frame, Damascus street at (44, -50)): none 5.3 ms, 16 people 7.7 ms, 32 with 3
 militia 13.8 ms; a person is about 0.15 ms (its pose rebuilt every frame within 10 m, every second within 18 m, every
-third beyond: `character::AnimLod`; feet IK only within 8 m), a militia guard by the player's locomotion about 1.3 ms.
+third beyond: `character::AnimLod`; feet IK only within 8 m), a militia guard by the player's locomotion about 1.3 ms
+(1.2 ms of it the low-profile edge halt walking every hold of the city; 0.1 ms since 2026-10-14, "Frame rate").
+People appear (after the first fill) and are parked only out of the camera's view (`VIEW_HALF_ANGLE` 62 degrees off its
+forward), or parked anywhere past 70 m: popping in and out in plain sight read as townsfolk teleporting. A guard
+leaving the player's locomotion goes back onto its lane at the nearest point, the rest eased off as a knock (it snapped
+back to the lane spot it had walked from). The people of one model share its meshes, textures and materials on the GPU
+(`character::SharedParts`) and are culled by a box round the body (they were all drawn always, `NoFrustumCulling`).
 Builders from the common forge's own data files now find their meshes: a LOD selector there is a copy whose meshes are
 in other data files, so `npc::recipe` goes through the index for it (before, a crowd builder gave only the eyes).
 
@@ -1677,6 +1683,52 @@ city's reading and placing 8-15 s). Proof of no change: shots from fixed cameras
 for pixel; `AC1_CACHE_CHECK=1` windowed gives the same render cache bytes on a fresh build; the `level_cache` test, the
 ground and misc scenarios (30/30) and the Damascus ones (25/25) pass.
 
+## Frame rate and what a frame costs (2026-10-14)
+`AC1_PERF=1` (`profile.rs`) logs every 5 s the wall-clock frame rate and frame times (mean, median, 95th / 99th
+percentile, worst), the GPU's passes (Bevy's render diagnostics; the shadow maps record none), and the meshes there are,
+seen by a view (the camera or a shadow cascade), skinned and casting; at exit a `perf: run` line sums the run after its
+first 8 s. Built with `--features profile` (Bevy's `trace` spans, its own target dir: a full Bevy build), it adds every
+system's CPU time a frame, both worlds; spans named `ac1:<part>` are timed too, for a look inside a system. Runs:
+`reports/perf/run.sh` (Damascus windowed 1600x900, city life on, vsync off, `AC1_STEP=60` so every run has the same
+frames: the street, walking a loop round (44, -50) with the follow camera; the roofs, `AC1_ORBIT=44,12,-60,45,22,40`).
+The window is capped at 60 fps on this machine whatever the vsync setting (the second screen's 60 Hz).
+
+What a Damascus frame cost (a Ryzen 5 5600X, RTX 4060, the machine shared with other agents' builds: the numbers swing
+by 2x between runs; base and after run back to back):
+- The GPU is not the limit: 3-7 ms a frame at every setting (main pass 1.4-3 ms; Bevy's `bin_unpacking` compute 1.5-4 ms).
+- Bevy's render world on the CPU is: 30-50 ms at medium, more at ultra, most of it per mesh entity and per view
+  (`write_binned_instance_buffers`, `prepare_preprocess_bind_groups`, the passes' encoding in `camera_driver`). Damascus at
+  medium has 17,700 mesh entities (8,500 seen by the camera or a cascade), at ultra 39,000 (12,500 seen); the three shadow
+  cascades are about 40 % of the render world (shadows off at medium: 25 -> 40-60 fps).
+- The main world: locomotion was 3.9 ms with two militia guards walking by it, 3.3 ms of it the low-profile edge halt's
+  search of every hold of the city (190,000) for every walking character every frame; now a grid of the holds
+  (`ledge_grid`, the same first hold as the list's walk) gives 0.7 ms. Animation 0.8-0.9 ms, transforms 0.5-0.8 ms,
+  the robe 0.5 ms, the streaming 0.5 ms.
+- Changes (no gameplay change; the scenarios the same): the edge halt's grid; townsfolk of one model sharing its GPU
+  meshes, textures and materials (drawn in a batch, uploaded once) and culled by a body box; city props cast shadows
+  while their radius over their distance to the camera is above 1/60 (`stream::SHADOW_SIZE`: a 1 m prop to 60 m, houses
+  always; casters 16,600 -> 12,600 at medium, 38,000 -> 27,000 at ultra; hysteresis 0.8).
+
+| Run (`AC1_PERF`, 40 s, two runs each) | Before (dev 223abe5) | After |
+|---|---|---|
+| Medium, street | 18.4 / 21.6 fps (p95 108 / 66 ms) | 24.7 / 33.0 fps (p95 84 / 43 ms) |
+| Ultra, street | 11.5 / 17.9 fps | 18.5 / 19.8 fps |
+| Ultra, roofs | 18.6 / 18.1 fps | 32.0 / 27.5 fps |
+| Medium, roofs | 28.2 / 17.5 fps | 31.5 / 15.7 fps (noise: the machine loaded) |
+
+Not done, for later: the city's static meshes merged per cell and material (the render world's cost is per entity);
+`climb::nearest_hold` and the other searches of `level.ledges` (per hand per frame while climbing) through the grid;
+Bevy's CPU batching path (`PbrPlugin::use_gpu_instance_buffer_builder: false`) drew nothing of the city or Altaïr (twice
+the frame rate, but nothing to see): not usable as it is.
+
+Crashes (2026-10-14): `ac1-crash-1791937561` (index 135 of 122 in `animation::sample`): a militia guard walking by the
+player's locomotion started its moves (stops, turns, ladders, hay) with `AnimLib::get`, which bound the clips to rig 0,
+Altaïr's 135+ bones, and sampled them on its own 122. `locomotion` now sets `AnimLib::bound` to each character's rig
+(its moves bound to its bones and its clip set); `sample` skips bones the pose lacks besides. A crowd model built without
+the biped bones is no longer spawned (`spawn_character` panicked on one). The Damascus `slab_allocator`
+"Use-after-free" errors were the particles' empty batch meshes (Bevy skips allocating a mesh of no vertices but still
+copies it): fixed in `particles.rs` on dev.
+
 ## Graphics settings and online play (the F8 and F10 menus)
 Both menus are drawn as the F2 map menu (`menu.rs`): Up / Down pick a row, Left / Right (or a click, the right button
 back, or the wheel) change it, Enter presses a button or opens a text field (typing, Backspace, Enter keeps, Esc drops),
@@ -1696,9 +1748,19 @@ are untouched; `AC1_SETTINGS=<file>` reads (and writes) that file in any run; `A
 | City detail | low, medium, high, ultra, full (`stream::Detail`: draw box, LOD scale, vertex budget) | live; to or from full on a restart |
 | Texture size | 256, 512, 1024, 2048 px (city textures are cut down as they load) | restart (the menu's Restart row starts the game again where he stands) |
 | Shadows | off; low (one 1024 cascade over 40 m, hardware 2x2 filtering); medium (as set up: the city's 3 cascades in 120 m, 2048); high (4096 maps) | live |
-| Anti-aliasing | off, FXAA, MSAA 2x, MSAA 4x (the default) | live |
+| Anti-aliasing | off, FXAA, MSAA 2x, MSAA 4x (the default; FXAA while ambient occlusion is on) | live |
+| Ambient occlusion | off (the default), low, medium, high: Bevy's SSAO (GTAO, its quality levels; depth and normal prepasses) on the city's and the characters' ambient light, `look::SSAO_STRENGTH` | live |
 | Fog | on / off (the city's linear haze) | live |
 | View distance | 600, 1200, 2500, 5000 m (the far plane; the haze closes in by 90 % of it) | live |
+
+Ambient occlusion (2026-10-14): AC1 had only its baked occlusion (a byte per vertex, kept); the screen-space one is
+put on the ambient light only (not the sun), read from the level Bevy's GTAO gives an open flat surface (about 0.75: taken
+as it is, the whole of the shade went 15 % darker), at 0.6 of its strength on the world and 0.45 on characters
+(`AC1_SSAO="world,characters,flat"` to tune): contact shadows where walls meet the ground, under pipes and crates, in
+the hay, the image as a whole 1-2 % darker (8 % in a close-up of hay). Bevy's SSAO needs MSAA off, so MSAA acts as FXAA
+while it is on. Cost at 1600x900 on an RTX 4060: the prepass 0.25-0.3 ms and SSAO 0.28 (low, medium) to 0.5 ms (high) of
+GPU, the main pass cheaper behind the prepass's depth; the CPU's share is lost in the machine's noise. Off by default:
+it changes AC1's look and the default MSAA. Shots off / on: `reports/perf/ao-*-pair.png`.
 
 Low (low detail, 256 px, no shadows, no AA, 1.2 km) is for weak PCs: Damascus draws about 1.2 M vertices there against
 about 8 M at Ultra.

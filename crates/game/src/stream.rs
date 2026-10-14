@@ -36,6 +36,11 @@ const PLAN_EVERY: f32 = 0.25;
 const UPLOAD_BUDGET: usize = 600_000;
 /// A mesh no drawn instance uses leaves the GPU after this long (s).
 const EVICT_AFTER: f32 = 5.0;
+/// An instance casts a shadow while its radius over its distance to the camera is above this (a 1 m prop up to 60 m,
+/// a house always within the shadows' 120 m): smaller and farther, its shadow is a few pixels and every caster costs
+/// the shadow cascades' draws. Hysteresis: it starts casting again only above `SHADOW_SIZE / SHADOW_HYSTERESIS`.
+const SHADOW_SIZE: f32 = 1.0 / 60.0;
+const SHADOW_HYSTERESIS: f32 = 0.8;
 
 /// A mesh a city draws: its body (re-read when it is built) and what it costs.
 pub struct StoredMesh {
@@ -253,6 +258,9 @@ pub struct CityRender {
     shown: Vec<Option<Shown>>,
     /// Per instance: the level wanted (None: not drawn).
     want: Vec<Option<usize>>,
+    /// Per instance: whether it casts a shadow (`SHADOW_SIZE`), wanted and as its entities are now.
+    cast: Vec<bool>,
+    cast_shown: Vec<bool>,
     /// Per cell: the stand-in pieces that hide while its own objects are drawn, and whether they are hidden.
     fakes: HashMap<usize, (Vec<Entity>, bool)>,
     timer: f32,
@@ -300,6 +308,8 @@ impl CityRender {
             pending: HashSet::new(),
             shown: vec![None; n],
             want: vec![None; n],
+            cast: vec![true; n],
+            cast_shown: vec![true; n],
             fakes,
             timer: 0.0,
             drawn: (0, 0),
@@ -345,6 +355,8 @@ impl CityRender {
         let mut asked: HashSet<usize> = HashSet::new();
         for (dist, i) in near {
             let inst = &self.store.instances[i];
+            let size = (inst.hi - inst.lo).length() * 0.5 / dist.max(1.0);
+            self.cast[i] = inst.shadow && size > if self.cast[i] { SHADOW_SIZE * SHADOW_HYSTERESIS } else { SHADOW_SIZE };
             let mut level = pick_level(&inst.levels, dist * self.detail.lod_scale);
             // (Out of budget: its coarsest level that draws, or the one picked if that is coarser.)
             if spent > self.detail.vertex_budget
@@ -445,6 +457,21 @@ pub fn stream_city(
     if city.timer <= 0.0 {
         city.timer = PLAN_EVERY;
         city.plan(cam.translation);
+        // (Drawn instances whose shadow came or went.)
+        for i in 0..city.cast.len() {
+            if city.cast[i] == city.cast_shown[i] {
+                continue;
+            }
+            let Some((_, _, entities)) = &city.shown[i] else { continue };
+            city.cast_shown[i] = city.cast[i];
+            for &e in entities {
+                if city.cast[i] {
+                    commands.entity(e).remove::<NotShadowCaster>();
+                } else {
+                    commands.entity(e).insert(NotShadowCaster);
+                }
+            }
+        }
     }
     for i in 0..city.want.len() {
         let want = city.want[i];
@@ -473,7 +500,7 @@ pub fn stream_city(
             for (k, (h, aabb, first)) in b.parts.iter().enumerate() {
                 let Some(&slot) = inst.parts[l].get(k) else { continue };
                 let mut e = commands.spawn((Mesh3d(h.clone()), tf, *aabb, NoAutoAabb));
-                if !inst.shadow {
+                if !city.cast[i] {
                     e.insert(NotShadowCaster);
                 }
                 match city.surfaces.get(slot as usize) {
@@ -490,6 +517,7 @@ pub fn stream_city(
             }
         }
         city.shown[i] = Some((l, mesh, entities));
+        city.cast_shown[i] = city.cast[i];
     }
     // Meshes nothing draws: off the GPU after a while.
     let mut gone = vec![];

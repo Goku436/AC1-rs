@@ -352,6 +352,11 @@ fn idle_pose(rig: &Rig, b: &Bones) -> Pose {
     pose
 }
 
+/// Whether `rig` has the biped bones `spawn_character` needs (a model built from data that lacks them is not spawned).
+pub fn is_biped(rig: &Rig) -> bool {
+    Bones::find(rig).is_some()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_character(
     commands: &mut Commands,
@@ -364,6 +369,56 @@ pub fn spawn_character(
     animator: Option<crate::animation::Animator>,
     rig_id: usize,
 ) -> Entity {
+    spawn_character_shared(commands, data, at, (meshes, mats, images, bindposes), animator, rig_id, None)
+}
+
+/// The GPU's copies of a model's parts (meshes, materials, textures, inverse binds), shared by every character spawned
+/// from that model (`city_life`'s townsfolk: one copy of each on the GPU, and the people of a model drawn together in
+/// a batch, not each as its own draws). With `cull`, its parts are culled by a box round the body (2.5 m about the
+/// root, 3.5 m up) instead of always drawn.
+#[derive(Default)]
+pub struct SharedParts {
+    textures: Option<std::collections::HashMap<u32, Handle<Image>>>,
+    parts: std::collections::HashMap<usize, PartHandles>,
+    pub cull: bool,
+}
+
+impl SharedParts {
+    /// None made yet; culled by the body's box if `cull`.
+    pub fn new(cull: bool) -> Self {
+        Self { cull, ..default() }
+    }
+
+    /// Whether the parts' copies are made (by the first body spawned with it).
+    pub fn made(&self) -> bool {
+        self.textures.is_some()
+    }
+}
+
+#[derive(Clone)]
+struct PartHandles {
+    mesh: Handle<Mesh>,
+    mat: Handle<StandardMaterial>,
+    inside: Option<Handle<StandardMaterial>>,
+    bindposes: Handle<SkinnedMeshInverseBindposes>,
+}
+
+/// The asset collections a character's parts go into.
+pub type CharacterAssets<'a> = (&'a mut Assets<Mesh>, &'a mut Assets<StandardMaterial>, &'a mut Assets<Image>, &'a mut Assets<SkinnedMeshInverseBindposes>);
+
+/// `spawn_character`, with its parts' GPU copies taken from (or put in) `shared`.
+pub fn spawn_character_shared(
+    commands: &mut Commands,
+    data: crate::assets::CharacterData,
+    at: Vec3,
+    (meshes, mats, images, bindposes): CharacterAssets,
+    animator: Option<crate::animation::Animator>,
+    rig_id: usize,
+    shared: Option<&mut SharedParts>,
+) -> Entity {
+    let mut own = SharedParts::default();
+    let is_shared = shared.is_some();
+    let shared = shared.unwrap_or(&mut own);
     let rig = data.rig;
     let bones = Bones::find(&rig).expect("rig lacks standard biped bones");
     let base = rig.rest_pose();
@@ -416,7 +471,20 @@ pub fn spawn_character(
         joints.push(e);
     }
 
-    let textures: std::collections::HashMap<u32, Handle<Image>> = data.textures.into_iter().map(|(id, img)| (id, images.add(img))).collect();
+    let textures: std::collections::HashMap<u32, Handle<Image>> =
+        shared.textures.get_or_insert_with(|| data.textures.into_iter().map(|(id, img)| (id, images.add(img))).collect()).clone();
+    // (Culled by a box round the body, or always drawn.)
+    let cull = shared.cull;
+    let bounds = move |e: &mut EntityCommands| {
+        if cull {
+            e.insert((
+                bevy::camera::primitives::Aabb::from_min_max(Vec3::new(-2.5, -2.5, -1.5), Vec3::new(2.5, 2.5, 3.5)),
+                bevy::camera::visibility::NoAutoAabb,
+            ));
+        } else {
+            e.insert(NoFrustumCulling);
+        }
+    };
     let tex = |t: Option<u32>| t.and_then(|t| textures.get(&t).cloned());
     // AC1's character shader where a part's material has a character template (`character_material`).
     let looks = crate::character_material::enabled();
@@ -432,36 +500,45 @@ pub fn spawn_character(
         diffuse: tex(look.diffuse),
         normal: tex(look.normal),
         inside,
+        shared: is_shared,
     };
     let mut robe = None;
-    for part in data.parts {
+    for (k, part) in data.parts.into_iter().enumerate() {
+        let made = shared.parts.get(&k).cloned();
         // Cloth is seen from inside too (AC1 gives its cloth an inside material): the robe's tails fold and swing
         // their backs into view, which back-face culling would leave as holes. With the character shader the inside
         // is a second draw of the back faces with that material.
         let inside = part.inside.as_ref().filter(|_| looks);
         let two_sided = (part.alpha || part.material.contains("Cloth")) && inside.is_none();
-        let mat = mats.add(StandardMaterial {
-            base_color_texture: tex(part.texture),
-            normal_map_texture: tex(part.normal),
-            flip_normal_map_y: true,
-            base_color: if part.texture.is_some() { Color::WHITE } else { Color::srgb(0.85, 0.82, 0.78) },
-            alpha_mode: if part.alpha { AlphaMode::Mask(0.5) } else { AlphaMode::Opaque },
-            double_sided: two_sided,
-            cull_mode: if two_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
-            perceptual_roughness: 0.8,
-            ..default()
-        });
-        // The inside draw's base: the inside material's maps (the outside's where it names none).
-        let inside_mat = inside.map(|l| {
+        let mat = made.as_ref().map(|h| h.mat.clone()).unwrap_or_else(|| {
             mats.add(StandardMaterial {
-                base_color_texture: tex(l.diffuse.or(part.texture)),
-                normal_map_texture: tex(l.normal.or(part.normal)),
+                base_color_texture: tex(part.texture),
+                normal_map_texture: tex(part.normal),
                 flip_normal_map_y: true,
+                base_color: if part.texture.is_some() { Color::WHITE } else { Color::srgb(0.85, 0.82, 0.78) },
                 alpha_mode: if part.alpha { AlphaMode::Mask(0.5) } else { AlphaMode::Opaque },
+                double_sided: two_sided,
+                cull_mode: if two_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
                 perceptual_roughness: 0.8,
                 ..default()
             })
         });
+        // The inside draw's base: the inside material's maps (the outside's where it names none).
+        let inside_mat = made.as_ref().map_or_else(
+            || {
+                inside.map(|l| {
+                    mats.add(StandardMaterial {
+                        base_color_texture: tex(l.diffuse.or(part.texture)),
+                        normal_map_texture: tex(l.normal.or(part.normal)),
+                        flip_normal_map_y: true,
+                        alpha_mode: if part.alpha { AlphaMode::Mask(0.5) } else { AlphaMode::Opaque },
+                        perceptual_roughness: 0.8,
+                        ..default()
+                    })
+                })
+            },
+            |h| h.inside.clone(),
+        );
         let look = part.look.as_ref().filter(|_| looks).map(|l| pending(l, false));
         let inside_look = inside.map(|l| pending(l, true));
         // The robe tails: simulated as cloth, drawn from a world-space copy (see `robe`).
@@ -501,20 +578,18 @@ pub fn spawn_character(
         }
         // Faces inside hoods: the hood's shadow-map shadow turns them black; AC1 keeps them lit.
         let face = part.name.contains("Head");
-        let mesh = meshes.add(part.mesh);
-        let skin = SkinnedMesh {
-            inverse_bindposes: bindposes.add(SkinnedMeshInverseBindposes::from(part.inverse_binds)),
-            joints: part.joints.iter().map(|&r| joints[r]).collect(),
-        };
-        let mut e = commands.spawn((
-            Name::new(part.name.clone()),
-            Mesh3d(mesh.clone()),
-            MeshMaterial3d(mat),
-            skin.clone(),
-            NoFrustumCulling,
-            Transform::default(),
-            ChildOf(model),
-        ));
+        let handles = made.unwrap_or_else(|| PartHandles {
+            mesh: meshes.add(part.mesh),
+            mat: mat.clone(),
+            inside: inside_mat.clone(),
+            bindposes: bindposes.add(SkinnedMeshInverseBindposes::from(part.inverse_binds)),
+        });
+        shared.parts.entry(k).or_insert_with(|| handles.clone());
+        let mesh = handles.mesh;
+        let skin = SkinnedMesh { inverse_bindposes: handles.bindposes, joints: part.joints.iter().map(|&r| joints[r]).collect() };
+        let mut e =
+            commands.spawn((Name::new(part.name.clone()), Mesh3d(mesh.clone()), MeshMaterial3d(mat), skin.clone(), Transform::default(), ChildOf(model)));
+        bounds(&mut e);
         if face {
             e.insert(bevy::light::NotShadowReceiver);
         }
@@ -522,17 +597,17 @@ pub fn spawn_character(
             e.insert(l);
         }
         if let (Some(m), Some(l)) = (inside_mat, inside_look) {
-            commands.spawn((
+            let mut e = commands.spawn((
                 Name::new(format!("{} inside", part.name)),
                 Mesh3d(mesh),
                 MeshMaterial3d(m),
                 l,
                 skin,
-                NoFrustumCulling,
                 bevy::light::NotShadowCaster,
                 Transform::default(),
                 ChildOf(model),
             ));
+            bounds(&mut e);
         }
     }
 
@@ -1077,10 +1152,15 @@ pub fn locomotion(
     level: Res<Level>,
     mut lib: Option<ResMut<crate::animation::AnimLib>>,
     mut q: Query<(&mut Transform, &mut Character, &mut Controller), Without<Statue>>,
+    grid: Option<Res<crate::ledge_grid::LedgeGrid>>,
 ) {
     let dt = time.delta_secs().min(0.05);
     for (mut tf, mut ch, mut ctl) in &mut q {
         let ch = &mut *ch;
+        // (The moves started here play clips bound to this character's own rig: `AnimLib::bound`.)
+        if let Some(l) = lib.as_deref_mut() {
+            l.bound = ch.rig_id;
+        }
         // Flying (AC1's Ghost mode): the flight moves the root, nothing here (`fly`); so does a fight (`combat`).
         if ch.flying || ch.fighting {
             continue;
@@ -1748,13 +1828,18 @@ pub fn locomotion(
             let drop_past = |q: Vec3, out: Vec3| {
                 [0.1, 0.3, 0.6].iter().map(|d| level.ground(q + out * *d + Vec3::Y * 0.1, 0.0, 10.0).map_or(10.0, |g| q.y - g.point.y)).fold(0.0, f32::max)
             };
-            let edge_held = level.ledges.iter().find(|l| {
+            let held = |l: &&Ledge| {
                 let q = l.closest(p);
                 (q - p).with_y(0.0).length() < EDGE_HALT_REACH + 0.1
                     && (q.y - p.y).abs() < 0.3
                     && l.out.dot(dir) > EDGE_HALT_COS
                     && drop_past(q, l.out) > EDGE_HALT_DROP
-            });
+            };
+            // (The holds near by the level's grid: the same first one as the whole list's, `ledge_grid`.)
+            let edge_held = match &grid {
+                Some(g) => g.near(p, EDGE_HALT_REACH + 0.1).into_iter().filter_map(|i| level.ledges.get(i)).find(held),
+                None => level.ledges.iter().find(held),
+            };
             let at_edge = edge_held.is_some();
             if let Some(l) = edge_held {
                 ch.look_edge = Some((l.closest(p), l.out));
@@ -2162,6 +2247,9 @@ pub fn locomotion(
                 tf.translation.y = tf.translation.y.max(g.point.y - STRIDE_STEP * 0.6);
             }
         }
+    }
+    if let Some(l) = lib.as_deref_mut() {
+        l.bound = 0;
     }
 }
 

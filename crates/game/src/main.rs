@@ -34,7 +34,7 @@
 //! someone they stumble, running Altaïr shoves through, sprinting knocks them off balance; its militia fight when attacked.
 //! F1 hides the text (the HUD and the labels), F2 the map menu (1 the test level, 2 Masyaf, 3 Damascus: the game starts
 //! again in it), F8 the graphics settings (`settings`, `menu`: presets Low / Medium / High / Ultra, window mode,
-//! resolution, vsync, frame cap, city detail, texture size, shadows, anti-aliasing, fog, view distance, sound volume; saved to
+//! resolution, vsync, frame cap, city detail, texture size, shadows, anti-aliasing, ambient occlusion (SSAO), fog, view distance, sound volume; saved to
 //! `ac1-settings.txt` beside the executable), F10 online (`net`: hosting on / off and its port, joining an IP and port,
 //! the replay recorder; the menus take the arrows, Enter, Esc, typing and the mouse), F4 toggle IK, F5 skeleton,
 //! F3 IK targets, F6 pause the pose gallery and NPC line-up (they only move near the camera anyway), F11 the collision
@@ -51,7 +51,7 @@
 //! city from the game data instead of the test level; its gameplay data, collision, holds, guidance, beams, objects and navigation, is saved after
 //! the first load and read back after, `level_cache`, and so is what it draws, `render_cache`: AC1_NO_CACHE=1 neither reads nor writes them, AC1_CACHE_DIR=dir puts it there instead of
 //! `ac1-cache` beside the executable, AC1_CACHE_CHECK=1 builds the city anyway and compares it with the cache byte for byte; every load logs its
-//! phases' times as `load: ...` lines), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_DETAIL=low|medium|high|ultra|full (how much a city draws: see `stream::Detail`; else the graphics menu's, medium by default; full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
+//! phases' times as `load: ...` lines), AC1_FPS=1 (log the time to the first frame, then the frame rate, the GPU's time a frame and what the city draws), AC1_PERF=1 (the frame-time breakdown, `profile`: wall-clock frame times, the GPU's passes, the meshes seen and casting, and in a `--features profile` build every system's CPU time; AC1_PERF_EVERY / AC1_PERF_SKIP secs), AC1_SSAO="world,characters,flat" (the screen-space occlusion's strength, `look::SSAO_STRENGTH`), AC1_DETAIL=low|medium|high|ultra|full (how much a city draws: see `stream::Detail`; else the graphics menu's, medium by default; full draws everything at full detail as before streaming), AC1_FREECAM="x,y,z" (start in the free camera there),
 //! AC1_JUMP=secs[,secs...] (press Space then; with AC1_WALK for a running jump), AC1_HIGH / AC1_LEGS=from-to
 //! (hold high profile / the legs), AC1_HAND=secs[,..] (the empty hand),
 //! AC1_ORBIT="x,y,z,radius,height,secs" (a camera circling a point, for videos) with AC1_FRAMES=dir (every frame saved
@@ -93,6 +93,7 @@ mod gallery;
 mod grab_audit;
 mod jump;
 mod jump_query;
+mod ledge_grid;
 mod level;
 mod level_cache;
 mod look;
@@ -106,6 +107,7 @@ mod particle_material;
 mod particles;
 mod preload;
 mod probe;
+mod profile;
 mod ragdoll;
 mod recorder;
 mod render_cache;
@@ -362,6 +364,9 @@ fn main() {
     // (The controller only with `AC1_PAD=1`: Bevy's gamepad backend takes the pad over even with the window in the
     // background, from every copy the tests start, and another game could not use it.)
     let plugins = DefaultPlugins.build();
+    // (`AC1_PERF=1` in a `profile` build: every system's CPU time, `profile`.)
+    #[cfg(feature = "profile")]
+    let plugins = plugins.set(bevy::log::LogPlugin { custom_layer: profile::layer, ..default() });
     let plugins = if std::env::var("AC1_PAD").is_ok() { plugins } else { plugins.disable::<bevy::gilrs::GilrsPlugin>() };
     if headless {
         // `AC1_HEADLESS=1`: no window and no GPU (the scenarios read only the log): the frames run back to back.
@@ -386,9 +391,10 @@ fn main() {
     if let Some(hz) = step.filter(|hz| *hz > 0.0) {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / hz)));
     }
-    if std::env::var("AC1_FPS").is_ok() && !headless {
+    if (std::env::var("AC1_FPS").is_ok() || std::env::var("AC1_PERF").is_ok()) && !headless {
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     }
+    app.add_plugins(profile::ProfilePlugin);
     // The level's light and grade from AC1's data (`look`): the city's own, Masyaf's for the test level; and its sky.
     let (world_look, sky) = look_job.join().unwrap_or_else(|_| {
         let dir = std::path::Path::new(&game_dir);
@@ -480,6 +486,7 @@ fn main() {
         .add_systems(Update, probe::probe_climbs.after(run_script).before(character::locomotion))
         .init_resource::<ScriptClock>()
         .add_systems(First, tick_script_clock)
+        .add_systems(First, ledge_grid::update)
         .add_systems(Update, control_runs.before(run_script))
         .init_resource::<climb_sweep::Sweep>()
         .add_systems(Update, climb_sweep::sweep_issue.before(control_runs))
