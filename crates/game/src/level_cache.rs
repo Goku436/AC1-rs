@@ -502,6 +502,8 @@ pub fn write_level(level: &Level) -> Vec<u8> {
         big: _,
         report_edges: _,
         report_grid: _,
+        hold_grid: _,
+        hold_grid_len: _,
         spawn,
         crowd_path,
         city,

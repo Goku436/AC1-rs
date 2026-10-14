@@ -1717,7 +1717,7 @@ by 2x between runs; base and after run back to back):
 | Medium, roofs | 28.2 / 17.5 fps | 31.5 / 15.7 fps (noise: the machine loaded) |
 
 Not done, for later: the city's static meshes merged per cell and material (the render world's cost is per entity);
-`climb::nearest_hold` and the other searches of `level.ledges` (per hand per frame while climbing) through the grid;
+(done 2026-10-14, fix/parkour3: `climb::nearest_hold` in growing squares, `hold_in_box`, `face_turn`, `hold_of`, `footholds`, `foot_cell` through `Level::holds_near`, the same holds as the list's walk);
 Bevy's CPU batching path (`PbrPlugin::use_gpu_instance_buffer_builder: false`) drew nothing of the city or Altaïr (twice
 the frame rate, but nothing to see): not usable as it is.
 

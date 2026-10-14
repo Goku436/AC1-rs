@@ -1466,16 +1466,19 @@ pub fn grip_hold(target: Vec3, out: Vec3) -> Vec3 {
 
 /// Nearest hold for a wrist position: (ledge, wrist target on it, distance).
 pub fn nearest_hold(level: &Level, wrist: Vec3, normal: Vec3) -> Option<(Ledge, Vec3, f32)> {
+    // (Through the level's hold grid: a grip target is at most `GRIP_OUT` across from its hold.)
     level
-        .ledges
-        .iter()
-        .filter(|l| l.out.dot(normal) > 0.7)
-        .map(|l| {
-            let line = wrist - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN;
-            let target = grip_target(l.closest(line), l.out);
-            (*l, target, (target - wrist).length())
-        })
-        .min_by(|a, b| a.2.total_cmp(&b.2))
+        .nearest_hold_by(
+            wrist,
+            GRIP_OUT,
+            |l| l.out.dot(normal) > 0.7,
+            |l| {
+                let line = wrist - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN;
+                let target = grip_target(l.closest(line), l.out);
+                ((*l, target), (target - wrist).length())
+            },
+        )
+        .map(|((l, t), d)| (l, t, d))
 }
 
 /// AC1's air-catch probe (`Guidance__ProbeBox`): the hold in the box round `centre` (half extents across, along `dir`
@@ -1774,9 +1777,10 @@ fn lean_refused(m: &crate::climb_table::Move, hands: [Vec3; 2], to_hands: [Vec3;
 /// `GRID_ALONG` along the wall, `GRID_UP` up or down and `GRID_DEPTH` in or out of the wall; the nearest one in it.
 fn hold_in_box(level: &Level, wrist: Vec3, normal: Vec3) -> Option<Vec3> {
     let along = Vec3::Y.cross(normal).normalize_or_zero();
+    // (The box reaches `GRID_ALONG` + `GRID_DEPTH` across the ground, the grip target `GRIP_OUT` off its hold.)
     level
-        .ledges
-        .iter()
+        .holds_near(wrist, GRID_ALONG + GRID_DEPTH + GRIP_OUT)
+        .into_iter()
         .filter(|l| l.out.dot(normal) > 0.7)
         .map(|l| grip_target(l.closest(wrist - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN), l.out))
         .filter(|t| {
@@ -1796,8 +1800,8 @@ const FACE_TURN_MAX: f32 = 1.05;
 fn face_turn(level: &Level, targets: &[Vec3; 2], normal: Vec3) -> Option<Quat> {
     let out = |t: Vec3| {
         level
-            .ledges
-            .iter()
+            .holds_near(t, GRIP_OUT + 0.01)
+            .into_iter()
             .filter(|l| l.out.dot(normal) > 0.5)
             .map(|l| (l.out, grip_target(l.closest(t - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN), l.out).distance(t)))
             .filter(|(_, d)| *d < 0.01)
@@ -1821,8 +1825,8 @@ fn holds_in_box(level: &Level, hands: &[Vec3; 2], normal: Vec3) -> Option<[Vec3;
 /// The hold a grip target (`grip_target`) is on: the point on its line, and the line.
 fn hold_of(level: &Level, target: Vec3, normal: Vec3) -> Option<(Vec3, Ledge)> {
     level
-        .ledges
-        .iter()
+        .holds_near(target, GRIP_OUT + 0.01)
+        .into_iter()
         .filter(|l| l.out.dot(normal) > 0.5)
         .map(|l| {
             let q = l.closest(target - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN);
@@ -1921,7 +1925,7 @@ fn footholds(level: &Level, hands: Vec3, normal: Vec3) -> bool {
     // (Low on a wall the feet are on the ground, or near it: the lowest holds, as climbing on from the ground.)
     let ground = level.ground(hands + normal * 0.3 - Vec3::Y * 0.3, 0.0, *FOOTHOLD_BELOW.end()).is_some();
     ground
-        || level.ledges.iter().filter(|l| l.out.dot(normal) > 0.7).any(|l| {
+        || level.holds_near(hands, FOOTHOLD_SIDE + FOOTHOLD_DEPTH).into_iter().filter(|l| l.out.dot(normal) > 0.7).any(|l| {
             let q = l.closest(hands - Vec3::Y * 1.1);
             let d = q - hands;
             FOOTHOLD_BELOW.contains(&-d.y) && d.dot(along).abs() < FOOTHOLD_SIDE && d.dot(normal).abs() < FOOTHOLD_DEPTH
@@ -1934,7 +1938,7 @@ fn foot_cell(level: &Level, hand: Vec3, normal: Vec3) -> bool {
     let along = Vec3::Y.cross(normal).normalize_or_zero();
     let at = hand - Vec3::Y * FOOT_ROWS;
     level.ground(at + normal * 0.3 + Vec3::Y * FOOT_CELL_UP, 0.0, 2.0 * FOOT_CELL_UP + 0.3).is_some()
-        || level.ledges.iter().filter(|l| l.out.dot(normal) > 0.7).any(|l| {
+        || level.holds_near(at, GRID_ALONG + GRID_DEPTH).into_iter().filter(|l| l.out.dot(normal) > 0.7).any(|l| {
             let d = l.closest(at) - at;
             d.dot(along).abs() <= GRID_ALONG && d.y.abs() <= FOOT_CELL_UP && d.dot(normal).abs() <= GRID_DEPTH
         })
