@@ -2,12 +2,16 @@
 //! `ExtendedMaterial` over Bevy's `StandardMaterial` (its texture, and the mesh's vertex colours and UVs).
 //!
 //! An emitter's sprite is its texture times its colour key (the vertex colour, as stored: display-space light as AC1's
-//! shaders, `look`). `LightingMode` per vertex (`lit`): times the level's ambient cube toward the camera plus the sun's
-//! colour by N.L (the sprite facing the camera); `FogEnabled`: AC1's fog by distance; then the level's grade.
-//! `GlowEnabled`: AC1 draws those into its glow pass (a blurred bloom added over the frame); ours adds the sprite's own
-//! unlit colour times `GlowIntensity` (no blur). The `BlendMode`s: alpha and copy blended over (premultiplied: one
-//! pipeline), additive added (premultiplied, alpha 0), modulate multiplied (`AlphaMode::Multiply`); subtractive drawn as
-//! alpha (none of Damascus' emitters has it).
+//! shaders, `look`), then the level's grade (AC1 grades the whole frame). AC1's DX9 particle shaders (the `Default
+//! Particle Material Template`'s 31 variants) have no fog and light only with the emitter's sprite light flag
+//! (`Emitter::sprite_light`, set in no emitter of DataPC, Common or Damascus); where it is set ours lights by the
+//! level's ambient cube toward the camera plus the sun's colour by N.L (AC1's: `LightColor` by the direction to
+//! `LightPos`, plus `LightAmbient`; not followed, no data to check it on).
+//! `GlowEnabled`: AC1 draws the sprite's alpha x `GlowIntensity` into its glow mask (the frame under the mask is blurred
+//! and added back); ours adds the sprite's colour x `GlowIntensity` in it and draws a halo (`particles::HALO`),
+//! additive, its colour x `glow`. The `BlendMode`s: alpha and copy blended over (premultiplied: one pipeline), additive
+//! added (premultiplied, alpha 0), modulate multiplied (`AlphaMode::Multiply`); subtractive drawn as alpha (none of
+//! Damascus' emitters has it).
 
 use bevy::asset::embedded_asset;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
@@ -21,9 +25,9 @@ pub type ParticleSurface = ExtendedMaterial<StandardMaterial, ParticleLook>;
 /// The shader's per-batch values.
 #[derive(Clone, Copy, Debug, Default, ShaderType, Reflect)]
 pub struct ParticleControls {
-    /// x: lit (1), y: fogged (1), z: the texture is sRGB (decoded when sampled), w: additive (1).
+    /// x: lit (1), y: a glow's halo (1), z: the texture is sRGB (decoded when sampled), w: additive (1).
     pub options: Vec4,
-    /// x: the glow's intensity (`GlowIntensity` where `GlowEnabled`, else 0).
+    /// x: `GlowIntensity` where `GlowEnabled` (else 0), y: a halo's brightness (1 / `particles::HALO`²).
     pub glow: Vec4,
 }
 
@@ -60,14 +64,15 @@ pub fn alpha_mode(blend: Blend) -> (AlphaMode, bool) {
     }
 }
 
-/// A batch's material: the sprite's texture, the blend, lighting and fog.
-pub fn surface(texture: Handle<Image>, srgb: bool, blend: Blend, lit: bool, fog: bool, glow: f32, look: crate::look::WorldLook) -> ParticleSurface {
+/// A batch's material: the sprite's texture, the blend and lighting.
+/// `halo`: a glow's halo, its brightness (0: not one).
+pub fn surface(texture: Handle<Image>, srgb: bool, blend: Blend, lit: bool, glow: f32, halo: f32, look: crate::look::WorldLook) -> ParticleSurface {
     let (alpha_mode, add) = alpha_mode(blend);
     let flag = |b: bool| if b { 1.0 } else { 0.0 };
     ParticleSurface {
         base: StandardMaterial { base_color_texture: Some(texture), alpha_mode, unlit: true, cull_mode: None, double_sided: true, ..default() },
         extension: ParticleLook {
-            controls: ParticleControls { options: Vec4::new(flag(lit), flag(fog), flag(srgb), flag(add)), glow: Vec4::new(glow, 0.0, 0.0, 0.0) },
+            controls: ParticleControls { options: Vec4::new(flag(lit), flag(halo > 0.0), flag(srgb), flag(add)), glow: Vec4::new(glow, halo, 0.0, 0.0) },
             look,
         },
     }

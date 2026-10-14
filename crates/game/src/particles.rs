@@ -11,6 +11,9 @@
 //! - The haystack: `HumanFXPack_AlTair`'s `FX_Clip_Character_Hay_Bal(TopEntry)` going in (at the straw's sound key of
 //!   the dive) and `(Side Exit)` hopping out, each a straw system at six bones (`RightArm`, `LeftArm`, `Spine1`, `Head`,
 //!   `LeftForeArm`, `RightForeArm`).
+//! - The city's ambient effects (`WorldFx::ambient`, AC1's `WorldParticleSystem`s): each district's system (dust,
+//!   leaves, bees, petals, dandelions, ground fog) placed at the `count` nearest of its cells' points within
+//!   `AMBIENT_RANGE` of the camera and in view, every frame, as AC1's 0xA0ADD0 (`AmbientGroup`).
 //! - The city's placed effects (`WorldFx`, found by `city`): the entities of the cells whose `Visual` shows a
 //!   `ParticleSystem` rather than a mesh: the fountains' and wall fountains' jets, rings and foam
 //!   (`GFX_Object_Water_*`), the lanterns', cages' and torches' fire and smoke (`GFX_Object_Fire_*`), chimneys', pots'
@@ -20,11 +23,14 @@
 //!
 //! An emitter (`forge::fx::Emitter`) sends its particles from its shape (in its `LocalMatrix`, in the entity's frame),
 //! along the matrix's Z tipped by `DirectionVariation` (or out from its centre), at `MinVelocity`-`MaxVelocity`, with
-//! its `Acceleration` (world space); a burst (`FLOW_ONCE`) sends `MaxParticleCount` at `ParticleRate`, a loop keeps at
-//! most that many alive at that rate. Each particle lives its three phases, its size, colour and spin going key to key
-//! at their ends; the texture's frames play at its frame rate. Ours: the FX graph's operators (their property
-//! overrides, `FXLinkedValue`s) are not run, the scale keys, `ParticleEffect`s (the cyclone), the wind, depth and near
-//! fades, `ZMin` and 3D (mesh) particles are not. Not in headless runs (no GPU).
+//! its `Acceleration` (world space) and the city's wind times its `WindForce` factor; a burst (`FLOW_ONCE`) sends
+//! `MaxParticleCount` at `ParticleRate`, a loop keeps at most that many alive at that rate. Each particle lives its three
+//! phases, its size, colour and spin going key to key at their ends; the texture's frames play at its frame rate. A city
+//! emitter runs between its two camera distances (`view_range`), fading in and out over `VIEW_FADE` s as AC1's
+//! (0xA80B40). As AC1's DX9 particle shaders: unlit (no emitter sets the light flag), unfogged (they have no fog).
+//! Ours: the FX graph's operators (their property overrides, `FXLinkedValue`s) are not run, the scale keys,
+//! `ParticleEffect`s (the cyclone), depth and near fades and 3D (mesh) particles are not. Not in headless runs (no
+//! GPU).
 
 use crate::animation::Playing;
 use crate::character::{Character, Player};
@@ -53,19 +59,21 @@ const HAY_OUT: &str = "xx_l_haystack_hop_out";
 const MAX_PARTICLES: usize = 12000;
 /// The city's effects run within this distance of the camera at most (m): about the cells AC1 keeps loaded round it.
 const WORLD_RANGE: f32 = 120.0;
-/// Nearer for small ones: this many times their largest particle (m), at least `NEAR_RANGE` (ours: a lantern's flame
-/// at 60 m is a few pixels).
-const RANGE_PER_SIZE: f32 = 100.0;
-const NEAR_RANGE: f32 = 30.0;
+/// How long a city emitter takes to fade in or out as the camera crosses its `view_range` (s; AC1's 5.0 at 0x1698BA8).
+const VIEW_FADE: f32 = 5.0;
+/// An ambient effect's points are taken within this distance of the camera (m; AC1's squared distance under 901).
+const AMBIENT_RANGE: f32 = 30.0;
+/// And in view: ahead of the camera as `AHEAD`, or within this distance of it (m: about an instance's emitter box).
+const AMBIENT_NEAR: f32 = 6.0;
 /// And only those ahead of the camera (the cosine of the angle off its view, wide enough for a wide screen and the
 /// particles' size), or within `CLOSE` of it.
 const AHEAD: f32 = 0.35;
 const CLOSE: f32 = 12.0;
 
-/// How far a city emitter runs (see `RANGE_PER_SIZE`).
-fn range_of(em: &Emitter) -> f32 {
-    let size = em.size_min.iter().chain(&em.size_max).flatten().fold(0.0f32, |a, b| a.max(b.abs()));
-    (size * RANGE_PER_SIZE).clamp(NEAR_RANGE, WORLD_RANGE)
+/// The camera distances a city emitter runs between (m): its `view_range`, at most `WORLD_RANGE`.
+fn range_of(em: &Emitter) -> (f32, f32) {
+    let [near, far] = em.view_range.map(|d| (d as f32).min(WORLD_RANGE));
+    (near, far)
 }
 /// The forges a city's effects' textures are looked up in, after the city's own.
 const FX_TEXTURE_FORGES: [&str; 2] = ["DataPC.forge", "DataPC_Common.forge"];
@@ -83,13 +91,32 @@ pub struct WorldFx {
     /// (By id, in order: the render cache's bytes are the same every build.)
     pub systems: std::collections::BTreeMap<u32, (String, Vec<u8>)>,
     pub placed: Vec<(Mat4, u32)>,
+    /// The ambient effects (`forge::fx::WorldParticleSystem`): each its particle system, how many instances at most and
+    /// its cells' points (Bevy space).
+    pub ambient: Vec<Ambient>,
 }
 
-/// An emitter as it is drawn: its fields and its batch.
+/// A city's ambient effect as found (`WorldFx::ambient`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ambient {
+    pub system: u32,
+    pub count: u8,
+    pub points: Vec<Vec3>,
+}
+
+/// An emitter as it is drawn: its fields, its batch and its glow's (`HALO`).
 struct Def {
     em: Emitter,
     batch: usize,
+    halo: Option<usize>,
 }
+
+/// AC1's glow pass (`GlowEnabled`: the sprite's alpha x `GlowIntensity` drawn into a mask, the frame x the mask
+/// downscaled 4 times and blurred over five halving levels, added back, 0xADC7D0) is drawn as the sprite's own colour x
+/// alpha x `GlowIntensity` (at most 1, the mask's 8 bits) added in it (the frame under the mask, unblurred), and a
+/// halo: each glowing particle once more, this many times its size, adding that / `HALO`² (the same light spread over
+/// the larger quad, as a blur spreads it).
+const HALO: f32 = 2.5;
 
 /// An effect: its emitters (`Particles::defs`) and the bones it plays at (none: the contact point).
 struct FxDef {
@@ -115,7 +142,15 @@ struct FxData {
 struct WorldData {
     systems: Vec<(String, Vec<Emitter>)>,
     placed: Vec<(Mat4, usize)>,
+    /// The ambient effects: (system index, instances at most, points).
+    ambient: Vec<(usize, u8, Vec<Vec3>)>,
     textures: Loaded,
+}
+
+/// An ambient effect as run: its points, and per instance its emitters' sources (moved to a point each frame).
+struct AmbientGroup {
+    points: Vec<Vec3>,
+    slots: Vec<Vec<usize>>,
 }
 
 /// The texture an emitter names, decoded: a `Texture`, or the first texture another object (a map spec) links.
@@ -209,6 +244,7 @@ fn load_world(game_dir: &Path, fx: &WorldFx) -> anyhow::Result<WorldData> {
         }
     }
     let placed: Vec<(Mat4, usize)> = fx.placed.iter().filter_map(|(m, id)| Some((*m, *at.get(id)?))).collect();
+    let ambient: Vec<(usize, u8, Vec<Vec3>)> = fx.ambient.iter().filter_map(|a| Some((*at.get(&a.system)?, a.count, a.points.clone()))).collect();
     let mut want: Vec<u32> = systems.iter().flat_map(|s| s.1.iter().map(|e| e.texture)).filter(|&t| t != 0).collect();
     want.sort_unstable();
     want.dedup();
@@ -234,13 +270,14 @@ fn load_world(game_dir: &Path, fx: &WorldFx) -> anyhow::Result<WorldData> {
         });
     }
     info!(
-        "fx: the city's effects: {} placed, {} particle systems ({bad} not read), {} textures ({} not found)",
+        "fx: the city's effects: {} placed, {} ambient, {} particle systems ({bad} not read), {} textures ({} not found)",
         placed.len(),
+        ambient.len(),
         systems.len(),
         textures.len(),
         want.len()
     );
-    Ok(WorldData { systems, placed, textures })
+    Ok(WorldData { systems, placed, ambient, textures })
 }
 
 type Slot<T> = Arc<Mutex<Option<anyhow::Result<T>>>>;
@@ -278,8 +315,15 @@ struct Source {
     def: usize,
     frame: Mat4,
     at: Vec3,
-    /// How far it runs (m): `WORLD_RANGE` for the big ones, nearer for the small (`range_of`).
+    /// The camera distances it runs between (m, `range_of`).
+    near: f32,
     range: f32,
+    /// Its fade (0-1, `VIEW_FADE`): it multiplies its particles' alpha (NaN until its first frame).
+    fade: f32,
+    /// The wind on its particles this frame (Bevy space, m/s²: the city's wind times its factor).
+    wind: Vec3,
+    /// Where it is now: an ambient instance's emitter is somewhere only while its effect gives it a point.
+    placed: bool,
     active: bool,
     t: f32,
     carry: f32,
@@ -293,10 +337,18 @@ const NO_SOURCE: u32 = u32::MAX;
 #[derive(Clone, Copy)]
 struct Particle {
     batch: usize,
+    /// Its glow's halo batch (`HALO`), if any.
+    halo: Option<usize>,
     src: u32,
     pos: Vec3,
     vel: Vec3,
     acc: Vec3,
+    /// Its emitter's wind factor (a burst's: the wind where the camera is).
+    wind: f32,
+    /// It dies at or below this height (Bevy y: the emitter's `ZMin` where it kills below it).
+    floor: f32,
+    /// It lies along its velocity (no spin).
+    along: bool,
     age: f32,
     /// The ends of its phases (s from birth): keys 1, 2, 3.
     keys: [f32; 3],
@@ -334,7 +386,7 @@ impl Particle {
         let f = (self.age * self.frame_rate.max(0.0)) as u32;
         match self.anim {
             1 => f.min(n - 1),
-            2 => f % n,
+            2 => (f + self.frame0) % n,
             3 => {
                 let k = f % (2 * n - 2);
                 if k < n { k } else { 2 * n - 2 - k }
@@ -344,15 +396,17 @@ impl Particle {
     }
 }
 
-/// A batch: the particles of one texture, blend, lighting and fog, drawn as one mesh.
+/// A batch: the particles of one texture, blend and lighting, drawn as one mesh.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct BatchKey {
     tex: usize,
     blend: u32,
+    /// Lit: AC1's sprite light flag (`Emitter::sprite_light`, not `LightingMode`, which the DX9 renderer never reads).
     lit: bool,
-    fog: bool,
-    /// `GlowIntensity` in thousandths, where `GlowEnabled`.
+    /// `GlowIntensity` in thousandths where `GlowEnabled`, else 0.
     glow: u32,
+    /// A glow's halo (`HALO`).
+    halo: bool,
 }
 
 #[derive(Resource, Default)]
@@ -366,6 +420,7 @@ pub struct Particles {
     hay_out: Option<FxDef>,
     world_loading: Option<Slot<WorldData>>,
     sources: Vec<Source>,
+    ambient: Vec<AmbientGroup>,
     defs: Vec<Def>,
     textures: Vec<Image>,
     tex_at: HashMap<u32, usize>,
@@ -413,18 +468,22 @@ impl Particles {
             Blend::Modulate => 3,
             _ => 4,
         };
-        let glow = if em.glow { (em.glow_intensity.clamp(0.0, 10.0) * 1000.0).round() as u32 } else { 0 };
-        let key = BatchKey { tex, blend, lit: em.lit, fog: em.fog, glow };
-        let batch = match self.batch_at.get(&key) {
-            Some(b) => *b,
-            None => {
-                self.batch_keys.push(key);
-                self.batch_at.insert(key, self.batch_keys.len() - 1);
-                self.batch_keys.len() - 1
-            }
-        };
-        self.defs.push(Def { em: em.clone(), batch });
+        let glow = if em.glow { em.glow_intensity.clamp(0.0, 10.0) } else { 0.0 };
+        let milli = |x: f32| (x * 1000.0).round() as u32;
+        let batch = self.batch_of(BatchKey { tex, blend, lit: em.sprite_light(), glow: milli(glow), halo: false });
+        let halo = (milli(glow) > 0).then(|| self.batch_of(BatchKey { tex, blend: 1, lit: false, glow: milli(glow), halo: true }));
+        self.defs.push(Def { em: em.clone(), batch, halo });
         Some(self.defs.len() - 1)
+    }
+
+    /// A batch's index (made when new).
+    fn batch_of(&mut self, key: BatchKey) -> usize {
+        if let Some(b) = self.batch_at.get(&key) {
+            return *b;
+        }
+        self.batch_keys.push(key);
+        self.batch_at.insert(key, self.batch_keys.len() - 1);
+        self.batch_keys.len() - 1
     }
 
     /// Start an effect's emitters at `at` (or each of its bones, from `bones`), facing up.
@@ -447,7 +506,7 @@ impl Particles {
             return false;
         }
         let em = &self.defs[d].em;
-        let (shape, sp, dv, vel, batch) = (em.shape, em.shape_params, em.direction_variation, em.velocity, self.defs[d].batch);
+        let (shape, sp, dv, vel, batch, halo) = (em.shape, em.shape_params, em.direction_variation, em.velocity, self.defs[d].batch, self.defs[d].halo);
         let (phase_min, phase_max, mode) = (em.phase_min, em.phase_max, em.direction_mode);
         let [ax, ay, az] = em.acceleration;
         let (u, v, w) = (self.frand(), self.frand(), self.frand());
@@ -483,33 +542,48 @@ impl Particles {
             _ => about_z,
         };
         let speed = self.range(vel[0], vel[1]);
+        // (Its phases: one random for all three, as AC1's.)
         let mut keys = [0.0; 3];
         let mut end = 0.0;
+        let r = self.frand();
         for (k, key) in keys.iter_mut().enumerate() {
-            end += self.range(phase_min[k], phase_max[k]).max(0.0);
+            end += (phase_min[k] + (phase_max[k] - phase_min[k]) * r).max(0.0);
             *key = end;
         }
         if age >= keys[2] {
             return false;
         }
-        let s = self.frand();
+        // Its size and spin keys: between their min and max by one random, or one a key (`per_key_random`); its size
+        // times the entity's scale.
+        let (one, per_key) = (self.frand(), self.defs[d].em.per_key_random);
+        let rs: [f32; 4] = std::array::from_fn(|_| if per_key { self.frand() } else { one });
+        let (one, per_key) = (self.frand(), self.defs[d].em.per_key_random);
+        let ws: [f32; 4] = std::array::from_fn(|_| if per_key { self.frand() } else { one });
+        let scale = frame.x_axis.truncate().length();
         let em = &self.defs[d].em;
-        let size = std::array::from_fn(|k| [0, 1].map(|i| em.size_min[k][i] + (em.size_max[k][i] - em.size_min[k][i]) * s));
+        let size = std::array::from_fn(|k| [0, 1].map(|i| (em.size_min[k][i] + (em.size_max[k][i] - em.size_min[k][i]) * rs[k]) * scale));
         let color = em.color.map(|c| c.map(|x| x as f32 / 255.0));
         let (spin_min, spin_max, rotation, frames, anim, frame_rate) = (em.spin_min, em.spin_max, em.rotation, em.frames, em.texture_anim, em.frame_rate);
-        let w = self.frand();
-        let spin: [f32; 4] = std::array::from_fn(|k| spin_min[k] + (spin_max[k] - spin_min[k]) * w);
-        let rot = self.range(rotation[0], rotation[1]);
-        let frame0 = (self.frand() * 4096.0) as u32;
-        let acc = Vec3::new(ax, az, -ay);
+        let along = em.along_velocity();
+        let random_frame = em.random_first_frame();
+        let wind = em.wind_factor();
+        let floor = if em.kills_below_z_min() { em.z_min } else { f32::NEG_INFINITY };
+        let spin: [f32; 4] = if along { [0.0; 4] } else { std::array::from_fn(|k| spin_min[k] + (spin_max[k] - spin_min[k]) * ws[k]) };
+        let rot = if along { 0.0 } else { self.range(rotation[0], rotation[1]) };
+        let frame0 = if random_frame { (self.frand() * 4096.0) as u32 } else { 0 };
+        let acc = Vec3::new(ax, az, -ay) * scale;
         let v0 = frame.transform_vector3(dir).normalize_or_zero() * speed;
         let p0 = frame.transform_point3(local);
         self.list.push(Particle {
             batch,
+            halo,
             src,
             pos: p0 + v0 * age + 0.5 * acc * age * age,
             vel: v0 + acc * age,
             acc,
+            wind,
+            floor,
+            along,
             age,
             keys,
             size,
@@ -569,6 +643,7 @@ fn load_world_fx(mut p: ResMut<Particles>, dir: Res<crate::GameDir>, world: Opti
     if let Some(world) = world.filter(|w| w.is_changed()) {
         let (dir, fx) = (dir.0.clone(), world.clone());
         p.sources.clear();
+        p.ambient.clear();
         p.world_loading = Some(on_thread(move || load_world(&dir, &fx)));
     }
     let Some(r) = p.world_loading.as_ref().and_then(take) else { return };
@@ -592,11 +667,57 @@ fn load_world_fx(mut p: ResMut<Particles>, dir: Res<crate::GameDir>, world: Opti
         for &def in defs[*s].iter().flatten() {
             let frame = *world * Mat4::from_cols_array(&p.defs[def].em.local_matrix);
             let at = frame.transform_point3(Vec3::ZERO);
-            let range = range_of(&p.defs[def].em);
-            p.sources.push(Source { def, frame, at, range, active: false, t: 0.0, carry: 0.0, alive: 0, sent: 0 });
+            let (near, range) = range_of(&p.defs[def].em);
+            p.sources.push(Source {
+                def,
+                frame,
+                at,
+                near,
+                range,
+                fade: f32::NAN,
+                wind: Vec3::ZERO,
+                placed: true,
+                active: false,
+                t: 0.0,
+                carry: 0.0,
+                alive: 0,
+                sent: 0,
+            });
         }
     }
-    info!("fx: {} city emitters", p.sources.len());
+    // (The ambient effects' instances: their emitters' sources, nowhere until a point is theirs.)
+    for (s, count, points) in std::mem::take(&mut d.ambient) {
+        let mut slots = vec![];
+        for _ in 0..count {
+            let mut slot = vec![];
+            for &def in defs[s].iter().flatten() {
+                let (near, range) = range_of(&p.defs[def].em);
+                slot.push(p.sources.len());
+                let frame = Mat4::IDENTITY;
+                p.sources.push(Source {
+                    def,
+                    frame,
+                    at: Vec3::ZERO,
+                    near,
+                    range,
+                    fade: f32::NAN,
+                    wind: Vec3::ZERO,
+                    placed: false,
+                    active: false,
+                    t: 0.0,
+                    carry: 0.0,
+                    alive: 0,
+                    sent: 0,
+                });
+            }
+            slots.push(slot);
+        }
+        if log {
+            info!("fx: ambient {}: {} points, {count} instances", d.systems[s].0, points.len());
+        }
+        p.ambient.push(AmbientGroup { points, slots });
+    }
+    info!("fx: {} city emitters ({} ambient effects)", p.sources.len(), p.ambient.len());
 }
 
 /// The clip keys passed this frame start their effects (see the module header).
@@ -663,7 +784,13 @@ fn hay(p: &mut Particles, q: &Playing, from: Option<f32>, bone: &impl Fn(&str) -
 }
 
 /// Emit, move and age the particles: the bursts, then the city's sources near the camera.
-fn simulate(mut p: ResMut<Particles>, time: Res<Time>, globals: Query<&GlobalTransform>, cams: Query<&GlobalTransform, With<Camera3d>>) {
+fn simulate(
+    mut p: ResMut<Particles>,
+    time: Res<Time>,
+    globals: Query<&GlobalTransform>,
+    cams: Query<&GlobalTransform, With<Camera3d>>,
+    wind: Option<Res<crate::wind::WindField>>,
+) {
     let dt = time.delta_secs().min(0.1);
     if dt <= 0.0 {
         return;
@@ -684,16 +811,29 @@ fn simulate(mut p: ResMut<Particles>, time: Res<Time>, globals: Query<&GlobalTra
     }
     bursts.retain(|b| b.sent < p.defs[b.def].em.max_particles);
     p.bursts = bursts;
+    let eye_wind = match (&wind, cams.iter().next()) {
+        (Some(w), Some(c)) => w.at(c.translation()),
+        _ => Vec3::ZERO,
+    };
     if let Some((eye, ahead)) = cams.iter().next().map(|c| (c.translation(), c.forward().as_vec3())) {
+        place_ambient(&mut p, eye, ahead);
         let mut sources = std::mem::take(&mut p.sources);
         for (i, s) in sources.iter_mut().enumerate() {
             let to = s.at - eye;
             let d = to.length();
-            if d > s.range || (d > CLOSE && to.dot(ahead) < AHEAD * d) {
+            // (AC1's: between its distances it fades in, outside them out, over `VIEW_FADE` s; at 0 it stops.)
+            let inside = s.placed && d >= s.near && d <= s.range;
+            // (Its first frame: on or off at once, as if the city had been running.)
+            s.fade = if s.fade.is_nan() { inside as u8 as f32 } else { (s.fade + if inside { dt } else { -dt } / VIEW_FADE).clamp(0.0, 1.0) };
+            if s.fade <= 0.0 || !s.placed || (d > CLOSE && to.dot(ahead) < AHEAD * d) {
                 s.active = false;
                 continue;
             }
             let em = &p.defs[s.def].em;
+            s.wind = match (&wind, em.wind_factor()) {
+                (Some(w), f) if f != 0.0 => w.at(s.at) * f,
+                _ => Vec3::ZERO,
+            };
             let (rate, max, looping, delay) = (em.rate.max(0.0), em.max_particles, em.flow == FLOW_LOOP, em.delay.max(0.0));
             let life: f32 = (0..3).map(|k| em.phase_max[k].max(em.phase_min[k]).max(0.0)).sum();
             if !s.active {
@@ -728,10 +868,18 @@ fn simulate(mut p: ResMut<Particles>, time: Res<Time>, globals: Query<&GlobalTra
         p.sources = sources;
     }
     let mut dead = vec![];
-    for q in &mut p.list {
-        q.vel += q.acc * dt;
+    let Particles { list, sources, .. } = &mut *p;
+    for q in list.iter_mut() {
+        let wind = match sources.get(q.src as usize) {
+            Some(s) => s.wind,
+            None => eye_wind * q.wind,
+        };
+        q.vel += (q.acc + wind) * dt;
         q.pos += q.vel * dt;
         q.age += dt;
+        if q.pos.y <= q.floor {
+            q.age = q.age.max(q.keys[2]);
+        }
         let (k, f) = q.key();
         q.rot += (q.spin[k] + (q.spin[k + 1] - q.spin[k]) * f) * dt;
         if q.age >= q.keys[2] && q.src != NO_SOURCE {
@@ -745,6 +893,32 @@ fn simulate(mut p: ResMut<Particles>, time: Res<Time>, globals: Query<&GlobalTra
     }
     p.list.retain(|q| q.age < q.keys[2]);
     p.cost.0 += t0.elapsed().as_secs_f32();
+}
+
+/// AC1's ambient effects (0xA0ADD0): each effect's points within `AMBIENT_RANGE` of the camera and in view, nearest first;
+/// its instances moved to them (upright: the game's axes), one a point, the rest nowhere.
+fn place_ambient(p: &mut Particles, eye: Vec3, ahead: Vec3) {
+    let Particles { ambient, sources, defs, .. } = p;
+    for g in ambient.iter() {
+        let mut near: Vec<(f32, Vec3)> = g
+            .points
+            .iter()
+            .map(|&q| (q.distance_squared(eye), q))
+            .filter(|&(d2, q)| d2 < AMBIENT_RANGE * AMBIENT_RANGE && (d2 < AMBIENT_NEAR * AMBIENT_NEAR || (q - eye).dot(ahead) >= AHEAD * d2.sqrt()))
+            .collect();
+        near.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for (k, slot) in g.slots.iter().enumerate() {
+            let at = near.get(k).map(|n| n.1);
+            for &i in slot {
+                let s = &mut sources[i];
+                s.placed = at.is_some();
+                if let Some(at) = at {
+                    s.frame = Mat4::from_translation(at) * game_to_bevy() * Mat4::from_cols_array(&defs[s.def].em.local_matrix);
+                    s.at = s.frame.transform_point3(Vec3::ZERO);
+                }
+            }
+        }
+    }
 }
 
 /// Each batch's particles as one mesh of camera-facing quads, far ones first.
@@ -778,8 +952,17 @@ fn draw(
             3 => Blend::Modulate,
             _ => Blend::Alpha,
         };
-        let mat = mats.add(crate::particle_material::surface(image, srgb, blend, key.lit, key.fog, key.glow as f32 / 1000.0, look.world));
-        let mesh = meshes.add(Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default()));
+        let halo = if key.halo { 1.0 / (HALO * HALO) } else { 0.0 };
+        let mat = mats.add(crate::particle_material::surface(image, srgb, blend, key.lit, key.glow as f32 / 1000.0, halo, look.world));
+        // (Made with one quad of no area: Bevy's mesh allocator logs an error for a mesh of no vertices.)
+        let mesh = meshes.add(
+            Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 4])
+                .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 1.0, 0.0]; 4])
+                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32; 2]; 4])
+                .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0.0f32; 4]; 4])
+                .with_inserted_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3])),
+        );
         let e = commands
             .spawn((
                 Name::new("particles"),
@@ -806,8 +989,11 @@ fn draw(
     order.sort_by(|a, b| b.0.total_cmp(&a.0));
     let mut per_batch: Vec<Vec<usize>> = vec![vec![]; p.batches.len()];
     for (_, i) in order {
-        if let Some(v) = per_batch.get_mut(p.list[i].batch) {
-            v.push(i);
+        let q = &p.list[i];
+        for b in std::iter::once(q.batch).chain(q.halo) {
+            if let Some(v) = per_batch.get_mut(b) {
+                v.push(i);
+            }
         }
     }
     for (bi, (mesh, _, e)) in p.batches.iter().enumerate() {
@@ -820,13 +1006,23 @@ fn draw(
         }
         let Some(mut m) = meshes.get_mut(mesh) else { continue };
         let n = mine.len();
+        let grow = if p.batch_keys[bi].halo { HALO } else { 1.0 };
         let (mut pos, mut uv, mut col, mut idx) = (Vec::with_capacity(n * 4), Vec::with_capacity(n * 4), Vec::with_capacity(n * 4), Vec::with_capacity(n * 6));
         for (i, q) in mine.iter().map(|&i| &p.list[i]).enumerate() {
             let (k, f) = q.key();
-            let [w, h] = [0, 1].map(|c| q.size[k][c] + (q.size[k + 1][c] - q.size[k][c]) * f);
-            let c: [f32; 4] = std::array::from_fn(|c| q.color[k][c] + (q.color[k + 1][c] - q.color[k][c]) * f);
-            let (s, co) = q.rot.sin_cos();
-            let (rx, ry) = (right * co + up * s, up * co - right * s);
+            let [w, h] = [0, 1].map(|c| (q.size[k][c] + (q.size[k + 1][c] - q.size[k][c]) * f) * grow);
+            let mut c: [f32; 4] = std::array::from_fn(|c| q.color[k][c] + (q.color[k + 1][c] - q.color[k][c]) * f);
+            // (Its emitter's fade: AC1's `g_FadeFactor`, on the alpha.)
+            c[3] *= p.sources.get(q.src as usize).map_or(1.0, |s| s.fade);
+            // (Its axes: turned by its rotation in the view, or along its velocity and across it as seen, AC1's
+            // `g_SpritesAtVector` shaders: the texture's width along the motion.)
+            let (rx, ry) = match q.vel.cross(eye - q.pos).try_normalize().filter(|_| q.along) {
+                Some(side) => (q.vel.normalize_or_zero(), side),
+                None => {
+                    let (s, co) = q.rot.sin_cos();
+                    (right * co + up * s, up * co - right * s)
+                }
+            };
             let (hx, hy) = (rx * w * 0.5, ry * h * 0.5);
             // (Its frame's part of the texture: frames left to right, top to bottom.)
             let (fx, fy) = (q.frames[0].max(1) as u32, q.frames[1].max(1) as u32);
@@ -853,8 +1049,9 @@ fn draw(
     if p.cost.1 >= 120 {
         if std::env::var("AC1_FPS").is_ok() {
             let running = p.sources.iter().filter(|s| s.active).count();
+            let ambient = p.ambient.iter().flat_map(|g| &g.slots).filter(|s| s.first().is_some_and(|&i| p.sources[i].placed)).count();
             info!(
-                "fx: {} particles, {running} of {} city emitters running, {:.2} ms a frame (CPU)",
+                "fx: {} particles, {running} of {} city emitters running, {ambient} ambient instances placed, {:.2} ms a frame (CPU)",
                 p.list.len(),
                 p.sources.len(),
                 p.cost.0 * 1000.0 / p.cost.1 as f32
@@ -871,10 +1068,14 @@ mod tests {
     fn particle(keys: [f32; 3]) -> Particle {
         Particle {
             batch: 0,
+            halo: None,
             src: NO_SOURCE,
             pos: Vec3::ZERO,
             vel: Vec3::ZERO,
             acc: Vec3::ZERO,
+            wind: 0.0,
+            floor: f32::NEG_INFINITY,
+            along: false,
             age: 0.0,
             keys,
             size: [[0.0; 2]; 4],
@@ -917,7 +1118,7 @@ mod tests {
             effect_params: [0.0; 8],
             fog: false,
             alpha_test: None,
-            axis: [0.0, 0.0, 1.0],
+            light_pos: [0.0, 0.0, 1.0],
             local_matrix,
             shape_params: [0.1, 1.0, 1.0],
             z_min: 0.0,
@@ -925,8 +1126,8 @@ mod tests {
             max_particles: 30,
             rate: 300.0,
             acceleration: [0.0, 0.0, -2.0],
-            unknown_c5: [0, 0],
-            unknown_cd: 0,
+            view_range: [0, 100],
+            per_key_random: false,
             velocity: [0.1, 1.0],
             direction_variation: [2.0, 0.0],
             rotation: [0.0, 8.0],
@@ -981,7 +1182,7 @@ mod tests {
 
     fn with_def(em: Emitter) -> Particles {
         let mut p = Particles { rng: 7, ..default() };
-        p.defs.push(Def { em, batch: 0 });
+        p.defs.push(Def { em, batch: 0, halo: None });
         p
     }
 
@@ -1032,6 +1233,64 @@ mod tests {
         assert!(q.pos.y.abs() < 1e-5, "1 m up, 1 m back down by gravity 2: {:?}", q.pos);
         assert!((q.vel.y + 1.0).abs() < 1e-5);
         assert!(!p.spawn(0, game_to_bevy(), NO_SOURCE, 5.0), "past its 1.8 s");
+    }
+
+    /// AC1's spawn rules: one random for every size key unless `per_key_random`, sizes times the entity's scale, no
+    /// rotation or spin along the velocity; the view range capped at `WORLD_RANGE`.
+    #[test]
+    fn sizes_spin_and_range_follow_the_emitter() {
+        let mut em = emitter();
+        em.size_min = [[0.0; 2], [1.0; 2], [2.0; 2], [3.0; 2]];
+        em.size_max = [[1.0; 2], [2.0; 2], [3.0; 2], [4.0; 2]];
+        let mut p = with_def(em.clone());
+        p.spawn(0, Mat4::from_scale(Vec3::splat(2.0)), NO_SOURCE, 0.0);
+        let q = p.list[0];
+        let r = q.size[0][0] / 2.0;
+        for k in 1..4 {
+            assert!((q.size[k][0] / 2.0 - (k as f32 + r)).abs() < 1e-4, "one random, scale 2: {:?}", q.size);
+        }
+        em.per_key_random = true;
+        em.flags[6] = 1;
+        em.spin_min = [1.0; 4];
+        em.spin_max = [2.0; 4];
+        let mut p = with_def(em.clone());
+        p.spawn(0, Mat4::IDENTITY, NO_SOURCE, 0.0);
+        let q = p.list[0];
+        let rs: Vec<f32> = (0..4).map(|k| q.size[k][0] - k as f32).collect();
+        assert!(rs.iter().any(|r| (r - rs[0]).abs() > 1e-3), "a random a key: {rs:?}");
+        assert!(q.along && q.rot == 0.0 && q.spin == [0.0; 4]);
+        em.view_range = [5, 4_000_000];
+        assert_eq!(range_of(&em), (5.0, WORLD_RANGE));
+    }
+
+    /// An ambient effect's instances go to its nearest points within `AMBIENT_RANGE` ahead of the camera, the rest
+    /// nowhere.
+    #[test]
+    fn ambient_instances_take_the_nearest_points_in_view() {
+        let mut p = with_def(emitter());
+        let source = |at| Source {
+            def: 0,
+            frame: Mat4::IDENTITY,
+            at,
+            near: 0.0,
+            range: 100.0,
+            fade: f32::NAN,
+            wind: Vec3::ZERO,
+            placed: false,
+            active: false,
+            t: 0.0,
+            carry: 0.0,
+            alive: 0,
+            sent: 0,
+        };
+        p.sources = (0..3).map(|_| source(Vec3::ZERO)).collect();
+        // Ahead (-Z): 5, 10 and 40 m; behind: 8 m.
+        let points = vec![Vec3::new(0.0, 0.0, -10.0), Vec3::new(0.0, 0.0, 8.0), Vec3::new(0.0, 0.0, -5.0), Vec3::new(0.0, 0.0, -40.0)];
+        p.ambient.push(AmbientGroup { points, slots: vec![vec![0], vec![1], vec![2]] });
+        place_ambient(&mut p, Vec3::ZERO, Vec3::NEG_Z);
+        assert!(p.sources[0].placed && (p.sources[0].at - Vec3::new(0.0, 0.0, -5.0)).length() < 1e-5);
+        assert!(p.sources[1].placed && (p.sources[1].at - Vec3::new(0.0, 0.0, -10.0)).length() < 1e-5);
+        assert!(!p.sources[2].placed, "behind or past 30 m: none");
     }
 
     #[test]
