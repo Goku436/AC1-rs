@@ -875,6 +875,11 @@ const PERCH_MAGNET: f32 = 1.2;
 const FREE_JUMP_NEAR_DROP: f32 = 1.0;
 const FREE_JUMP_NEAR: f32 = 3.0;
 const FREE_JUMP_UNDER: f32 = 0.25;
+/// Not free running: a drop edge under this (m) is hopped off (kinds 1 / 2), `LOW_HOP_AHEAD` m on in low profile (mode 1).
+const LOW_HOP_DROP: f32 = 2.0;
+const LOW_HOP_AHEAD: f32 = 1.0;
+/// Along a beam the drop edge at its end counts within this of it (m: `BeamRunsAlong` 0xF78F00).
+const BEAM_RUNS_ALONG: f32 = 0.4;
 /// A free-step target this far under the start (m), the way to it blocked: AC1's beam set of takeoffs and flights
 /// (`Human__UseBeamFreestepJumpVariants` 0xB145B0).
 const BEAM_VARIANT_DROP: f32 = 0.4;
@@ -5700,6 +5705,10 @@ impl WallClimb {
             self.finished = true;
             return;
         }
+        // (Not free running, toward a low drop: AC1's hop off, see `low_hop`.)
+        if !self.sprint && self.low_hop(lib, level, root, dir) {
+            return;
+        }
         // (Free running only, any way: AC1 jumps off a beam or post on high profile with the legs (0xEE9AF0 / 0xEE8EC0);
         // high profile alone, the stick off the side only turns to the side wait, audit NARROW-7.)
         if self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir)) {
@@ -5766,15 +5775,24 @@ impl WallClimb {
         }
     }
 
+    /// Along a beam at the crouch jog (high profile, or free running), else the crouch walk.
+    fn beam_jog(&self) -> bool {
+        self.high || self.sprint
+    }
+
     fn start_beam_walk(&mut self, lib: &mut AnimLib, dir: Vec3) {
-        let names: [String; 2] = if self.sprint { BEAM_JOG.map(String::from) } else { BEAM_WALK.map(String::from) };
+        // (The crouch jog in high profile, the crouch walk in low: AC1's speed band by profile, band 2 in high, 1 in low
+        // (`GetSpeedBand` 0xE53090, Banned445's port fa7114b); ours jogged free running only.)
+        let jog = self.beam_jog();
+        let names: [String; 2] = if jog { BEAM_JOG.map(String::from) } else { BEAM_WALK.map(String::from) };
         let (Some(a), Some(b)) = (lib.get(&names[0]), lib.get(&names[1])) else { return };
+        debug!("climb: along the beam at the {}", if jog { "crouch jog" } else { "crouch walk" });
         let speed = root_motion_at(&a, a.frames()).length() / a.anim.duration.max(1e-3);
         // From the crouch on a foot facing along the beam: AC1's start (0x34662CB4 / B5) on into the other foot's step.
         let feet = ["footl", "footr"];
         let intro = match self.beam_stance {
             Some(BeamStance::Along(f)) => {
-                let (p, gait) = if self.sprint { ("h", "crouchjog") } else { ("l", "crouchwalk") };
+                let (p, gait) = if jog { ("h", "crouchjog") } else { ("l", "crouchwalk") };
                 lib.get(&format!("xx_{p}_beam_crouchwait_{}_tr_{gait}_{}", feet[f], feet[1 - f])).map(|c| {
                     let v = root_motion_at(&c, c.frames()).length() / c.anim.duration.max(1e-3);
                     (f, c, v)
@@ -5786,7 +5804,7 @@ impl WallClimb {
         // (Free running, from `BEAM_SPRINT_START` up to the jog's own speed at `BEAM_ACCEL`: the running game went along
         // a Damascus beam from 2.1 to 3.7 m/s at about 2.4 m/s² (roof1_free_sw), then held the crouch jog's 3.7 m/s
         // (AC1's beam speed model: up at 2 m/s², down at 3, Banned445's reanalysis NARROW-1).)
-        let v = if self.sprint { BEAM_SPRINT_START.min(speed) } else { speed };
+        let v = if jog { BEAM_SPRINT_START.min(speed) } else { speed };
         self.cycle = Some(Cycle { clips: [a, b], foot, phase: 0.0, dir, speed, v, intro: intro.map(|(_, c, v)| (c, 0.0, v)) });
         self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
     }
@@ -5816,7 +5834,7 @@ impl WallClimb {
         // Jogging, the stick 40-140 degrees off the way: hop across onto a beam beside (AC1's corner hop, its event taken
         // before the walk's stick test).
         if let Some(cy) = &self.cycle {
-            let (dir, jog) = (cy.dir, self.sprint && cy.intro.is_none());
+            let (dir, jog) = (cy.dir, self.beam_jog() && cy.intro.is_none());
             if jog && stick != Vec3::ZERO && (-CORNER_HOP_COS..CORNER_HOP_COS).contains(&stick.dot(dir)) && self.corner_hop(lib, level, root, dir, stick) {
                 return;
             }
@@ -5836,7 +5854,7 @@ impl WallClimb {
             let foot = cy.foot;
             let feet = ["footl", "footr"];
             let names = [format!("xx_h_beam_crouchjog_stop_{}", feet[foot]), format!("xx_h_beam_crouchjog_stop_{0}_tr_crouchwait_{0}", feet[foot])];
-            let clips = if self.sprint && cy.intro.is_none() { names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() } else { None };
+            let clips = if (self.high || self.sprint) && cy.intro.is_none() { names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() } else { None };
             stop(self, lib);
             if let Some(clips) = clips {
                 let r = Transform { translation: line.closest(root.translation), ..*root };
@@ -5883,6 +5901,11 @@ impl WallClimb {
                 if walled {
                     self.beam_wall = Some((dir, v));
                 } else if self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir) {
+                    return;
+                }
+            } else if !walled {
+                root.translation = q;
+                if self.low_hop(lib, level, root, dir) {
                     return;
                 }
             }
@@ -6114,6 +6137,39 @@ impl WallClimb {
             (true, false, true) | (false, _, _) => EJECT_FREE_ALONG,
             (true, false, false) => return false,
         };
+        match Self::narrow_free_jump(lib, level, root, dir, ahead, (d + FREE_JUMP_UNDER).min(EJECT_FREE_DOWN), self.freestep_left, self.last.clone()) {
+            Some(w) => {
+                *self = w;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Not free running, the stick toward a drop edge under 2 m (within 45 degrees of the facing, or any way in high
+    /// profile): AC1's hop off (the narrow interpreter's jump kinds 1 / 2, BeamState 0xEEAAA0 / NarrowObjectState 0xEE9564,
+    /// Banned445's port): its free jump 1 m on (low profile) or 3 m (high), down to the drop's floor + 0.25 m. Along a beam
+    /// only within 0.4 m of the drop edge at its end (`BeamRunsAlong` 0xF78F00 under NARROW-11's gate: walking to the end of
+    /// a beam over a low roof he hops down at the end, not 1.1 m before it). Ours stopped at the end.
+    fn low_hop(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3) -> bool {
+        let p = root.translation;
+        let dir = dir.with_y(0.0).normalize_or_zero();
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let forward = dir.dot(fwd) >= std::f32::consts::FRAC_1_SQRT_2;
+        if dir == Vec3::ZERO || !(self.high || forward) {
+            return false;
+        }
+        let Some(d) = drop_edge_ahead(level, p, dir).filter(|d| *d < LOW_HOP_DROP) else { return false };
+        if let Some(line) = self.perch.and_then(|i| level.perches.get(i).copied()) {
+            let axis = line.axis();
+            if forward && axis != Vec3::ZERO && fwd.dot(axis).abs() > std::f32::consts::FRAC_1_SQRT_2 {
+                let end = if dir.dot(axis) > 0.0 { line.b } else { line.a };
+                if (end - p).with_y(0.0).dot(dir) > BEAM_RUNS_ALONG {
+                    return false;
+                }
+            }
+        }
+        let ahead = if self.high { FREE_JUMP_NEAR } else { LOW_HOP_AHEAD };
         match Self::narrow_free_jump(lib, level, root, dir, ahead, (d + FREE_JUMP_UNDER).min(EJECT_FREE_DOWN), self.freestep_left, self.last.clone()) {
             Some(w) => {
                 *self = w;

@@ -72,6 +72,16 @@ const SCENARIOS: &[Scenario] = &[
         want: &["onto perch", "off the beam's end onto the ground"],
         never: &["EMBED"],
     },
+    // AC1's beam speed by profile: band 2 (the crouch jog) in high profile, band 1 (the crouch walk) in low (`GetSpeedBand`
+    // 0xE53090, Banned445's port); ours jogged only free running.
+    Scenario {
+        name: "running in high profile (no legs) along the beam to B4: the crouch jog, as AC1's high profile band",
+        tags: &["beam"],
+        env: &[("AC1_START", "62.0,33,-90,5"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-3")],
+        secs: 2.0,
+        want: &["onto perch", "along the beam at the crouch jog"],
+        never: &["EMBED", "along the beam at the crouch walk"],
+    },
     Scenario {
         name: "free running at T2's beam a little off its line: onto the beam, the leap of faith from its end",
         tags: &["beam", "jump", "hay"],
@@ -2291,6 +2301,17 @@ const SCENARIOS: &[Scenario] = &[
         secs: 4.0,
         want: &["lean on the wall at"],
         never: &["EMBED", "from leaning on it", "onto perch"],
+    },
+    // Audit route roof2_run_south (the running game, Damascus): in high profile to a roof's end that ours took for a beam
+    // over the crack to the next roof 0.74 m down; AC1 runs on over it as ground and steps off it (`run_front_050cm`).
+    // Ours balanced on its own beam there and free-stepped off it. AC1's beams (paired hold edges) have none there.
+    Scenario {
+        name: "Damascus: running in high profile off a roof's end over a crack runs on as ground and steps off (route roof2_run_south)",
+        tags: &["beam", "ground"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "41,-20,180,12.5"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-5")],
+        secs: 4.0,
+        want: &["step off the edge", "landed from 0.7 m"],
+        never: &["onto perch", "EMBED"],
     },
 ];
 
