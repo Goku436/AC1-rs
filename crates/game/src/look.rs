@@ -49,13 +49,16 @@ pub struct Look {
 }
 
 /// How much of the screen-space ambient occlusion (the graphics menu's, Bevy's SSAO) darkens the ambient light: the
-/// world's, the characters' (`AC1_SSAO="world,characters"`). AC1 had only its baked occlusion: kept partial, so it adds
-/// contact shadows where things meet without darkening the whole of the shade (tuned by eye on Damascus' streets).
-pub const SSAO_STRENGTH: [f32; 2] = [0.6, 0.45];
+/// world's, the characters', and the occlusion an open flat surface gets that is read as none (Bevy's GTAO gives a flat
+/// wall about 0.75: taken as is, the whole of the shade went 15 % darker) (`AC1_SSAO="world,characters,flat"`). AC1
+/// had only its baked occlusion: this adds contact shadows where things meet without darkening the shade as a whole
+/// (tuned by eye on Damascus' streets, shots in reports/perf).
+pub const SSAO_STRENGTH: [f32; 3] = [0.6, 0.45, 0.8];
 
 fn ssao_strength() -> Vec4 {
     let v: Vec<f32> = std::env::var("AC1_SSAO").map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
-    Vec4::new(v.first().copied().unwrap_or(SSAO_STRENGTH[0]), v.get(1).copied().unwrap_or(SSAO_STRENGTH[1]), 0.0, 0.0)
+    let at = |i: usize| v.get(i).copied().unwrap_or(SSAO_STRENGTH[i]);
+    Vec4::new(at(0), at(1), at(2).max(0.05), 0.0)
 }
 
 /// Game (Z up) to Bevy (Y up).
