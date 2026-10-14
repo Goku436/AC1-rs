@@ -1696,13 +1696,14 @@ const SCENARIOS: &[Scenario] = &[
     },
     // Audit LEDGE-15 (LEDGE-6's swing back, its way on): from the wall hang 2.4 m up, up with nothing on the wall: AC1's swing
     // back onto the slab's edge 0.8 m out (`hangwall_to_swingback_up_*` mixed), then the move graph's connector into the free
-    // wait, `xx_h_hangfree_swingback_min_a/b` (0x0564BB0E, weighed [1, 0] by 0xDE1FE0), the wait half wall-free by how far out.
+    // wait, `xx_h_hangfree_swingback_<min|max>_a/b` (0x0564BB0E, weighed by how far out by 0xDE1FE0), then the free wait
+    // `xx_h_hangfree_wait` whole (user report 608183: the wait half wall-free put the hands 0.35 m into the slab).
     Scenario {
         name: "gauntlet G24: from the wall hang, up: AC1's swing back onto the slab out from the wall, settling under it",
         tags: &["jump", "hang"],
         env: &[("AC1_START", "-92.6,266.25,-90,1"), ("AC1_HIGH", "0-2"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,wait=3.0,up=1.0")],
         secs: 7.0,
-        want: &["-> hangwall_open via xx_h_jumpstraight_footl_to_hangwall_", "swing back up to the ledge", "-> free_1m via xx_h_hangfree_swingback_min_b"],
+        want: &["-> hangwall_open via xx_h_jumpstraight_footl_to_hangwall_", "swing back up to the ledge", "-> free_1m via xx_h_hangfree_swingback_max_b"],
         never: &["EMBED"],
     },
     // Audit LEDGE-15: down from the wall hang to a hold where not both feet find the wall: AC1's TrySwitchHangType at the hand
@@ -1782,14 +1783,66 @@ const SCENARIOS: &[Scenario] = &[
     },
     // Audit LEDGE-15: a wall run under the slab sticking out 0.8 m: AC1's free catch off the run (0x0564BB1D / E, its
     // `_swingback_min` and `_max` clips mixed by how far out the edge is), on through the connector into the free wait
-    // (`xx_h_hangfree_swingback_min_a/b`), that wait mixed by the same share (0xE37590 sets the wait kind 3 and the weight).
+    // (`xx_h_hangfree_swingback_<min|max>_a/b`) mixed by the same share (0xE37590 sets the wait kind 3 and the weight).
     Scenario {
         name: "gauntlet G24: free running at the wall under the slab: AC1's free catch off the wall run, settling under the edge",
         tags: &["wallrun", "hang"],
         env: &[("AC1_START", "-98,266.25,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
         secs: 5.0,
-        want: &["tr_hangfree_", "_swingback_max", "-> free_1m via xx_h_hangfree_swingback_min_b"],
+        want: &["tr_hangfree_", "_swingback_max", "-> free_1m via xx_h_hangfree_swingback_max_b"],
         never: &["EMBED"],
+    },
+    // User report 608183 (2026-10-14, "Altair does an on and off thing, going from crouch hang to hang"): after the swing back
+    // under G24's slab, sideways. AC1's wait kind 3 weighs the connector into the free wait (0xDE1FE0) and plays the free wait
+    // `xx_h_hangfree_wait` whole; ours blended the wall-free wait into it after every shimmy step, its hands 0.35 m in the slab.
+    Scenario {
+        name: "gauntlet G24: the swing back under the slab, then sideways: the free hang's shimmy, no wall-free wait (user report 608183)",
+        tags: &["hang"],
+        env: &[("AC1_START", "-92.6,266.25,-90,1"), ("AC1_HIGH", "0-2"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,wait=3.0,up=1.0,wait=2.5,right=3.5")],
+        secs: 10.0,
+        want: &[
+            "swing back up to the ledge",
+            "-> free_1m via xx_h_hangfree_strafe_right_050cm_close",
+            "-> free_open via xx_h_hangfree_strafe_right_050cm_open",
+        ],
+        never: &["EMBED", "xx_h_hangwallfree_wait"],
+    },
+    // User report 694451 (2026-10-14, "going from crouch hang to hang and repeat"): along G24's upper row in the wall hang, the
+    // wall stepped back 0.56 m under it. AC1's shimmy (StartHandStep 0xDDE0C0) keeps the hang's type; only TrySwitchHangType
+    // (0xDE1060: both foot rays meet the wall here) changes it, and not on a closing step (the alternation flag +0x85). Ours
+    // turned the shimmy down for no foot on the wall within 0.32 m and leapt down into a free hang and back, step by step.
+    Scenario {
+        name: "gauntlet G24: along the upper row in the wall hang, the wall stepped back under it: the wall hang's shimmy (user report 694451)",
+        tags: &["hang"],
+        env: &[("AC1_START", "-92.6,281.5,-90"), ("AC1_HIGH", "0-2"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,wait=3.5,up=1.0,wait=2.0,right=4")],
+        secs: 11.0,
+        want: &["-> hangwall_open via xx_h_hangfree_tr_hangwall_right", "-> hangwall via xx_h_hangwall_strafe_right_050cm_close at [-92.60, 2.28, 283"],
+        never: &["EMBED", "via xx_h_hangwall_tr_hangfree", "via xx_h_climbing_hangwall_tr_hangfree"],
+    },
+    // User reports 289508 / 440360 (2026-10-14, "wall run THROUGH G14"): a wall run up G14's wall under the block. AC1's
+    // FindLedge (0xE36BD0) keeps a hold only with a clear line to it from 0.5 m back out of the walling root: the holds over
+    // the block are hidden by it, and the run catches the row under it. Ours caught the row over it, the body in the block.
+    Scenario {
+        name: "gauntlet G14: a wall run under the block: caught under it, not through it (user reports 289508, 440360)",
+        tags: &["wallrun", "climb"],
+        env: &[("AC1_START", "-98,183.47,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3"), ("AC1_CLIMB_WHY", "1")],
+        secs: 4.0,
+        want: &[
+            "wall run catch at [-92.06, 4.19, 183.47]: no clear line to it",
+            "-> hangwall_open via xx_h_wallingfront_step1_footr_tr_hangwall_251cm_000cm_b at [-92.64, 1.8",
+        ],
+        never: &["EMBED", "_430cm_000cm_b at"],
+    },
+    // User report 449200 (2026-10-14, "climb THROUGH G14"): hung under G14's block, up. AC1 tests its body boxes at every hang
+    // and stance a move goes into: the climb from a hang (0xDD46A0 -> 0xB2DF90), the switch onto the wall (0xDE1060 -> 0xB2DC80),
+    // the hand step up (0xDD8F70 -> 0xB2DD50), the ledge grab (0xDF0980). All meet the block: he stays under it.
+    Scenario {
+        name: "gauntlet G14: hung under the block, up: every way up meets AC1's body boxes in the block (user report 449200)",
+        tags: &["hang", "climb"],
+        env: &[("AC1_START", "-92.6,183.7,-90,1"), ("AC1_HIGH", "0-2"), ("AC1_JUMP", "0.5"), ("AC1_CLIMB", "nograb,wait=3,up=5"), ("AC1_CLIMB_WHY", "1")],
+        secs: 9.0,
+        want: &["hangfree_u_climb_1m : no room for the body there (AC1's body boxes)", "no room for the wall hang's body at"],
+        never: &["EMBED", "-> 1m via", "-> hangwall_open via xx_h_hangfree_tr_hangwall", "-> top via"],
     },
     // Combat (`combat`, docs/COMBAT.md): a militia guard at the fight yard (`AC1_GUARDS`), the player 2 m off facing it.
     Scenario {
@@ -2136,7 +2189,8 @@ const SCENARIOS: &[Scenario] = &[
     // User reports 2026-10-13 (recordings 1319499, 13501): up the wall under a plank walkway sticking out 2.2 m over the
     // street from its top (y 11.8-12.0): AC1's vertical reach sweeps the body's capsule (0.35 m, 1.8 m tall) to the new
     // root (StartReachMove 0xDF6810, Banned445's port), which meets the planks; ours reached up through them and stood
-    // with the body in them. (Whether AC1 gets up there some other way is not known: no live check yet.)
+    // with the body in them. (Whether AC1 gets up there some other way is not known: no live check yet.) Since 2026-10-14 the
+    // reach from the hang is turned down first by AC1's body boxes at the stance it ends in (0xDD46A0 -> 0xB2DF90).
     Scenario {
         name: "Damascus: up the wall under a plank walkway, the reach up does not go through the planks (user reports 1319499, 13501)",
         tags: &["climb", "hang", "jump"],
@@ -2152,7 +2206,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,up=10"),
         ],
         secs: 9.0,
-        want: &["-> hangwall via xx_hangwall_reception_front_straight_", "up_l_hand_2_a : the body's sweep up or down meets something (AC1's reach capsule)"],
+        want: &["-> hangwall via xx_hangwall_reception_front_straight_", "up_l_hand_2_a : no room for the body there (AC1's body boxes)"],
         never: &["leap -> 1m via xx_h_climbing_hangwall_tr_climb1m_up_l_hand_2_c", "EMBED"],
     },
     // User report 2026-10-13 (recording 1310993, "grabbing on stuff that doesn't look grabbable"): a free run off a Damascus
@@ -2194,7 +2248,7 @@ const SCENARIOS: &[Scenario] = &[
         secs: 11.0,
         want: &[
             "jump up from the climb to the ledge at [46.33, 11.77",
-            "free_1m -> free_1m via xx_h_hangfree_swingback_min_a at [46.33, 9.37",
+            "free_1m -> free_1m via xx_h_hangfree_swingback_max_a at [46.33, 9.37",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
         ],
         never: &["EMBED"],

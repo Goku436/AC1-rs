@@ -1193,6 +1193,25 @@ leaps first sweep AC1's clearance capsule to the new hang (0xDDDF85: r 0.35, fro
 | 3580692 | the side jump's clearance capsule | ported |
 | a14bd2c | the wall run's Ground lead-in from the lean / standing free run | ported (`xx_h_impultionstraight_footl_to_wallingfront_step1_footr` before the entry, from the lean on the legs in high profile and from the standing free run; from moving, at once as before) |
 
+## The gauntlet's G14 and G24, user reports 2026-10-14
+- **Through G14's block** (289508, 440360: a wall run; 449200: hung under it, up): AC1's walling FindLedge (0xE36BD0) keeps
+  an edge only with a clear line to it from 0.5 m back out of the walling root (Banned445's port); the block hides the
+  holds over it and the run catches the row under it. Ours took the highest row in reach through the block. And AC1 tests
+  its body boxes at each hang or stance a move goes into, read in Ghidra: the climb from a hang (0xDD46A0 / 0xDD48B0 ->
+  `Human__ClimbBodyBoxesFree` 0xB2DF90), the switch onto the wall and the climbing stance's ledge grab (0xDE1060 / 0xDF0980
+  -> 0xB2DC80, the wall hang's box: 0.75 x 0.5 x 1.3 m centred 0.65 m over its root, 1.1 m under the hands and 0.5 m out),
+  the free hang's hand step on its vertical rows (0xDD8F70 -> 0xB2DD50). Ours now does; ours' own grid hand steps in a free
+  hang want the hands' way from the edge held to the new one clear [ours].
+- **The hang type flip-flop** (694451): AC1's shimmy (StartHandStep 0xDDE0C0) keeps the hang's type; only TrySwitchHangType
+  (0xDE1060, tried first) changes it, and it returns at once on a closing step (the ledge's alternation flag +0x85, the
+  hands apart). Ours turned the wall hang's shimmy down where no foot found the wall within 0.32 m of the hold (the
+  gauntlet's wall stepped back 0.56 m) and leapt down into a free hang and back up, step by step.
+- **The wall-free crouch after the swing back** (608183): AC1's entry end 0xDE1FE0, under the wait kind
+  3 weighs the playing item, the connector `xx_h_hangfree_swingback_<min|max>`, [1 - h, h] (0x502E30) and the free wait
+  behind it [1, 0] (0x503040, the requested action's item): `xx_h_hangfree_wait` whole. Ours had it the other way round,
+  the wait half `xx_h_hangwallfree_wait` (its hands 0.46 m in front of the root, 0.35 m into G24's slab) after every
+  shimmy step. Now the connector is mixed by h [ours: its second item too], the wait is the free one, until the next move.
+
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
 climbing stance (short / long tables, 10-way stick, redirects), the hangs (ledge-jump table, the sideways order), the

@@ -1195,6 +1195,9 @@ enum Feet {
     /// free hang where not both feet find the wall, into the wall hang where either does.
     ToFree,
     ToWall,
+    /// Whatever is there: AC1's hang shimmy (StartHandStep 0xDDE0C0) keeps the hang's type, which changes only through
+    /// `TrySwitchHangType` (tried before it, `ToFree` / `ToWall`).
+    Any,
 }
 
 /// A move to try: one clip, or a chain played back to back (leaps).
@@ -1446,9 +1449,9 @@ pub struct WallClimb {
     /// In the wall-free hang (AC1's `xx_h_hangwallfree_wait`, the standing jump's 2.5-3 m band with a wall under the hold):
     /// a free hang, the legs held off the wall under it, until the next move.
     wallfree: bool,
-    /// The free hang's wait as AC1 blends it after the swing back or the jump up from the climb (0xDDAB00 / 0xDF9650 set
-    /// the ledge's wait kind 3 and its weight, the jump's `max` share): `xx_h_hangfree_wait` and `xx_h_hangwallfree_wait` by
-    /// this (0xDE1FE0), while he hangs from ledges.
+    /// The free hang's wait kind 3 and its weight, the jump's `max` share, after the swing back, the jump up from the climb
+    /// or a wall run's free catch (0xDDAB00 / 0xDF9650 / 0xE37590): the connector into the wait is mixed by it and the wait
+    /// is AC1's free idle 0x012719F1 at [1, 0], `xx_h_hangfree_wait` (0xDE1FE0, the entry's end), until the next move.
     free_wait: Option<f32>,
 }
 
@@ -1708,6 +1711,18 @@ fn free_hang_body_free(level: &Level, root: Vec3, fwd: Vec3) -> bool {
     let axes = [right, fwd, Vec3::Y];
     level.box_free(root - fwd * 0.5 + Vec3::Y * 1.2, axes, Vec3::new(0.375, 0.25, 1.2))
         && level.box_free(root - fwd * 0.25 + Vec3::Y * 0.8, axes, Vec3::new(0.375, 0.22, 0.6))
+}
+
+/// AC1's body box at a wall hang (`sub_B2DC80`, as `TryLedgeGrab` 0xDF0980 and `TrySwitchHangType` 0xDE1060 test the hang
+/// they go into): with the root at `root` facing `fwd` (into the wall), nothing in a box 0.75 m wide, 0.5 m deep and 1.3 m
+/// tall centred on the root 0.65 m up. The root is the wall hang's (0xB157B0): 1.1 m under the lower hand, 0.5 m out from
+/// the hands' middle (Banned445's `hang_root`).
+fn wall_hang_body_free(level: &Level, holds: [Vec3; 2], normal: Vec3) -> bool {
+    let n = normal.with_y(0.0).normalize_or(Vec3::Z);
+    let mid = (holds[0] + holds[1]) * 0.5;
+    let root = mid.with_y(holds[0].y.min(holds[1].y) - 1.1) + n * 0.5;
+    let right = (-n).cross(Vec3::Y).normalize_or_zero();
+    level.box_free(root + Vec3::Y * 0.65, [right, -n, Vec3::Y], Vec3::new(0.375, 0.25, 0.65))
 }
 
 /// The lean of the line through `a` and `b` seen from the side (rad, from straight up): positive when its upper end is
@@ -1970,6 +1985,7 @@ fn feet_fit_at(level: &Level, feet: &[Vec3; 2], normal: Vec3, want: Feet, hold: 
             f != (true, true)
         }),
         Feet::ToWall => hold.is_some_and(|q| feet_on_wall(level, grip_hold(q, normal), normal) != (false, false)),
+        Feet::Any => true,
     }
 }
 
@@ -2164,6 +2180,27 @@ fn blend_hang(lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, bas
                 .map(|l| l.closest(mid.with_y((l.a.y + l.b.y) * 0.5)))
                 .filter(|q| (*q - mid).with_y(0.0).length() < 0.6 && q.y - root.translation.y >= WALL_RUN_CATCH_MIN && (from..=to).contains(&q.y))
                 .collect();
+            // (FindLedge keeps an edge only with a clear line to it from 0.5 m back out of the walling root, to 0.05 m out
+            // of the edge (0xE36BD0, Banned445's port): a block sticking out of the wall over the run, the gauntlet's G14,
+            // hides the holds over it. The root where the probe runs: out from the face run up, the entry's top for the
+            // free catch off the entry (probe B), the vertical step's for the others.)
+            let entry = low.names.last().is_some_and(|n| n.contains("_entry_"));
+            let probe_y = root.translation.y + if entry { WALL_RUN_UP } else { WALL_RUN_STEP_TOP };
+            if let Some(f) = face {
+                let from = (f + normal * (WALL_RUN_OUT + 0.5)).with_y(probe_y);
+                holds.retain(|q| {
+                    let to = *q + normal * 0.05;
+                    // (Short of the hold by 0.15 m: ours' hold lines sit 0.06 m out in the gauntlet's 0.12 m strips, where
+                    // AC1's edge is the face's corner.)
+                    let hit = level.raycast(from, (to - from).normalize_or_zero(), (to - from).length() - 0.15);
+                    if let Some(h) = &hit
+                        && why()
+                    {
+                        debug!("climb: wall run catch at {q:.2}: no clear line to it (AC1's FindLedge): {:.2} m along, at {:.2}", h.dist, h.point);
+                    }
+                    hit.is_none()
+                });
+            }
             if probe_d {
                 holds.sort_by(|a, b| b.y.total_cmp(&a.y));
             } else {
@@ -3074,11 +3111,14 @@ fn rebound_side(way: Vec3, away: Vec3) -> (bool, f32) {
 
 /// A jump into a free hang with a swing (the swing back up from the wall hang, the jump up from the climb) settles under
 /// its ledge as AC1's move graph goes on out of it: the connector 0x0564BB0E into the free wait, `xx_h_hangfree_swingback_
-/// <min|max>_a/b`, which 0xDE1FE0 weighs [1, 0] under the wait kind 3 those jumps set: the `min` pair whole, appended to
-/// `clips` (in place). The states for the chain: the jump's two clips, then the hang.
-fn swing_settle(lib: &mut AnimLib, clips: &mut Vec<Arc<Clip>>) -> Vec<String> {
+/// <min|max>_a/b`, appended to `clips` (in place). Under the wait kind 3 those jumps set, 0xDE1FE0 weighs the playing item,
+/// the connector's, [1 - h, h] by the jump's `max` share h (0x502E30: the playing item's weights) and the free wait behind
+/// it [1, 0] (0x503040: the requested action's item), `xx_h_hangfree_wait` whole. [ours: the connector's second item mixed
+/// by h too, as its first; its data's default is [0, 1].] The states for the chain: the jump's two clips, then the hang.
+fn swing_settle(lib: &mut AnimLib, clips: &mut Vec<Arc<Clip>>, h: f32) -> Vec<String> {
     let mut tos: Vec<String> = vec![LEAP.into(), FREE.into()];
-    let settle: Option<Vec<Arc<Clip>>> = ["xx_h_hangfree_swingback_min_a", "xx_h_hangfree_swingback_min_b"].iter().map(|nm| lib.get(nm)).collect();
+    let part = |k: &str| mix_name(&[(&format!("xx_h_hangfree_swingback_min_{k}"), 1.0 - h), (&format!("xx_h_hangfree_swingback_max_{k}"), h)]);
+    let settle: Option<Vec<Arc<Clip>>> = [part("a"), part("b")].iter().map(|nm| lib.get(nm)).collect();
     if let Some(settle) = settle {
         tos.extend(settle.iter().map(|_| FREE.to_string()));
         clips.extend(settle);
@@ -4415,11 +4455,11 @@ impl WallClimb {
                 _ => None,
             };
             // A wall run's free catch goes on as AC1's graph has it (0xE37590 sets the wait kind 3 with its `max` share): the
-            // connector into the free wait, `swing_settle`, and that wait mixed by the share (audit LEDGE-15).
+            // connector into the free wait mixed by the share, `swing_settle`, then the free wait (audit LEDGE-15).
             let mut tos = tos;
             let share = swing_max_share(&opt.names).filter(|_| carry.is_some() && matches!(opt.end, GrabEnd::Hang(FREE, _)));
             if share.is_some() {
-                let settle = swing_settle(lib, &mut clips);
+                let settle = swing_settle(lib, &mut clips, share.unwrap_or(0.0));
                 tos.extend(settle.into_iter().skip(2));
             }
             w.start_chain_carry(clips, tos, &facing, err, carry);
@@ -5017,12 +5057,12 @@ impl WallClimb {
         let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
         // (Onto AC1's free hang root under the hold, as the jump up from the climb: the chain ends in the free wait.)
         let to = q + n * 0.05 - Vec3::Y * FREE_ROOT_DOWN;
-        debug!("climb: swing back up to the ledge at {q:.2} (out {h:.2}: the wait after it that much wall-free)");
+        debug!("climb: swing back up to the ledge at {q:.2} (out {h:.2}: the swing settling under it that much `max`)");
         // Then the swing settling under the ledge: the move graph's way out of the `_b` item (action 0x4CD68F50) into the
         // free wait goes through the connector 0x0564BB0E, `xx_h_hangfree_swingback_<min|max>_a/b` (in place), which AC1
-        // weighs [1, 0] (0xDE1FE0 under the wait kind 3 the hop sets, 0xDDAB00): the `min` pair whole. The wait after it
-        // blends `xx_h_hangfree_wait` and `xx_h_hangwallfree_wait` by the hop's `max` share, h (audit LEDGE-15).
-        let tos = swing_settle(lib, &mut clips);
+        // weighs by the hop's `max` share, h (0xDE1FE0 under the wait kind 3 the hop sets, 0xDDAB00), the free wait after
+        // it `xx_h_hangfree_wait` whole (audit LEDGE-15, `swing_settle`).
+        let tos = swing_settle(lib, &mut clips, h);
         self.start_chain_carry(clips, tos, root, to - (p + travel), Some(1));
         self.free_wait = Some(h);
         true
@@ -5095,6 +5135,13 @@ impl WallClimb {
             }
             return false;
         }
+        // (AC1's wall hang body box there, 0xB2DC80, as the switch tests it: not up into a block sticking out of the wall.)
+        if !wall_hang_body_free(level, targets.map(|t| grip_hold(t, n)), n) {
+            if why() {
+                debug!("climb: no switch onto the wall {dir}: no room for the wall hang's body at {mid:.2} (AC1's box)");
+            }
+            return false;
+        }
         let Some(clip) = lib.get("xx_h_hangfree_tr_hangwall_right") else { return false };
         // (Where the root goes: the clip's last pose with its hands on the new holds, the wall hang's offset as every move
         // into it has, `take_first`.)
@@ -5156,7 +5203,7 @@ impl WallClimb {
         debug!("climb: jump up from the climb to the ledge at {q:.2}");
         // (Its action 0x1EB21811 goes on through the same connector as the swing back's, and 0xDF9650 sets the same wait
         // kind 3 with its `max` share: `swing_settle`, audit LEDGE-15.)
-        let tos = swing_settle(lib, &mut clips);
+        let tos = swing_settle(lib, &mut clips, h);
         self.start_chain_carry(clips, tos, root, to - (p + travel), Some(1));
         self.free_wait = Some(h);
         true
@@ -7574,16 +7621,14 @@ impl WallClimb {
         } else if !last.name.contains("lookaround") {
             self.wallfree = false;
         }
-        // (The wait kind lasts while he hangs from ledges: AC1's ledge context resets it on leaving, 0xDCD780.)
-        if !is_free(&self.state) && !self.state.starts_with(HANGWALL) {
+        // (The wait kind 3's idle is played by the entry's end only, 0xDE1FE0: after the swing settling under the ledge. The
+        // idle after any move after it is the one the move asks for (0xDD3490, 0xDCF460: the free idle at its own weights).)
+        if !last.name.contains("_swingback_m") && !last.name.contains("lookaround") {
             self.free_wait = None;
         }
         let name = match self.state.as_str() {
             FREE | FREE_OPEN if self.wallfree => Some(HANGWALLFREE_REST.to_string()),
-            FREE | FREE_OPEN if self.free_wait.is_some() => {
-                let f = self.free_wait.unwrap_or(0.0);
-                Some(mix_name(&[("xx_h_hangfree_wait", 1.0 - f), (HANGWALLFREE_REST, f)]))
-            }
+            FREE | FREE_OPEN if self.free_wait.is_some() => Some("xx_h_hangfree_wait".to_string()),
             FREE => Some("xx_h_hangfree_waitclose".to_string()),
             FREE_OPEN => Some("xx_h_hangfree_waitopen".to_string()),
             // (The low wait after a dive from the ground or a free step, the high one after the leap of faith: every one of
@@ -8133,9 +8178,13 @@ impl WallClimb {
                     // the feet again, onto its holds lower down, then level, before the shimmy; up onto them after it.
                     out.extend(side_to_climb("hangfree", dir).into_iter().take(2));
                     // (Onto a stretch with the wall under it: the switch into the wall hang in place of the step, AC1's
-                    // TrySwitchHangType before StartHandStep; audit LEDGE-2.)
-                    out.push(Cand::new(format!("xx_h_hangfree_tr_hangwall_{side}"), HANGWALL_OPEN, Feet::ToWall));
-                    out.push(Cand::new(format!("xx_h_hangfree_strafe_{side}_050cm_{strafe}"), to, Feet::Free));
+                    // TrySwitchHangType before StartHandStep; audit LEDGE-2. Not on a closing step, the hands apart: 0xDE1060
+                    // returns at once when the ledge's alternation flag, +0x85, is set.)
+                    if hands == "1m" {
+                        out.push(Cand::new(format!("xx_h_hangfree_tr_hangwall_{side}"), HANGWALL_OPEN, Feet::ToWall));
+                    }
+                    // (AC1's shimmy, StartHandStep 0xDDE0C0, keeps the hang's type: only the switch above changes it.)
+                    out.push(Cand::new(format!("xx_h_hangfree_strafe_{side}_050cm_{strafe}"), to, Feet::Any));
                     out.extend(side_to_climb("hangfree", dir).into_iter().skip(2));
                     for kind in ["in", "out"] {
                         out.push(Cand::new(format!("xx_h_hangfree_corner_{side}_090_{kind}"), FREE, Feet::Free));
@@ -8185,9 +8234,13 @@ impl WallClimb {
                 let (strafe, to) = if self.state == HANGWALL { ("open", HANGWALL_OPEN) } else { ("close", HANGWALL) };
                 let onto = side_to_climb("hangwall", dir);
                 out.extend(onto[..2].iter().cloned());
-                // (Onto a stretch where not both feet find the wall: the switch into the free hang, audit LEDGE-2.)
-                out.push(Cand::new(format!("xx_h_hangwall_tr_hangfree_{}", side_name(dir)), FREE, Feet::ToFree));
-                out.push(Cand::new(format!("xx_h_hangwall_strafe_{}_050cm_{strafe}", side_name(dir)), to, Feet::Wall));
+                // (Onto a stretch where not both feet find the wall: the switch into the free hang, audit LEDGE-2; not on
+                // a closing step, as from the free hang.)
+                if self.state == HANGWALL {
+                    out.push(Cand::new(format!("xx_h_hangwall_tr_hangfree_{}", side_name(dir)), FREE, Feet::ToFree));
+                }
+                // (The shimmy keeps the wall hang whatever is under the feet, as the free hang's.)
+                out.push(Cand::new(format!("xx_h_hangwall_strafe_{}_050cm_{strafe}", side_name(dir)), to, Feet::Any));
                 out.push(onto[2].clone());
             }
             // (Round a corner: the hang's own turn, `hang_corner`, tried in `try_move` once these fail.)
@@ -8524,16 +8577,57 @@ impl WallClimb {
             // there (0xB15AD0: the root 2.4 m under the hands' middle, at the higher hand, facing the wall) must have room
             // for the body (0xB2DD50); a wall's end with the wall under the hands' new hold stops the hang there.
             let off_wall_into_free = c.feet == Feet::ToFree || (is_free(&c.to) && is_climb_stance(&self.state) && c.names[0].starts_with("xx_l_climb_1m_"));
+            // (Ours' grid hand steps in a free hang, after AC1's vertical rows (`hang_row_step`, which tests AC1's boxes):
+            // the hands' way from the edge held to the new one clear, 0.1 m out from them. [ours] Up past a block sticking out
+            // of the wall, the gauntlet's G14, the hands went through it.)
+            if is_free(&self.state) && c.names[0].starts_with("xx_h_hangfree_climb_") {
+                let out = normal.with_y(0.0).normalize_or_zero() * 0.1;
+                let held = root.translation + Vec3::Y * FREE_ROOT_DOWN + out;
+                let through = targets.iter().any(|t| {
+                    let to = grip_hold(*t, normal) + out;
+                    let d = to - held;
+                    d.length() > 0.05 && level.raycast(held, d.normalize(), d.length()).is_some()
+                });
+                if through {
+                    if why() {
+                        debug!("climb: {} : the hands' way to the edge goes through something", c.names[0]);
+                    }
+                    continue;
+                }
+            }
             if off_wall_into_free {
                 let holds = targets.map(|t| grip_hold(t, normal));
                 let mid = (holds[0] + holds[1]) * 0.5;
                 let at = mid.with_y(holds[0].y.max(holds[1].y) - FREE_ROOT_DOWN);
                 if !free_hang_body_free(level, at, -normal.with_y(0.0).normalize_or(Vec3::NEG_Z)) {
                     if why() {
-                        debug!("climb: {} : no room for the free hang's body there (AC1's boxes)", c.names[0]);
+                        debug!("climb: {} : no room for the free hang's body there (AC1's boxes) at {at:.2}", c.names[0]);
+                        let f = -normal.with_y(0.0).normalize_or(Vec3::NEG_Z);
+                        let axes = [f.cross(Vec3::Y).normalize_or_zero(), f, Vec3::Y];
+                        for t in level
+                            .box_hits(at - f * 0.5 + Vec3::Y * 1.2, axes, Vec3::new(0.375, 0.25, 1.2))
+                            .iter()
+                            .chain(&level.box_hits(at - f * 0.25 + Vec3::Y * 0.8, axes, Vec3::new(0.375, 0.22, 0.6)))
+                            .take(3)
+                        {
+                            debug!("climb:   the box meets the face {:.2} {:.2} {:.2}", t.a, t.b, t.c);
+                        }
                     }
                     continue;
                 }
+            }
+            // Into the wall hang off the climbing stance (`TryLedgeGrab` 0xDF0980, `xx_l_climb_1m_<way>_hangwall`) or by the
+            // switch from the free hang: AC1's wall hang body box there (0xB2DC80); up into a block sticking out of the wall
+            // over the stance (the gauntlet's G14) the body went into it.
+            // (And the wall hang's hand steps, 0xDD8F70 testing this box for a wall hang's step row as the free hang's.)
+            let into_wall_hang = c.feet == Feet::ToWall
+                || (c.to.starts_with(HANGWALL) && is_climb_stance(&self.state) && c.names[0].starts_with("xx_l_climb_1m_"))
+                || (self.state.starts_with(HANGWALL) && c.to.starts_with(HANGWALL) && c.names[0].starts_with("xx_h_hangwall_climb_"));
+            if into_wall_hang && !wall_hang_body_free(level, targets.map(|t| grip_hold(t, normal)), normal) {
+                if why() {
+                    debug!("climb: {} : no room for the wall hang's body there (AC1's box)", c.names[0]);
+                }
+                continue;
             }
             if !feet_fit_at(level, &end.feet.map(|f| f + land), normal, c.feet, Some((targets[0] + targets[1]) * 0.5)) {
                 if corner || why() {
@@ -8715,6 +8809,19 @@ impl WallClimb {
                     }
                 }
             }
+            // From a hang onto the wall's holds (`TryTransitionToClimb` 0xDD46A0, `TrySideMoveToClimbHolds` 0xDD48B0): the
+            // same body boxes at the stance it ends in (both call 0xB2DF90); up from a hang under a block sticking out of the
+            // wall (the gauntlet's G14) the stance stood with its hips in the block.
+            if c.table.is_none()
+                && (self.state.starts_with(HANGWALL) || is_free(&self.state))
+                && is_climb_stance(&c.to)
+                && !climb_body_free(level, end.pos + err, -normal.with_y(0.0).normalize_or(Vec3::NEG_Z), 0)
+            {
+                if why() {
+                    debug!("climb: {} : no room for the body there (AC1's body boxes) at {:.2}", c.names[0], end.pos + err);
+                }
+                continue;
+            }
             // AC1's vertical reach (`HumanClimb__StartReachMove` 0xDF6810, its test as Banned445's port reads it): the body's
             // capsule (0.35 m round, 1.8 m tall, 0.15 m out from the root) swept to the new root must meet nothing; under a
             // plank walkway sticking out from the wall's top (Damascus, user reports 13501 / 1319499) ours reached up
@@ -8833,6 +8940,14 @@ impl WallClimb {
         else {
             return false;
         };
+        // (The free hang's body boxes at the root under the new row, 0xB2DD50: `FindVerticalRows` drops a row where they are
+        // not free, Banned445's port; past a block sticking out of the wall, the gauntlet's G14, the hands went through it.)
+        if !free_hang_body_free(level, row.with_y(row.y - FREE_ROOT_DOWN), -n) {
+            if why() {
+                debug!("climb: no hand step onto the edge at {row:.2}: no room for the free hang's body under it (AC1's boxes)");
+            }
+            return false;
+        }
         let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
         let to = row + n * 0.05 - Vec3::Y * JUMP_HOLD_FREE_HANG;
         debug!("climb: the free hang's hand steps onto the edge {:.2} up and {:.2} out at {row:.2} (AC1's vertical rows)", row.y - from.y, (row - from).dot(n));
