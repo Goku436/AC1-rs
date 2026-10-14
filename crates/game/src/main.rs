@@ -84,6 +84,7 @@ mod climb_table;
 mod collision_view;
 mod combat;
 mod crowd;
+mod edge_report;
 mod fight_data;
 mod fight_tables;
 mod fly;

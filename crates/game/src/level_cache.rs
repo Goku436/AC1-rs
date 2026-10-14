@@ -500,6 +500,8 @@ pub fn write_level(level: &Level) -> Vec<u8> {
         kiosks,
         grid: _,
         big: _,
+        report_edges: _,
+        report_grid: _,
         spawn,
         crowd_path,
         city,

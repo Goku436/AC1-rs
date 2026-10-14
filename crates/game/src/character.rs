@@ -693,6 +693,8 @@ pub const HAND_DROP_BUFFER: f32 = 0.2;
 /// 0.15, ours' probe finding the drop late: audit EXTRA-11.)
 const LEDGE_STOP_REACH: f32 = 0.25;
 const LEDGE_STOP_FRAME: f32 = 0.05;
+/// At a city's edge report, the ledge stop starts with the edge this close (m): AC1's 0.0225 squared (0xEE8899).
+const LEDGE_STOP_REPORT: f32 = 0.15;
 /// Walking at an edge dropping more than this stops at it (m; AC1's ledge stop, not when free running).
 const LEDGE_STOP_DROP: f32 = 5.0;
 /// The drop goes on at least this far past the edge (m) for a ledge stop: not a crack between two roofs.
@@ -893,7 +895,17 @@ fn ledge_stop(
     // (Within a long frame's run too, `LEDGE_STOP_FRAME`: at a run the 0.15 m alone was stepped over and he ran off.)
     // (And the frame actually taking longer: under load a 0.1 s frame stepped over it.)
     let reach = LEDGE_STOP_REACH.max(speed * LEDGE_STOP_FRAME.max(dt * 1.5));
-    if let Some(d) = (1..=(reach / 0.05).ceil() as usize).map(|k| k as f32 * 0.05).find(|&d| drop(d) && drop(d + LEDGE_STOP_CRACK)) {
+    // (In a city, at AC1's edge report: the one within 0.75 m nearest the way he goes, within 60 degrees of it (a front
+    // edge, 0xD9D7F0), its drop over 5 m, within reach or past it; along the way to its line.)
+    let found = if level.guided() {
+        level
+            .pick_report(tf.translation, dir, crate::edge_report::REPORT_RADIUS, std::f32::consts::FRAC_PI_3)
+            .filter(|r| r.drop > LEDGE_STOP_DROP && r.dist <= LEDGE_STOP_REPORT.max(reach - LEDGE_STOP_REACH + LEDGE_STOP_REPORT))
+            .map(|r| r.dist.max(0.0) / dir.dot(r.normal).max(0.5))
+    } else {
+        (1..=(reach / 0.05).ceil() as usize).map(|k| k as f32 * 0.05).find(|&d| drop(d) && drop(d + LEDGE_STOP_CRACK))
+    };
+    if let Some(d) = found {
         let names = vec!["xx_h_ledge_stop_start_footl".to_string(), "xx_h_ledge_stop_end_footl".into(), "xx_h_ledge_stop_end_tr_h_wait_footr".into()];
         let at = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir), ..*tf };
         let travel = WallClimb::travel(lib, &at, &names)?;
@@ -1026,6 +1038,12 @@ const STICK_TO_GROUND: f32 = 0.58;
 /// Free running jumps off an edge this close ahead (m) with a drop past it deeper than this (m).
 const FREE_RUN_EDGE_AHEAD: f32 = 0.25;
 const FREE_RUN_EDGE_DROP: f32 = 0.5;
+/// AC1's free-run edge jump at an edge report (0xEE7DCE): within this squared distance (0.5 m), the edge's normal within
+/// 80 degrees of the stick (cos).
+const FREE_RUN_EDGE_SQ: f32 = 0.25;
+const FREE_RUN_EDGE_COS: f32 = 0.173_648;
+/// AC1's edge jump at a target (0xEE8679): at an edge report within this squared distance (0.1 m) or past it.
+const EDGE_JUMP_SQ: f32 = 0.01;
 /// Free running grabs or runs up a wall this close ahead (m).
 const FREE_RUN_REACH: f32 = 1.5;
 /// ...probed this high over the feet (AC1's wall test for the wall run, 0xE18390: 1.5 m out at 1.3 m up, as Banned445's
@@ -1843,14 +1861,27 @@ pub fn locomotion(
             // (Free running, AC1's own edge (0xEE7DCE, Banned445's port, audit JUMP-5): a drop of over 0.5 m within 0.25 m
             // ahead, target or not (the free jump with none). Ours looked 0.6 m ahead, leaving 0.13-0.31 m before the
             // running game, and wanted 1.2 m of drop or a target past 0.8 m.)
+            // (Where the level has AC1's guidance, a city, only at its edge reports, as AC1 (the facing report, vt136 at any
+            // angle): a drop over 0.5 m, within 0.5 m (its squared 0.25) or past it, the edge's normal within 80 degrees of
+            // the stick. A collision drop with no guidance edge is run off, not jumped from.)
+            let stick = ctl.move_dir.with_y(0.0).normalize_or_zero();
+            let reported = || {
+                level
+                    .pick_report(tf.translation, heading, crate::edge_report::REPORT_RADIUS, std::f32::consts::PI)
+                    .is_some_and(|r| r.drop > FREE_RUN_EDGE_DROP && r.sq() < FREE_RUN_EDGE_SQ && r.normal.dot(stick) > FREE_RUN_EDGE_COS)
+            };
             let edge = on_ground
                 && clear
-                // (A drop that goes on past a crack: the seams between Damascus roofs are run over, the running game's.)
-                && ((ctl.free_run
-                    && [FREE_RUN_EDGE_AHEAD, FREE_RUN_EDGE_AHEAD + LEDGE_STOP_CRACK]
-                        .iter()
-                        .all(|d| level.ground(tf.translation + dir * *d, 0.3, FREE_RUN_EDGE_DROP).is_none()))
-                    || (v.length() > SPRINT_SPEED && level.ground(tf.translation + dir * 0.6, 0.8, 1.2).is_none()));
+                && if level.guided() {
+                    (ctl.free_run || v.length() > SPRINT_SPEED) && reported()
+                } else {
+                    // (A drop that goes on past a crack: the seams between Damascus roofs are run over, the running game's.)
+                    (ctl.free_run
+                        && [FREE_RUN_EDGE_AHEAD, FREE_RUN_EDGE_AHEAD + LEDGE_STOP_CRACK]
+                            .iter()
+                            .all(|d| level.ground(tf.translation + dir * *d, 0.3, FREE_RUN_EDGE_DROP).is_none()))
+                        || (v.length() > SPRINT_SPEED && level.ground(tf.translation + dir * 0.6, 0.8, 1.2).is_none())
+                };
             // Free running steps or jumps onto a low obstacle; otherwise running stops against it or glances off.
             // (Toward where the stick points: sliding along a wall, the body's own velocity runs along it.)
             let toward = target_v.with_y(0.0).try_normalize().map_or(v, |d| d * v.length().max(if starting { RUN_VAULT_SPEED } else { 0.0 }));
@@ -1900,6 +1931,34 @@ pub fn locomotion(
                 continue;
             }
         }
+        // At a guidance edge (a city), walking or running onto it: AC1's edge jump at a target past it (0xEE8679): the
+        // facing report within 0.1 m (its squared 0.01) or past it, the stick and the facing within 45 degrees of its
+        // normal. (Ours jumped only once the ground under the root was gone, `edge_jump` below.)
+        if level.guided()
+            && ch.fall_v == 0.0
+            && ctl.move_dir.with_y(0.0).length() > 0.1
+            && let Some(r) = level.pick_report(tf.translation, heading, crate::edge_report::REPORT_RADIUS, std::f32::consts::PI)
+            && r.sq() < EDGE_JUMP_SQ
+            && ctl.move_dir.with_y(0.0).normalize().dot(r.normal) > std::f32::consts::FRAC_1_SQRT_2
+            && heading.dot(r.normal) > std::f32::consts::FRAC_1_SQRT_2
+            && level.ground(tf.translation, 0.3, 0.3).is_some()
+            && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
+            && let Some(w) = crate::climb::WallClimb::edge_jump(
+                lib,
+                &level,
+                &tf,
+                &ch.rig,
+                &ch.base,
+                ch.climb_rig,
+                v.with_y(0.0),
+                ch.animator.as_ref().is_none_or(|a| a.lead_left()),
+                Some(ch.anim_pose.clone()),
+            )
+        {
+            ch.wall = Some(w);
+            ch.velocity = Vec3::ZERO;
+            continue;
+        }
         // Move with the body's capsule (AC1's character proxy, `Level::capsule_push`): out of walls, sliding along
         // them, in steps short enough not to pass through a thin one.
         let steps = ((v.with_y(0.0).length() * dt) / CAPSULE_STEP).ceil().max(1.0) as usize;
@@ -1938,10 +1997,24 @@ pub fn locomotion(
                 let stick = ctl.move_dir.with_y(0.0).normalize_or_zero();
                 let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
                 let off = v.length() > 0.5 && stick.dot(facing) > std::f32::consts::FRAC_1_SQRT_2;
-                ch.wall = off
+                // (In a city, only off a guidance edge: AC1's step off (event 68) is sent for an edge report with a drop
+                // of 0.53 m or more and room for the body past it (0xD84190, 0xB2E7A0); its edge jump wants the stick and
+                // the facing within 45 degrees of the edge's normal. Off a drop with no edge he falls.)
+                let report = level
+                    .guided()
+                    .then(|| level.pick_report(tf.translation, facing, crate::edge_report::REPORT_RADIUS, std::f32::consts::PI))
+                    .flatten()
+                    .filter(|r| r.drop >= crate::climb::EDGE_STEP_DROP);
+                let at_edge = !level.guided() || report.is_some();
+                let jump = off
+                    && at_edge
+                    && report.is_none_or(|r| stick.dot(r.normal) > std::f32::consts::FRAC_1_SQRT_2 && facing.dot(r.normal) > std::f32::consts::FRAC_1_SQRT_2);
+                let step = off && report.map_or(!level.guided(), |r| level.room_past_edge(&r));
+                debug!("ground: off the floor at {:.2}: edge report {report:?}, jump {jump}, step {step}", tf.translation);
+                ch.wall = jump
                     .then(|| crate::climb::WallClimb::edge_jump(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, lead_left, Some(ch.anim_pose.clone())))
                     .flatten()
-                    .or_else(|| off.then(|| crate::climb::WallClimb::step_off(lib, &level, &tf, v, ctl.high, lead_left, Some(ch.anim_pose.clone()))).flatten())
+                    .or_else(|| step.then(|| crate::climb::WallClimb::step_off(lib, &level, &tf, v, ctl.high, lead_left, Some(ch.anim_pose.clone()))).flatten())
                     .or_else(|| crate::climb::WallClimb::falling(lib, &tf, ch.velocity, Some(ch.anim_pose.clone())));
                 if ch.wall.is_some() {
                     ch.velocity = Vec3::ZERO;
