@@ -1366,6 +1366,12 @@ pub fn locomotion(
                     && let Some(w) = crate::climb::WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d * v.max(1.0), pose)
                 {
                     ch.wall = Some(w);
+                } else if let Some(d) = ch.wall.as_ref().and_then(|w| w.leaning()).filter(|_| ctl.high)
+                    && let Some(w) = crate::climb::WallClimb::wall_run_led_in(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d, Some(ch.anim_pose.clone()))
+                {
+                    // Leaning on a wall in high profile: the legs run up it, after AC1's Ground lead-in (event 49 in the
+                    // lean, 0xDA6FF0, Banned445's port a14bd2c).
+                    ch.wall = Some(w);
                 } else if pressed && let Some(w) = &mut ch.wall {
                     w.legs(lib, &level, &tf, ctl.climb_dir);
                 }
@@ -1410,7 +1416,14 @@ pub fn locomotion(
                         // with a ladder on it, onto the ladder).
                         ch.wall = ch.wall.take().or_else(|| {
                             wall_run_now(v, ctl.free_run, &wall_ahead)
-                                .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose()))
+                                .then(|| {
+                                    // (From standing, AC1's Ground lead-in first: `wall_run_led_in`.)
+                                    if v.length() > 0.5 {
+                                        WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose())
+                                    } else {
+                                        WallClimb::wall_run_led_in(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose())
+                                    }
+                                })
                                 .flatten()
                         });
                         // A ladder's foot or top: onto it (before the edge it stands at).
@@ -1418,7 +1431,14 @@ pub fn locomotion(
                         ch.wall = ch.wall.take().or_else(|| WallClimb::ladder(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, ctl.high, lead_left, pose()));
                         ch.wall = ch.wall.take().or_else(|| {
                             wall_run_now(v, ctl.free_run, &wall_ahead)
-                                .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose()))
+                                .then(|| {
+                                    // (From standing, AC1's Ground lead-in first: `wall_run_led_in`.)
+                                    if v.length() > 0.5 {
+                                        WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose())
+                                    } else {
+                                        WallClimb::wall_run_led_in(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose())
+                                    }
+                                })
                                 .flatten()
                                 .or_else(|| WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v.length() > 1.0, lead_left, pose()))
                         });

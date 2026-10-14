@@ -1085,6 +1085,49 @@ Sweep runs with each class (dev c4f4154 / this round): Damascus (147 runs) embed
 pop 5 / 5, hands-off 2 / 2, flipflop 1 / 1, free-on-wall 1 / 1; test level (102) topout 3 / 0,
 free-on-wall 4 / 1, pop 3 / 3, embed 1 / 1.
 
+## Banned445's port, 2026-10-13 round
+Banned445's AC1-Movement-Rewritten (MIT) moved on 233 commits (c81c555..5f081fa), each read from the exe. Ported here
+area by area, written anew, each checked in Ghidra where it could be. **[B, V]**
+
+**The jump off a wall (the user's "insta walljump at any point of an animation")** **[V]**:
+- *When*: AC1 takes the jump off (event 2) only in two of `HumanLedge`'s states (its handler 0xDE3A30): Movement (the
+  hang at rest and its own steps: shimmies, hand steps, the climbs out of the hang, look-arounds), refused while the
+  playing item is locked unless it is a strafe or a swing back (0xDCCE10, 0xDCCD50) and in a free hang; and Entry (the
+  wall run's catches), at any time in the catch into the wall hang (action 0x0106CFC5), else in the catch's first
+  quarter (0xDCBF00). `HumanClimb` takes it in Wait, and mid-move only in a grid move or a corner climb (0xDF9230,
+  the flag `ChooseMove` sets). Everything else on the wall refuses it: the corners, the receptions after a jump or a
+  fall, the pull-downs, the climb's entry from the ground, its reaches and leaps, the transitions into a hang. The press
+  waits in the Legs buffer, 0.3 s: taken as soon as a state that takes it comes, else dropped. Ours took it at any point
+  of any move ending on the wall, cutting it. (The wall run itself: never in its entry's first half, at the end of the
+  second, any time in the step up and the kick off the top, as before.)
+- *The hop*: from a wall hang (and the wall run's catch) the rebound pose by the side of the jump, from the direction
+  to the target found at the press (0xDD2CA0): to the right of the body facing the wall `xx_h_hangwall_tr_rebound_footl`,
+  the root lowered 0.3 m × (angle off straight away, up to 45°)/45° over its 0.2 s; straight away or to the left `_footr`
+  (ours: `_footl` unless the stick was to the left, no drop). From a climb always `_footl` in place (0xDEA560). Then,
+  facing away, the rebound jump (kind 2) off the foot the pose ends on (its item's feet, 0xDD0A40 / 0xDEAE30): the
+  32-clip `xx_h_rebound_<frontleft|frontright|left|right>_*_to_air` takeoff blended by the target and the side angle
+  (0xB1EC40, slots as Banned445's 9369c0b: the angle's sign picks frontright / right or frontleft / left, `t = |a|/90°`).
+  With no target, the free target (8 m on, 3 m down; the wall run's own 7 m, 0xE365C0): its far band's 550 cm push off
+  (ours had the 300 cm one for every free eject).
+- *The wall run's rebound*: the push straight back with the stick within 50° of the facing or let go, else along the
+  stick turned in to 89°; off the left foot (every walling item ends on it, 0xE36660); at a target, else AC1's fallback
+  above. Ours, with no target, played `xx_h_wallingfront_<entry|step1>rebound_<back|left|right>_*`: no code of the exe
+  asks for those actions (0x00FF7C41, 0x00FF7C97..A0, 0x47: the exe's search finds no reference).
+- *Off a ladder*: `xx_h_ladder_wait_<l|r>_tr_rebound_foot<l|r>`, then the same rebound jump facing away, the way by the
+  stick (straight back with none, refused into the ladder) (6400374, LADDER-12). Ours flew a fixed arc, 3.5 m/s out.
+- Scenarios: `wall A: the legs late in the climb's entry ...`, `... early in the climb's entry ...`, `... in the middle of a
+  climbing grid move ...`; the wall-run hang ejects now check the pose's foot and drop.
+
+| Commit(s) | What | Here |
+|---|---|---|
+| 6eec27f | eject during the wall run's grab (Entry state, 0xDCBF00) | ported |
+| e6a6eed | the ledge jump off: wall hang only, the rebound turn first | ported (side, drop, foot) |
+| 91f7874 | the climb's jump: the rebound first, also mid grid move | ported (the release part: see climbing) |
+| 9369c0b, eda4aa7 | side takeoffs, the rebound takeoff (kind 2), its weights per clip | already ours (`jump::rebound`); the free eject's band ported |
+| 6400374 | ladder: the jump off is the rebound (kind 2) facing away | ported (QuickDrop's low release was already ours) |
+| 38c5bcf, 011aeac | walling: the stale stick angle decides the push; free run up along the last strong stick | push ported; the stale angle and the 0.2 s free-run gate skipped (ours has no stale stick) |
+| a14bd2c | the wall run's Ground lead-in from the lean / standing free run | ported (`xx_h_impultionstraight_footl_to_wallingfront_step1_footr` before the entry, from the lean on the legs in high profile and from the standing free run; from moving, at once as before) |
+
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
 climbing stance (short / long tables, 10-way stick, redirects), the hangs (ledge-jump table, the sideways order), the
