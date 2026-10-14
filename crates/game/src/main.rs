@@ -43,7 +43,7 @@
 //! sounds, fountains, braziers, flags, kiosks, palms, and its ambience loops and one-off sounds; placed and panned from the camera),
 //! [ / ] step through every AC1 clip in the library (Backspace returns to locomotion).
 //!
-//! F9 writes the flight recorder (the last 10 s, `recorder`). Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
+//! F9 writes the flight recorder (the last 10 s, `recorder`). A crash writes `ac1-crash-<unix secs>.txt` (its message and backtrace) beside the exe. Test hooks (env): AC1_RECORD_AT=secs, AC1_ROUTE="x1,z1,x2,z2" (draw a navigation route), AC1_SURFACES="x,z,..." (log the collision surfaces down a line), AC1_RAYS="ox,oy,oz,dx,dy,dz,..." (log what each ray hits), AC1_NPCS / AC1_NO_NPCS (the NPC line-up), AC1_NO_CLOTH (the robe skinned, not cloth),
 //! AC1_COLLISION=render|fallback / AC1_SHOW_COLLISION / AC1_COLLISION_VIEW / AC1_COLLISION_SWEEP (cities: collide with the render meshes, or with them where an entity has no rigid body / draw every collision shape / start with F11's view on / log how the collision lines up with what is drawn, `sweep`), AC1_NO_LIPS (cities: no holds from probed lips), AC1_PROBE_CLIMB=n (cities: climb n spots near the start and log how far, then exit; see `probe`), AC1_CLIMB_SWEEP=n (climbing as a player meets it at n walls and n/2 roof edges, every run's failures by class to AC1_SWEEP_OUT, then exit; see `climb_sweep`),
 //! AC1_RAGDOLL_LOG, AC1_LIMP=secs (the player goes limp: the ragdoll), AC1_EMBED_CHECK (warn when the body is inside geometry), AC1_EAGLE=secs (press E), AC1_GRASP=from-to (the empty hand held: the catch in a fall), AC1_FLY=from-to (the Ghost mode flight then, AC1_WALK its stick; AC1_FLY_UP / AC1_FLY_DOWN=from-to up / down held), AC1_PAD=1 (read the controller: off by default, as it takes the pad from other games), AC1_SLOWMO=factor (the whole game slowed, 0.1 = a tenth), AC1_HEADLESS=1 (no window, no GPU, no audio: the frames run back to back, for the scenarios), AC1_MUTE=1 (start muted), AC1_NO_PARTICLES=1 (no dust or straw: `particles`), AC1_VOLUME=dB, AC1_STEP=hz (every frame 1/hz s of game time however long it takes; 60 when headless), AC1_JUMP_CANDS (log AC1's jump candidates), AC1_OLD_TARGETS (the older jump target search), AC1_LOOK="eye x,y,z,target x,y,z" (a fixed camera), AC1_EDGES (outlines in shots), AC1_GALLERY (the pose gallery: every clip on a figure; off by default, slow to load), AC1_GAME_DIR, AC1_START="x,z,yaw_deg[,y]" (y: start on the ground under that height), AC1_WALK=speed (AC1_STICK=1 holds the stick over instead, the speed from the gait model; AC1_STOP=secs lets go, or from-to, AC1_TURN=secs turns round, AC1_CURVE=rad/s curves it, AC1_STEER=deg walks that far off the start facing, positive left, AC1_VEER=secs,deg turns it then, AC1_PATH="x,z;x,z;..[;stop]" steers it through waypoints, AC1_HEADINGS="t,deg;.." gives its game heading over time), AC1_CLIMB=grab|<dir>[=secs],... (up/down/left/right, upleft/upright/downleft/downright, drop, leap-<dir>),
 //! AC1_BIND_PROPS (city skinned props left in their bind pose, not stood in their skeleton's pose), AC1_NO_CROWD=1 (no scholars, no city life), AC1_CITY_LIFE=1|0 (a city's streets peopled from AC1's crowd data, `city_life`: on in cities unless AC1_NO_CROWD, which scripted runs set; AC1_CROWD_MAX=n people, AC1_CROWD_GUARDS=n militia, AC1_CROWD_LOG=1), AC1_NO_PROPS=1 (no prop zone; scripted runs leave it out unless AC1_PROPS is set),
@@ -288,6 +288,21 @@ static LAUNCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::ne
 
 fn main() {
     LAUNCH.get_or_init(std::time::Instant::now);
+    // A crash leaves its message and backtrace in `ac1-crash-<unix secs>.txt` beside the exe (a run from the .bat has
+    // no console to read it in afterwards), then goes on to the default report.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
+        let text = format!(
+            "ac1-rs crashed after {:.1} s on thread {thread}\n{info}\n\n{}\n",
+            LAUNCH.get().map_or(0.0, |t| t.elapsed().as_secs_f32()),
+            std::backtrace::Backtrace::force_capture()
+        );
+        let dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())).unwrap_or_default();
+        let _ = std::fs::write(dir.join(format!("ac1-crash-{secs}.txt")), text);
+        default_hook(info);
+    }));
     // A replay plays in the level it was recorded in.
     if let Ok(path) = std::env::var("AC1_REPLAY") {
         match replay::level_of(&path) {

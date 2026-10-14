@@ -13,7 +13,7 @@ const DEFAULT_GAME_DIR: &str = "P:/SteamLibrary/steamapps/common/Assassins Creed
 struct Scenario {
     name: &'static str,
     /// The systems it goes through (`AC1_SCENARIO_TAGS` picks by these): ground, jump, climb, hang, beam, ladder, bars,
-    /// hay, vault, wallrun, ragdoll, misc, fight, crowd.
+    /// hay, vault, wallrun, ragdoll, misc, fight, crowd, masyaf (a Masyaf spot).
     tags: &'static [&'static str],
     env: &'static [(&'static str, &'static str)],
     secs: f32,
@@ -764,8 +764,9 @@ const SCENARIOS: &[Scenario] = &[
             "jump aimed at [-84.20, 2.00, 35.00]",
             "free-step jump at the swing bar at [-82.20, 4.40",
             "caught bar 4",
-            "steering onto the perch at [-79.20, 1.50",
-            "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a at [-79.",
+            // (Off the bar onto the beam as AC1 jumps at a target: the free-step flight and its reception, report 60396.)
+            "the swing jump aimed at [-79.20, 1.50, 35.00]",
+            "-> perch via xx_h_air_front_300cm_footl_to_freestep_down_tr_freestep_entry_footr at [-79.",
             // (On to the platform 2.35 m off by the free-step jump at it: the perch's jumps reach as far as AC1's zone 7
             // allows, audit JUMP-7; ours' 0.8-4.5 m cut had it jump blind.)
             "free-step jump aimed at [-76.8",
@@ -844,8 +845,9 @@ const SCENARIOS: &[Scenario] = &[
         want: &[
             "caught bar 5",
             "caught bar 6",
-            "steering onto the perch at [-80.50, 2.00",
-            "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a",
+            // (Off the bar onto the post with the free-step reception, then onto it as from a post, report 60396.)
+            "the swing jump aimed at [-80.50, 2.00, 84.00]",
+            "-> perch via xx_h_freestep_entry_footr_tr_beam_pilotis_wait_a at [-80.50",
             "free-step jump aimed at [-78.10, 2.00",
             // (On to the beam along the way: aimed at its far end as AC1's are, out of reach, the jump steers onto it.)
             "onto perch 23 at [-74.",
@@ -1484,8 +1486,9 @@ const SCENARIOS: &[Scenario] = &[
         secs: 17.0,
         want: &[
             "jump up from the climb to the ledge at [114.10, 11.48",
-            // (How far up is measured from the free hang's hands, which ease down to AC1's 2.4 m over the root: 0.12-0.13.)
-            "hand steps onto the edge 0.1",
+            // (How far up is measured from the free hang's hands; since 2026-10-13 the jump up hangs at AC1's 2.4 m under
+            // the corbel it caught at once, and the steps are 0.43 and 0.33 m up where they were 0.12-0.13 and 0.3.)
+            "hand steps onto the edge 0.33 up",
             "up and 0.46 out",
             "hand steps onto the edge 0.3",
             // (0.38: the free hang's wait after the jump up from the climb is AC1's mix by how far out it jumped, its hands
@@ -1509,7 +1512,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=3,up=3.4,left=1.2,up=10"),
         ],
         secs: 18.0,
-        want: &["jump up from the climb to the ledge at [114.10, 11.48, -26.", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4"],
+        want: &["jump up from the climb to the ledge at [114.10, 11.48, -2", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4"],
         never: &["EMBED"],
     },
     // Audit ANIM-14: the robe and the secondary motion run on AC1's own data (the cloth settings, its soft mesh and
@@ -2082,6 +2085,51 @@ const SCENARIOS: &[Scenario] = &[
         want: &["running jump at the wall's ledge [40.45, 11.77, -24.75]", "drop -> hangwall_open via xx_hangwall_reception_front_straight_max_c"],
         never: &["xx_h_jumpfalling01", "fall_tr_climb", "EMBED"],
     },
+    // User report 2026-10-13 (recording 62377, "hands grab air and then adjust"): up a Damascus wall to below a roof's
+    // edge, the jump up from the climb onto the edge (`xx_h_climbing_1m_impultion_to_swingback_*`) and its swing back:
+    // the chain ends in the free hang's wait, its wrists 2.3 m over the root, so AC1's free hang root 2.4 m under the
+    // hold; ours put it 2.1 m under (the catch's), the hands 0.2 m over the edge for the swing back's 2 s.
+    Scenario {
+        name: "Damascus: the jump up from the climb onto a roof's edge hangs 2.4 m under it, the hands on the edge (user report 62377)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "46.3,-25.0,0,4.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-1.5"),
+            ("AC1_LEGS", "0-1.5"),
+            ("AC1_STOP", "1.5"),
+            ("AC1_CLIMB", "nograb,wait=2.5,up=12"),
+        ],
+        secs: 11.0,
+        want: &[
+            "jump up from the climb to the ledge at [46.33, 11.77",
+            "free_1m -> free_1m via xx_h_hangfree_swingback_min_a at [46.33, 9.37",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
+        ],
+        never: &["EMBED"],
+    },
+    // User report 2026-10-13 (recording 85785, "the triangle": a Damascus window box's frame, holds at 8.7, 9.5, a knob at
+    // 10.1 and 10.7 m): up onto it and down off it again. (The stance's hands now go onto AC1's goals, the grid cell's
+    // holds, up to 0.5 m off where the clip holds them: ours took a hold only within 0.2 m and gripped the air.)
+    Scenario {
+        name: "Damascus: up onto a window box's frame and back down off it (user report 85785)",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "42.6,-25.0,0,4.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-1.5"),
+            ("AC1_LEGS", "0-1.5"),
+            ("AC1_STOP", "1.5"),
+            ("AC1_CLIMB", "nograb,wait=2.5,up=3.2,wait=2,down=3"),
+        ],
+        secs: 11.0,
+        want: &["1lu -> 1m via xx_l_climb_1lu_u_1m at [42.53, 8.86", "1ru -> 1m via xx_l_climb_1ru_d_1m at [42.49, 8.28"],
+        never: &["EMBED"],
+    },
     // City life (`city_life`): Damascus peopled from AC1's crowd data, 12 at most (scripted runs load and build in step,
     // so each run is the same).
     Scenario {
@@ -2128,6 +2176,87 @@ const SCENARIOS: &[Scenario] = &[
         secs: 16.0,
         want: &["city life: militia (MMMA_Damascus_Militia) in Poor Street", "combat: guard turns hostile", "combat: the strike hits"],
         never: &["city life: no crowd data"],
+    },
+    // User report 60396 (2026-10-13): off the second swing bar the jump at B6 came down 0.5 m short, on its near edge, and
+    // stepped back off it 4.7 m. AC1 flies the swing jump at its target and lands it in the free-step reception.
+    Scenario {
+        name: "rooftops: off the second swing bar onto B6 with the reception, not stepping back off its near edge (report 60396)",
+        tags: &["bars", "jump"],
+        env: &[("AC1_START", "66.14,35,0,6"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-8"), ("AC1_LEGS", "0-8")],
+        secs: 8.0,
+        want: &["the swing jump aimed at [66.14, 4.69, 13.01]", "-> ground via xx_h_air_front_300cm_footl_to_freestep_down_tr_freestep_entry_footr"],
+        never: &["came down on an edge", "landing_damage", "EMBED"],
+    },
+    // User report 46392: running off B4 toward B5's north-west corner, 1.2 m up and 4 m on (outside AC1's reach zone 1,
+    // so no target): AC1's free jump flies the stick's way (Banned445's port 1753486, live), its feet meet the corner,
+    // and the edge landing steps off over B5's west edge the way he was going, facing the drop, as AC1's does; never
+    // back over the edge he came from.
+    Scenario {
+        name: "rooftops: B4 at B5's corner out of reach: the free jump, the edge landing over the far edge, not back (report 46392)",
+        tags: &["jump"],
+        env: &[("AC1_START", "68.9,31.5,50,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
+        secs: 2.5,
+        want: &["came down on an edge at [63.9", "step off it (back)"],
+        never: &["step off it (front)", "EMBED"],
+    },
+    // User report 423408: a wall run's eject back at a hold on the wall behind flew at the hold's hang, and the fall's catch
+    // took the hold 0.6 m higher, into the climb's crouched catch. AC1 lands its eject at a hold in the wall-hang reception
+    // on that hold (audit WALL-10: `air_front_050cm_footr_to_swing`, `hangwall_reception_front_straight_min_a`).
+    Scenario {
+        name: "wall run eject back at a hold: AC1's wall-hang reception on the hold aimed at, not the climb's catch on another (report 423408)",
+        tags: &["wallrun", "hang", "jump"],
+        env: &[("AC1_START", "9.08,11,0"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-0.8"), ("AC1_JUMP", "0.85")],
+        secs: 3.0,
+        want: &["eject at the wall hang on the hold at [9.08, 3.00, 11.94]", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c"],
+        never: &["xx_fall_tr_climb_min", "EMBED"],
+    },
+    // Masyaf (2026-10-13): its two leaps of faith. The siege's (M05_S17_Trigger_LOFJump): off the scaffold on the tower over
+    // the fortress gate (`Scaffold_Leap1`), 44 m down into `Hay_Bale_01 Group_001` 5.9 m out; the tutorial tower's
+    // (`M05_T40_Scene_TUT_ReachHighPoint`, `Maysaf_TowerTrap`): off its top's north side into `Group_009` 13 m out, 13.4 m
+    // down. AC1's search casts past the haystack's own collision (the heaps stand 2.1 m, over the 1.85 m its way ends at),
+    // blends its four takeoffs and dives by the way, and flies the dive to the hay; ours found neither (a plain running
+    // jump: an 85 m fall past the siege hay), then dived 9 m short of the tower's, then died on the heap's top.
+    Scenario {
+        name: "Masyaf: the siege's leap of faith off the fortress tower's scaffold, 44 m down into its hay",
+        tags: &["hay", "jump", "masyaf"],
+        env: &[
+            ("AC1_LEVEL", "masyaf"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "196.2,67,170,124"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-2.5"),
+            ("AC1_LEGS", "0-2.5"),
+            ("AC1_STOP", "2.5"),
+        ],
+        secs: 7.0,
+        want: &["-> faith via xx_h_freestep_footr_to_faith_jump_800cm_long_3000cm_down at [194.", "-> hay via xx_h_faith_jump_landing at [194."],
+        never: &["landed from", "dead via", "EMBED"],
+    },
+    Scenario {
+        name: "Masyaf: the leap of faith off the tutorial tower's top into its hay 13 m out",
+        tags: &["hay", "jump", "masyaf"],
+        env: &[
+            ("AC1_LEVEL", "masyaf"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "160.3,87.5,-1.4,105"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-1.5"),
+            ("AC1_LEGS", "0-1.5"),
+            ("AC1_STOP", "1.5"),
+        ],
+        secs: 5.0,
+        want: &["-> faith via xx_h_freestep_footr_to_faith_jump_", "-> hay via xx_h_faith_jump_landing at [160."],
+        never: &["landed from", "dead via", "EMBED"],
+    },
+    // Masyaf's climbing sweep (2026-10-13), wall w18 in the village below the fortress: up the wall, into the free hang
+    // under its top, over it onto the roof 4.1 m up.
+    Scenario {
+        name: "Masyaf village: up a house wall, the free hang under its top and over onto the roof",
+        tags: &["climb", "masyaf"],
+        env: &[("AC1_LEVEL", "masyaf"), ("AC1_NO_CROWD", "1"), ("AC1_START", "78.20,85.12,5.1,71.50"), ("AC1_CLIMB", "up=11")],
+        secs: 12.0,
+        want: &["1m -> free_1m via xx_l_climb_1m_u_hangfree", "hangknee -> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [78.1"],
+        never: &["EMBED", "letgo"],
     },
 ];
 
@@ -2199,7 +2328,7 @@ fn run(exe: &str, s: &Scenario, k: usize) -> Result<(), String> {
 
 /// The systems scenarios are tagged with.
 const TAGS: &[&str] =
-    &["ground", "jump", "climb", "hang", "beam", "ladder", "bars", "hay", "vault", "wallrun", "ragdoll", "misc", "combo", "eject", "fight", "crowd"];
+    &["ground", "jump", "climb", "hang", "beam", "ladder", "bars", "hay", "vault", "wallrun", "ragdoll", "misc", "combo", "eject", "fight", "crowd", "masyaf"];
 
 /// Every scenario is tagged with known systems (no game needed). `AC1_SCENARIO_LIST=1` prints them: count, then
 /// `tags<TAB>name` lines (for the pipeline page).

@@ -1012,6 +1012,8 @@ const WALL_FOOT_RATE: f32 = 12.0;
 /// where the limb finds its own (m) is not on its hold.
 const STANCE_GOAL_RATE: f32 = 0.6;
 const STANCE_GOAL_REACH: f32 = 0.4;
+/// A climbing stance's hand goal this close to the wrist (m) is held whatever hold the wrist is nearest.
+const STANCE_GOAL_GRAB: f32 = 0.5;
 /// The capsule moves in steps no longer than this (m).
 const CAPSULE_STEP: f32 = 0.15;
 
@@ -2385,6 +2387,11 @@ pub fn animate(
                 if ch.wall_hand_t[i].is_none() || (switching && ch.wall_hand_w[i] <= 0.0) {
                     ch.wall_hand_t[i] = near.map(|(l, _, _)| l);
                 }
+                // (In the climbing stance, AC1 puts the hand on its goal, the grid cell's hold, wherever the clip holds it:
+                // the cell takes holds up to 0.3 m along and 0.15 up or down off where the clip's hands are. Ours pulled
+                // the hand only onto a hold within 0.2 m of it: on a Damascus window box's frame, a knob 0.18 m over the
+                // clip's hand and a bar 0.3 m over the other, both hands gripped the air, user report 85785.)
+                let goal = w.limb_goal(i).filter(|_| grip.is_none()).map(|g| crate::climb::grip_target(g, n)).filter(|t| t.distance(wrist) < STANCE_GOAL_GRAB);
                 let held = match grip {
                     Some(g) => Some((g, 0.0)),
                     None => ch.wall_hand_t[i].as_ref().map(|l| crate::climb::hold_on(l, wrist)),
@@ -2393,6 +2400,7 @@ pub fn animate(
                 let want = match held {
                     // (The corner's targets are the reach itself: held to them whatever the clip's contacts.)
                     Some(_) if grip.is_some() => 1.0,
+                    Some(_) if goal.is_some() && holds([contact::LEFT_HAND, contact::RIGHT_HAND][i]) => 1.0,
                     Some((_, d)) if !switching && holds([contact::LEFT_HAND, contact::RIGHT_HAND][i]) => 1.0 - ((d - 0.06) / 0.14).clamp(0.0, 1.0),
                     _ => 0.0,
                 };
@@ -2403,7 +2411,8 @@ pub fn animate(
                 let out = ch.wall_hand_t[i].as_ref().filter(|_| grip.is_none()).map_or(n, |l| l.out);
                 let hold = held.map(|(target, _)| crate::climb::grip_hold(target, out));
                 let off = match (hold, w.limb_goal(i).filter(|_| grip.is_none())) {
-                    (Some(h), Some(g)) if g.distance(h) < STANCE_GOAL_REACH => g - h,
+                    // (A goal held by `STANCE_GOAL_GRAB` is reached from whatever hold the wrist is nearest, eased there.)
+                    (Some(h), Some(g)) if g.distance(h) < STANCE_GOAL_REACH || goal.is_some() => g - h,
                     _ => Vec3::ZERO,
                 };
                 ch.wall_goal_off[i] += (off - ch.wall_goal_off[i]).clamp_length_max(STANCE_GOAL_RATE * dt);
