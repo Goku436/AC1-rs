@@ -764,8 +764,9 @@ const SCENARIOS: &[Scenario] = &[
             "jump aimed at [-84.20, 2.00, 35.00]",
             "free-step jump at the swing bar at [-82.20, 4.40",
             "caught bar 4",
-            "steering onto the perch at [-79.20, 1.50",
-            "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a at [-79.",
+            // (Off the bar onto the beam as AC1 jumps at a target: the free-step flight and its reception, report 60396.)
+            "the swing jump aimed at [-79.20, 1.50, 35.00]",
+            "-> perch via xx_h_air_front_300cm_footl_to_freestep_down_tr_freestep_entry_footr at [-79.",
             // (On to the platform 2.35 m off by the free-step jump at it: the perch's jumps reach as far as AC1's zone 7
             // allows, audit JUMP-7; ours' 0.8-4.5 m cut had it jump blind.)
             "free-step jump aimed at [-76.8",
@@ -844,8 +845,9 @@ const SCENARIOS: &[Scenario] = &[
         want: &[
             "caught bar 5",
             "caught bar 6",
-            "steering onto the perch at [-80.50, 2.00",
-            "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a",
+            // (Off the bar onto the post with the free-step reception, then onto it as from a post, report 60396.)
+            "the swing jump aimed at [-80.50, 2.00, 84.00]",
+            "-> perch via xx_h_freestep_entry_footr_tr_beam_pilotis_wait_a at [-80.50",
             "free-step jump aimed at [-78.10, 2.00",
             // (On to the beam along the way: aimed at its far end as AC1's are, out of reach, the jump steers onto it.)
             "onto perch 23 at [-74.",
@@ -1461,7 +1463,8 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_LEGS", "0-4"),
         ],
         secs: 5.0,
-        want: &["via xx_h_wallingfront_step1_footr_tr_hangknee_250cm_footr", "hangknee -> perch via", "at [115.8", "landed from"],
+        // (The rail's line is AC1's paired one since 2026-10-14, 0.15 m further out than ours' was.)
+        want: &["via xx_h_wallingfront_step1_footr_tr_hangknee_250cm_footr", "hangknee -> perch via", "at [115.9", "landed from"],
         never: &["tops out with nothing to grab", "rebound"],
     },
     // User reports #7 and #8: up the wall under a Damascus balcony held out on stepped corbels, each step 0.45 m further
@@ -1559,7 +1562,8 @@ const SCENARIOS: &[Scenario] = &[
             "jump up from the climb to the ledge at [129.2",
             "24.24, -17.75]",
             "free_open -> free_1lu via xx_h_hangfree_climb_1m_u_1lu",
-            "-> perch via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [129.37, 25.47",
+            // (AC1's paired railing line since 2026-10-14.)
+            "-> perch via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [129.4",
         ],
         never: &["EMBED"],
     },
@@ -2175,6 +2179,39 @@ const SCENARIOS: &[Scenario] = &[
         want: &["city life: militia (MMMA_Damascus_Militia) in Poor Street", "combat: guard turns hostile", "combat: the strike hits"],
         never: &["city life: no crowd data"],
     },
+    // User report 60396 (2026-10-13): off the second swing bar the jump at B6 came down 0.5 m short, on its near edge, and
+    // stepped back off it 4.7 m. AC1 flies the swing jump at its target and lands it in the free-step reception.
+    Scenario {
+        name: "rooftops: off the second swing bar onto B6 with the reception, not stepping back off its near edge (report 60396)",
+        tags: &["bars", "jump"],
+        env: &[("AC1_START", "66.14,35,0,6"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-8"), ("AC1_LEGS", "0-8")],
+        secs: 8.0,
+        want: &["the swing jump aimed at [66.14, 4.69, 13.01]", "-> ground via xx_h_air_front_300cm_footl_to_freestep_down_tr_freestep_entry_footr"],
+        never: &["came down on an edge", "landing_damage", "EMBED"],
+    },
+    // User report 46392: running off B4 toward B5's north-west corner, 1.2 m up and 4 m on (outside AC1's reach zone 1,
+    // so no target): AC1's free jump flies the stick's way (Banned445's port 1753486, live), its feet meet the corner,
+    // and the edge landing steps off over B5's west edge the way he was going, facing the drop, as AC1's does; never
+    // back over the edge he came from.
+    Scenario {
+        name: "rooftops: B4 at B5's corner out of reach: the free jump, the edge landing over the far edge, not back (report 46392)",
+        tags: &["jump"],
+        env: &[("AC1_START", "68.9,31.5,50,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
+        secs: 2.5,
+        want: &["came down on an edge at [63.9", "step off it (back)"],
+        never: &["step off it (front)", "EMBED"],
+    },
+    // User report 423408: a wall run's eject back at a hold on the wall behind flew at the hold's hang, and the fall's catch
+    // took the hold 0.6 m higher, into the climb's crouched catch. AC1 lands its eject at a hold in the wall-hang reception
+    // on that hold (audit WALL-10: `air_front_050cm_footr_to_swing`, `hangwall_reception_front_straight_min_a`).
+    Scenario {
+        name: "wall run eject back at a hold: AC1's wall-hang reception on the hold aimed at, not the climb's catch on another (report 423408)",
+        tags: &["wallrun", "hang", "jump"],
+        env: &[("AC1_START", "9.08,11,0"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-0.8"), ("AC1_JUMP", "0.85")],
+        secs: 3.0,
+        want: &["eject at the wall hang on the hold at [9.08, 3.00, 11.94]", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c"],
+        never: &["xx_fall_tr_climb_min", "EMBED"],
+    },
     // Masyaf (2026-10-13): its two leaps of faith. The siege's (M05_S17_Trigger_LOFJump): off the scaffold on the tower over
     // the fortress gate (`Scaffold_Leap1`), 44 m down into `Hay_Bale_01 Group_001` 5.9 m out; the tutorial tower's
     // (`M05_T40_Scene_TUT_ReachHighPoint`, `Maysaf_TowerTrap`): off its top's north side into `Group_009` 13 m out, 13.4 m
@@ -2222,6 +2259,38 @@ const SCENARIOS: &[Scenario] = &[
         secs: 12.0,
         want: &["1m -> free_1m via xx_l_climb_1m_u_hangfree", "hangknee -> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [78.1"],
         never: &["EMBED", "letgo"],
+    },
+    // The online friend in the walls (user report 2026-10-13, replay 1791930058, `AC1_REPLAY_SCAN`): ours' own beams, from
+    // mesh names and single-hold tops, made a Damascus drum's plinth (0.3 m deep against the drum's wall) and a window box's
+    // sill into beams, and balancing on them the body stood half in the wall (the scan: the capsule 0.35 and 0.45 m into
+    // it). AC1's beams are its paired hold edges, cut where anything stands in their workspace, and its posts are open
+    // over them (`sub_B2B600`): none there.
+    Scenario {
+        name: "Damascus: no beam on a drum's plinth against its wall (the online friend inside the wall, user report 2026-10-13)",
+        tags: &["beam"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_HOLDS_AT", "10.4,12.44,-112.2,0.6")],
+        secs: 0.5,
+        want: &[],
+        never: &["perch "],
+    },
+    Scenario {
+        name: "Damascus: no beam in a window box's sill (us inside the box in the same replay)",
+        tags: &["beam"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_HOLDS_AT", "69.12,8.91,-43.61,0.5")],
+        secs: 0.5,
+        want: &[],
+        never: &["perch "],
+    },
+    // The same plinth met from the roof below it: leaning on it and pushing on, ours climbed onto it and balanced on it
+    // in the wall. Its top has no room for the body (the capsule against the drum): no climb, as AC1's jump at the edge
+    // from the lean needs a top to stand on.
+    Scenario {
+        name: "Damascus: pushing on into a drum's plinth from the lean does not climb onto it (no room for the body there)",
+        tags: &["beam", "ground"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "10.0,-112.4,120,12.8"), ("AC1_WALK", "1.5")],
+        secs: 4.0,
+        want: &["lean on the wall at"],
+        never: &["EMBED", "from leaning on it", "onto perch"],
     },
 ];
 

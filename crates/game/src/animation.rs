@@ -192,8 +192,9 @@ pub fn mix_name(parts: &[(&str, f32)]) -> String {
 pub fn sample(clip: &Clip, frame: f32, pose: &mut Pose, reference: Option<usize>) {
     let fix = Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2);
     for &(t, bone) in &clip.bind {
-        // (A clip bound to another rig than the pose's: its bones past the pose's left alone, not a crash. A militia guard
-        // walking by the player's locomotion played the player's clips on its 122 bones, `ac1-crash-1791937561`.)
+        // (A clip bound to another rig than the pose's skips the bones the pose lacks, not a crash: a militia guard walking
+        // by the player's locomotion played the player's clips on its 122 bones, index 135 of 122, in Damascus. Its moves
+        // are bound to its own rig now, `AnimLib::bound`.)
         let (Some(track), Some(local)) = (clip.anim.tracks.get(t), pose.local.get_mut(bone)) else { continue };
         let is_ref = Some(bone) == reference;
         if let Some([x, y, z, w]) = track.rotation_at(frame) {
