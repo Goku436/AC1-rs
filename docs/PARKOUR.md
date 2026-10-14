@@ -1115,6 +1115,34 @@ Sweep runs with each class (dev c4f4154 / this round): Damascus (147 runs) embed
 pop 5 / 5, hands-off 2 / 2, flipflop 1 / 1, free-on-wall 1 / 1; test level (102) topout 3 / 0,
 free-on-wall 4 / 1, pop 3 / 3, embed 1 / 1.
 
+### The routes again, and four new ones from the running game (2026-10-14)
+The 21 routes replayed on dev 98deb3d (before) and with this round's fixes (after); four new routes recorded in the
+running game through ac1-hook (keys, the live log; `F:/Claude/ac1-wt/reports/live-logs-20261014-parkour2/`, cut by
+`routes.py` in `reports/routes-parkour2/`, the bureau's wall `wall1`). Mean root gap (m), the 2026-10-13 figure first:
+
+| route | 10-13 | before | after | what changed |
+|---|---|---|---|---|
+| `wall1_climb` | 0.16 | 0.61 | 0.35 | ours pulled up one-handed from the climbing stance (and stood 0.25 s); AC1's climb out from the stance is always `xx_l_climb_<1m\|2m>_tr_hangknee` (TryReachLedgeAbove 0xDF1730, read in Ghidra: only action 0x35F11AF + the pose's "apart" flag). The 10-13 figure hid a 0.25 s stand under a slower walk start |
+| `w1_climb_down` (new) | - | 0.28 (end 2.16) | 0.08 (end 0.05) | two rows up, the stick down: the running game reached down once and then looked down; ours reached down twice. AC1's vertical reach (0xDF0050 / 0xDE8400): a foot hold 1.2 m (then 1.8 m) from the feet's holds with a hand hold 1.2 m over it, now ours' gate on its climb-to-climb reaches (`reach_foot_hold`, levels with authored holds) |
+| `w1_stance_side` (new) | - | 0.42 | 0.27 | in the 1ru pose on a column of holds 0.45 m wide, the stick left then right: the running game looked round each way; ours shuffled 0.3 m left (a hold 0.4 m along taken as the next column's) and settled a row up. Now a short sideways grid move needs its hand's hold within 0.3 m of the cell a column (0.75 m) along (`BuildHoldGrid` 0xDF6A40), and stuck sideways ours brings the hands level only with somewhere to go that way (`reach_holds_toward`, `side_exit_toward`), else AC1's look-round (0xDF4410). Left: the back eject at the end flies to the free hang behind 0.2 m off the running game's |
+| `w1_hang_left` (new) | - | 0.07 | 0.07 | seven wall-hang shimmy steps left: as the running game |
+| `w1_climb_side` (new) | - | 8.01 | 8.08 | not comparable: the running game started from standing with the stick 49 degrees off the wall and its first frame turned the body straight onto the stick; ours' start turns it over 0.5 s, so ours met the wall 32 degrees off and ran up it where the running game slid along into the corner and ran up the cross wall (a ground start's turn, not changed). Its later moves (the free-step stay's jump on, a leap right, the drop into the hang) are what the route is kept for |
+| `roof1_free_south` | 0.90 | 0.77 | 0.64 | (the free-step stay below; dev's own changes) |
+| `roof2_free_east` | 0.42 | 0.41 | 0.50 | the free-step stay's jump on now at the running game's moment; left: AC1 plays the last arrival's reception out in the stay (0.17 s) before walking, ours leaves it for the run at once and leads by 1.1 m |
+| `hay70_free` | 1.08 | 1.05 | 1.05 | unchanged: from the haystack rim's stay the running game jumped 4.4 m on; ours finds no drop edge ahead there (the rim's hold pieces stop 0.15 m short of the box's corner) |
+| others | | | same within 0.02 | |
+
+Also AC1's rule, from the same routes and Banned445's port: the free-step stay (every free-step arrival and climb-up
+onto a top is a HumanNarrowObject reception) takes the jump on from half of the reception, free running with the stick
+toward a drop edge (0xB1C100) and no beam piece ahead (0xB15DE0), a haystack that way still its dive; the wall run's wall
+test is along the facing with the wall facing back within 45 degrees (0xE18390; ours cast along the stick and took any
+upright face); the wall hang's corner turn is refused where the body's way round, the root turned about the hands,
+goes through something (Masyaf sweep `e0-hang`'s embed; AC1 tests the hang boxes and the lateral path, 0xB2A410).
+Masyaf climbing sweep (141 runs), before / after: embed 3 / 2, stuck 3 / 4 (e0's embed became a look-round at that
+corner), free-on-wall 3 / 3, pop 5 / 5 (four at one spawn), death 1 / 1 (the drop program letting go 35 m up). Left:
+e12's one-hand pull-up from a free hang onto a post grazes the post with the chest for 4 frames (the clip itself, the
+correction is not it); e3's corner out of the climbing stance into the hang.
+
 ## Beams as AC1 does them (2026-10-14)
 The online friend "went into walls, specially from beams" (replay 1791930058, user report 2026-10-13). `AC1_REPLAY_SCAN=1`
 (with `AC1_REPLAY`) checks every frame's two roots against the city's collision (the capsule pushed out, the chest through

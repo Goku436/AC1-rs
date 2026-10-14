@@ -1660,8 +1660,10 @@ const SCENARIOS: &[Scenario] = &[
             "jump up from the climb to the ledge at [129.2",
             "24.24, -17.75]",
             "free_open -> free_1lu via xx_h_hangfree_climb_1m_u_1lu",
-            // (AC1's paired railing line since 2026-10-14.)
-            "-> perch via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [129.4",
+            // (AC1's paired railing line since 2026-10-14; from the climbing stance AC1's climb out is two-handed,
+            // TryReachLedgeAbove 0xDF1730, then onto the railing as a perch.)
+            "1m -> hangknee via xx_l_climb_1m_tr_hangknee_footl_a at [129.4",
+            "onto perch",
         ],
         never: &["EMBED"],
     },
