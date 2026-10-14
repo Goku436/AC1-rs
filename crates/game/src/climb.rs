@@ -803,7 +803,9 @@ const EJECT_WAIT: f32 = 0.3;
 /// away (0xDD2CA0).
 const REBOUND_LOWER: f32 = 0.3;
 /// The Ledge's entries other than the wall run's wall-hang catch take the jump off only in their first quarter
-/// (0xDCBF00: the playing action's normalised time under 0.25).
+/// (0xDCBF00: the playing action's normalised time under 0.25). Kept for the record: ours takes the wall run's eject at any
+/// time, the user's choice (`eject_open`).
+#[allow(dead_code)]
 const ENTRY_EJECT_SHARE: f32 = 0.25;
 /// The body's capsule moves through the air in steps no longer than this (m), not to pass through a thin wall.
 const CAPSULE_STEP: f32 = 0.15;
@@ -4869,8 +4871,10 @@ impl WallClimb {
         if wall_run_hang_catch(n) {
             return true;
         }
+        // (NOT AC1's, the user's choice 2026-10-14: any time in every walling clip, its catches too; AC1 takes it only in
+        // the first quarter of the catches other than the wall-hang one, `ENTRY_EJECT_SHARE`.)
         if n.starts_with("xx_h_wallingfront_") {
-            return m.t < ENTRY_EJECT_SHARE * m.clip.anim.duration;
+            return true;
         }
         let locked = lib.graph.gate(n).is_some_and(|g| g.has(forge::action::gate::LOCKED));
         if locked && !n.contains("_strafe_") {
@@ -7562,7 +7566,9 @@ impl WallClimb {
         // AC1's sub-states (Banned445's `update_walling`, audit WALL-4): never in the entry's first half (EntryA); its second
         // (EntryB) only as it ends; the step (Vertical) and the kick off the top (VerticalEnd,
         // `step1_footr_tr_rebound_footr_a/b`) any time.
-        let phase = if m.clip.name == WALL_RUN[1] && m.t >= m.clip.anim.duration - 1.5 / FPS {
+        // (NOT AC1's, the user's choice 2026-10-14: the eject is taken at any point of the wall run, the lead-in and the
+        // entry's first half too; AC1 refuses those and holds the press till the entry ends.)
+        let phase = if m.clip.name == WALL_RUN_LEAD_IN || m.clip.name == WALL_RUN[0] || m.clip.name == WALL_RUN[1] {
             "entryrebound"
         } else if m.clip.name == WALL_RUN[2] || m.clip.name == WALL_RUN_REBOUND[0] || m.clip.name == WALL_RUN_REBOUND[1] {
             "step1rebound"
