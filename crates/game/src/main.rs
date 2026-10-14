@@ -92,6 +92,7 @@ mod gallery;
 mod grab_audit;
 mod jump;
 mod jump_query;
+mod ledge_grid;
 mod level;
 mod level_cache;
 mod look;
@@ -484,6 +485,7 @@ fn main() {
         .add_systems(Update, probe::probe_climbs.after(run_script).before(character::locomotion))
         .init_resource::<ScriptClock>()
         .add_systems(First, tick_script_clock)
+        .add_systems(First, ledge_grid::update)
         .add_systems(Update, control_runs.before(run_script))
         .init_resource::<climb_sweep::Sweep>()
         .add_systems(Update, climb_sweep::sweep_issue.before(control_runs))

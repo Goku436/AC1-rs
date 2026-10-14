@@ -1134,6 +1134,7 @@ pub fn locomotion(
     level: Res<Level>,
     mut lib: Option<ResMut<crate::animation::AnimLib>>,
     mut q: Query<(&mut Transform, &mut Character, &mut Controller), Without<Statue>>,
+    grid: Option<Res<crate::ledge_grid::LedgeGrid>>,
 ) {
     let dt = time.delta_secs().min(0.05);
     for (mut tf, mut ch, mut ctl) in &mut q {
@@ -1788,13 +1789,18 @@ pub fn locomotion(
             let drop_past = |q: Vec3, out: Vec3| {
                 [0.1, 0.3, 0.6].iter().map(|d| level.ground(q + out * *d + Vec3::Y * 0.1, 0.0, 10.0).map_or(10.0, |g| q.y - g.point.y)).fold(0.0, f32::max)
             };
-            let edge_held = level.ledges.iter().find(|l| {
+            let held = |l: &&Ledge| {
                 let q = l.closest(p);
                 (q - p).with_y(0.0).length() < EDGE_HALT_REACH + 0.1
                     && (q.y - p.y).abs() < 0.3
                     && l.out.dot(dir) > EDGE_HALT_COS
                     && drop_past(q, l.out) > EDGE_HALT_DROP
-            });
+            };
+            // (The holds near by the level's grid: the same first one as the whole list's, `ledge_grid`.)
+            let edge_held = match &grid {
+                Some(g) => g.near(p, EDGE_HALT_REACH + 0.1).into_iter().filter_map(|i| level.ledges.get(i)).find(held),
+                None => level.ledges.iter().find(held),
+            };
             let at_edge = edge_held.is_some();
             if let Some(l) = edge_held {
                 ch.look_edge = Some((l.closest(p), l.out));

@@ -220,6 +220,12 @@ where
         ctx: bevy::log::tracing_subscriber::layer::Context<'_, S>,
     ) {
         let kind = attrs.metadata().name();
+        if let Some(n) = kind.strip_prefix("ac1:") {
+            if let Some(span) = ctx.span(id) {
+                span.extensions_mut().insert(Timed { name: format!("~{n}"), entered: None });
+            }
+            return;
+        }
         if kind != "system" && kind != "system_commands" {
             return;
         }
