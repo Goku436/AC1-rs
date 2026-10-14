@@ -3313,12 +3313,9 @@ impl WallClimb {
             None => None,
         };
         let Some(mut to) = top.or(hang_root).or_else(|| ladder_target(level, p, dir)) else {
-            // No target: AC1's free jump goes along the body's facing, not the stick (the interpreter's vt28 free jump,
-            // Banned445's port `FreeJump { dir: forward }`; the stick only steers the target query). Ours turned to the
-            // stick: curving across a roof, a jump went 60 degrees off the run at the corner of a higher roof beside the
-            // way, came down on its corner and stepped off it.
-            let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(dir.with_y(0.0).normalize_or(Vec3::NEG_Z));
-            return Self::jump(lib, level, root, fwd * speed, left, from);
+            // (No target: AC1's free jump flies the direction the candidates were searched in, the stick's (IHuman vt68
+            // gets the query's own direction, 0xEE81CE / 0xEE842D; Banned445's port 1753486, live).)
+            return Self::jump(lib, level, root, dir, left, from);
         };
         // (Arriving within reach of a beam, onto the beam: AC1's free-step arrival test (0xE0B890, as Banned445's port reads
         // it) puts the root on the nearest beam in a box round the feet. Off the bureau's roof south-west the running game

@@ -2187,15 +2187,17 @@ const SCENARIOS: &[Scenario] = &[
         want: &["the swing jump aimed at [66.14, 4.69, 13.01]", "-> ground via xx_h_air_front_300cm_footl_to_freestep_down_tr_freestep_entry_footr"],
         never: &["came down on an edge", "landing_damage", "EMBED"],
     },
-    // User report 46392: curving across B4 toward B5's corner with no jump target that way, the free jump went the stick's
-    // way, 60 degrees off the run, came down on B5's corner and stepped off it. AC1's free jump goes along the facing.
+    // User report 46392: running off B4 toward B5's north-west corner, 1.2 m up and 4 m on (outside AC1's reach zone 1,
+    // so no target): AC1's free jump flies the stick's way (Banned445's port 1753486, live), its feet meet the corner,
+    // and the edge landing steps off over B5's west edge the way he was going, facing the drop, as AC1's does; never
+    // back over the edge he came from.
     Scenario {
-        name: "rooftops: curving off B4 with no target the stick's way, the free jump along the facing onto B5 (report 46392)",
+        name: "rooftops: B4 at B5's corner out of reach: the free jump, the edge landing over the far edge, not back (report 46392)",
         tags: &["jump"],
-        env: &[("AC1_START", "64.2,33,-90,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-1.6"), ("AC1_LEGS", "0-1.6"), ("AC1_VEER", "0.2,140")],
+        env: &[("AC1_START", "68.9,31.5,50,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
         secs: 2.5,
-        want: &["caught the top at the knees", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl"],
-        never: &["came down on an edge", "EMBED"],
+        want: &["came down on an edge at [63.9", "step off it (back)"],
+        never: &["step off it (front)", "EMBED"],
     },
     // User report 423408: a wall run's eject back at a hold on the wall behind flew at the hold's hang, and the fall's catch
     // took the hold 0.6 m higher, into the climb's crouched catch. AC1 lands its eject at a hold in the wall-hang reception
