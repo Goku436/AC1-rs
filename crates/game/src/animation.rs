@@ -189,14 +189,16 @@ pub fn mix_name(parts: &[(&str, f32)]) -> String {
 pub fn sample(clip: &Clip, frame: f32, pose: &mut Pose, reference: Option<usize>) {
     let fix = Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2);
     for &(t, bone) in &clip.bind {
-        let track = &clip.anim.tracks[t];
+        // (A clip bound to a bigger skeleton than the pose's, a character sampling another rig's binding, skips the
+        // bones the pose lacks: it crashed the game, index 135 of 122, with Damascus's townsfolk.)
+        let (Some(track), Some(local)) = (clip.anim.tracks.get(t), pose.local.get_mut(bone)) else { continue };
         let is_ref = Some(bone) == reference;
         if let Some([x, y, z, w]) = track.rotation_at(frame) {
             let q = Quat::from_xyzw(x, y, z, w);
-            pose.local[bone].rot = if is_ref { fix * q } else { q };
+            local.rot = if is_ref { fix * q } else { q };
         } else if let Some(p) = track.translation_at(frame) {
             let p = Vec3::from(p);
-            pose.local[bone].pos = if is_ref { fix * p } else { p };
+            local.pos = if is_ref { fix * p } else { p };
         }
     }
 }
