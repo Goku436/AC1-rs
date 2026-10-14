@@ -1006,6 +1006,30 @@ climbing stance round a corner straight into a hang on the side wall's ledge (`x
 turned onto that wall); ours goes into the hang along its own wall and then round the corner. AC1's free-hang shimmy uses
 the same sweep, 2.4 m down.
 
+### Jumps to targets and their landings (2026-10-13)
+Three user reports in the test world, each a jump at a target ending somewhere AC1 would not put it:
+- **The swing jump onto a top, post or beam** (report 60396): AC1 jumps off a bar at its target as at any target
+  (`Human__SetupJumpToTarget` kind 3: Banned445's port `SwingJump`), the root on the clips' way plus the linear
+  correction, so it ends on the target and goes into the free-step reception. Ours flung the root at it under gravity
+  with a plain fall's drift slowing it (4 m/s²), came down 0.5 m short on B6's near lip and played the edge landing,
+  stepping back off it 4.7 m; AC1's edge landing is only for falls with no target. Now (`swing_onto`): the swing's
+  takeoff, the running jump's flight onto a free step and its `_tr_freestep_entry_footr` reception, the top landed
+  `SWING_TOP_IN` (0.5 m) in from its edge; onto a post or beam the same, then the post's own entry. Bars and holds keep
+  the old flight.
+- **Report 46392 is AC1's own rules at work**: running off B4 toward B5's north-west corner, B5's edge is 1.2 m up at
+  4 m, just outside reach zone 1 (1.15 m there), so no target; AC1's free jump flies the stick's way (Banned445's port
+  1753486, live: IHuman vt68 gets the query's direction), the feet meet the corner 0.2 m under its top, the proxy steps
+  up onto it and the edge landing steps off over the west edge, facing the drop, the way he was going (`step_off_back`
+  is the one along the facing). Not a backward step off; scenario kept. Its later eject at B3's wall goes through the
+  wall-hang reception below.
+- **An eject at a wall hang lands in the wall-hang reception on that hold** (report 423408, audit WALL-10): the running
+  game's eject at a hold flew `air_front_050cm_footr_to_swing` into `hangwall_reception_front_straight_min_a` and the
+  wall hang. Ours flew the plain arc at the hang's root and let the fall's catch take the first hold it met: off the
+  test level's wall run, one 0.6 m higher, into the climb's crouched catch (`fall_tr_climb_min_b`, the hips down at the
+  feet), which read as reaching down for the lower hold. Now (`wall_hang_eject`): the rebound takeoff, the hang flight
+  and `xx_hangwall_reception_front_<straight|30_out|45_in>_min_a..c`, ending 0.44 m out and 1.1 m under the aimed hold
+  (where the wall hang's rest puts the root). A hold with no wall under it is still caught by the fall (free hang).
+
 ### The climbing round two (2026-10-13)
 The sweep's classes now follow AC1's own checks (`climb_sweep.rs`): `topout` only where AC1's room over the edge is
 free (`climb_out_room`, 0xB2E240), `stuck` in a climbing stance only where AC1's grid move has its foot cell two rows
