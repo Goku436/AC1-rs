@@ -75,8 +75,14 @@ pub struct Emitter {
     pub flow: u32,
     /// +0x0c `LocalParticles`: the particles move with the emitter.
     pub local_particles: bool,
-    /// u8 flags `?` at +0x0d, +0x10, +0x11, +0x1b, +0x1d, +0x1e, +0x28, +0x30 (+0x10 and +0x11 are 1 in nearly every
-    /// emitter, +0x10 0 in the water splashes and falls; +0x28 1 in the blood sprays).
+    /// u8 flags at +0x0d, +0x10, +0x11, +0x1b, +0x1d, +0x1e, +0x28, +0x30 (their bits in the running emitter's flag word,
+    /// from the reflection list: 7, 10, 11, 17, 19, 20, 27, and +0x30 a byte of its own). What the exe does with them
+    /// (the update 0xA84FF0, the spawn, the DX9 renderer 0xA22600 / 0xA23530): +0x0d a particle dies at or below `ZMin`
+    /// (`kills_below_z_min`); +0x10, +0x11 pick the sprite's right and up vectors (1 in nearly every emitter, +0x10 0
+    /// in the water splashes and falls; `?`); +0x1b a random first texture frame (`random_first_frame`); +0x1d
+    /// `MirrorU`, +0x1e `MirrorV` (names by CRC32); +0x28 sprites along their velocity, no spin (the blood sprays;
+    /// `along_velocity`); +0x30 the sprites lit by `LightPos`, `LightColor`, `LightAmbient` (`sprite_light`: the only
+    /// lighting the DX9 particle shaders have; set in no emitter of DataPC, Common or Damascus).
     pub flags: [u8; 8],
     /// +0x0e `DepthFade`, +0x0f `NearFade` (soft particles against the depth buffer, and near the camera), with
     /// +0x55 `DepthFadeScale` (200 or 1000) and +0x59 `NearFadeScale` (10 or 1).
@@ -94,8 +100,9 @@ pub struct Emitter {
     pub double_sided: bool,
     /// +0x1f `BlendMode`.
     pub blend: Blend,
-    /// +0x23 `LightingMode` (0 `LIGHTMODE_NONE`, 1 `_PERVERTEX`: lit), +0x3d `LightColor`, +0x49 `LightAmbient`
-    /// (inline `IColor`s, as RGBA).
+    /// +0x23 `LightingMode` (0 `LIGHTMODE_NONE`, 1 `_PERVERTEX`), +0x3d `LightColor`, +0x49 `LightAmbient` (inline
+    /// `IColor`s, as RGBA). The DX9 exe reads `LightingMode` nowhere but its serializer and clone: the sprites are lit
+    /// only by the +0x30 flag (`sprite_light`), with these colours.
     pub lit: bool,
     pub light_color: [u8; 4],
     pub light_ambient: [u8; 4],
@@ -109,8 +116,8 @@ pub struct Emitter {
     pub fog: bool,
     /// +0x2e `AlphaTestEnabled`, +0x2f `AlphaTestValue` (0-255).
     pub alpha_test: Option<u8>,
-    /// +0x31: three f32 `?` ((0, 0, 1) in every emitter: an axis).
-    pub axis: [f32; 3],
+    /// +0x31 `LightPos` (name by CRC32; (0, 0, 1) in every emitter): where the `sprite_light` light is.
+    pub light_pos: [f32; 3],
     /// +0x5d `LocalMatrix`: the emitter in its entity's frame (column-major 4x4; the fountains' jets are turned down or
     /// out by it).
     pub local_matrix: [f32; 16],
@@ -125,19 +132,25 @@ pub struct Emitter {
     pub rate: f32,
     /// +0xb9 `Acceleration` (m/s², game space: gravity -9.8 or less down Z).
     pub acceleration: [f32; 3],
-    /// +0xc5, +0xc9: u32 `?` (0, 5 or 20; 4 to 232, mostly 100), +0xcd u8 `?` (1 in the ambient and fire systems).
-    pub unknown_c5: [u32; 2],
-    pub unknown_cd: u8,
+    /// +0xc5, +0xc9: u32 `?` (names not found): the camera distances (m, whole) between which the emitter runs (the
+    /// exe's 0xA80B40: outside them it fades out over 5 s and stops, inside it fades back in over 5 s; the fade
+    /// multiplies the particles' alpha). Mostly 0 and 100; the fire cage's 39 and 40, its sparks 10.
+    pub view_range: [u32; 2],
+    /// +0xcd u8 `?`: each key's size and spin picked between its min and max by a random of its own (else one random
+    /// for all four keys). 1 in the ambient and fire systems.
+    pub per_key_random: bool,
     /// +0xce `MinVelocity`, +0xd2 `MaxVelocity` (m/s).
     pub velocity: [f32; 2],
     /// +0xd6 `DirectionVariation` (radians: how far from the emitter's Z the particles leave).
     pub direction_variation: [f32; 2],
     /// +0xde `MinRotation`, +0xe2 `MaxRotation` (radians, at birth).
     pub rotation: [f32; 2],
-    /// +0xe6 `MinPhaseDuration`, +0xf2 `MaxPhaseDuration` (s).
+    /// +0xe6 `MinPhaseDuration`, +0xf2 `MaxPhaseDuration` (s; one random per particle for all three).
     pub phase_min: [f32; 3],
     pub phase_max: [f32; 3],
-    /// +0xfe `MinSize`, +0x11e `MaxSize`: (width, height) m at each key.
+    /// +0xfe `MinSize`, +0x11e `MaxSize`: (width, height) m at each key. The exe (0xA84FF0) takes `min + r (max - min)`,
+    /// `r` a random in 0..1 per particle (per key with `per_key_random`): the max is the range's other end, below the
+    /// min or negative in many (a negative size is the same sprite turned half round). Times the entity's scale.
     pub size_min: [[f32; 2]; 4],
     pub size_max: [[f32; 2]; 4],
     /// +0x13e `MinScale`, +0x16e `MaxScale`: a vec3 at each key (1 in the sprites).
@@ -157,7 +170,8 @@ pub struct Emitter {
     pub frame_rate: f32,
     /// +0x200, +0x204, +0x208, +0x20c: f32 `?`.
     pub unknown_200: [f32; 4],
-    /// +0x210 an inline `WindForce` (u32 id, class, u8 `?` +0x218, f32 `?` +0x219, two bytes `?`); after its effect
+    /// +0x210 an inline `WindForce` (u32 id, class, u8 +0x218 on, f32 +0x219 its factor, two bytes `?`): the city's
+    /// wind where the emitter is, times the factor, added to the particles' acceleration (0x5C8A60); after its effect
     /// params, 4 bytes (0: the `SpawnData` slot, empty).
     pub wind: (u8, f32),
 }
@@ -166,6 +180,31 @@ impl Emitter {
     /// `local_matrix`'s Z axis: the way the particles leave (game space, in the entity's frame).
     pub fn up(&self) -> [f32; 3] {
         [self.local_matrix[8], self.local_matrix[9], self.local_matrix[10]]
+    }
+
+    /// +0x0d: a particle dies when its height (world Z, game space) is at or below `z_min`.
+    pub fn kills_below_z_min(&self) -> bool {
+        self.flags[0] != 0
+    }
+
+    /// +0x1b: each particle starts on a random frame of its texture.
+    pub fn random_first_frame(&self) -> bool {
+        self.flags[3] != 0
+    }
+
+    /// +0x28: the sprites lie along their velocity and do not spin.
+    pub fn along_velocity(&self) -> bool {
+        self.flags[6] != 0
+    }
+
+    /// +0x30: the sprites lit (`light_pos`, `light_color`, `light_ambient`).
+    pub fn sprite_light(&self) -> bool {
+        self.flags[7] != 0
+    }
+
+    /// The wind's factor where the emitter's `WindForce` is on (0 where it is off).
+    pub fn wind_factor(&self) -> f32 {
+        if self.wind.0 != 0 { self.wind.1 } else { 0.0 }
     }
 }
 
@@ -235,7 +274,7 @@ fn parse_emitter(b: &[u8], at: usize) -> Result<Emitter> {
         effect_params: floats(b, at + 0x21f)?,
         fog: byte(0x2d) != 0,
         alpha_test: (byte(0x2e) != 0).then_some(byte(0x2f)),
-        axis: floats(b, at + 0x31)?,
+        light_pos: floats(b, at + 0x31)?,
         local_matrix: floats(b, at + 0x5d)?,
         shape_params: floats(b, at + 0x9d)?,
         z_min: f32_at(b, at + 0xa9)?,
@@ -243,8 +282,8 @@ fn parse_emitter(b: &[u8], at: usize) -> Result<Emitter> {
         max_particles: u32_at(b, at + 0xb1)?,
         rate: f32_at(b, at + 0xb5)?,
         acceleration: floats(b, at + 0xb9)?,
-        unknown_c5: [u32_at(b, at + 0xc5)?, u32_at(b, at + 0xc9)?],
-        unknown_cd: byte(0xcd),
+        view_range: [u32_at(b, at + 0xc5)?, u32_at(b, at + 0xc9)?],
+        per_key_random: byte(0xcd) != 0,
         velocity: floats(b, at + 0xce)?,
         direction_variation: floats(b, at + 0xd6)?,
         rotation: [r0, r1],
@@ -304,6 +343,68 @@ pub fn shown_systems(body: &[u8], is_system: impl Fn(u32) -> bool) -> Vec<u32> {
     out
 }
 
+/// CRC32("WorldParticleSystem"): a city's ambient effect (inline in its `World`, one a district).
+pub const CLASS_WORLD_PARTICLE_SYSTEM: u32 = 0x2270_de6a;
+/// CRC32("WorldParticleData"): a cell's points for the ambient effects (one object a cell, `CellID=<n>`).
+pub const CLASS_WORLD_PARTICLE_DATA: u32 = 0x5730_d30e;
+/// The class of a `WorldParticleData`'s inline bounds (its name is not in the exe's strings).
+const CLASS_PARTICLE_DATA_BOUNDS: u32 = 0x4aec_3476;
+
+/// A city's ambient effect (`WorldParticleSystem`, inline in the level's `World`; Damascus: the four countryside
+/// quarters, three districts and the three master assassins' districts). The exe (0xA0ADD0, every frame): of the points
+/// of its cells (`data`, each a `WorldParticleData`) within 30 m of the camera and in view, the `count` nearest each get
+/// an instance of `entity` (whose `Visual` shows the particle system: dust, leaves, bees, petals, dandelions, ground fog),
+/// upright at the point; the instances left over are taken out of the world.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorldParticleSystem {
+    pub id: u32,
+    /// Its `WorldParticleData` objects (by id).
+    pub data: Vec<u32>,
+    /// The entity it places.
+    pub entity: u32,
+    /// u8 on, u8 the instances at most (10 in every Damascus one).
+    pub on: bool,
+    pub count: u8,
+}
+
+/// The `WorldParticleSystem`s inline in a `World` body: each `u8 0, u32 id, u32 class`, then u8 `?` (1), u32 its parent
+/// (the `World`), u32 n, n u32 `WorldParticleData` ids, u32 the entity, u8 on, u8 count.
+pub fn world_particle_systems(world: &[u8]) -> Vec<WorldParticleSystem> {
+    let tag = CLASS_WORLD_PARTICLE_SYSTEM.to_le_bytes();
+    let mut out = vec![];
+    for k in world.windows(4).enumerate().filter(|(_, w)| *w == tag).map(|(k, _)| k) {
+        let parse = || -> Result<WorldParticleSystem> {
+            ensure!(k >= 5 && world[k - 5] == 0, "no inline object at {:#x}", k.saturating_sub(5));
+            let id = u32_at(world, k - 4)?;
+            let n = u32_at(world, k + 9)? as usize;
+            ensure!(n < 4096, "{n} cells at {:#x}", k + 9);
+            let data = (0..n).map(|i| u32_at(world, k + 13 + 4 * i)).collect::<Result<Vec<u32>>>()?;
+            let e = k + 13 + 4 * n;
+            let entity = u32_at(world, e)?;
+            let Some(&[on, count]) = world.get(e + 4..e + 6) else { bail!("cut short at {:#x}", e + 4) };
+            Ok(WorldParticleSystem { id, data, entity, on: on != 0, count })
+        };
+        if let Ok(w) = parse() {
+            out.push(w);
+        }
+    }
+    out
+}
+
+/// A `WorldParticleData` body's points (game space): its inline bounds (u32 id, u32 class 4aec3476, min and max
+/// vec3, u32 `?`), u32 n and n positions, u32 m and m normals (0 in every Damascus cell: the instances stand upright).
+/// The points lie on a 6.67 m grid over the cell's streets and roofs.
+pub fn world_particle_points(body: &[u8]) -> Result<Vec<[f32; 3]>> {
+    ensure!(u32_at(body, 4)? == CLASS_PARTICLE_DATA_BOUNDS, "no bounds at 0x4");
+    let n = u32_at(body, 0x24)? as usize;
+    ensure!(n < 100_000, "{n} points at 0x24");
+    let pts = (0..n).map(|i| floats::<3>(body, 0x28 + 12 * i)).collect::<Result<Vec<_>>>()?;
+    let at = 0x28 + 12 * n;
+    let m = u32_at(body, at)? as usize;
+    ensure!(body.len() == at + 4 + 12 * m, "{} bytes after the points at {at:#x}", body.len() - at);
+    Ok(pts)
+}
+
 /// `HumanFXPack` slots (byte offsets into its body, a u32 link each): the FX AC1's code plays.
 pub mod pack {
     /// `FX_Camera_Shake_Assassins_Fall` (`HumanInAir__SetupToGround_Landing` 0xE05940, over 3 m).
@@ -335,6 +436,11 @@ mod tests {
         put(&mut e, 0x23, 1);
         put(&mut e, 0xb1, 30);
         put(&mut e, 0xb5, 300f32.to_bits());
+        put(&mut e, 0xc9, 40);
+        e[0xcd] = 1;
+        e[0x0d] = 1;
+        put(&mut e, 0x219, 0.05f32.to_bits());
+        e[0x218] = 1;
         put(&mut e, 0xc1, (-2f32).to_bits());
         put(&mut e, 0xe6, 0.5f32.to_bits());
         // (The local matrix: identity, 1.6 m down.)
@@ -363,6 +469,9 @@ mod tests {
         let em = &em[0];
         assert_eq!((em.shape, em.flow, em.max_particles, em.rate), (2, FLOW_LOOP, 30, 300.0));
         assert_eq!((em.blend, em.lit), (Blend::Additive, true));
+        assert!(!em.sprite_light() && em.per_key_random && em.kills_below_z_min());
+        assert_eq!(em.view_range, [0, 40]);
+        assert_eq!(em.wind_factor(), 0.05);
         assert_eq!(em.acceleration, [0.0, 0.0, -2.0]);
         assert_eq!(em.phase_min[0], 0.5);
         assert_eq!(em.color[0], [30, 20, 10, 40], "stored B G R A");
@@ -373,6 +482,37 @@ mod tests {
         body.push(0);
         assert!(parse_particle_system(&body).is_err(), "a byte too many");
         assert!(parse_particle_system(&body[..100]).is_err());
+    }
+
+    /// A `World`'s ambient effects and a cell's points, made up as the Damascus data lays them out.
+    #[test]
+    fn world_particle_systems_and_points_read() {
+        let mut w = vec![9u8; 7];
+        for (id, cells, entity) in [(5u32, vec![70u32, 71], 80u32), (6, vec![], 81)] {
+            w.push(0);
+            w.extend(id.to_le_bytes());
+            w.extend(CLASS_WORLD_PARTICLE_SYSTEM.to_le_bytes());
+            w.push(1);
+            w.extend(1u32.to_le_bytes());
+            w.extend((cells.len() as u32).to_le_bytes());
+            cells.iter().for_each(|c| w.extend(c.to_le_bytes()));
+            w.extend(entity.to_le_bytes());
+            w.extend([1, 10]);
+        }
+        let s = world_particle_systems(&w);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0], WorldParticleSystem { id: 5, data: vec![70, 71], entity: 80, on: true, count: 10 });
+        assert_eq!((s[1].entity, s[1].data.len()), (81, 0));
+        let mut b = 3u32.to_le_bytes().to_vec();
+        b.extend(CLASS_PARTICLE_DATA_BOUNDS.to_le_bytes());
+        b.extend([0u8; 28]);
+        b.extend(2u32.to_le_bytes());
+        for v in [160.0f32, 228.0, 0.25, 166.5, 228.0, 0.5] {
+            b.extend(v.to_le_bytes());
+        }
+        b.extend(0u32.to_le_bytes());
+        assert_eq!(world_particle_points(&b).unwrap(), vec![[160.0, 228.0, 0.25], [166.5, 228.0, 0.5]]);
+        assert!(world_particle_points(&b[..b.len() - 1]).is_err());
     }
 
     #[test]
@@ -405,6 +545,7 @@ mod tests {
             return;
         }
         let (mut n, mut ok, mut placed) = (0, 0, 0);
+        let (mut cells, mut cells_ok, mut points, mut ambient) = (0, 0, 0, vec![]);
         for file in ["DataPC.forge", "DataPC_Damascus.forge"] {
             let forge = crate::Forge::open(dir.join(file)).unwrap();
             let datas: Vec<Vec<u8>> = forge.entries.iter().filter_map(|e| forge.read(e).ok()).collect();
@@ -417,13 +558,27 @@ mod tests {
                         Ok(_) => ok += 1,
                         Err(e) => eprintln!("{file}: {}: {e:#}", o.name),
                     }
+                } else if o.class == CLASS_WORLD_PARTICLE_DATA {
+                    cells += 1;
+                    match world_particle_points(o.body) {
+                        Ok(p) => (cells_ok, points) = (cells_ok + 1, points + p.len()),
+                        Err(e) => eprintln!("{file}: {}: {e:#}", o.name),
+                    }
+                } else if o.class == crate::world::CLASS_WORLD {
+                    ambient.extend(world_particle_systems(o.body));
                 } else if file.contains("Damascus") && !shown_systems(o.body, |id| systems.contains(&id)).is_empty() {
                     placed += 1;
                 }
             }
         }
         eprintln!("particle systems {ok}/{n}; Damascus objects showing one: {placed}");
+        eprintln!("world particle data {cells_ok}/{cells} ({points} points); ambient effects {}", ambient.len());
         assert_eq!(ok, n);
+        assert_eq!(cells_ok, cells);
+        assert!(cells > 100 && points > 1000, "{cells} {points}");
+        assert_eq!(ambient.len(), 10, "Damascus: four countryside quarters, three districts, three masters'");
+        assert!(ambient.iter().all(|a| a.on && a.count == 10));
+        assert_eq!(ambient.iter().map(|a| a.data.len()).sum::<usize>(), 230);
         assert!(n >= 405, "{n}");
         assert!(placed >= 300, "{placed}");
     }

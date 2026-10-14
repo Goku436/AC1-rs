@@ -1347,10 +1347,17 @@ pub fn locomotion(
                 ch.exit_fade = Some((ch.anim_pose.clone(), 0.2, 0.2));
                 ch.wall = None;
             }
-            if std::mem::take(&mut ctl.wall_legs) {
+            // (The legs pressed, or held free running on a beam: AC1's event 15 reads the legs held, Banned445's port 5bc1034.)
+            let beam_legs = ctl.free_run && ch.wall.as_ref().is_some_and(|w| w.beam_walk().is_some());
+            let pressed = std::mem::take(&mut ctl.wall_legs);
+            if pressed || beam_legs {
                 // Walking a beam in high profile, the stick within 60 degrees of the way: run up a wall ahead (AC1's narrow
                 // object's event 15, before the jump; audit NARROW-11).
-                let run = ch.wall.as_ref().and_then(|w| w.beam_walk()).filter(|(d, _)| ctl.high && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(*d) >= 0.5);
+                let run = ch
+                    .wall
+                    .as_ref()
+                    .and_then(|w| w.beam_walk())
+                    .filter(|(d, _)| ctl.high && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(*d) >= crate::climb::BEAM_WALL_RUN_COS);
                 let pose = Some(ch.anim_pose.clone());
                 if let Some((d, v)) = run
                     && level
@@ -1359,13 +1366,14 @@ pub fn locomotion(
                     && let Some(w) = crate::climb::WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d * v.max(1.0), pose)
                 {
                     ch.wall = Some(w);
-                } else if let Some(d) = ch.wall.as_ref().and_then(|w| w.leaning()).filter(|_| ctl.high)
+                } else if pressed
+                    && let Some(d) = ch.wall.as_ref().and_then(|w| w.leaning()).filter(|_| ctl.high)
                     && let Some(w) = crate::climb::WallClimb::wall_run_led_in(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d, Some(ch.anim_pose.clone()))
                 {
                     // Leaning on a wall in high profile: the legs run up it, after AC1's Ground lead-in (event 49 in the
                     // lean, 0xDA6FF0, Banned445's port a14bd2c).
                     ch.wall = Some(w);
-                } else if let Some(w) = &mut ch.wall {
+                } else if pressed && let Some(w) = &mut ch.wall {
                     w.legs(lib, &level, &tf, ctl.climb_dir);
                 }
             }
@@ -1505,12 +1513,11 @@ pub fn locomotion(
                     // audit NARROW-2.)
                     // (Not a beam in a floor, a roof's edge or a seam, floor level beside it: AC1 lands and walks on; ours
                     // crouched across a roof's rim beam.)
+                    // (AC1's free-step arrival test, `sub_116D960`: no floor within 0.5 m under the top either side, no wall
+                    // beside it.)
                     let lone = |i: usize| {
                         let l = &level.perches[i];
-                        let axis = l.axis().with_y(0.0).normalize_or_zero();
-                        let q = l.closest(tf.translation);
-                        let side = axis.cross(Vec3::Y);
-                        axis == Vec3::ZERO || [side, -side].iter().all(|s| level.ground(q + *s * 0.35 + Vec3::Y * 0.2, 0.0, 0.5).is_none())
+                        level.beam_catch_clear(l.closest(tf.translation), l.axis())
                     };
                     if w.last_clip.as_deref().is_some_and(|n| n.contains("freestep_entry"))
                         && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some_and(|(i, _)| lone(i))

@@ -1088,6 +1088,12 @@ const BEAM_BACK_COS: f32 = -0.707;
 const BEAM_JUMP_ON_LEFT: f32 = 2.0;
 /// Ground this near a perch's line (m) is the perch itself, not ground to step off onto.
 const PERCH_OWN: f32 = 0.35;
+/// A top is room to stand on when the body's capsule there is pushed out of walls no further than this (m).
+const TOP_ROOM_PUSH: f32 = 0.05;
+/// AC1 searches this far past a beam's end for the drop edge it leaps from (`sub_F72FD0`'s 1.25 m, Banned445's port; m).
+const BEAM_DROP_SEARCH: f32 = 1.25;
+/// The wall run off a beam: the stick within 60 degrees of the walk (the narrow object's event 15, Banned445's port).
+pub const BEAM_WALL_RUN_COS: f32 = 0.5;
 /// Stepping off a perch onto ground ahead: the speed it walks (or, free running, runs) off at (m/s).
 const PERCH_OFF_WALK: f32 = 1.9;
 const PERCH_OFF_RUN: f32 = 5.2;
@@ -1390,6 +1396,9 @@ pub struct WallClimb {
     /// The foot the next free-step jump takes off from (the last one's reception lands on the other, so they alternate).
     pub freestep_left: bool,
     cycle: Option<Cycle>,
+    /// Stopped by a wall at a beam's end free running (the way and the speed): AC1's walk holds on there, and the legs
+    /// held run up the wall (the narrow object's event 15).
+    beam_wall: Option<(Vec3, f32)>,
     /// Ladder being climbed.
     ladder: Option<usize>,
     /// On a kiosk's counter (`HumanKiosk`).
@@ -3113,6 +3122,7 @@ impl WallClimb {
             beam_stance: None,
             freestep_left: true,
             cycle: None,
+            beam_wall: None,
             ladder: None,
             kiosk: None,
             mirrored: false,
@@ -3362,7 +3372,7 @@ impl WallClimb {
         // (Arriving within reach of a beam, onto the beam: AC1's free-step arrival test (0xE0B890, as Banned445's port reads
         // it) puts the root on the nearest beam in a box round the feet. Off the bureau's roof south-west the running game
         // came down 0.36 m beside the beam along the next roof's edge, stood on it and walked it.)
-        if !at_hold && let Some((_, q)) = level.perch_at(to, BEAM_ARRIVE) {
+        if !at_hold && let Some((_, q)) = level.perch_at(to, BEAM_ARRIVE).filter(|(i, q)| level.beam_catch_clear(*q, level.perches[*i].axis())) {
             to = q;
         }
         let aim = (to - p).with_y(0.0).normalize_or(dir);
@@ -5166,7 +5176,7 @@ impl WallClimb {
 
     /// Walking a beam: the way and speed walked (AC1's narrow object's Walk, where the legs can run up a wall ahead).
     pub fn beam_walk(&self) -> Option<(Vec3, f32)> {
-        self.perch.and(self.cycle.as_ref()).map(|cy| (cy.dir, cy.v))
+        self.perch.and(self.cycle.as_ref()).map(|cy| (cy.dir, cy.v)).or(self.perch.and(self.beam_wall))
     }
 
     /// Does a press of the legs act as on the ground (a stop at an edge, leaning on a wall), not as a wall move? (Stopped
@@ -5399,8 +5409,11 @@ impl WallClimb {
             return false;
         };
         let h = top.point.y - p.y;
-        // (Room to stand on it.)
-        if level.raycast(top.point + Vec3::Y * 0.1, Vec3::Y, 1.6).is_some() {
+        // (Room to stand on it: nothing over it, and the body's capsule clear of any wall there. A Damascus drum's plinth,
+        // 0.3 m deep against the drum's wall, was climbed onto and stood on with the body half in the wall: user report
+        // 2026-10-13, the online friend "inside walls". A haystack's rim stands by its heap, which is not a wall.)
+        let on_hay = level.haystacks.iter().any(|hs| (hs.centre - top.point).with_y(0.0).length() < hs.half + 0.3 && (top.point.y - hs.top()).abs() < 0.3);
+        if level.raycast(top.point + Vec3::Y * 0.1, Vec3::Y, 1.6).is_some() || (!on_hay && level.capsule_push(top.point).length() > TOP_ROOM_PUSH) {
             return false;
         }
         let mix = ((h - LEAN_MIN_HEIGHT) / (LEAN_TALL - LEAN_MIN_HEIGHT)).clamp(0.0, 1.0);
@@ -5682,10 +5695,16 @@ impl WallClimb {
         root.translation = root.translation.lerp(q, 1.0 - (-10.0 * dt).exp());
         let dir = self.move_dir.with_y(0.0);
         if dir.length() < 0.3 {
+            self.beam_wall = None;
             return;
         }
         let dir = dir.normalize();
         let axis = line.axis();
+        // (Held at a wall a beam runs into, free running on into it: waiting on the legs' wall run, nothing else.)
+        if self.beam_wall.is_some_and(|(d, _)| self.sprint && dir.dot(d) >= BEAM_WALL_RUN_COS) {
+            return;
+        }
+        self.beam_wall = None;
         // On a beam, crouched: turn round on it, or to face across it and back (AC1's beam turns), before walking or
         // jumping that way.
         if axis != Vec3::ZERO && self.beam_turn(lib, root, dir, axis) {
@@ -5917,10 +5936,17 @@ impl WallClimb {
         // (In every profile: AC1's `ConstrainRootMotionToBeam` holds the root 0.3 m short of a free end; free running, the
         // jump on takes off from there, audit NARROW-19. Ours ran to the very end first.)
         if !beyond && (end - q).with_y(0.0).dot(cy.dir) < BEAM_END_STOP {
-            let dir = cy.dir;
+            let (dir, v) = (cy.dir, cy.v);
+            // (Free running leaps off the end only where it ends at a drop (AC1's `BeamRunsAlong` 0xF78F00: the root within
+            // 0.4 m of the drop edge found past the end, `sub_F72FD0`; Banned445's port 98b75f7). A beam running into a wall
+            // has none: the walk holds at the end, and the legs held run up the wall (event 15). Ours leapt straight up into
+            // a balcony's floor off a beam run into its front.)
+            let walled = level.raycast(q + Vec3::Y * 1.0, dir, BEAM_END_STOP + BEAM_DROP_SEARCH).is_some_and(|h| h.normal.y.abs() < 0.5);
             if self.sprint {
                 root.translation = q;
-                if self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir) {
+                if walled {
+                    self.beam_wall = Some((dir, v));
+                } else if self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir) {
                     return;
                 }
             }
@@ -9189,6 +9215,8 @@ impl WallClimb {
         // Onto a post or beam: balance on it.
         if damage == 0.0
             && let Some((i, q)) = level.perch_inside(ground.point, PERCH_REACH)
+            // (AC1's air catch onto a beam, `sub_116D960`: not with a floor just beside it or a wall over it.)
+            && level.beam_catch_clear(q, level.perches[i].axis())
             && let (Some(impact), Some(recover)) = (lib.get(PERCH_LAND[0]), lib.get(PERCH_LAND[1]))
         {
             self.perch = Some(i);

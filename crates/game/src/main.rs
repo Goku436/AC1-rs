@@ -66,7 +66,7 @@
 //! holds and the city meshes near a point (AC1_PROP_STATS=1: every mesh a city places, by kind and what became of it); AC1_GRAB_AUDIT=file.tsv writes the authored guidance against ours' holds
 //! (`grab_audit`). Online: AC1_HOST=port / AC1_JOIN=ip:port (start a session, as the F10 menu
 //! does), AC1_RECORD_REPLAY=1 (record a replay from the start), AC1_REPLAY=<file> (play one back; AC1_REPLAY_VIEW,
-//! AC1_REPLAY_FRAMES=dir with AC1_REPLAY_FROM / _TO renders it, see `replay`). Settings: AC1_SETTINGS=<file> (read and
+//! AC1_REPLAY_FRAMES=dir with AC1_REPLAY_FROM / _TO renders it, AC1_REPLAY_SCAN=1 logs the frames with a body in a wall, see `replay`). Settings: AC1_SETTINGS=<file> (read and
 //! write that settings file, scripted runs too), AC1_NO_SETTINGS=1 (the defaults), AC1_MENU=graphics|online (open a menu
 //! from the start, for screenshots).
 
@@ -506,6 +506,7 @@ fn main() {
                 .run_if(resource_exists::<replay::Replay>),
         )
         .add_systems(Update, (replay::camera, replay::render).chain().after(camera_follow).run_if(resource_exists::<replay::Replay>))
+        .add_systems(Update, replay::scan.run_if(resource_exists::<replay::Replay>))
         // The robe needs the bones' world transforms of this frame.
         .add_systems(PostUpdate, robe::robe_cloth.after(bevy::transform::TransformSystems::Propagate))
         .add_systems(First, wind::advance)

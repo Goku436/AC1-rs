@@ -59,7 +59,7 @@ const SOURCES: &[&str] = &[
 
 /// Env switches that change what a city's build gives: each value makes its own cache file. (`AC1_BIND_PROPS` leaves
 /// skinned props in their bind pose, which moves their holds, beams and haystacks.)
-pub(crate) const VARIANT_ENV: &[&str] = &["AC1_COLLISION", "AC1_GEOMETRY_HOLDS", "AC1_PAIRED_BEAMS", "AC1_NO_LIPS", "AC1_POSE_PROPS", "AC1_BIND_PROPS"];
+pub(crate) const VARIANT_ENV: &[&str] = &["AC1_COLLISION", "AC1_GEOMETRY_HOLDS", "AC1_OLD_BEAMS", "AC1_NO_LIPS", "AC1_POSE_PROPS", "AC1_BIND_PROPS"];
 
 /// Env switches whose output comes from building the city (debug meshes drawn, logs while placing): with one set the
 /// cache is not used.

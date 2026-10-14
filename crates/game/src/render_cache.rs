@@ -27,7 +27,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// Bump when code outside `SOURCES` changes what is found to draw, or the payload's layout changes.
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 const MAGIC: &[u8; 8] = b"AC1DRAWN";
 
@@ -53,7 +53,7 @@ const SOURCES: &[&str] = &[
 
 /// Env switches that change what is found to draw (a skinned prop's pose follows its collision, `AC1_COLLISION`;
 /// `AC1_BIND_PROPS`; `AC1_PLAIN_CITY` drops the city shader).
-const VARIANT_ENV: &[&str] = &["AC1_COLLISION", "AC1_GEOMETRY_HOLDS", "AC1_PAIRED_BEAMS", "AC1_NO_LIPS", "AC1_POSE_PROPS", "AC1_BIND_PROPS", "AC1_PLAIN_CITY"];
+const VARIANT_ENV: &[&str] = &["AC1_COLLISION", "AC1_GEOMETRY_HOLDS", "AC1_OLD_BEAMS", "AC1_NO_LIPS", "AC1_POSE_PROPS", "AC1_BIND_PROPS", "AC1_PLAIN_CITY"];
 
 const KIND: CacheKind = CacheKind { ext: "draw", version: VERSION, sources: SOURCES, variant_env: VARIANT_ENV };
 
@@ -233,6 +233,11 @@ pub fn write_draw(d: &CityDraw) -> Vec<u8> {
         write_mat4(w, m);
         w.u32(*id);
     });
+    w.vec(&effects.ambient, |w, a| {
+        w.u32(a.system);
+        w.u32(a.count as u32);
+        w.vec(&a.points, |w, p| p.to_array().iter().for_each(|v| w.f32(*v)));
+    });
     w.0
 }
 
@@ -302,7 +307,15 @@ pub fn read_draw(d: &[u8]) -> Result<CityDraw> {
         effects.systems.insert(id, (name, body));
     }
     effects.placed = r.vec(68, |r| Ok((read_mat4(r)?, r.u32()?)))?;
-    ensure!(effects.placed.iter().all(|p| effects.systems.contains_key(&p.1)), "render cache: an effect's particle system is not held");
+    effects.ambient = r.vec(12, |r| {
+        let (system, count) = (r.u32()?, r.u32()?.min(255) as u8);
+        let points = r.vec(12, |r| Ok(Vec3::new(r.f32_raw()?, r.f32_raw()?, r.f32_raw()?)))?;
+        Ok(crate::particles::Ambient { system, count, points })
+    })?;
+    ensure!(
+        effects.placed.iter().map(|p| p.1).chain(effects.ambient.iter().map(|a| a.system)).all(|id| effects.systems.contains_key(&id)),
+        "render cache: an effect's particle system is not held"
+    );
     ensure!(r.p == d.len(), "render cache has {} bytes past its end at {:#x}", d.len() - r.p, r.p);
     // (What the indices point into.)
     let ids: std::collections::HashSet<u32> = textures.iter().map(|t| t.0).collect();
@@ -359,6 +372,7 @@ mod tests {
                 forge_file: String::new(),
                 systems: [(5, ("GFX_Object_Water".to_string(), vec![1, 2]))].into_iter().collect(),
                 placed: vec![(Mat4::from_translation(Vec3::X), 5)],
+                ambient: vec![crate::particles::Ambient { system: 5, count: 10, points: vec![Vec3::new(1.0, 2.0, -3.0)] }],
             },
         }
     }
@@ -372,6 +386,7 @@ mod tests {
         assert_eq!(back.fake_jobs, sample().fake_jobs);
         assert_eq!(back.effects.placed, sample().effects.placed);
         assert_eq!(back.effects.systems, sample().effects.systems);
+        assert_eq!(back.effects.ambient, sample().effects.ambient);
         assert!(back.instances[0].levels[2].until.is_infinite());
     }
 

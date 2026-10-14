@@ -29,6 +29,8 @@ fn main() -> Result<()> {
                 continue;
             }
             println!("== {} ({:08x}, {})", o.name, o.id, e.name);
+            let tail = &o.body[o.body.len().saturating_sub(28)..];
+            println!("   factors (the last 28 bytes): {}", tail.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" "));
             match forge::fx::parse_particle_system(o.body) {
                 Ok(ems) => {
                     for (k, em) in ems.iter().enumerate() {
