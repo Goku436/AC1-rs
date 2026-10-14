@@ -42,6 +42,11 @@ pub struct LayerControls {
     pub eye_color: Vec4,
     /// Whether the diffuse, specular, ramp and multiply maps are sRGB textures (1) or linear (0): set by `apply_looks`.
     pub srgb: Vec4,
+    /// The NPC styles' colours: a mask's `Color_R`, `Color_G`, `Color_B`; an arm's `SkinColor` (first); hair's
+    /// `HairColor` and `HairSpecular` (first two).
+    pub tint: [Vec4; 3],
+    /// The NPC styles' dirt: a mask's `Dirt` and `DirtIntensity` (w), an arm's `Dirt_Color` (w 1).
+    pub dirt: Vec4,
 }
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
@@ -88,6 +93,10 @@ fn style_index(s: Style) -> u32 {
         Style::Skin => 2,
         Style::Fresnel => 3,
         Style::Eye => 4,
+        Style::Mask { .. } => 5,
+        Style::Arms => 6,
+        Style::Head => 7,
+        Style::Hair => 8,
     }
 }
 
@@ -111,6 +120,21 @@ pub fn controls(m: &GameMaterial, style: Style) -> LayerControls {
         Vec4::new(l.red, l.green, l.blue, l.alpha)
     };
     let eye = style == Style::Eye;
+    // The NPC styles' colours (a mask's channels past its template's count left white: no tint).
+    let tint = match style {
+        Style::Mask { channels, .. } => {
+            let c = |n: u8, name: &str| if channels >= n { color(name) } else { Vec4::ONE };
+            [c(1, "Color_R"), c(2, "Color_G"), c(3, "Color_B")]
+        }
+        Style::Arms => [color("SkinColor"), Vec4::ONE, Vec4::ONE],
+        Style::Hair => [color("HairColor"), color("HairSpecular"), Vec4::ONE],
+        _ => [Vec4::ONE; 3],
+    };
+    let dirt = match style {
+        Style::Mask { .. } => color("Dirt").truncate().extend(scalar("DirtIntensity", 1.0)),
+        Style::Arms => color("Dirt_Color").truncate().extend(1.0),
+        _ => Vec4::ZERO,
+    };
     LayerControls {
         multiply: color("MultiplyColor") * scalar("MultiplyColorValue", 1.0),
         specular: color("SpecularColor"),
@@ -118,15 +142,20 @@ pub fn controls(m: &GameMaterial, style: Style) -> LayerControls {
             if eye { by_id(EYE_POWER, 100.0) } else { scalar("SpecularPower", 1.0) },
             match style {
                 Style::Eye => by_id(EYE_STRENGTH, 10.0),
-                Style::InsideCloth => 0.0,
+                Style::InsideCloth | Style::Mask { specular: false, .. } => 0.0,
+                // (The arms' and heads' strength is their specular map's.)
+                Style::Arms | Style::Head => 1.0,
                 _ => scalar("SpecularFactor", 1.0),
             },
-            m.scalar("Rim_Power").or(m.scalar("RimPower")).unwrap_or(0.0),
+            // (The masks' rim has a fixed power in their shaders.)
+            if matches!(style, Style::Mask { .. }) { 0.7 } else { m.scalar("Rim_Power").or(m.scalar("RimPower")).unwrap_or(0.0) },
             scalar("Fresnel", 1.0),
         ),
         options: Vec4::new(style_index(style) as f32, scalar("SpecularTiling", 1.0), scalar("NormalMapBlend", 0.0), by_id(EYE_COLOR_BLEND, 0.0)),
         eye_color: color("EyeColor"),
         srgb: Vec4::ZERO,
+        tint,
+        dirt,
     }
 }
 
