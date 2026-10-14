@@ -292,6 +292,13 @@ pub struct Level {
     pub(crate) grid: FastMap<(i32, i32), Vec<u32>>,
     /// Triangles too big for the grid (the ground plane around the test area), tested by every raycast.
     pub(crate) big: Vec<u32>,
+    /// The edges AC1's foot-level edge reports come from (`crate::edge_report`), and their index by cell; made with the
+    /// raycast grid.
+    pub(crate) report_edges: Vec<Ledge>,
+    pub(crate) report_grid: FastMap<(i32, i32), Vec<u32>>,
+    /// The holds by cell (`crate::ledge_grid`), made with the raycast grid, and how many holds it was made for.
+    pub(crate) hold_grid: crate::ledge_grid::LedgeGrid,
+    pub(crate) hold_grid_len: usize,
     /// Where the player starts and a loop for a crowd, when the level says (a city).
     pub spawn: Option<Vec3>,
     pub crowd_path: Option<Vec<Vec3>>,
@@ -379,6 +386,10 @@ impl Level {
             }
         }
         debug!("level: {} triangles too big for the grid", self.big.len());
+        self.report_edges = crate::edge_report::report_edges(self);
+        self.report_grid = crate::edge_report::report_grid(&self.report_edges);
+        self.hold_grid = crate::ledge_grid::LedgeGrid::new(&self.ledges);
+        self.hold_grid_len = self.ledges.len();
     }
 
     pub fn raycast(&self, origin: Vec3, dir: Vec3, max: f32) -> Option<Hit> {
