@@ -139,7 +139,13 @@ pub struct PendingLook {
     pub normal: Option<Handle<Image>>,
     /// The second draw of two-sided cloth: its back faces, with the inside material.
     pub inside: bool,
+    /// Its base material is shared by every character of its model (`character::SharedParts`): so is the character
+    /// material made from it.
+    pub shared: bool,
 }
+
+/// The character materials made for shared parts, by (base material, inside).
+type SharedSurfaces = std::collections::HashMap<(AssetId<StandardMaterial>, bool), Handle<CharacterSurface>>;
 
 /// Swap each pending part's `StandardMaterial` for the character material built on it.
 fn apply_looks(
@@ -149,6 +155,7 @@ fn apply_looks(
     mut surfaces: ResMut<Assets<CharacterSurface>>,
     images: Res<Assets<Image>>,
     look: Res<crate::look::Look>,
+    mut made: Local<SharedSurfaces>,
 ) {
     let srgb = |h: &Option<Handle<Image>>| -> f32 {
         h.as_ref().and_then(|h| images.get(h)).map_or(0.0, |i| if i.texture_descriptor.format.is_srgb() { 1.0 } else { 0.0 })
@@ -156,6 +163,11 @@ fn apply_looks(
     use bevy::render::render_resource::Face;
     let world = *look;
     for (e, mat, look) in &parts {
+        // (A shared part's material, made for another character of its model already.)
+        if let Some(h) = made.get(&(mat.0.id(), look.inside)).filter(|_| look.shared) {
+            commands.entity(e).remove::<(MeshMaterial3d<StandardMaterial>, PendingLook)>().insert(MeshMaterial3d(h.clone()));
+            continue;
+        }
         let Some(base) = standard.get(&mat.0) else { continue };
         let mut base = base.clone();
         if let Some(d) = &look.diffuse {
@@ -174,6 +186,9 @@ fn apply_looks(
         ext.controls.srgb = Vec4::new(srgb(&base.base_color_texture), srgb(&ext.specular_map), srgb(&ext.ramp), srgb(&ext.multiply_map));
         ext.look = world.world;
         let handle = surfaces.add(CharacterSurface { base, extension: ext });
+        if look.shared {
+            made.insert((mat.0.id(), look.inside), handle.clone());
+        }
         commands.entity(e).remove::<(MeshMaterial3d<StandardMaterial>, PendingLook)>().insert(MeshMaterial3d(handle));
     }
 }

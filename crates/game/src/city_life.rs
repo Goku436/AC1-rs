@@ -367,6 +367,8 @@ pub struct Life {
     next_check: f32,
     next_log: f32,
     spawned: usize,
+    /// The GPU's copies of each model's parts, by (kind, variant, militia): shared by its people.
+    shared: HashMap<(usize, usize, bool), crate::character::SharedParts>,
 }
 
 /// A person of the city.
@@ -746,9 +748,13 @@ fn populate(
         if n == 0 {
             continue;
         }
-        let b = life.kinds[k].variants[life.spawned % n].clone();
+        let variant = life.spawned % n;
+        let b = life.kinds[k].variants[variant].clone();
         life.spawned += 1;
-        let mut data = b.data.clone();
+        // (The GPU's copies of the model's parts are shared by everyone of it: once they are made, only what the body
+        // needs is copied, not its meshes and textures again.)
+        let shared = life.shared.entry((k, variant, militia)).or_insert_with(|| crate::character::SharedParts::new(true));
+        let mut data = if shared.made() { light_copy(&b.data) } else { b.data.clone() };
         let set = crate::npc::anim_set_of(&b.concrete);
         if militia {
             if life.sword.is_none() {
@@ -778,7 +784,9 @@ fn populate(
         let (p, dir) = c.spot(&map);
         let mut tf = Transform::from_translation(p).with_scale(Vec3::splat(b.scale));
         place(&mut tf, &level, p, dir);
-        let e = crate::character::spawn_character(&mut commands, data, tf.translation, &mut meshes, &mut mats, &mut images, &mut bindposes, anim, rig_id);
+        let assets = (&mut *meshes, &mut *mats, &mut *images, &mut *bindposes);
+        let shared = life.shared.get_mut(&(k, variant, militia));
+        let e = crate::character::spawn_character_shared(&mut commands, data, tf.translation, assets, anim, rig_id, shared);
         if militia {
             c.side_want = 0.0;
             let hp = env_usize("AC1_GUARD_HP", 3) as i32;
@@ -803,6 +811,38 @@ fn populate(
         live += 1;
     }
     life.rng = Some(rng);
+}
+
+/// A model's data for a body whose parts' GPU copies are made already (`SharedParts`): everything but the meshes (the
+/// cloth's kept, it is simulated per body) and textures.
+fn light_copy(d: &CharacterData) -> CharacterData {
+    let cloth = d.cloth.as_ref().map(|c| c.mesh.as_str());
+    let parts = d
+        .parts
+        .iter()
+        .map(|p| crate::assets::Part {
+            name: p.name.clone(),
+            mesh: if cloth == p.name.split('#').next() { p.mesh.clone() } else { Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, default()) },
+            joints: p.joints.clone(),
+            inverse_binds: p.inverse_binds.clone(),
+            texture: p.texture,
+            normal: p.normal,
+            alpha: p.alpha,
+            material: p.material.clone(),
+            look: p.look.clone(),
+            inside: p.inside.clone(),
+        })
+        .collect();
+    CharacterData {
+        rig: d.rig.clone(),
+        hashes: d.hashes.clone(),
+        parts,
+        textures: HashMap::new(),
+        cloth: d.cloth.clone(),
+        modifiers: d.modifiers.clone(),
+        main_bones: d.main_bones,
+        skeleton_wind: d.skeleton_wind,
+    }
 }
 
 /// Stand a transform at `p` (on the ground under it), facing `dir`.

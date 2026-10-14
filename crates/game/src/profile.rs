@@ -77,7 +77,10 @@ fn gpu_passes(diag: &bevy::diagnostic::DiagnosticsStore) -> Vec<(String, f64)> {
     v
 }
 
-fn report(mut f: ResMut<Frames>, diag: Res<bevy::diagnostic::DiagnosticsStore>) {
+/// The meshes the report counts: seen, skinned, not casting.
+type MeshQuery<'w, 's> = Query<'w, 's, (&'static ViewVisibility, Has<bevy::mesh::skinning::SkinnedMesh>, Has<bevy::light::NotShadowCaster>), With<Mesh3d>>;
+
+fn report(mut f: ResMut<Frames>, diag: Res<bevy::diagnostic::DiagnosticsStore>, meshes: MeshQuery, entities: Query<()>) {
     let now = Instant::now();
     let Some(ws) = f.window_start else { return };
     let secs = (now - ws).as_secs_f32();
@@ -96,6 +99,15 @@ fn report(mut f: ResMut<Frames>, diag: Res<bevy::diagnostic::DiagnosticsStore>) 
             frames as f32 / secs,
             passes.join(", ")
         );
+        // (What there is to draw: meshes, those seen by a view (the camera or a shadow cascade), skinned, casting.)
+        let (mut n, mut seen, mut skinned, mut casters) = (0, 0, 0, 0);
+        for (v, skin, no_shadow) in &meshes {
+            n += 1;
+            seen += v.get() as usize;
+            skinned += skin as usize;
+            casters += (!no_shadow) as usize;
+        }
+        info!("perf: {} entities, {n} meshes, {seen} seen, {skinned} skinned, {casters} casting shadows", entities.iter().len());
         if warm {
             for (p, ms) in gpu {
                 let e = f.gpu_run.entry(p).or_default();
