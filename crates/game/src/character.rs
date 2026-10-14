@@ -1446,6 +1446,13 @@ pub fn locomotion(
                     && let Some(w) = crate::climb::WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d * v.max(1.0), pose)
                 {
                     ch.wall = Some(w);
+                } else if pressed
+                    && let Some(d) = ch.wall.as_ref().and_then(|w| w.leaning()).filter(|_| ctl.high)
+                    && let Some(w) = crate::climb::WallClimb::wall_run_led_in(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d, Some(ch.anim_pose.clone()))
+                {
+                    // Leaning on a wall in high profile: the legs run up it, after AC1's Ground lead-in (event 49 in the
+                    // lean, 0xDA6FF0, Banned445's port a14bd2c).
+                    ch.wall = Some(w);
                 } else if pressed && let Some(w) = &mut ch.wall {
                     w.legs(lib, &level, &tf, ctl.climb_dir);
                 }
@@ -1490,7 +1497,14 @@ pub fn locomotion(
                         // with a ladder on it, onto the ladder).
                         ch.wall = ch.wall.take().or_else(|| {
                             wall_run_now(v, ctl.free_run, &wall_ahead)
-                                .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose()))
+                                .then(|| {
+                                    // (From standing, AC1's Ground lead-in first: `wall_run_led_in`.)
+                                    if v.length() > 0.5 {
+                                        WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose())
+                                    } else {
+                                        WallClimb::wall_run_led_in(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose())
+                                    }
+                                })
                                 .flatten()
                         });
                         // A ladder's foot or top: onto it (before the edge it stands at).
@@ -1498,7 +1512,14 @@ pub fn locomotion(
                         ch.wall = ch.wall.take().or_else(|| WallClimb::ladder(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, ctl.high, lead_left, pose()));
                         ch.wall = ch.wall.take().or_else(|| {
                             wall_run_now(v, ctl.free_run, &wall_ahead)
-                                .then(|| WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose()))
+                                .then(|| {
+                                    // (From standing, AC1's Ground lead-in first: `wall_run_led_in`.)
+                                    if v.length() > 0.5 {
+                                        WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose())
+                                    } else {
+                                        WallClimb::wall_run_led_in(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, run_v, pose())
+                                    }
+                                })
                                 .flatten()
                                 .or_else(|| WallClimb::try_enter(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v.length() > 1.0, lead_left, pose()))
                         });
@@ -2036,6 +2057,31 @@ pub fn locomotion(
                     let side = axis.cross(Vec3::Y);
                     [side, -side].iter().all(|s| level.ground(q + *s * 0.35 + Vec3::Y * 0.2, 0.0, 0.5).is_none())
                 };
+                // (A city's beams are AC1's, open either side: its mount guard (event 72 on the stick past 0.35, 0xD9F4C0,
+                // Banned445's port effaf91 / 98b75f7, MIT): the beam's piece running from its end nearer the feet within 90
+                // degrees of the stick, at any angle, with head room from the feet to the entry 0.5 m on along it (a box
+                // 1.1 m over it, 0.25 m to either side, 0.5 m up and down). Ours took a beam only walking within 30 degrees
+                // of it.)
+                if level.authored_holds && axis != Vec3::ZERO {
+                    let stick = ctl.move_dir.with_y(0.0);
+                    if stick.length() < 0.35 {
+                        return false;
+                    }
+                    let f = stick.normalize();
+                    let feet = tf.translation;
+                    let flat = |p: Vec3| (p - feet).with_y(0.0).length();
+                    let (near, far) = if flat(l.a) <= flat(l.b) { (l.a, l.b) } else { (l.b, l.a) };
+                    if (far - near).with_y(0.0).dot(f) <= 0.0 {
+                        return false;
+                    }
+                    let on = if axis.dot(f) >= 0.0 { axis } else { -axis };
+                    let q = l.closest(feet);
+                    let entry = l.closest(q + on * 0.5);
+                    let delta = (entry - feet).with_y(0.0);
+                    let (dir, half) = if delta.length() > 0.0005 { (delta.normalize(), delta.length() * 0.5) } else { (f, 0.1) };
+                    let centre = (feet + delta * 0.5).with_y(entry.y + 1.1);
+                    return level.box_free(centre, [dir.cross(Vec3::Y), Vec3::Y, dir], Vec3::new(0.25, 0.5, half));
+                }
                 axis == Vec3::ZERO
                     || ((axis.dot(way).abs() > 0.866 || (still && (l.closest(tf.translation) - tf.translation).with_y(0.0).length() < 0.15)) && lone())
                 // (Not running across a beam that ends the floor, a step down past it: AC1 runs over it as ground and

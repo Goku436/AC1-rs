@@ -510,6 +510,8 @@ const EASE_TURN: f32 = 0.25;
 /// Wall run: the steps up the wall, and its ending when nothing is in reach.
 const WALL_RUN: [&str; 3] = ["xx_h_wallingfront_entry_footl_a", "xx_h_wallingfront_entry_footl_b", "xx_h_wallingfront_step1_footr"];
 const WALL_RUN_FALL: &str = "xx_h_wallingfront_step1_footr_tr_fall";
+/// The Ground's lead-in into the wall run from standing (action 0x02F4B310).
+const WALL_RUN_LEAD_IN: &str = "xx_h_impultionstraight_footl_to_wallingfront_step1_footr";
 /// How fast the wall run's kick off the top carries him away from the wall (m/s; `xx_h_rebound_footr_tr_fall`'s root).
 /// (AC1 averaged 2.3 m/s off the top of `wall0`, landing 0.65 m out; ours at 1.7 landed 0.45 m out: audit WALL-7.)
 const REBOUND_OFF_SPEED: f32 = 2.3;
@@ -518,11 +520,13 @@ const REBOUND_DROP_SPEED: f32 = 6.4;
 /// The wall run's top with nothing to grab and the legs held: the kick off backwards (AC1, seen in the running game).
 const WALL_RUN_REBOUND: [&str; 3] =
     ["xx_h_wallingfront_step1_footr_tr_rebound_footr_a", "xx_h_wallingfront_step1_footr_tr_rebound_footr_b", "xx_h_rebound_footr_tr_fall"];
-/// A wall run's rebound to the side goes at most this far off straight back (rad, 89 degrees); with no target it flies
-/// to `REBOUND_FAR` out and `REBOUND_FAR_DOWN` down (AC1's fallback).
+/// A wall run's rebound to the side goes at most this far off straight back (rad, 89 degrees).
 const REBOUND_SIDE_MAX: f32 = 1.553_343;
+/// The wall run's push off is straight back with the stick within this of the facing, into the wall (rad; 50 degrees,
+/// the interpreter's walling state 0xEE05E0).
+const REBOUND_STRAIGHT_BACK: f32 = 50.0 * std::f32::consts::PI / 180.0;
+/// With no target the wall run's rebound flies at this far out (m) and `EJECT_FREE_DOWN` down (AC1's fallback, 0xE365C0).
 const REBOUND_FAR: f32 = 7.0;
-const REBOUND_FAR_DOWN: f32 = 3.0;
 /// Sprinting at a wall closer than this (m) runs up it.
 pub const WALL_RUN_REACH: f32 = 2.0;
 /// A wall met up to this far off square (rad, 60°) is run up, turning to face it.
@@ -782,6 +786,20 @@ const BAR_JUMP_RISE: std::ops::RangeInclusive<f32> = 0.5..=4.0;
 const PERCH_BAR_RISE: std::ops::RangeInclusive<f32> = -0.5..=3.0;
 /// An eject pressed while it cannot start yet is kept this long (s; AC1's Legs buffer).
 const EJECT_WAIT: f32 = 0.3;
+/// A jump off a wall hang to the right lowers the root this far (m) over the rebound pose, at 45 degrees off straight
+/// away (0xDD2CA0).
+const REBOUND_LOWER: f32 = 0.3;
+/// The Ledge's entries other than the wall run's wall-hang catch take the jump off only in their first quarter
+/// (0xDCBF00: the playing action's normalised time under 0.25).
+const ENTRY_EJECT_SHARE: f32 = 0.25;
+/// The body's capsule moves through the air in steps no longer than this (m), not to pass through a thin wall.
+const CAPSULE_STEP: f32 = 0.15;
+/// The side jump's clearance capsule's radius (m; 0xDDDF85).
+const SIDE_JUMP_R: f32 = 0.35;
+/// A jump held back from its path this far in all (m) by what its capsule meets falls from there, its speed along kept
+/// to this share (Banned445's port: `JUMP_BLOCKED_LAG`, the 30 % has no game source).
+const JUMP_BLOCKED_LAG: f32 = 0.6;
+const JUMP_BLOCKED_KEEP: f32 = 0.3;
 
 /// A running jump at a wall's ledge this fast or faster (m/s) is received hard (`_max`, swinging in), else softly.
 const JUMP_RECEPTION_HARD_SPEED: f32 = 5.0;
@@ -869,10 +887,29 @@ const BEAM_CLIMB_AHEAD: f32 = 0.95;
 const BEAM_CLIMB_SIDE: f32 = 0.8;
 /// Running jumps are steered onto a perch they would land within this of.
 const PERCH_MAGNET: f32 = 1.2;
-/// With no target, the free step off a beam goes when there is a floor this far on (m), at most `PERCH_FREE_STEP_DROP`
-/// below.
-const PERCH_FREE_STEP_ON: [f32; 3] = [2.0, 2.5, 3.0];
-const PERCH_FREE_STEP_DROP: f32 = 1.2;
+/// AC1's free jump off a narrow object (`Human__BuildFreeJumpTarget` 0xB1E7F0 by the interpreter's mode, Banned445's
+/// port): over a drop of at most `FREE_JUMP_NEAR_DROP` (m) off a beam, `FREE_JUMP_NEAR` m on (mode 2); else
+/// `EJECT_FREE_ALONG` (mode 0); down to the drop's floor and `FREE_JUMP_UNDER` m more, at most `EJECT_FREE_DOWN`.
+const FREE_JUMP_NEAR_DROP: f32 = 1.0;
+const FREE_JUMP_NEAR: f32 = 3.0;
+const FREE_JUMP_UNDER: f32 = 0.25;
+/// A post's wait leans fully at this angle of the stick off the facing (rad), the lean following it at this rate (/s).
+const POST_LEAN_FULL: f32 = 2.094_395_2;
+const POST_LEAN_RATE: f32 = 3.0;
+/// Not free running: a drop edge under this (m) is hopped off (kinds 1 / 2), `LOW_HOP_AHEAD` m on in low profile (mode 1).
+const LOW_HOP_DROP: f32 = 2.0;
+const LOW_HOP_AHEAD: f32 = 1.0;
+/// Along a beam the drop edge at its end counts within this of it (m: `BeamRunsAlong` 0xF78F00).
+const BEAM_RUNS_ALONG: f32 = 0.4;
+/// A free-step target this far under the start (m), the way to it blocked: AC1's beam set of takeoffs and flights
+/// (`Human__UseBeamFreestepJumpVariants` 0xB145B0).
+const BEAM_VARIANT_DROP: f32 = 0.4;
+/// `Human__FindDropEdgeAhead` 0xB1C100 as the narrow interpreter calls it: the edges crossing the stick's vertical plane
+/// from `DROP_EDGE_ALONG.0` to `.1` m ahead and within `DROP_EDGE_UP` m of the feet's height, facing along the stick, with
+/// at least `DROP_EDGE_MIN` m of drop past them.
+const DROP_EDGE_ALONG: (f32, f32) = (-0.3, 1.1);
+const DROP_EDGE_UP: f32 = 0.3;
+const DROP_EDGE_MIN: f32 = 0.5;
 /// AC1's free step with no target: launched this fast on and up (m/s).
 const FREE_STEP_SPEED: f32 = 5.4;
 const FREE_STEP_UP: f32 = 1.0;
@@ -924,8 +961,6 @@ const IMPULSION_TIME: f32 = 0.1;
 /// Topping out into the walk or the jog hands over at their speeds (m/s).
 const TOP_OUT_WALK: f32 = 1.9;
 const TOP_OUT_JOG: f32 = 3.5;
-/// A rebound goes to a side when the stick leans along the wall at least this much.
-const REBOUND_SIDE_MIN: f32 = 0.3;
 /// Running on faster than this (m/s) after a jump, its reception ends once its step is taken.
 const RECEPTION_CUT_SPEED: f32 = 2.0;
 /// The directional grab in the air: the stick more than this far off the facing (cos) and not behind it (cos) searches
@@ -1018,8 +1053,6 @@ const TOP_OUT_EDGE_REACH: f32 = 0.5;
 const TOP_OUT_STAND_BODY: f32 = 0.25;
 /// A steered move bends toward the stick at up to this (rad/s) on top of its clips' own turn.
 const STEER_RATE: f32 = 4.0;
-/// Rebounding off a ladder: speed out from the wall and up (m/s), as the wall run's rebound.
-const LADDER_REBOUND: (f32, f32) = (3.5, 2.5);
 const LADDER_LEAP_REACH: f32 = 0.8;
 /// (The high stand's entry, rising 0.5 m onto the first rungs, in either profile: the running game walked up to ladder 68
 /// in low profile and got on with it; ours' low one rose nothing and climbed a step behind, audit LADDER-2.)
@@ -1291,6 +1324,10 @@ pub struct WallClimb {
     /// The legs pressed for an eject while it could not start (mid-air in a leap between holds): the stick then and how
     /// long it is kept (AC1's Legs buffer).
     eject_wait: Option<(Vec2, f32)>,
+    /// `legs` called again for a press kept in `eject_wait` (not a new press).
+    eject_retry: bool,
+    /// How far (m) walls have held this jump's body back from its path (`update`, `JUMP_BLOCKED_LAG`).
+    air_held: f32,
     /// On a bar: a whole swing has played since the catch (the first upswing alone settles into the still hang).
     swung: bool,
     /// Going over a wall (a passover): the height of its top, which the fall after does not land on (with long frames
@@ -1391,6 +1428,8 @@ pub struct WallClimb {
     /// Stopped by a wall at a beam's end free running (the way and the speed): AC1's walk holds on there, and the legs
     /// held run up the wall (the narrow object's event 15).
     beam_wall: Option<(Vec3, f32)>,
+    /// On a post, the lean of its wait toward the stick (-1 left .. 1 right; AC1's `NarrowObject+372`).
+    post_lean: f32,
     /// Ladder being climbed.
     ladder: Option<usize>,
     /// On a kiosk's counter (`HumanKiosk`).
@@ -1634,6 +1673,21 @@ pub(crate) fn climb_body_free(level: &Level, root: Vec3, fwd: Vec3, side: i32) -
 
 /// AC1's reach capsule (r `REACH_CAPSULE_R`, `REACH_CAPSULE_H` tall from the root) swept from `from` to `to` (roots), facing
 /// `fwd`: the box round the sweep, its rounded ends left out (`REACH_CAPSULE_R` in at the bottom and top), meets nothing.
+/// AC1's side jump's clearance (0xDDDF85): a capsule `SIDE_JUMP_R` round, `tall` m tall, from `root` 0.2625 m back along
+/// the way to `to` and 0.15 m out from the wall (`normal`), swept by the move to `to`, meets nothing (sampled every
+/// `CAPSULE_STEP`).
+fn side_jump_free(level: &Level, root: Vec3, to: Vec3, normal: Vec3, tall: f32) -> bool {
+    let out = normal.with_y(0.0).normalize_or_zero();
+    let u = (to - root).with_y(0.0).normalize_or_zero();
+    let q = root - u * 0.2625 + out * 0.15;
+    let d = to - root;
+    let n = (d.length() / CAPSULE_STEP).ceil().max(1.0) as usize;
+    (0..=n).all(|k| {
+        let c = q + d * (k as f32 / n as f32);
+        level.capsule_free(c + Vec3::Y * SIDE_JUMP_R, c + Vec3::Y * (tall - SIDE_JUMP_R).max(SIDE_JUMP_R), SIDE_JUMP_R)
+    })
+}
+
 fn reach_sweep_free(level: &Level, from: Vec3, to: Vec3, fwd: Vec3) -> bool {
     let right = fwd.cross(Vec3::Y).normalize_or_zero();
     let (lo, hi) = (from.y.min(to.y) + REACH_CAPSULE_R, from.y.max(to.y) + REACH_CAPSULE_H - REACH_CAPSULE_R);
@@ -2327,6 +2381,52 @@ fn jump_airtime() -> f32 {
 /// A running flight's slots as the beam set's (`xx_h_air_<way>_<dist>` -> `xx_h_beam_air_...`), which has only the front
 /// and down flights at 050 and 300 cm: the far ones as 300 cm, the rising ones as the front; weights of one clip summed.
 /// A slot with no beam clip keeps its own.
+/// The free-step takeoff's beam set where AC1 has it (`xx_h_beam_freestep_<front|left|right>_<front|down>_<050|300>cm_*`,
+/// action 0x118DA41A / B); the other clips (550 cm, up, back) stay the free step's own, as in that action.
+fn beam_takeoff(lib: &mut AnimLib, takeoff: &[(String, f32)]) -> Vec<(String, f32)> {
+    takeoff
+        .iter()
+        .map(|(name, w)| {
+            let beam = name.replacen("xx_h_freestep_", "xx_h_beam_freestep_", 1);
+            (if lib.get(&beam).is_some() { beam } else { name.clone() }, *w)
+        })
+        .collect()
+}
+
+/// AC1's drop edge ahead of `pos` along `dir` (`Human__FindDropEdgeAhead` 0xB1C100 with the narrow interpreter's
+/// arguments, Banned445's port): the hold edges crossing the vertical plane along `dir` within `DROP_EDGE_ALONG` and
+/// `DROP_EDGE_UP`, facing along it, not steep, with at least `DROP_EDGE_MIN` of drop past them (measured down from 0.25 m
+/// out); the nearest to the zone's rear. Its drop (m).
+fn drop_edge_ahead(level: &Level, pos: Vec3, dir: Vec3) -> Option<f32> {
+    let f = dir.with_y(0.0).normalize_or_zero();
+    if f == Vec3::ZERO {
+        return None;
+    }
+    let side = f.cross(Vec3::Y);
+    let rear = pos + f * DROP_EDGE_ALONG.0 - Vec3::Y * DROP_EDGE_UP;
+    let near = pos + f * (DROP_EDGE_ALONG.0 + DROP_EDGE_ALONG.1) * 0.5;
+    level
+        .ledges
+        .iter()
+        .filter(|l| (((l.a + l.b) * 0.5) - near).with_y(0.0).length() < 1.0 + l.a.distance(l.b) * 0.5)
+        .filter(|l| l.out.dot(f) >= 0.0 && (l.b.y - l.a.y).abs() < 0.5 * (l.b - l.a).with_y(0.0).length())
+        .filter_map(|l| {
+            let (s0, s1) = ((l.a - pos).dot(side), (l.b - pos).dot(side));
+            if s0 * s1 > 0.0 || (s0 - s1).abs() < 1e-6 {
+                return None;
+            }
+            let x = l.a.lerp(l.b, s0 / (s0 - s1));
+            let along = (x - pos).dot(f);
+            if !(DROP_EDGE_ALONG.0..=DROP_EDGE_ALONG.1).contains(&along) || (x.y - pos.y).abs() > DROP_EDGE_UP {
+                return None;
+            }
+            let drop = level.ground(x + l.out * 0.25 + Vec3::Y * 0.05, 0.0, 10.0).map_or(10.0, |g| x.y - g.point.y);
+            (drop >= DROP_EDGE_MIN).then_some(((x - rear).length_squared(), drop))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, d)| d)
+}
+
 fn beam_flight(lib: &mut AnimLib, flight: &[(String, f32)]) -> Vec<(String, f32)> {
     let mut out: Vec<(String, f32)> = Vec::new();
     for (name, w) in flight {
@@ -2893,6 +2993,16 @@ fn support_search<'a>(level: &'a Level, feet: Vec3, dir: Vec3, facing: Vec3, l: 
         .min_by(|a, b| (a.centre - feet).length().total_cmp(&(b.centre - feet).length()))
 }
 
+/// The ledge let-go's haystack search (IHuman vt84, 0xE17DA0, Banned445's port c8e6b69): (1, 5, 2, 10, -100, -30, 0,
+/// 90 degrees, 0.1).
+const LET_GO_SEARCH: SupportLimits = SupportLimits {
+    across: (1.0, 5.0),
+    along: (2.0, 10.0),
+    rise: (-100.0, -30.0, 0.0),
+    angle: (std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2),
+    bend: 0.1,
+};
+
 fn facing(dir: Vec3) -> Quat {
     Quat::from_rotation_arc(Vec3::NEG_Z, dir.with_y(0.0).normalize_or(Vec3::NEG_Z))
 }
@@ -2917,6 +3027,59 @@ fn eject_way(away: Vec3, input: Vec2) -> Option<Vec3> {
         return Some((away * EJECT_MAX_TURN.cos() + side * EJECT_MAX_TURN.sin()).normalize());
     }
     Some(d)
+}
+
+/// The body's capsule moved by `step` from `p` (in place) in short steps, each pushed out of the walls it touches
+/// (`Level::capsule_push`, AC1's proxy sliding along them); returns the push, zero when nothing was touched.
+/// A jump's takeoff or flight (`*_to_air`, `xx_h_air_*`, `xx_h_beam_air_*`; in a mix too): in the air, the body's capsule
+/// swept along its path (`update`).
+fn in_air_clip(name: &str) -> bool {
+    name.contains("_to_air") || name.contains("xx_h_air_") || name.contains("xx_h_beam_air_")
+}
+
+fn sweep_capsule(level: &Level, p: &mut Vec3, step: Vec3) -> Vec3 {
+    let n = (step.with_y(0.0).length() / CAPSULE_STEP).ceil().max(1.0) as usize;
+    let mut pushed = Vec3::ZERO;
+    for _ in 0..n {
+        *p += step / n as f32;
+        let out = level.capsule_push(*p);
+        *p += out;
+        pushed += out;
+    }
+    pushed
+}
+
+/// A clip of one of AC1's climbing grid moves: the six poses' table moves (`climb_table`'s actions) and the corner climbs.
+/// The climb takes the jump off in the middle of one of these only (HumanClimb's event 2, 0xDF9230: always in Wait, in
+/// the Move and corner states only with the grid-move flag `ChooseMove` sets, +0x11F8; Banned445's port, CLIMB-7).
+fn grid_move_clip(lib: &AnimLib, name: &str) -> bool {
+    name.starts_with("xx_l_climb_1m_corner_")
+        || crate::climb_table::SHORT_ACTIONS
+            .iter()
+            .chain(crate::climb_table::LONG_ACTIONS.iter())
+            .flatten()
+            .filter(|&&id| id != 0)
+            .any(|&id| lib.graph.action_clips(id).is_some_and(|items| items.iter().any(|i| i.iter().any(|c| c == name))))
+}
+
+/// The wall run's catch into the wall hang (action 0x0106CFC5, `xx_h_wallingfront_step1_footr_tr_hangwall_<cm>_<cm>_a/b`):
+/// the jump off is taken at any time while it plays (`HumanLedge__Guard_EntryJumpOff` 0xDCBF00).
+fn wall_run_hang_catch(name: &str) -> bool {
+    name.starts_with("xx_h_wallingfront_step1_footr_tr_hangwall_")
+}
+
+/// The ledge rebound's side (0xDD2CA0, read in the exe): a jump off to the right of the body facing the wall plays
+/// `xx_h_hangwall_tr_rebound_footl`, the root lowered by up to `REBOUND_LOWER` (full at 45 degrees off straight away)
+/// over it; straight away or to the left `_footr`. `way` is the flat direction to the target (else the eject's way),
+/// `away` the wall's normal. Returns (off the left foot, the drop).
+fn rebound_side(way: Vec3, away: Vec3) -> (bool, f32) {
+    let right = (-away).cross(Vec3::Y);
+    let way = way.with_y(0.0).normalize_or(away);
+    if way.dot(right) <= 1e-6 {
+        return (false, 0.0);
+    }
+    let a = way.angle_between(away).min(std::f32::consts::FRAC_PI_4);
+    (true, REBOUND_LOWER * a / std::f32::consts::FRAC_PI_4)
 }
 
 /// A jump into a free hang with a swing (the swing back up from the wall hang, the jump up from the climb) settles under
@@ -3030,6 +3193,8 @@ impl WallClimb {
             eject_after: None,
             snap_turn: false,
             eject_wait: None,
+            eject_retry: false,
+            air_held: 0.0,
             swung: false,
             lean_t: 0.0,
             hay_over: None,
@@ -3081,6 +3246,7 @@ impl WallClimb {
             freestep_left: true,
             cycle: None,
             beam_wall: None,
+            post_lean: 0.0,
             ladder: None,
             kiosk: None,
             mirrored: false,
@@ -3884,6 +4050,12 @@ impl WallClimb {
     }
 
     /// Crouched for the static jump: off the left foot, and how long (s).
+    /// Leaning on a wall (`lean`): the legs there run up it in high profile (AC1's event 49 in the lean, 0xDA6FF0, with
+    /// the Ground's lead-in: `wall_run_led_in`).
+    pub fn leaning(&self) -> Option<Vec3> {
+        (self.state == LEAN).then_some(-self.normal)
+    }
+
     pub fn crouch_held(&self) -> Option<(bool, f32)> {
         self.crouch.filter(|_| self.state == CROUCH)
     }
@@ -4017,6 +4189,34 @@ impl WallClimb {
                 w
             }
         };
+        w.ease_in(from, root);
+        Some(w)
+    }
+
+    /// The wall run from standing in the free run (AC1's event 49 in the FreeRun sub-state with no speed,
+    /// `HumanGround__FreeRun_WallingGuardA` 0xDA2DD0 -> 0xD89AA0 -> 0xD857C0, Banned445's port a14bd2c): the Ground's
+    /// lead-in `xx_h_impultionstraight_footl_to_wallingfront_step1_footr` (0.27 s, 0.28 m on) first, then the wall run as
+    /// `wall_run` plans it, its entry corrected for the lead-in's step. (From moving AC1 switches at once: `wall_run`.)
+    #[allow(clippy::too_many_arguments)]
+    pub fn wall_run_led_in(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        rig: &Rig,
+        base: &Pose,
+        cr: ClimbRig,
+        dir: Vec3,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
+        let mut w = Self::wall_run(lib, level, root, rig, base, cr, dir, None)?;
+        let lead = lib.get(WALL_RUN_LEAD_IN);
+        if let (Some(lead), Some(m)) = (lead, w.mv.take_if(|m| m.clip.name == WALL_RUN[0])) {
+            let planned = Transform { rotation: m.start_rot, ..*root };
+            let travel = world_rot(planned.rotation) * root_motion_at(&lead, lead.frames());
+            w.queue.insert(0, Queued { correct: m.correct - travel, ..Queued::new(m.clip, m.to) });
+            w.start(lead, WALL_RUN_STATE.into(), &planned);
+            debug!("climb: the wall run's lead-in from standing");
+        }
         w.ease_in(from, root);
         Some(w)
     }
@@ -4286,7 +4486,14 @@ impl WallClimb {
     fn rebound_jump(lib: &mut AnimLib, level: &Level, root: &Transform, normal: Vec3, input: Vec2, left: bool, from: Option<Pose>) -> Option<WallClimb> {
         let away = normal.with_y(0.0).normalize_or_zero();
         let way = eject_way(away, input)?;
-        let p = root.translation;
+        match Self::rebound_target(level, root.translation, way)? {
+            (h, true) => Self::eject_to_hang(lib, level, root, h, away, left, from),
+            (to, false) => Self::rebound_onto(lib, level, root, to, away, left, from),
+        }
+    }
+
+    /// Where an eject off the wall along `way` from `p` goes: a hold's hang root (`true`) or a top to land on.
+    fn rebound_target(level: &Level, p: Vec3, way: Vec3) -> Option<(Vec3, bool)> {
         let top = jump_target_within(level, p, way, None, EJECT_REACH, false);
         // A hold to hang from that way (a beam's end, a ledge), as near as the top and higher: AC1's scorer takes the hang
         // first (a pole over a front ledge, 0xE96BF0). Off a wall run the running game ejected back onto a beam's end 3 m
@@ -4306,9 +4513,15 @@ impl WallClimb {
         if let Some(h) = jump_hold_target(level, p, way)
             && top.is_none_or(|t| (h - p).with_y(0.0).length() <= (t - p).with_y(0.0).length() + 0.3 && hold_y(h) >= t.y - 0.1)
         {
-            return Self::eject_to_hang(lib, level, root, h, away, left, from);
+            return Some((h, true));
         }
-        let to = top?;
+        top.map(|t| (t, false))
+    }
+
+    /// An eject onto a top `to` (`rebound_jump`): turned away from the wall (`away`), the rebound takeoff, the flight and
+    /// the reception.
+    fn rebound_onto(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, away: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
+        let p = root.translation;
         let flat = (to - p).with_y(0.0);
         let aim = flat.normalize_or_zero();
         // (Its angle off straight away, positive to the right of the body turned away.)
@@ -4459,25 +4672,26 @@ impl WallClimb {
     /// has them: the `frontleft` / `frontright` group straight away, the `left` / `right` one, a quarter turn, along the wall, blended
     /// by the angle), the root turned away from the wall and the takeoff turning it on. (It was always 45 degrees off
     /// straight away to the stick's side, whatever the stick said: user report, 2026-10-12.) `input` is the stick in the
-    /// wall's frame (`eject_input`); `false` with it pointing into the wall, as AC1 refuses.
-    fn back_eject(&mut self, lib: &mut AnimLib, root: &Transform, input: Vec2, left: bool) -> bool {
+    /// wall's frame (`eject_input`); `false` with it pointing into the wall, as AC1 refuses. `along` is how far on the
+    /// free target is: `EJECT_FREE_ALONG` off a hang or a climb (the interpreter's free-jump target, 0xB1E7F0), `REBOUND_FAR`
+    /// off a wall run (`HumanWalling__ReboundJump` 0xE365C0's own).
+    fn back_eject(&mut self, lib: &mut AnimLib, root: &Transform, input: Vec2, left: bool, along: f32) -> bool {
         let away = self.normal.with_y(0.0).normalize_or_zero();
         let Some(dir) = eject_way(away, input) else { return false };
         // (Its angle off straight away, positive to the right of the body turned away, as `rebound_jump` measures it.)
         let angle = dir.dot(away.cross(Vec3::Y)).atan2(dir.dot(away));
-        // (Its takeoff the front 300 cm slot, as before: a push off into the air, the flight's speed set below.)
-        let q = (angle.abs() / std::f32::consts::FRAC_PI_2).min(1.0);
-        let (front, side) = if angle > 0.0 { ("frontright", "right") } else { ("frontleft", "left") };
-        let foot = if left { "footl" } else { "footr" };
-        let names = [front, side].map(|g| format!("xx_h_rebound_{g}_front_300cm_{foot}_to_air"));
-        let parts: Vec<(&str, f32)> = [(names[0].as_str(), 1.0 - q), (names[1].as_str(), q)].into_iter().filter(|(_, w)| *w > 0.01).collect();
+        // (Its takeoff AC1's blend for the free target, `along` on and `EJECT_FREE_DOWN` down: the far band's 550 cm push
+        // off (0xB1EC40 kind 2, Banned445's port 9369c0b); ours had the 300 cm one.)
+        let j = crate::jump::rebound(-EJECT_FREE_DOWN, along, angle, left, 0.0);
+        let parts: Vec<(&str, f32)> = j.takeoff.iter().map(|(n, w)| (n.as_str(), *w)).collect();
         let (Some(push), Some(air)) = (lib.get(&mix_name(&parts)), lib.get(JUMP_AIR)) else { return false };
         let turned = Transform { rotation: facing(away), ..*root };
         // The flight time to come down `EJECT_FREE_DOWN` under the takeoff leaving at `EJECT_UP`, and the speed along
-        // that covers `EJECT_FREE_ALONG` in it.
+        // that covers the rest of `along` past the takeoff's own push in it.
         let t = (EJECT_UP + (EJECT_UP * EJECT_UP + 2.0 * GRAVITY * EJECT_FREE_DOWN).sqrt()) / GRAVITY;
+        let pushed = root_motion_at(&push, push.frames()).with_z(0.0).length();
         self.queue = vec![Queued { rate: air.anim.duration / 0.7, ..Queued::new(air, FALL) }];
-        self.fall_with = Some(dir * (EJECT_FREE_ALONG / t) + Vec3::Y * EJECT_UP);
+        self.fall_with = Some(dir * ((along - pushed).max(0.0) / t) + Vec3::Y * EJECT_UP);
         self.free_jump = true;
         self.can_catch = true;
         self.start(push, LEAP.into(), &turned);
@@ -4487,6 +4701,37 @@ impl WallClimb {
         self.snap_turn = true;
         debug!("climb: back eject, {:.0} degrees off straight away ({})", angle.to_degrees(), mix_name(&parts));
         true
+    }
+
+    /// Whether AC1 takes the jump off the wall (event 2) now, on the wall (`legs`): pressed when it does not, the press
+    /// waits in the Legs buffer. Read in the exe (Banned445's port, 6eec27f, 91f7874, e6a6eed):
+    /// - only two of `HumanLedge`'s states take it (its handler 0xDE3A30): Movement, the hang at rest and its own steps
+    ///   (shimmies, hand steps, the climbs out of it, look-arounds), unless the playing item is locked and not one of the
+    ///   strafes or swings 0xDCCD50 lets through (guard 0xDCCE10); and Entry, the wall run's catches, at any time in the
+    ///   catch into the wall hang (0x0106CFC5), else in the first quarter of the catch (0xDCBF00). Not the corners, the
+    ///   receptions after a jump or fall, the pull-downs, the climb's transitions into a hang;
+    /// - `HumanClimb` takes it in Wait, and mid-move only in a grid move or a corner climb (0xDF9230): not its entries,
+    ///   reaches across, the leaps or the drops onto a hang.
+    fn eject_open(&self, lib: &AnimLib) -> bool {
+        let Some(m) = &self.mv else { return true };
+        let n = m.clip.name.as_str();
+        if wall_run_hang_catch(n) {
+            return true;
+        }
+        if n.starts_with("xx_h_wallingfront_") {
+            return m.t < ENTRY_EJECT_SHARE * m.clip.anim.duration;
+        }
+        let locked = lib.graph.gate(n).is_some_and(|g| g.has(forge::action::gate::LOCKED));
+        if locked && !n.contains("_strafe_") {
+            return false;
+        }
+        let hang = |s: &str| matches!(s, HANGWALL | HANGWALL_OPEN);
+        // (The wall hang's corner plays its strafe pair round the corner: `TurnCorner`, not Movement.)
+        if hang(&self.state) {
+            return self.turn_path.is_none() && n.starts_with("xx_h_hangwall_") && !n.contains("_tr_");
+        }
+        is_climb_stance(&self.state)
+            && (grid_move_clip(lib, n) || n.starts_with("xx_l_climb_1m_lookaround_") || (n.starts_with("xx_h_hangwall_") && !n.contains("_tr_")))
     }
 
     /// The stick an eject goes by, in the wall's frame (x to the right facing the wall, y up it: away from it is -y): the
@@ -5573,6 +5818,9 @@ impl WallClimb {
         let q = line.closest(root.translation);
         root.translation = root.translation.lerp(q, 1.0 - (-10.0 * dt).exp());
         let dir = self.move_dir.with_y(0.0);
+        if line.axis() == Vec3::ZERO {
+            self.post_wait(lib, root, dir, dt);
+        }
         if dir.length() < 0.3 {
             self.beam_wall = None;
             return;
@@ -5643,14 +5891,50 @@ impl WallClimb {
             self.finished = true;
             return;
         }
+        // (Not free running, toward a low drop: AC1's hop off, see `low_hop`.)
+        if !self.sprint && self.low_hop(lib, level, root, dir) {
+            return;
+        }
         // (Free running only, any way: AC1 jumps off a beam or post on high profile with the legs (0xEE9AF0 / 0xEE8EC0);
         // high profile alone, the stick off the side only turns to the side wait, audit NARROW-7.)
         if self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir)) {
             return;
         }
-        // (On a post he turns on the spot; on a beam the turns above face him.)
-        if axis == Vec3::ZERO || self.beam_stance.is_none() {
+        // (On a beam the turns above face him; on a post he leans, `post_wait`.)
+        if axis != Vec3::ZERO && self.beam_stance.is_none() {
             root.rotation = root.rotation.slerp(facing(dir), 1.0 - (-6.0 * dt).exp());
+        }
+    }
+
+    /// On a post, the body kept facing as it is: the wait leans toward the stick, AC1's pilotis wait (action 0x388E97DA,
+    /// `xx_h_beam_pilotis_wait` with `_left` and `_right` by the lean, 0xE51960, Banned445's port): the lean follows the
+    /// stick's signed angle off the facing (120 degrees full) at 3/s, back to upright with the stick let go. Ours turned the
+    /// body to the stick on the spot.
+    fn post_wait(&mut self, lib: &mut AnimLib, root: &Transform, dir: Vec3, dt: f32) {
+        if self.impulsion || self.mv.is_some() || self.beam_stance.is_some() {
+            return;
+        }
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let want = if dir.length() >= 0.3 {
+            let d = dir.normalize();
+            let ang = d.dot(fwd).clamp(-1.0, 1.0).acos().min(POST_LEAN_FULL);
+            d.dot(fwd.cross(Vec3::Y)).signum() * ang / POST_LEAN_FULL
+        } else {
+            0.0
+        };
+        self.post_lean += (want - self.post_lean) * (dt * POST_LEAN_RATE).min(1.0);
+        // (In steps of 0.05: each lean a mix of its own.)
+        let l = (self.post_lean * 20.0).round() / 20.0;
+        let name = if l == 0.0 {
+            PERCH_WAIT.to_string()
+        } else {
+            let side = if l > 0.0 { "xx_h_beam_pilotis_wait_right" } else { "xx_h_beam_pilotis_wait_left" };
+            mix_name(&[(PERCH_WAIT, 1.0 - l.abs()), (side, l.abs())])
+        };
+        if self.wait.as_ref().is_some_and(|w| w.name != name)
+            && let Some(w) = lib.get(&name)
+        {
+            self.wait = Some(w);
         }
     }
 
@@ -5709,15 +5993,24 @@ impl WallClimb {
         }
     }
 
+    /// Along a beam at the crouch jog (high profile, or free running), else the crouch walk.
+    fn beam_jog(&self) -> bool {
+        self.high || self.sprint
+    }
+
     fn start_beam_walk(&mut self, lib: &mut AnimLib, dir: Vec3) {
-        let names: [String; 2] = if self.sprint { BEAM_JOG.map(String::from) } else { BEAM_WALK.map(String::from) };
+        // (The crouch jog in high profile, the crouch walk in low: AC1's speed band by profile, band 2 in high, 1 in low
+        // (`GetSpeedBand` 0xE53090, Banned445's port fa7114b); ours jogged free running only.)
+        let jog = self.beam_jog();
+        let names: [String; 2] = if jog { BEAM_JOG.map(String::from) } else { BEAM_WALK.map(String::from) };
         let (Some(a), Some(b)) = (lib.get(&names[0]), lib.get(&names[1])) else { return };
+        debug!("climb: along the beam at the {}", if jog { "crouch jog" } else { "crouch walk" });
         let speed = root_motion_at(&a, a.frames()).length() / a.anim.duration.max(1e-3);
         // From the crouch on a foot facing along the beam: AC1's start (0x34662CB4 / B5) on into the other foot's step.
         let feet = ["footl", "footr"];
         let intro = match self.beam_stance {
             Some(BeamStance::Along(f)) => {
-                let (p, gait) = if self.sprint { ("h", "crouchjog") } else { ("l", "crouchwalk") };
+                let (p, gait) = if jog { ("h", "crouchjog") } else { ("l", "crouchwalk") };
                 lib.get(&format!("xx_{p}_beam_crouchwait_{}_tr_{gait}_{}", feet[f], feet[1 - f])).map(|c| {
                     let v = root_motion_at(&c, c.frames()).length() / c.anim.duration.max(1e-3);
                     (f, c, v)
@@ -5729,7 +6022,7 @@ impl WallClimb {
         // (Free running, from `BEAM_SPRINT_START` up to the jog's own speed at `BEAM_ACCEL`: the running game went along
         // a Damascus beam from 2.1 to 3.7 m/s at about 2.4 m/s² (roof1_free_sw), then held the crouch jog's 3.7 m/s
         // (AC1's beam speed model: up at 2 m/s², down at 3, Banned445's reanalysis NARROW-1).)
-        let v = if self.sprint { BEAM_SPRINT_START.min(speed) } else { speed };
+        let v = if jog { BEAM_SPRINT_START.min(speed) } else { speed };
         self.cycle = Some(Cycle { clips: [a, b], foot, phase: 0.0, dir, speed, v, intro: intro.map(|(_, c, v)| (c, 0.0, v)) });
         self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
     }
@@ -5759,7 +6052,7 @@ impl WallClimb {
         // Jogging, the stick 40-140 degrees off the way: hop across onto a beam beside (AC1's corner hop, its event taken
         // before the walk's stick test).
         if let Some(cy) = &self.cycle {
-            let (dir, jog) = (cy.dir, self.sprint && cy.intro.is_none());
+            let (dir, jog) = (cy.dir, self.beam_jog() && cy.intro.is_none());
             if jog && stick != Vec3::ZERO && (-CORNER_HOP_COS..CORNER_HOP_COS).contains(&stick.dot(dir)) && self.corner_hop(lib, level, root, dir, stick) {
                 return;
             }
@@ -5779,7 +6072,7 @@ impl WallClimb {
             let foot = cy.foot;
             let feet = ["footl", "footr"];
             let names = [format!("xx_h_beam_crouchjog_stop_{}", feet[foot]), format!("xx_h_beam_crouchjog_stop_{0}_tr_crouchwait_{0}", feet[foot])];
-            let clips = if self.sprint && cy.intro.is_none() { names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() } else { None };
+            let clips = if (self.high || self.sprint) && cy.intro.is_none() { names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() } else { None };
             stop(self, lib);
             if let Some(clips) = clips {
                 let r = Transform { translation: line.closest(root.translation), ..*root };
@@ -5826,6 +6119,11 @@ impl WallClimb {
                 if walled {
                     self.beam_wall = Some((dir, v));
                 } else if self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir) {
+                    return;
+                }
+            } else if !walled {
+                root.translation = q;
+                if self.low_hop(lib, level, root, dir) {
                     return;
                 }
             }
@@ -6014,14 +6312,6 @@ impl WallClimb {
             *self = w;
             return true;
         }
-        // (No target, a floor a step down ahead: AC1's free step off it all the same, low and fast. Off a beam ending a
-        // Damascus roof it came down 0.74 m below 2.5 m on in 0.45 s, off a 0.57 m block 1.07 m below 3.2 m on in 0.6 s: both
-        // a launch of `FREE_STEP_SPEED` on and `FREE_STEP_UP` up under gravity. A beam's only, over at most
-        // `PERCH_FREE_STEP_DROP`: off a post, or over a deeper drop (G1's beam stuck out of a wall, the street 1.5 m below, a
-        // platform further on), the jump below.)
-        let beam = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() != Vec3::ZERO);
-        let floor =
-            beam && PERCH_FREE_STEP_ON.iter().any(|&d| level.ground(from + dir * d, 0.3, PERCH_FREE_STEP_DROP).is_some_and(|g| g.point.y < from.y - 0.2));
         // (No top: a swing bar ahead, as AC1 jumps from a narrow object at a free hang in its reach zone 7, down to level
         // with the feet; the running game swung from a thin beam 5.6 m across from the one it stood on.)
         if to.is_none()
@@ -6030,34 +6320,130 @@ impl WallClimb {
         {
             return true;
         }
-        if to.is_none()
-            && floor
-            && let Some(w) = Self::free_step(lib, root, dir, self.freestep_left, self.last.clone())
-        {
-            *self = w;
+        let beam = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() != Vec3::ZERO);
+        if let Some(to) = to {
+            // (A target the free-step clips can't make: flown at on a ballistic arc from the post's crouch. Ours.)
+            let dir = (to - from).with_y(0.0).normalize_or(dir);
+            let (v, flight) = ballistic(from, to);
+            let (Some(takeoff), Some(push), Some(air)) = (lib.get(PERCH_TAKEOFF), lib.get(PERCH_PUSH), lib.get(JUMP_AIR)) else { return false };
+            let planned = Transform { rotation: facing(dir), ..*root };
+            let flight = (flight - push.anim.duration).max(0.1);
+            self.queue = vec![Queued::new(push, JUMP), Queued { rate: air.anim.duration / flight, ..Queued::new(air, FALL) }];
+            self.fall_with = Some(v);
+            self.can_catch = true;
+            self.aimed = true;
+            self.perch = None;
+            self.cycle = None;
+            self.start(takeoff, JUMP.into(), &planned);
+            if let Some(m) = &mut self.mv {
+                m.ease_rot = root.rotation * planned.rotation.inverse();
+            }
             return true;
         }
-        // Face where it goes.
-        let dir = to.map_or(dir, |q| (q - from).with_y(0.0).normalize_or(dir));
-        let (v, flight) = match to {
-            Some(to) => ballistic(from, to),
-            None => (dir * 3.5 + Vec3::Y * 3.0, jump_airtime()),
+        // No target: AC1's free jump off a narrow object, free running (the interpreter's jump kind 0 with Legs held,
+        // BeamState 0xEEAAA0 / NarrowObjectState 0xEE9564, Banned445's port): only over a drop edge ahead along the stick
+        // (`Human__FindDropEdgeAhead` 0xB1C100); off a beam 3 m on with a drop of 1 m or less, 8 m on with the stick within
+        // 45 degrees of the facing (from a post always 8 m), each down to the drop's floor + 0.25 m, at most 3 m
+        // (`Human__BuildFreeJumpTarget` 0xB1E7F0). No drop edge: the small hop query only (kind 4), no free jump. Ours
+        // crouched and leapt 3.5 m on, 3 m up, anywhere: off a beam across the way the running game free-stepped 3 m on
+        // (`roof1_free_south`), ours went straight up.
+        let Some(d) = drop_edge_ahead(level, from, dir) else { return false };
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let forward = dir.with_y(0.0).normalize_or_zero().dot(fwd) >= std::f32::consts::FRAC_1_SQRT_2;
+        let ahead = match (beam, d <= FREE_JUMP_NEAR_DROP, forward) {
+            (true, true, _) => FREE_JUMP_NEAR,
+            (true, false, true) | (false, _, _) => EJECT_FREE_ALONG,
+            (true, false, false) => return false,
         };
-        let (Some(takeoff), Some(push), Some(air)) = (lib.get(PERCH_TAKEOFF), lib.get(PERCH_PUSH), lib.get(JUMP_AIR)) else { return false };
-        let planned = Transform { rotation: facing(dir), ..*root };
-        // The crouch, the push off (AC1's `HumanNarrowObject` starts it from the crouch), then the flight.
-        let flight = (flight - push.anim.duration).max(0.1);
-        self.queue = vec![Queued::new(push, JUMP), Queued { rate: air.anim.duration / flight, ..Queued::new(air, FALL) }];
-        self.fall_with = Some(v);
-        self.can_catch = true;
-        self.aimed = true;
-        self.perch = None;
-        self.cycle = None;
-        self.start(takeoff, JUMP.into(), &planned);
-        if let Some(m) = &mut self.mv {
-            m.ease_rot = root.rotation * planned.rotation.inverse();
+        match Self::narrow_free_jump(lib, level, root, dir, ahead, (d + FREE_JUMP_UNDER).min(EJECT_FREE_DOWN), self.freestep_left, self.last.clone()) {
+            Some(w) => {
+                *self = w;
+                true
+            }
+            None => false,
         }
-        true
+    }
+
+    /// Not free running, the stick toward a drop edge under 2 m (within 45 degrees of the facing, or any way in high
+    /// profile): AC1's hop off (the narrow interpreter's jump kinds 1 / 2, BeamState 0xEEAAA0 / NarrowObjectState 0xEE9564,
+    /// Banned445's port): its free jump 1 m on (low profile) or 3 m (high), down to the drop's floor + 0.25 m. Along a beam
+    /// only within 0.4 m of the drop edge at its end (`BeamRunsAlong` 0xF78F00 under NARROW-11's gate: walking to the end of
+    /// a beam over a low roof he hops down at the end, not 1.1 m before it). Ours stopped at the end.
+    fn low_hop(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3) -> bool {
+        let p = root.translation;
+        let dir = dir.with_y(0.0).normalize_or_zero();
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let forward = dir.dot(fwd) >= std::f32::consts::FRAC_1_SQRT_2;
+        if dir == Vec3::ZERO || !(self.high || forward) {
+            return false;
+        }
+        let Some(d) = drop_edge_ahead(level, p, dir).filter(|d| *d < LOW_HOP_DROP) else { return false };
+        if let Some(line) = self.perch.and_then(|i| level.perches.get(i).copied()) {
+            let axis = line.axis();
+            if forward && axis != Vec3::ZERO && fwd.dot(axis).abs() > std::f32::consts::FRAC_1_SQRT_2 {
+                let end = if dir.dot(axis) > 0.0 { line.b } else { line.a };
+                if (end - p).with_y(0.0).dot(dir) > BEAM_RUNS_ALONG {
+                    return false;
+                }
+            }
+        }
+        let ahead = if self.high { FREE_JUMP_NEAR } else { LOW_HOP_AHEAD };
+        match Self::narrow_free_jump(lib, level, root, dir, ahead, (d + FREE_JUMP_UNDER).min(EJECT_FREE_DOWN), self.freestep_left, self.last.clone()) {
+            Some(w) => {
+                *self = w;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// AC1's free jump off a narrow object at its made-up target `ahead` m on along `dir` and `down` m below: the free-step
+    /// takeoff (the group by the way it goes off the facing) and flight, swapped for the beam set
+    /// (`xx_h_beam_freestep_*_to_air`, `xx_h_beam_air_*_to_freestep`) when the target lies over 0.4 m below and the way
+    /// to it is blocked (`Human__UseBeamFreestepJumpVariants` 0xB145B0, Banned445's port), flown at the target, then the
+    /// fall.
+    #[allow(clippy::too_many_arguments)]
+    fn narrow_free_jump(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        dir: Vec3,
+        ahead: f32,
+        down: f32,
+        left: bool,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
+        let p = root.translation;
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let aim = dir.with_y(0.0).normalize_or_zero();
+        if aim == Vec3::ZERO {
+            return None;
+        }
+        let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
+        let to = p + aim * ahead - Vec3::Y * down;
+        let mut j = crate::jump::freestep(-down, ahead, angle, left, 0.0);
+        let blocked = level.raycast(p + Vec3::Y * 0.5, (to - p).normalize_or(aim), (to - p).length()).is_some();
+        if down > BEAM_VARIANT_DROP && blocked {
+            j.takeoff = beam_takeoff(lib, &j.takeoff);
+            j.flight = beam_flight(lib, &j.flight);
+        }
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, air) = (mix(&j.takeoff)?, mix(&j.flight)?);
+        let planned = Transform { rotation: facing(aim), ..*root };
+        let off = p + world_rot(planned.rotation) * root_motion_at(&takeoff, takeoff.frames());
+        let (v, t) = ballistic(off, to);
+        debug!("climb: free jump off the narrow object at {to:.2} ({ahead:.0} m on, {down:.2} m down) via {}", takeoff.name);
+        let mut w = WallClimb::new(JUMP, planned.rotation * Vec3::Z);
+        w.queue = vec![Queued { rate: air.anim.duration / t.max(0.1), ..Queued::new(air, FALL) }];
+        w.fall_with = Some(v);
+        w.can_catch = true;
+        w.aimed = true;
+        w.start(takeoff, JUMP.into(), &planned);
+        w.ease_in(from, root);
+        Some(w)
     }
 
     /// From a post or beam, a free step's jump at the swing bar at `q`: AC1's free-step takeoff and `_to_swing` flight,
@@ -6982,62 +7368,34 @@ impl WallClimb {
         } else {
             return false;
         };
-        // The way the stick points on screen (the camera's): of the rebounds back, left and right, the one whose kick-off
-        // heads nearest it (by the stick's own left and right, a side camera turned them: left took the stick back).
-        let foot = if phase == "entryrebound" { "footr" } else { "footl" };
-        // (Pushing into the wall says nothing about the way off it: only the stick's part along the wall counts then.)
+        // The push off as AC1's walling takes it (the interpreter's walling state 0xEE05E0, `HumanWalling__ReboundJump`
+        // 0xE365C0, Banned445's port): the stick within 50 degrees of the facing (into the wall) or let go, straight back
+        // off the wall; else along the stick, turned in to 89 degrees off straight back where it points into the wall.
         let stick = self.move_dir.with_y(0.0);
         let out = self.normal.with_y(0.0).normalize_or_zero();
-        let along = stick - out * stick.dot(out);
-        let want = if stick.dot(out) >= 0.0 {
-            stick.normalize_or_zero()
-        } else if along.length() > REBOUND_SIDE_MIN {
-            along.normalize()
+        let push = if stick.length() < EJECT_STICK_DEAD || stick.normalize().dot(-out) > REBOUND_STRAIGHT_BACK.cos() {
+            out
         } else {
-            Vec3::ZERO
+            let d = stick.normalize();
+            let side = if out.cross(d).y >= 0.0 { 1.0 } else { -1.0 };
+            if d.dot(out) <= 0.0 { Quat::from_rotation_y(REBOUND_SIDE_MAX * side) * out } else { d }
         };
-        let heading = |c: &Arc<Clip>| (world_rot(root.rotation) * root_motion_at(c, c.frames())).with_y(0.0).normalize_or_zero();
-        let options: Vec<(Arc<Clip>, f32)> = ["back", "left", "right"]
-            .iter()
-            .filter_map(|side| lib.get(&format!("xx_h_wallingfront_{phase}_{side}_{foot}")))
-            .map(|c| {
-                let d = heading(&c).dot(want);
-                (c, d)
-            })
-            .collect();
-        // AC1's own: the eject a hang makes (`rebound_jump`: its rebound takeoffs, at a top or a hold to hang from that way),
-        // seen in the running game off the bureau's wall run, back onto a beam's end 3 m behind and right onto one beside.
+        // (The way as the hang's stick: right along the wall, down away from it.)
         let right = (-out).cross(Vec3::Y);
-        let side = if want == Vec3::ZERO { 0.0 } else { want.dot(right) };
-        // (The way wanted as the hang's stick: right along the wall, down away from it.)
-        let input = if want == Vec3::ZERO { Vec2::new(0.0, -1.0) } else { Vec2::new(side, -want.dot(out)) };
-        if let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, input.x > -0.5, self.last.clone()) {
+        let input = Vec2::new(push.dot(right), -push.dot(out));
+        // Turned away from the wall, the rebound jump (kind 2): at the best target that way (a top, or a hold to hang from),
+        // as the running game ejected off the bureau's wall run back onto a beam's end 3 m behind and onto one beside; off
+        // the left foot, the foot every walling item ends on (their feet words, 0xE36660). Else at AC1's own fallback,
+        // 7 m out and 3 m down, the same push off as a hang's with nothing to land on (`back_eject`): not the
+        // `xx_h_wallingfront_<entry|step1>rebound_*` clips, which no code of the exe asks for.
+        if let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, true, self.last.clone()) {
             debug!("climb: wall run eject ({phase})");
             *self = w;
             return true;
         }
-        let pick = if want == Vec3::ZERO { options.into_iter().next() } else { options.into_iter().max_by(|a, b| a.1.total_cmp(&b.1)) };
-        let Some((clip, _)) = pick else { return false };
-        debug!("climb: rebound {}", clip.name);
-        // At a target the way it pushes off (AC1's `HumanWalling__ReboundJump`, as Banned445's port reads it): straight
-        // back off the wall with the stick into it, else along the stick, kept within 89 degrees of straight back; the
-        // best target that way, else 7 m out and 3 m down.
-        let push = if want == Vec3::ZERO || want.dot(out) > 0.99 {
-            out
-        } else {
-            let side = if out.cross(want).y >= 0.0 { 1.0 } else { -1.0 };
-            if want.dot(out) <= 0.0 { Quat::from_rotation_y(REBOUND_SIDE_MAX * side) * out } else { want }
-        };
-        let p = root.translation;
-        let to = jump_target_within(level, p, push, None, JUMP_TARGET_REACH, true).unwrap_or(p + push * REBOUND_FAR - Vec3::Y * REBOUND_FAR_DOWN);
-        let (v, _) = ballistic(p, to);
-        debug!("climb: wall run rebound at {to:.2}");
+        debug!("climb: wall run rebound with nothing to land on ({phase})");
         self.queue.clear();
-        self.state = FALL.into();
-        self.start(clip, FALL.into(), root);
-        self.fall_v = Some(v);
-        self.can_catch = true;
-        true
+        self.back_eject(lib, root, input, true, REBOUND_FAR)
     }
 
     /// An eject's takeoff started as AC1 starts it: the root turned from facing the wall to facing away in one frame, not
@@ -7124,6 +7482,7 @@ impl WallClimb {
         self.released = [false; 4];
         self.tilt_to = 0.0;
         self.tilt_rate = self.tilt.abs() / clip.anim.duration.max(TILT_MIN_SPAN);
+        self.air_held = 0.0;
         self.mv = Some(Move {
             clip,
             t: 0.0,
@@ -7523,6 +7882,39 @@ impl WallClimb {
     }
 
     /// Let go of the wall now: push off (or release from a free hang) and fall.
+    /// Letting go of a hang over a haystack: AC1's let-go dives into it (the interpreter's ledge state 0xEEC558: the vt84
+    /// search away from the wall, `LET_GO_SEARCH`, then the let-go record knows the hay, 0xDD7810; Banned445's port
+    /// c8e6b69): the release's first item, then the faith dive (`xx_h_faith_jump_*`, by the way and the drop to the hay)
+    /// steered into it, and the faith landing in the hay.
+    fn let_go_dive(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        if !matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN | FREE | FREE_OPEN) {
+            return false;
+        }
+        let away = self.normal.with_y(0.0).normalize_or_zero();
+        let p = root.translation;
+        let Some(hay) = support_search(level, p, away, away, &LET_GO_SEARCH) else { return false };
+        let release = if is_free(&self.state) { "xx_h_hangfree_tr_fall_a" } else { "xx_h_hangwall_tr_fall_a" };
+        let w = faith_weights((hay.seat() - p).with_y(0.0).length(), hay.centre.y + HAY_SEARCH_TOP - p.y);
+        let dive = lib.get(&mix_name(&FAITH_DIVES.iter().zip(w).map(|(n, w)| (*n, w)).collect::<Vec<_>>()));
+        let (Some(release), Some(dive)) = (lib.get(release), dive) else { return false };
+        if lib.get(FAITH_LAND).is_none() {
+            return false;
+        }
+        // (The fall from where the release leaves the root onto the hay's seat: its time under gravity, the speed across
+        // that lands there, the dive stretched over it.)
+        let leave = p + world_rot(root.rotation) * root_motion_at(&release, release.frames());
+        let h = (leave.y - hay.top()).max(0.1);
+        let t = (2.0 * h / GRAVITY).sqrt();
+        let flat = (hay.seat() - leave).with_y(0.0) / t;
+        debug!("climb: let go over the haystack at {:.2}: the faith dive into it", hay.centre);
+        self.fall_top = p.y;
+        self.queue = vec![Queued { rate: dive.anim.duration / t, ..Queued::new(dive, FALL) }];
+        self.fall_with = Some(flat);
+        self.faith = true;
+        self.start(release, DROP.into(), root);
+        true
+    }
+
     fn drop_now(&mut self, lib: &mut AnimLib, root: &Transform) -> bool {
         // (Straight into the fall, near the ground too: AC1's empty hand releases into the air (StartRelease 0xDE96A0, the
         // lost-grip fill), the step down onto the ground is the stick's (audit CLIMB-E16); ours climbed down first within
@@ -7550,7 +7942,11 @@ impl WallClimb {
         // or along it with the stick to a side (the stick up is a leap up the wall). Nothing to land on: with the stick
         // back, push off backwards and fall, catching what comes. (In low profile the running game does nothing.)
         // (Also as a wall run catches its hang: the running game broke off the catch for the eject, 0.02 s into it.)
-        let catching = self.mv.as_ref().is_some_and(|m| m.clip.name.starts_with("xx_h_wallingfront_") && m.clip.name.contains("_tr_hangwall_"));
+        // (The wall run's catches into a hang are the Ledge's Entry state: on the wall too.)
+        let catching = self.mv.as_ref().is_some_and(|m| {
+            let n = m.clip.name.as_str();
+            n.starts_with("xx_h_wallingfront_") && (n.contains("_tr_hangwall") || n.contains("_tr_hangfree_"))
+        });
         // (A leap between holds is on the wall too: pressed then, the eject waits for the hand to land, below.)
         // (Not a wall run's step, also a leap: it rebounds at once, `try_rebound` below; waiting, the running game's
         // rebound off the bureau's wall run took off 0.29 s before ours.)
@@ -7560,60 +7956,77 @@ impl WallClimb {
             && (self.queue.last().is_some_and(|q| q.to != FALL) || self.mv.as_ref().is_some_and(|m| m.to != FALL && m.to != LEAP));
         let on_wall =
             catching || leaping || matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) || self.state.starts_with('1') || self.state.starts_with('2');
-        // (Also in the middle of a move from one hold to another, a hand step, a reach, a shimmy, a look round: AC1's
-        // interpreter checks the jump off before any move, cutting the one playing (Banned445's port, verified live).
-        // Not a top-out, a drop or a fall, which leave the wall.)
-        let wall_state = |s: &str| matches!(s, HANGWALL | HANGWALL_OPEN) || s.starts_with('1') || s.starts_with('2');
-        let idle = catching || self.mv.as_ref().is_none_or(|m| wall_state(&m.to) || m.clip.name.contains("lookaround") || m.clip.name.contains("_strafe_"));
-        if on_wall && !idle && self.high && input.y < 0.5 {
-            // (Kept: AC1 holds a Legs press 0.3 s, so pressed during a leap up it ejects as the hand lands.)
+        if on_wall && self.high && input.y < 0.5 && !self.eject_open(lib) {
+            // (Kept: AC1 holds a Legs press 0.3 s (the interpreter's +0x1126), so pressed in a move that refuses the jump
+            // off, it jumps off as soon as the next one that takes it starts, or the hang settles.)
+            if !self.eject_retry
+                && let Some(m) = &self.mv
+            {
+                debug!("climb: the jump off waits: {} ({:.2} of {:.2} s) takes none", m.clip.name, m.t, m.clip.anim.duration);
+            }
             self.eject_wait = Some((input, EJECT_WAIT));
             return true;
         }
-        if on_wall && idle && self.high && input.y < 0.5 {
+        if on_wall && self.high && input.y < 0.5 {
             self.eject_wait = None;
             // (The way off by the stick as the camera sees it, not the climbing stick: see `eject_input`.)
             let input = self.eject_input(input);
-            // (Off the left foot, but to the left off the right: as the running game did.)
-            let left = input.x > -0.5;
-            // From a wall hang, AC1's rebound pose first, 0.2 s against the wall (`xx_h_hangwall_tr_rebound_<foot>`, the
-            // takeoff on the same foot 0.22 s after it, in all four of the running game's ejects); the eject when it ends.
-            // (From a climb too: the running game played it ejecting off the bureau wall's climb.)
-            let pose = lib.get(&format!("xx_h_hangwall_tr_rebound_{}", if left { "footl" } else { "footr" }));
+            let away = self.normal.with_y(0.0).normalize_or_zero();
+            let Some(way) = eject_way(away, input) else { return false };
+            // AC1's rebound pose first, 0.2 s against the wall, locked (`xx_h_hangwall_tr_rebound_<foot>`); the jump when it
+            // ends, its takeoff off the foot the pose ends on (its item's feet, 0xDD0A40 / 0xDEAE30: the same foot). From a
+            // wall hang (and the wall run's catch) the pose by the side of the jump (0xDD2CA0): to the right of the body
+            // `_footl`, the root lowered by up to 0.3 m, else `_footr`, the target found at the press. From a climb
+            // always `_footl`, in place (0xDEA560).
+            if let Some(m) = &self.mv {
+                debug!("climb: the jump off cuts {} at {:.2} of {:.2} s", m.clip.name, m.t, m.clip.anim.duration);
+            }
+            let climb = is_climb_stance(&self.state) && !catching;
+            let (left, drop) = if climb {
+                (true, 0.0)
+            } else {
+                let aim = Self::rebound_target(level, root.translation, way).map_or(way, |(t, _)| (t - root.translation).with_y(0.0));
+                rebound_side(aim, away)
+            };
             // (With nothing to land on too: AC1's event 2 plays the pose before any jump off; ours went straight from the hang
             // into the push off, and the hands jumped 0.47 m on its first frame.)
-            if let Some(pose) = pose
-                && (Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()).is_some()
-                    || eject_way(self.normal.with_y(0.0).normalize_or_zero(), input).is_some())
-            {
+            if let Some(pose) = lib.get(&format!("xx_h_hangwall_tr_rebound_{}", if left { "footl" } else { "footr" })) {
                 let state = if catching { HANGWALL_OPEN.to_string() } else { self.state.clone() };
                 self.queue.clear();
                 self.start(pose, state, root);
+                if let Some(m) = &mut self.mv {
+                    m.correct = Vec3::NEG_Y * drop;
+                }
                 self.eject_after = Some((input, left));
+                debug!("climb: jump off the wall, the rebound pose off the {} foot ({drop:.2} m lower)", if left { "left" } else { "right" });
                 return true;
             }
             if let Some(w) = Self::rebound_jump(lib, level, root, self.normal, input, left, self.last.clone()) {
                 *self = w;
                 return true;
             }
-            return self.back_eject(lib, root, input, left);
+            return self.back_eject(lib, root, input, left, EJECT_FREE_ALONG);
         }
         if self.state == BENCH {
             self.get_up = true;
             return true;
         }
-        // On a ladder, high profile and the legs: jump off it backwards (`xx_h_ladder_wait_<l|r>_tr_rebound_foot<l|r>`,
-        // then `xx_h_rebound_foot<l|r>_tr_fall`), catching what is behind on the way (AC1's jump off a ladder is high
-        // profile + Legs, audit LADDER-4; ours had it on the empty hand pulled back).
+        // On a ladder, high profile and the legs: jump off it (`xx_h_ladder_wait_<l|r>_tr_rebound_foot<l|r>`), catching what
+        // comes on the way (AC1's jump off a ladder is high profile + Legs, audit LADDER-4). As AC1's (Banned445's port
+        // 6400374, LADDER-12): the way the stick's, straight back with none, refused into the ladder, turned in to 89
+        // degrees past 90; at the clip's end, facing away, the rebound jump (kind 2) at the best target that way, else the
+        // free target: as off a wall hang, `eject_after`. (Ours flew a fixed arc back, 3.5 m/s out.)
         if self.ladder.is_some() && self.high {
             let hand = if self.state == LADDER_L { "l" } else { "r" };
             let foot = if hand == "l" { "footl" } else { "footr" };
-            if let Some(off) = lib.get(&format!("xx_h_ladder_wait_{hand}_tr_rebound_{foot}")) {
+            let input = self.eject_input(input);
+            if let Some(off) = lib.get(&format!("xx_h_ladder_wait_{hand}_tr_rebound_{foot}"))
+                && eject_way(self.normal.with_y(0.0).normalize_or_zero(), input).is_some()
+            {
                 self.ladder = None;
-                self.let_fall(off, root, self.normal * LADDER_REBOUND.0 + Vec3::Y * LADDER_REBOUND.1);
-                self.descend = lib.get(&format!("xx_h_rebound_{foot}_tr_fall"));
-                self.can_catch = true;
-                self.aimed = false;
+                self.queue.clear();
+                self.start(off, HANGWALL.into(), root);
+                self.eject_after = Some((input, hand == "l"));
                 debug!("climb: rebound off the ladder");
                 return true;
             }
@@ -7666,7 +8079,7 @@ impl WallClimb {
         }
         // (Pressed in the wall run's entry, too early to rebound: kept, as AC1 holds a Legs press 0.3 s, till the entry
         // ends.)
-        if self.mv.as_ref().is_some_and(|m| m.clip.name == WALL_RUN[0] || m.clip.name == WALL_RUN[1]) {
+        if self.mv.as_ref().is_some_and(|m| m.clip.name == WALL_RUN_LEAD_IN || m.clip.name == WALL_RUN[0] || m.clip.name == WALL_RUN[1]) {
             self.eject_wait = Some((input, EJECT_WAIT));
             return true;
         }
@@ -7727,6 +8140,15 @@ impl WallClimb {
             Some(m) if hang(&m.to) && hang(&self.state) => {
                 self.mv = None;
                 self.queue.clear();
+                self.let_go_dive(lib, level, root) || self.drop_now(lib, root)
+            }
+            // In the middle of a climbing grid move or corner climb: let go at once too, into AC1's lost-grip fall (the
+            // climb takes the release mid-move only there, HumanClimb's event 3 with the grid-move flag, 0xDF90F0;
+            // Banned445's port 91f7874). Ours waited for the move's end.
+            Some(m) if is_climb_stance(&self.state) && is_climb_stance(&m.to) && grid_move_clip(lib, &m.clip.name) => {
+                debug!("climb: let go in the middle of {}", m.clip.name);
+                self.mv = None;
+                self.queue.clear();
                 self.drop_now(lib, root)
             }
             Some(_) => {
@@ -7734,7 +8156,7 @@ impl WallClimb {
                 true
             }
             None if off_wall(&self.state) => true,
-            None => self.drop_now(lib, root),
+            None => self.let_go_dive(lib, level, root) || self.drop_now(lib, root),
         }
     }
 
@@ -8358,6 +8780,25 @@ impl WallClimb {
                     continue;
                 }
             }
+            // AC1's side jump between holds (`TrySideJumpToLedge` 0xDDD490, its clearance 0xDDDF85, Banned445's port
+            // 3580692): a capsule 0.35 m round from 0.2625 m back along the way and 0.15 m out from the root, 1.8 m tall to
+            // the climb, 1.0 m to a wall hang, 2.0 m to a free one, swept to the new root, must meet nothing. (Off a
+            // Damascus window box the friend's leap to the side went through a house's corner, the replay scan.)
+            if c.table.is_none() && c.names[0].starts_with("xx_h_climbing_") && !c.names[0].contains("_up_") && !c.names[0].contains("_down_") {
+                let tall = if matches!(c.to.as_str(), HANGWALL | HANGWALL_OPEN) {
+                    1.0
+                } else if is_free(&c.to) {
+                    2.0
+                } else {
+                    1.8
+                };
+                if !side_jump_free(level, root.translation, end.pos + err, normal, tall) {
+                    if why() {
+                        debug!("climb: {} : the body's sweep to the side meets something (AC1's side jump capsule)", c.names[0]);
+                    }
+                    continue;
+                }
+            }
             let tos = chain_states(clips.len(), &self.state, &c.to);
             let span: f32 = clips.iter().map(|c| c.anim.duration).sum();
             self.start_chain_turned(clips, tos, root, err, None, turn);
@@ -8860,7 +9301,7 @@ impl WallClimb {
         if let Some(v) = self.fall_v
             // (AC1's manual catch is the empty hand held, after 0.3 m of fall from its top (0xE0BB70, Banned445's port); it
             // never catches on the legs held, as ours did walking off an edge, audit AIR-12.)
-            && (self.can_catch || (self.hand_held && self.fall_top - root.translation.y > CATCH_HELD_FALL))
+            && (self.can_catch || (self.hand_held && !self.faith && self.fall_top - root.translation.y > CATCH_HELD_FALL))
             && v.y < 1.0
             && self.try_catch(lib, level, root, rig, base, cr)
         {
@@ -8993,9 +9434,20 @@ impl WallClimb {
             v.z = push.z;
             v.y = v.y.max(push.y);
         }
+        // The body moves as AC1's character proxy moves it in the air (0xE0DEF0 -> the controller, Banned445's port): its
+        // capsule swept along the step, sliding along what it touches, the speed into it gone. (The rays above at the
+        // chest and knees only saw what was straight ahead of the body's middle: past a building's corner at an angle, the
+        // body's side went into it, and a leap off a Damascus window box ended inside a house, the replay scan.)
+        let step = *v * dt;
+        let pushed = sweep_capsule(level, &mut root.translation, step);
+        if let Some(n) = pushed.with_y(0.0).try_normalize() {
+            let into = v.dot(n);
+            if into < 0.0 {
+                v.x -= n.x * into;
+                v.z -= n.z * into;
+            }
+        }
         let v = *v;
-        let step = v * dt;
-        root.translation += step;
         if v.y < 0.0
             && let Some(clip) = self.descend.take()
         {
@@ -9041,7 +9493,12 @@ impl WallClimb {
         // facing; once per air stay, under 9 m; Banned445's `air_catches.rs`, audit AIR-8: the running game came down on a
         // lip off roof 1 east, stepped off it to the right and fell on to the street).
         // (Not an aimed jump's landing, nor onto a post or beam: their sides are edges too.)
-        if !self.edge_landed && !self.aimed && self.fall_top - ground.point.y < KNEE_CATCH_FALL && level.perch_inside(ground.point, PERCH_REACH).is_none() {
+        if !self.edge_landed
+            && !self.aimed
+            && !self.faith
+            && self.fall_top - ground.point.y < KNEE_CATCH_FALL
+            && level.perch_inside(ground.point, PERCH_REACH).is_none()
+        {
             let p = ground.point;
             let mut n = Vec3::ZERO;
             for l in level.ledges.iter() {
@@ -9210,7 +9667,10 @@ impl WallClimb {
         // An eject asked for during a leap: when the move lands on a hold, within the Legs buffer.
         if let Some((stick, left)) = self.eject_wait.take() {
             let left = left - dt;
-            if left > 0.0 && !self.legs(lib, level, root, stick) {
+            self.eject_retry = true;
+            let taken = left > 0.0 && self.legs(lib, level, root, stick);
+            self.eject_retry = false;
+            if left > 0.0 && !taken {
                 self.eject_wait = None;
             } else if left > 0.0 && self.eject_wait.is_some() {
                 self.eject_wait = Some((stick, left));
@@ -9381,6 +9841,31 @@ impl WallClimb {
                     next = at(m);
                 }
             }
+            // A jump's takeoff and flight move the body as AC1's character proxy does (0xE0DEF0 drives the jump's path as
+            // a velocity through the controller, Banned445's port): its capsule swept along the frame's step, sliding along
+            // what it touches; held back from the path more than `JUMP_BLOCKED_LAG` in all, it falls from there, the
+            // path's speed along cut to 30 % (the port's anti-stuck, 0xE0B1E0 simplified). Ours flew the clips' path
+            // through walls, the clear way tested only along one line before the jump.
+            if in_air_clip(&m.clip.name) && !m.in_place {
+                let mut p = root.translation;
+                let pushed = sweep_capsule(level, &mut p, next - root.translation);
+                if pushed.length() > 1e-4 {
+                    m.start += pushed;
+                    self.air_held += pushed.with_y(0.0).length();
+                    let v = (next - root.translation) / dt.max(1e-4);
+                    next = p;
+                    if self.air_held > JUMP_BLOCKED_LAG {
+                        debug!("climb: the jump is held back by a wall at {next:.2} ({:.2} m): falling from there", self.air_held);
+                        self.queue.clear();
+                        m.to = FALL.into();
+                        self.state = FALL.into();
+                        self.fall_v = Some(Vec3::new(v.x * JUMP_BLOCKED_KEEP, v.y.min(0.0), v.z * JUMP_BLOCKED_KEEP));
+                        self.can_catch = true;
+                        self.aimed = false;
+                        self.free_jump = false;
+                    }
+                }
+            }
             root.translation = next;
             if let Some(vp) = &mut self.vault_path {
                 vp.t += dt;
@@ -9463,7 +9948,7 @@ impl WallClimb {
                 // (Nothing to land on that way: the push off into the air, after the same rebound pose. Turned away at
                 // once, before its first frame is shown: snapped on the next update, the frame between showed the hang's
                 // pose on the root turning away, the hands 0.2-0.3 m off, audit WALL-8's pop.)
-                if self.back_eject(lib, root, input, left) {
+                if self.back_eject(lib, root, input, left, EJECT_FREE_ALONG) {
                     self.snap_now(root, rig, base, cr);
                     return;
                 }
@@ -10151,6 +10636,26 @@ mod tests {
         assert!(!blocked(&level, root, Vec3::NEG_Z * 0.2));
         assert!(!blocked(&level, root, Vec3::X * 0.2));
         assert!(!blocked(&level, Vec3::new(0.0, 0.0, -2.0), Vec3::Z * 0.2));
+    }
+
+    #[test]
+    fn the_let_go_finds_hay_out_from_the_wall_and_below() {
+        // AC1's let-go search (vt84, `LET_GO_SEARCH`): a hang 4 m up on a wall facing -Z; hay just out below it (its box
+        // 2 m deep, opening out as the hay lies lower) is dived at,
+        // not hay behind the wall's line or level with the hang.
+        let hay = |x: f32, y: f32, z: f32| crate::level::HayStack { centre: Vec3::new(x, y, z), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None };
+        let feet = Vec3::new(0.0, 4.0, -0.5);
+        let away = Vec3::NEG_Z;
+        let found = |h: crate::level::HayStack| {
+            let level = Level { haystacks: vec![h], ..default() };
+            support_search(&level, feet, away, away, &LET_GO_SEARCH).is_some()
+        };
+        assert!(found(hay(0.0, 0.0, -2.3)));
+        assert!(found(hay(1.0, 0.0, -2.3)));
+        assert!(!found(hay(0.0, 0.0, -3.5)));
+        assert!(!found(hay(0.0, 0.0, 2.0)));
+        assert!(!found(hay(0.0, 3.5, -3.5)));
+        assert!(!found(hay(0.0, 0.0, -14.0)));
     }
 
     #[test]

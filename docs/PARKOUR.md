@@ -407,6 +407,8 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   0x67DA30 builds each beam's volumes: the top and both sides, tilted ±5° about the beam's line, 0.15 m past its
   half width, 0.5 m along the up normal. So city beams are the authored guidance beams, which we already load (937 in
   Damascus → 1141 perches). **[V]**
+  Since 2026-10-14 ours builds a city's beams that way (`beam_pairs`) and its posts by `sub_B2B600`: see "Beams as AC1
+  does them".
 
 ## 9. Wall run, ladders, hay, swing bars
 - **Wall run over a thin wall**: removed 2026-10-10. AC1's walling classifier (0xE341D0) never returns the pass-over
@@ -541,7 +543,7 @@ in this batch, by audit id:
   `AC1_PAIRED_BEAMS=1` builds beams and posts as AC1's runtime does, pairing facing hold edges (`beam_pairs.rs`, after
   Banned445's decode) in place of ours' mesh-name beams and single-hold tops; not the default yet (31 of 41 routes
   against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
-  beam the running game lands on).
+  beam the running game lands on); the default since 2026-10-14, see "Beams as AC1 does them").
 - **Fourth batch** (WALL-8): an eject's takeoff turns the root away from the wall in one frame, as AC1's does (it was
   eased round over the takeoff), the hips kept where the rebound pose left them. (WALL-16 to 18) The wall run's catch
   into the wall hang (probe D) as the exe has it: the highest edge first, its height blend over 1.5 m (ours had the
@@ -1084,6 +1086,126 @@ position only, reads as a jump), the swing back's hand (the clip's own 8 m/s swi
 Sweep runs with each class (dev c4f4154 / this round): Damascus (147 runs) embed 5 / 0, topout 6 / 0, stuck 2 / 0,
 pop 5 / 5, hands-off 2 / 2, flipflop 1 / 1, free-on-wall 1 / 1; test level (102) topout 3 / 0,
 free-on-wall 4 / 1, pop 3 / 3, embed 1 / 1.
+
+## Beams as AC1 does them (2026-10-14)
+The online friend "went into walls, specially from beams" (replay 1791930058, user report 2026-10-13). `AC1_REPLAY_SCAN=1`
+(with `AC1_REPLAY`) checks every frame's two roots against the city's collision (the capsule pushed out, the chest through
+a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It found ours' own beams: a drum's plinth
+0.3 m deep against its wall (the friend balancing along it, the capsule 0.35 m into the drum) and a window box's sill (us,
+0.45 m into the box), both beams invented from mesh names or single-hold tops. AC1 has neither. Now, in the cities:
+- **Where beams and posts come from [V, B]**: AC1's beams only, its paired authored hold edges (`beam_pairs`, the
+  `AC1_PAIRED_BEAMS` build, now the default; `AC1_OLD_BEAMS=1` keeps ours' old set), cut wherever anything stands in their
+  workspace (0.5 m over the top, side planes 0.15 m past the half-width), so never against a wall; and AC1's posts
+  (`sub_B2B600`, read in Ghidra: from a hold edge's middle, the edge facing back within 0.3 m, one facing on within 1.3 m,
+  one to each side within 0.6 m of between them, all within 0.5 m in height and 30 degrees of the search, front-back and
+  side-side at most 0.7 m apart; the top the four points' mean, kept only with a 0.4 m capsule free from 0.6 to 1.4 m over
+  it): 5218 beams and 1374 posts in Damascus. No mesh-name beams, no single-hold narrow tops, no stub-end holds.
+- **Catching a beam from the air or arriving on it [V]** (`sub_116D960`, the air catch 0xE0B890 and the free-step
+  arrival): no floor within 0.5 m under the top at half-width + 0.2 m to either side, and no wall across 0.2 m over it.
+- **From the ground [B]**: AC1's mount guard (event 72, 0xD9F4C0): the stick past 0.35, the beam piece running from its
+  nearer end within 90 degrees of the stick at any angle, head room from the feet to the entry 0.5 m on along it. Ours took a
+  beam only walking within 30 degrees of it. (The test level keeps ours' rule.)
+- **Speed [B]**: the crouch jog in high profile, the crouch walk in low (AC1's speed band by profile); ours jogged only
+  free running.
+- **Ends [B]**: free running to a beam's end that runs into a wall holds there (no drop edge past it: AC1's
+  `BeamRunsAlong` 0xF78F00 leaps only within 0.4 m of the drop edge at the end) and the legs held run up the wall (event 15
+  reads the legs held). Ours leapt straight up into a balcony's floor (report #9).
+- **Jumps with no target [B]**: AC1's free jump off a narrow object (the narrow interpreter's jump kinds, BeamState
+  0xEEAAA0 / NarrowObjectState 0xEE9564, `BuildFreeJumpTarget` 0xB1E7F0): free running, only over a drop edge ahead along
+  the stick (`FindDropEdgeAhead` 0xB1C100: the hold edges crossing the stick's plane 0.3 m back to 1.1 m on, within 0.3 m
+  in height, a drop of 0.5 m or more past them), 3 m on over a drop of 1 m or less from a beam, else 8 m on (the stick within
+  45 degrees of the facing; from a post always), down to the drop's floor + 0.25 m, at most 3 m; the beam set of takeoffs and
+  flights (`xx_h_beam_freestep_*`, `xx_h_beam_air_*`) where the target is over 0.4 m down and the way to it blocked
+  (0xB145B0). No drop edge: no free jump. Ours crouched and leapt 3.5 m on and 3 m up anywhere: on route `roof1_free_south`,
+  on a beam across the way, it went straight up where the running game free-stepped on (end gap 2.14 -> 0.49 m). Not free
+  running, the stick toward a drop edge under 2 m (within 45 degrees of the facing, or any way in high profile; along a beam
+  only within 0.4 m of its end): the hop off, 1 m on in low profile, 3 m in high (kinds 1 / 2).
+- **Posts [B]**: the body keeps its facing and the pilotis wait leans toward the stick (`_wait`, `_left`, `_right` by the
+  stick's angle, 120 degrees full, at 3/s; 0xE51960); ours turned the body on the spot.
+- **Climbing onto a narrow top**: the lean's climb needs room for the body on the top (the capsule clear of walls), as the
+  plinth had none.
+- Measured on the live-log routes with a beam in them (`wall1_*`, `roof*`, `seams_free_west`, `hay70_free`): unchanged or
+  better (`roof1_free_south` 0.82 -> 0.77 mean). Scenarios: the plinth and window box have no beam; the lean does not climb
+  the plinth; `roof2_run_south` runs on over the roof's end as ground (AC1's, ours had a beam there); the high profile jog;
+  the post's lean.
+
+Left (Banned445's port has them; ours does not yet): the walk's speed ramp blending walk and jog by speed (+2 / -3 m/s²,
+the jog stop by it); the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
+jump kind on the legs held without a press; the hop off sideways in high profile before the quarter turn (ours turns
+first); event 17 (walking into an obstacle on a beam searches a hand target); the free-step stay (every free-step landing
+plays its reception in NarrowObject and may jump on from half of it; ours lands on the ground or the perch); the beam ends
+extended to the drop edge past them and the support re-found every frame (one runtime report, chains walked through);
+the side entry's 30/90 blend checked live; the corner hop chain from the hop's end; the turn round under a beam from a free
+hang (a ledge move). The window-box side leap through a building's corner in the same replay is the in-air wall test's
+(single rays at 0.3 / 1.0 m), passed on to the wall-kick work.
+
+## Banned445's port, 2026-10-13 round
+Banned445's AC1-Movement-Rewritten (MIT) moved on 233 commits (c81c555..5f081fa), each read from the exe. Ported here
+area by area, written anew, each checked in Ghidra where it could be. **[B, V]**
+
+**The jump off a wall (the user's "insta walljump at any point of an animation")** **[V]**:
+- *When*: AC1 takes the jump off (event 2) only in two of `HumanLedge`'s states (its handler 0xDE3A30): Movement (the
+  hang at rest and its own steps: shimmies, hand steps, the climbs out of the hang, look-arounds), refused while the
+  playing item is locked unless it is a strafe or a swing back (0xDCCE10, 0xDCCD50) and in a free hang; and Entry (the
+  wall run's catches), at any time in the catch into the wall hang (action 0x0106CFC5), else in the catch's first
+  quarter (0xDCBF00). `HumanClimb` takes it in Wait, and mid-move only in a grid move or a corner climb (0xDF9230,
+  the flag `ChooseMove` sets). Everything else on the wall refuses it: the corners, the receptions after a jump or a
+  fall, the pull-downs, the climb's entry from the ground, its reaches and leaps, the transitions into a hang. The press
+  waits in the Legs buffer, 0.3 s: taken as soon as a state that takes it comes, else dropped. Ours took it at any point
+  of any move ending on the wall, cutting it. (The wall run itself: never in its entry's first half, at the end of the
+  second, any time in the step up and the kick off the top, as before.)
+- *The hop*: from a wall hang (and the wall run's catch) the rebound pose by the side of the jump, from the direction
+  to the target found at the press (0xDD2CA0): to the right of the body facing the wall `xx_h_hangwall_tr_rebound_footl`,
+  the root lowered 0.3 m × (angle off straight away, up to 45°)/45° over its 0.2 s; straight away or to the left `_footr`
+  (ours: `_footl` unless the stick was to the left, no drop). From a climb always `_footl` in place (0xDEA560). Then,
+  facing away, the rebound jump (kind 2) off the foot the pose ends on (its item's feet, 0xDD0A40 / 0xDEAE30): the
+  32-clip `xx_h_rebound_<frontleft|frontright|left|right>_*_to_air` takeoff blended by the target and the side angle
+  (0xB1EC40, slots as Banned445's 9369c0b: the angle's sign picks frontright / right or frontleft / left, `t = |a|/90°`).
+  With no target, the free target (8 m on, 3 m down; the wall run's own 7 m, 0xE365C0): its far band's 550 cm push off
+  (ours had the 300 cm one for every free eject).
+- *The wall run's rebound*: the push straight back with the stick within 50° of the facing or let go, else along the
+  stick turned in to 89°; off the left foot (every walling item ends on it, 0xE36660); at a target, else AC1's fallback
+  above. Ours, with no target, played `xx_h_wallingfront_<entry|step1>rebound_<back|left|right>_*`: no code of the exe
+  asks for those actions (0x00FF7C41, 0x00FF7C97..A0, 0x47: the exe's search finds no reference).
+- *Off a ladder*: `xx_h_ladder_wait_<l|r>_tr_rebound_foot<l|r>`, then the same rebound jump facing away, the way by the
+  stick (straight back with none, refused into the ladder) (6400374, LADDER-12). Ours flew a fixed arc, 3.5 m/s out.
+- Scenarios: `wall A: the legs late in the climb's entry ...`, `... early in the climb's entry ...`, `... in the middle of a
+  climbing grid move ...`; the wall-run hang ejects now check the pose's foot and drop.
+
+**In the air, the body's capsule** **[B]**: AC1 drives a jump's path as a velocity through the character proxy
+(0xE0DEF0 → the controller), so the body slides along what it meets and a wall holds it back. Ours flew the clips' path
+(takeoff, flight) and the falls with two centre rays at the chest and knees: the 550 cm rebound takeoff crossed a 3 m
+alley into the opposite wall (reports 1064093, 158904), and a leap off a Damascus window box ended inside a house (the
+replay scan, ~326 s). Now the capsule (0.4 m, as on the ground) is swept along every takeoff and flight frame and every
+falling step, pushed out of walls, the speed into them gone; a jump held back more than 0.6 m in all falls from there, 30 %
+of its speed along kept (Banned445's port's anti-stuck stand-in; 0xE0B1E0's own nudge is ours already). The hangs' side
+leaps first sweep AC1's clearance capsule to the new hang (0xDDDF85: r 0.35, from 0.2625 m back and 0.15 m out, 1.8 / 1.0 /
+2.0 m tall to the climb / wall hang / free hang; Banned445's 3580692), as the vertical reach already did.
+
+| Commit(s) | What | Here |
+|---|---|---|
+| 6eec27f | eject during the wall run's grab (Entry state, 0xDCBF00) | ported |
+| e6a6eed | the ledge jump off: wall hang only, the rebound turn first | ported (side, drop, foot) |
+| 91f7874 | the climb's jump: the rebound first, also mid grid move | ported (the release part: see climbing) |
+| 9369c0b, eda4aa7 | side takeoffs, the rebound takeoff (kind 2), its weights per clip | already ours (`jump::rebound`); the free eject's band ported |
+| 6400374 | ladder: the jump off is the rebound (kind 2) facing away | ported (QuickDrop's low release was already ours) |
+| 38c5bcf, 011aeac | walling: the stale stick angle decides the push; free run up along the last strong stick | push ported; the stale angle and the 0.2 s free-run gate skipped (ours has no stale stick) |
+| 3580692 | the side jump's clearance capsule | ported |
+| a14bd2c | the wall run's Ground lead-in from the lean / standing free run | ported (`xx_h_impultionstraight_footl_to_wallingfront_step1_footr` before the entry, from the lean on the legs in high profile and from the standing free run; from moving, at once as before) |
+| c8e6b69, 61a6d37 | the let-go over a haystack dives into it (vt84's search) | ported (`let_go_dive`, `LET_GO_SEARCH`; unit-tested: no test-world hang over hay) |
+| 91f7874 (release) | the climb's release mid grid move is the lost-grip fall | ported (scenario on wall A) |
+| 7feeb39 | no empty-hand catch, no edge landing in the leap of faith's dive | ported |
+| 5e5f594 | a free hang's row step needs room for the body | tried, reverted: ours' free-hang boxes are not 0xB2DD50's (they refused the Damascus corbels' and awning's steps); to read in the exe |
+| 22e8105, 6a84956, 46b292a, 0d08760, 5e83d5a, ebda260, bfba118, 779dfc0, 421521d, 19a7a35, c257aee, ad1ec38, e648e3b, cefccc5, 347c6eb, 9ae3ef1 | the hang's order (pull-up last), blocked look-arounds, shimmy sweep, corners, hang-type switches, let go mid-step, vertical steps, swing-strength idle, ledge to ladder | already ours (the audit batches of 2026-10-10..13: `hang_corner`, `free_to_wall_*`, `free_wait`, the shimmy sweep, `look_around`, `let_go`) |
+| 20532a7, 3dc0efd, 01630a1, e822dfd, 39a971c, 1cae28f, f836a51, 7e0a5f5, aae1df1, 3f40643, 51ed60e | the pull-down reception's `_b`/`_tr` played in the hang's Movement state, the free pull-up's waist step on unlock, the hands re-posed from the bones, root paths of table jumps, IK gates | skipped: timing and IK details of Banned445's own sub-state model; ours plays these chains out (the jump off and the shimmy wait for them) |
+| eda4aa7 (catches), 9f4f935, fb56f67, fb73f52 | catches reach the hang over item 0 + 0.2 s | skipped: ours spreads the catch's correction over its first item (0.07 s); needs a correction span on the move |
+| 3f0c9b9, 47d8143, efe5a2c, e29cbea, 1478b18, 4d4ea57, 44203b4, 0b7b95b, 130bd19, ab1fe10, 731d302, d448693, 1c6cd45, da20f1d, baac142, 7cbae5a, 0c2fd6e | climbing: long table first and the lean guard, climb-out room, ledge grabs, jump up to an overhang, reach timings, entry types, grid root from four holds, the climb-down's landing | already ours where the climbing sweeps put them (sections 4 and "The climbing round two"); the timing and entry-type details skipped; G14 / G24 and the climb-down are fix/climb3's |
+| 6668ee0, 58b67ce, 9ac87df, 91985c2, 4c0de51 | haystacks solid, entered on any contact, the hop-out's room, the pass-over from the hay, the low wait | already ours (section 9, user report #1) |
+| 6400374, 0a5e5a0, 9548c89, dbd95d9, ff7a8e0, 98e0048, 1f25eb1, a02d462, 87c7141, ecf8bf3, 8c08fbb, b5de470, 29315e6, 3aa5275 | ladders | 6400374 ported; ff7a8e0, a02d462, 87c7141 already ours (the wall run onto a ladder, the walk-in entry, the back turn); the rest's rung alignment and entry frames skipped |
+| 1753486, 627324b, 47beb7e, 9571acc, d1ba9d9, aa64eb2, b92172b, 11f9641, 3d217ff, 1ff921d, 6571980, 3ad3bc0, c08e610, 5bc8af0, 2b230ae, a12d41c, 7954a54, cadae0e, b020fdd, bf7789c | air and jumps | 1753486 already ours (fix/landings); the jump aim pull-back, down variants, ladder / wall reception sets, takeoff foot and catches mostly ours from the audit (section 5, 6); the over-drop tail's per-frame integration, the arrival's requested-root test, the apex rules skipped |
+| ddb3102, 8926002, f0e6a8c, 9ff950b, bb0fba5, 0c43b23, 7718d53, 7d154ac, e457f11 | lab / city replays, the demo course | skipped: Banned445's own test harness; ours has the scenarios and `replay.rs` |
+| beams, posts, swing (98b75f7 .. 5f55770, d5ad375, 142a8f3, fd795de, 00dc174, 5b1b9ff, 90560aa, f73c6a0) | narrow objects and swing bars | the beam agent's (fix/beams) |
+| guidance, animation, input, ground (c3b3ac1 .. 34c8049, 8816ad2, cebd9ec, 10253c9, 429bb82, 95217b4, d050de0, 0cf1fbc, 9f1b04b, db55991, 0f94032, bb34a58, e726a01, ...) | the guidance workspace, blend evaluation, input tracker, ground waits | not this round (shared core; each its own batch) |
 
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the

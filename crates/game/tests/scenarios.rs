@@ -39,6 +39,83 @@ fn windowed() -> bool {
 const QUIET: &[(&str, &str)] = &[("AC1_NO_CROWD", "1")];
 
 const SCENARIOS: &[Scenario] = &[
+    // AC1's climb takes the release (the empty hand) mid-move in a grid move, into its lost-grip fall (0xDF90F0, Banned445's
+    // port 91f7874); ours waited for the move's end.
+    Scenario {
+        name: "wall A: the empty hand in the middle of a climbing grid move lets go at once (AC1's lost grip)",
+        tags: &["climb"],
+        env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "up=1.9,none=3"), ("AC1_HAND", "3.6")],
+        secs: 5.5,
+        want: &["let go in the middle of xx_l_climb_1ru_u_1lu", "via xx_h_hangwall_tr_fall_a", "-> land"],
+        never: &["EMBED"],
+    },
+    // User report 1064093 (test world, the alley at x 35.3 between walls 3 m apart): the wall run's rebound with nothing to
+    // land on flew its 550 cm takeoff and the flight 2.4 m and came down 0.5 m into the opposite wall, over and over. A
+    // jump's takeoff and flight now move the body's capsule as AC1's proxy does (0xE0DEF0 through the controller): it
+    // stops at the opposite wall.
+    Scenario {
+        name: "the alley at x 35.3: the wall run's rebound comes down against the opposite wall, not in it (report 1064093)",
+        tags: &["wallrun", "eject"],
+        env: &[("AC1_START", "35.3,-23.4,0"), ("AC1_WALK", "6.2"), ("AC1_STOP", "0.6-4"), ("AC1_HIGH", "0-4"), ("AC1_LEGS", "0-0.5"), ("AC1_JUMP", "0.8")],
+        secs: 3.5,
+        want: &["wall run rebound with nothing to land on (step1rebound)", "the run ends at [35.30, 0.00, -23.4"],
+        never: &["EMBED", "-23.0"],
+    },
+    // User report 158904 (test world, x -85.5, z 51.7): the rebound flew through the wall 1.6 m behind; held back by it
+    // now, it falls from there (AC1's jump held off its path by the proxy).
+    Scenario {
+        name: "the wall run's rebound at x -85.5 is held back by the wall behind and falls there (report 158904)",
+        tags: &["wallrun", "eject"],
+        env: &[("AC1_START", "-84.3,51.73,90"), ("AC1_WALK", "6.2"), ("AC1_STOP", "0.6-4"), ("AC1_HIGH", "0-4"), ("AC1_LEGS", "0-0.5"), ("AC1_JUMP", "0.9")],
+        secs: 3.5,
+        want: &["the jump is held back by a wall at [-84.4", "the run ends at [-84.4"],
+        never: &["EMBED", "rebound off the wall in the air"],
+    },
+    // AC1's wall run from the lean (event 49 in the obstacle lean, 0xDA6FF0) plays the Ground's lead-in
+    // `xx_h_impultionstraight_footl_to_wallingfront_step1_footr` first (Banned445's port a14bd2c, live RE/25 #49).
+    Scenario {
+        name: "wall W: leaning on it in high profile, the legs run up it after AC1's lead-in",
+        tags: &["wallrun", "ground"],
+        env: &[("AC1_START", "33,18,180,1"), ("AC1_WALK", "1.5"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "3.0-4.5")],
+        secs: 4.0,
+        want: &["lean on the wall", "the wall run's lead-in from standing", "-> wallrun via xx_h_wallingfront_entry_footl_b"],
+        never: &["EMBED"],
+    },
+    // The jump off a wall is taken only where AC1 takes it (Banned445's port 91f7874, 6eec27f, e6a6eed; the exe's
+    // HumanClimb event 2 guard 0xDF9230, HumanLedge 0xDCCE10 / 0xDCBF00), the press kept 0.3 s in the Legs buffer. Ours took
+    // it at any point of any move on the wall, cutting it ("insta walljump at any point of an animation", the user,
+    // 2026-10-13). Pressed late in the climb's entry from the ground (no grid move): kept, then taken in the stance, with
+    // AC1's climbing rebound pose (`xx_h_hangwall_tr_rebound_footl`, always the left foot from a climb) and its takeoff.
+    Scenario {
+        name: "wall A: the legs late in the climb's entry wait for the stance, then the rebound off the left foot",
+        tags: &["climb", "eject"],
+        env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "wait=3"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "1.15-1.2")],
+        secs: 4.0,
+        want: &[
+            "the jump off waits: xx_h_wait_hipm_footl_tr_climbing_1m (0.6",
+            "rebound pose off the left foot (0.00 m lower)",
+            "back eject, 0 degrees off straight away (xx_h_rebound_frontright_front_550cm_footl_to_air)",
+        ],
+        never: &["EMBED", "the jump off cuts"],
+    },
+    // (Pressed more than 0.3 s before the entry ends: the buffer runs out, no jump off.)
+    Scenario {
+        name: "wall A: the legs early in the climb's entry are let go by the buffer: no jump off",
+        tags: &["climb", "eject"],
+        env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "wait=3"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "1.0-1.05")],
+        secs: 3.0,
+        want: &["the jump off waits: xx_h_wait_hipm_footl_tr_climbing_1m (0.5"],
+        never: &["EMBED", "jump off the wall", "back eject"],
+    },
+    // (In a grid move, AC1's climb takes it mid-move: the move cut, the rebound pose from where he is.)
+    Scenario {
+        name: "wall A: the legs in the middle of a climbing grid move jump off at once (AC1's climb, mid-move)",
+        tags: &["climb", "eject"],
+        env: &[("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "up=1.9,none=3"), ("AC1_HIGH", "0-6"), ("AC1_LEGS", "3.6-3.65")],
+        secs: 5.5,
+        want: &["the jump off cuts xx_l_climb_1ru_u_1lu at 0.2", "rebound pose off the left foot", "back eject, 0 degrees off straight away"],
+        never: &["EMBED", "the jump off waits"],
+    },
     Scenario {
         name: "standing turn round in high profile: the turn, then its own exit into the jog (AC1's, audit GROUND-5)",
         tags: &["ground"],
@@ -71,6 +148,16 @@ const SCENARIOS: &[Scenario] = &[
         secs: 3.0,
         want: &["onto perch", "off the beam's end onto the ground"],
         never: &["EMBED"],
+    },
+    // AC1's beam speed by profile: band 2 (the crouch jog) in high profile, band 1 (the crouch walk) in low (`GetSpeedBand`
+    // 0xE53090, Banned445's port); ours jogged only free running.
+    Scenario {
+        name: "running in high profile (no legs) along the beam to B4: the crouch jog, as AC1's high profile band",
+        tags: &["beam"],
+        env: &[("AC1_START", "62.0,33,-90,5"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-3")],
+        secs: 2.0,
+        want: &["onto perch", "along the beam at the crouch jog"],
+        never: &["EMBED", "along the beam at the crouch walk"],
     },
     Scenario {
         name: "free running at T2's beam a little off its line: onto the beam, the leap of faith from its end",
@@ -119,7 +206,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["wallrun", "climb"],
         env: &[("AC1_START", "33,13,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-1.6"), ("AC1_JUMP", "1.75"), ("AC1_VEER", "1.6,90")],
         secs: 4.0,
-        want: &["rebound xx_h_wallingfront_step1rebound_left_footl"],
+        want: &["wall run rebound with nothing to land on (step1rebound)", "back eject, 89 degrees off straight away"],
         never: &["EMBED"],
     },
     Scenario {
@@ -173,6 +260,16 @@ const SCENARIOS: &[Scenario] = &[
         want: &["crouched to jump straight up", "straight up off the perch", "-> perch via xx_h_beam_landing_soft_tr_pilotis_wait_a"],
         never: &["EMBED", "landed from 2", "-> ground"],
     },
+    // AC1's pilotis wait (0xE51960): on a post the body keeps its facing and the wait leans toward the stick (90 degrees
+    // off: three quarters of `_wait_left`); ours turned the body on the spot.
+    Scenario {
+        name: "standing on a post, the stick to the left: the wait leans left, the body keeps its facing",
+        tags: &["beam"],
+        env: &[("AC1_START", "38.6,0,-90,3"), ("AC1_WALK", "1.5"), ("AC1_VEER", "0.8,90")],
+        secs: 2.5,
+        want: &["xx_h_beam_pilotis_wait=0.25,xx_h_beam_pilotis_wait_left=0.75"],
+        never: &["EMBED", "-> ground", "landed from", "-> jump"],
+    },
     Scenario {
         name: "running onto the beam to B4 at 15 degrees: onto it once, along it, off its end (it flickered ground/perch)",
         tags: &["beam", "ground"],
@@ -219,7 +316,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["ladder", "jump"],
         env: &[("AC1_START", "23.5,-5.4,0"), ("AC1_CLIMB", "up=2.5,down=3"), ("AC1_HIGH", "4.0-4.6"), ("AC1_LEGS", "4.2-4.3")],
         secs: 7.0,
-        want: &["rebound off the ladder", "_tr_fall", "land -> ground"],
+        want: &["rebound off the ladder", "back eject, 0 degrees off straight away (xx_h_rebound_frontright_front_550cm_footl_to_air)", "land -> ground"],
         never: &["EMBED", "landing_damage_footl_roll"],
     },
     Scenario {
@@ -1219,7 +1316,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject, 89 degrees off straight away", "the run ends at [21.3", "0.00, 7.37] (game"],
+        want: &["rebound pose off the right foot (0.00 m lower)", "back eject, 89 degrees off straight away", "the run ends at [21.3", "0.00, 7.90] (game"],
         never: &["EMBED"],
     },
     Scenario {
@@ -1235,7 +1332,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,right=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject, -89 degrees off straight away", "the run ends at [21.3", "0.00, 23.23] (game"],
+        want: &["rebound pose off the left foot (0.30 m lower)", "back eject, -89 degrees off straight away", "the run ends at [21.3", "0.00, 22.54] (game"],
         never: &["EMBED"],
     },
     // User report #11 (Damascus, by a market stall): the running jump at a house's roof edge flew the surface flight into
@@ -1368,7 +1465,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,downleft=1.2"),
         ],
         secs: 4.5,
-        want: &["via xx_h_hangwall_tr_rebound_footr", "back eject, 45 degrees off straight away", "the run ends at [16.3", "0.00, 10.14] (game"],
+        want: &["via xx_h_hangwall_tr_rebound_footr", "back eject, 45 degrees off straight away", "the run ends at [16.5", "0.00, 10.36] (game"],
         never: &["EMBED"],
     },
     // The eject goes by the stick as the camera sees it, not the climbing stick in the character's frame (AC1's jump off a
@@ -1388,7 +1485,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,down=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject, 45 degrees off straight away", "-> land via xx_h_landing_damage_footl_roll at [16.3", "0.00, 10.14] yaw 45"],
+        want: &["back eject, 45 degrees off straight away", "-> land via xx_h_landing_damage_footl_roll at [16.5", "0.00, 10.36] yaw 45"],
         never: &["EMBED"],
     },
     // User report #1 (2026-10-12): stuck in a Damascus rooftop hiding place. The hop out's room was tested along a ray
@@ -2291,6 +2388,17 @@ const SCENARIOS: &[Scenario] = &[
         secs: 4.0,
         want: &["lean on the wall at"],
         never: &["EMBED", "from leaning on it", "onto perch"],
+    },
+    // Audit route roof2_run_south (the running game, Damascus): in high profile to a roof's end that ours took for a beam
+    // over the crack to the next roof 0.74 m down; AC1 runs on over it as ground and steps off it (`run_front_050cm`).
+    // Ours balanced on its own beam there and free-stepped off it. AC1's beams (paired hold edges) have none there.
+    Scenario {
+        name: "Damascus: running in high profile off a roof's end over a crack runs on as ground and steps off (route roof2_run_south)",
+        tags: &["beam", "ground"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "41,-20,180,12.5"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-5")],
+        secs: 4.0,
+        want: &["step off the edge", "landed from 0.7 m"],
+        never: &["onto perch", "EMBED"],
     },
 ];
 

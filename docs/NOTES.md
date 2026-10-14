@@ -1563,7 +1563,7 @@ Two changes (`level_cache.rs`, `level.rs`, `city.rs`):
   and place the city's meshes and textures but skip its collision shapes, guidance, holds and navigation. Its key: a
   version constant (`CACHE_VERSION`, bumped when code outside `SOURCES` changes the data), the source text of the files
   that build it (`city.rs`, `level.rs`, `nav.rs`, `beam_pairs.rs`, forge's parsers it uses), the city, the env switches
-  that change the build (`AC1_COLLISION`, `AC1_GEOMETRY_HOLDS`, `AC1_PAIRED_BEAMS`, `AC1_NO_LIPS`, `AC1_POSE_PROPS`: each
+  that change the build (`AC1_COLLISION`, `AC1_GEOMETRY_HOLDS`, `AC1_OLD_BEAMS`, `AC1_NO_LIPS`, `AC1_POSE_PROPS`: each
   set of values its own file), and the size and modification time of the forges read. A file with another key, cut
   short, with a bad checksum or a count running past its end is not used (the city is built and the file rewritten);
   files are written whole and renamed into place (scenario games load the city side by side). `AC1_NO_CACHE=1` and the
