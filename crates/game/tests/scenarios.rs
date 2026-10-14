@@ -2459,6 +2459,17 @@ const SCENARIOS: &[Scenario] = &[
         want: &["step off the edge", "landed from 0.7 m"],
         never: &["onto perch", "EMBED"],
     },
+    // The level editor (`editor`, `level_file`): a saved level on empty ground, wall A as a box with hold rows up its
+    // faces (`tests/levels/climb_block.level`, read from the crate's folder, the tests' working directory), climbed to
+    // its top as wall A is.
+    Scenario {
+        name: "a saved editor level: its box with holds is climbed to the top as wall A",
+        tags: &["climb", "misc"],
+        env: &[("AC1_LEVEL", "tests/levels/climb_block.level"), ("AC1_START", "0,4.0,180"), ("AC1_CLIMB", "up=14"), ("AC1_WALK", "1.9")],
+        secs: 8.0,
+        want: &["editor level tests/levels/climb_block.level: 3 pieces on the empty base", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl"],
+        never: &["EMBED", "editor level: "],
+    },
 ];
 
 fn game_dir() -> Option<PathBuf> {

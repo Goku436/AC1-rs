@@ -1542,7 +1542,7 @@ impl Level {
 }
 
 /// Rows of test-level holds along a face: from `origin` along `along` for `len` m, facing `out`, at each height.
-fn hold_rows(strips: &mut Builder, level: &mut Level, origin: Vec3, along: Vec3, len: f32, out: Vec3, heights: &[f32]) {
+pub(crate) fn hold_rows(strips: &mut Builder, level: &mut Level, origin: Vec3, along: Vec3, len: f32, out: Vec3, heights: &[f32]) {
     for &y in heights {
         let a = origin + along * 0.08 + Vec3::Y * y;
         let b = origin + along * (len - 0.08) + Vec3::Y * y;
@@ -1774,7 +1774,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
 
 /// A test-level building from `lo` to `hi` (ground to roof): a hold along the roof's edge on every side, and on the
 /// faces listed (by outward normal) rows of holds every 0.6 m from 1.79 m up to it, to climb.
-fn building(walls: &mut Builder, strips: &mut Builder, level: &mut Level, lo: Vec3, hi: Vec3, climb: &[Vec3]) {
+pub(crate) fn building(walls: &mut Builder, strips: &mut Builder, level: &mut Level, lo: Vec3, hi: Vec3, climb: &[Vec3]) {
     walls.cuboid(lo, hi);
     let rows: Vec<f32> = (0..).map(|k| 1.79 + 0.6 * k as f32).take_while(|y| *y < hi.y - 0.3).collect();
     let faces = [
@@ -1885,7 +1885,7 @@ pub(crate) struct Builder {
 }
 
 impl Builder {
-    fn quad(&mut self, a: Vec3, b: Vec3, c: Vec3, d: Vec3) {
+    pub(crate) fn quad(&mut self, a: Vec3, b: Vec3, c: Vec3, d: Vec3) {
         self.tris.push(Tri { a, b, c });
         self.tris.push(Tri { a, b: c, c: d });
     }
@@ -1911,7 +1911,7 @@ impl Builder {
             }
         }
     }
-    fn mesh(self) -> (Mesh, Vec<Tri>) {
+    pub(crate) fn mesh(self) -> (Mesh, Vec<Tri>) {
         let mut pos = Vec::with_capacity(self.tris.len() * 3);
         let mut nrm = Vec::with_capacity(self.tris.len() * 3);
         let mut uv = Vec::with_capacity(self.tris.len() * 3);
@@ -2205,6 +2205,19 @@ pub fn spawn_level(
             }
         }
         info!("load: {city} ready in {:.2} s{}", begun.elapsed().as_secs_f32(), if from_cache { " (gameplay data from the cache)" } else { "" });
+        commands.insert_resource(level);
+        return;
+    }
+    // An editor level on empty ground (`AC1_LEVEL=empty`, or a saved level whose base is `empty`): flat ground and
+    // nothing else; the pieces are added by `editor::start`.
+    if crate::level_file::start_base() == crate::level_file::Base::Empty {
+        let mut plain = Builder::default();
+        plain.quad(Vec3::new(-500.0, 0.0, -500.0), Vec3::new(-500.0, 0.0, 500.0), Vec3::new(500.0, 0.0, 500.0), Vec3::new(500.0, 0.0, -500.0));
+        let (mesh, tris) = plain.mesh();
+        level.tris.extend(tris);
+        let ground = StandardMaterial { base_color: Color::srgb(0.7, 0.62, 0.48), perceptual_roughness: 0.9, ..default() };
+        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(mats.add(ground))));
+        level.build_grid();
         commands.insert_resource(level);
         return;
     }
