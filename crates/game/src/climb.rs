@@ -1955,9 +1955,16 @@ fn side_exit_toward(level: &Level, root: &Transform, normal: Vec3, right: bool) 
     let way = (-n).cross(Vec3::Y).normalize_or_zero() * if right { 1.0 } else { -1.0 };
     let p = root.translation;
     [0.75, 1.0, 1.5].iter().any(|d| level.ground(p + way * *d + Vec3::Y * 0.3, 0.3, STEP_OFF_MAX).is_some())
-        || level.ledges.iter().filter(|l| l.out.dot(n).abs() < 0.7).any(|l| {
-            let d = l.closest(p + Vec3::Y * 1.9 + way * 0.75) - (p + Vec3::Y * 1.9);
-            d.dot(way) > 0.0 && d.length() < 1.5
+        || level.ledges.iter().any(|l| {
+            let hands = p + Vec3::Y * 1.9;
+            let d = l.closest(hands + way * 1.0) - hands;
+            if l.out.dot(n).abs() < 0.7 {
+                // (A corner's holds.)
+                d.dot(way) > 0.0 && d.length() < 1.5
+            } else {
+                // (A ledge along this wall to hang from: the stance's grab into a hang, `TryLedgeGrab` 0xDF0980.)
+                l.out.dot(n) > 0.7 && (0.5..=2.0).contains(&d.dot(way)) && d.y.abs() <= 0.8 && d.dot(n).abs() <= 0.5
+            }
         })
 }
 
@@ -5010,6 +5017,19 @@ impl WallClimb {
                 })
                 .filter(|c| c.distance(from) < 1.0 && c.distance(q) < 1.0)
                 .unwrap_or((from + q) * 0.5);
+            // (The body's way round clear: AC1 tests the hang's body boxes and the lateral path to the new hang (0xB2A410,
+            // Banned445's port's capsule at the target); ours' root, turned about the hands, swung the hips through a
+            // Masyaf roof's corner (climbing sweep e0-hang, an embed).)
+            let path = TurnPath { hands: [from, corner, q], grips: [q; 2], starts: [None; 2], lead: 0, from: root.rotation, to: facing(-n2), dur, t: 0.0 };
+            if (0..=8).any(|k| {
+                let (r, _) = path.at(dur * k as f32 / 8.0);
+                level.inside_solid(r + Vec3::Y * 0.5) || level.inside_solid(r + Vec3::Y * 1.0)
+            }) {
+                if why() {
+                    debug!("climb: the {} corner onto {q:.2}: the body's way round goes through something", if inner { "inside" } else { "outside" });
+                }
+                continue;
+            }
             // (The wall's normal turns with the root, onto `n2` by the end: set at once, the feet looked for the wall
             // along the new face's normal for a frame and one jumped 0.14 m.)
             self.start_chain(clips, vec![HANGWALL_OPEN.into(), HANGWALL.into()], root, Vec3::ZERO);
@@ -9941,7 +9961,12 @@ impl WallClimb {
         {
             let dir = self.move_dir.with_y(0.0).normalize();
             let foot_left = m.clip.name.ends_with("_footl") || m.clip.name.contains("_entry_footl_");
-            if drop_edge_ahead(level, root.translation, dir).is_some() && !beam_ahead(level, root.translation, dir) {
+            // (A haystack that way is the stay's own dive, past 0.6 of the arrival (above): a Damascus rooftop hiding
+            // place's rim, 0.5 m on, is no jump target over it, user report #1.)
+            if drop_edge_ahead(level, root.translation, dir).is_some()
+                && !beam_ahead(level, root.translation, dir)
+                && Self::hay_dive_ahead(lib, level, root, self.move_dir, self.last.clone()).is_none()
+            {
                 let keep = (self.freestep_left, self.perch);
                 self.freestep_left = foot_left;
                 // (The top stood on is no target: the perch it ends on, if any, is left out.)
