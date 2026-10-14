@@ -1463,7 +1463,8 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_LEGS", "0-4"),
         ],
         secs: 5.0,
-        want: &["via xx_h_wallingfront_step1_footr_tr_hangknee_250cm_footr", "hangknee -> perch via", "at [115.8", "landed from"],
+        // (The rail's line is AC1's paired one since 2026-10-14, 0.15 m further out than ours' was.)
+        want: &["via xx_h_wallingfront_step1_footr_tr_hangknee_250cm_footr", "hangknee -> perch via", "at [115.9", "landed from"],
         never: &["tops out with nothing to grab", "rebound"],
     },
     // User reports #7 and #8: up the wall under a Damascus balcony held out on stepped corbels, each step 0.45 m further
@@ -1561,7 +1562,8 @@ const SCENARIOS: &[Scenario] = &[
             "jump up from the climb to the ledge at [129.2",
             "24.24, -17.75]",
             "free_open -> free_1lu via xx_h_hangfree_climb_1m_u_1lu",
-            "-> perch via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [129.37, 25.47",
+            // (AC1's paired railing line since 2026-10-14.)
+            "-> perch via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [129.4",
         ],
         never: &["EMBED"],
     },
@@ -2257,6 +2259,38 @@ const SCENARIOS: &[Scenario] = &[
         secs: 12.0,
         want: &["1m -> free_1m via xx_l_climb_1m_u_hangfree", "hangknee -> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [78.1"],
         never: &["EMBED", "letgo"],
+    },
+    // The online friend in the walls (user report 2026-10-13, replay 1791930058, `AC1_REPLAY_SCAN`): ours' own beams, from
+    // mesh names and single-hold tops, made a Damascus drum's plinth (0.3 m deep against the drum's wall) and a window box's
+    // sill into beams, and balancing on them the body stood half in the wall (the scan: the capsule 0.35 and 0.45 m into
+    // it). AC1's beams are its paired hold edges, cut where anything stands in their workspace, and its posts are open
+    // over them (`sub_B2B600`): none there.
+    Scenario {
+        name: "Damascus: no beam on a drum's plinth against its wall (the online friend inside the wall, user report 2026-10-13)",
+        tags: &["beam"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_HOLDS_AT", "10.4,12.44,-112.2,0.6")],
+        secs: 0.5,
+        want: &[],
+        never: &["perch "],
+    },
+    Scenario {
+        name: "Damascus: no beam in a window box's sill (us inside the box in the same replay)",
+        tags: &["beam"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_HOLDS_AT", "69.12,8.91,-43.61,0.5")],
+        secs: 0.5,
+        want: &[],
+        never: &["perch "],
+    },
+    // The same plinth met from the roof below it: leaning on it and pushing on, ours climbed onto it and balanced on it
+    // in the wall. Its top has no room for the body (the capsule against the drum): no climb, as AC1's jump at the edge
+    // from the lean needs a top to stand on.
+    Scenario {
+        name: "Damascus: pushing on into a drum's plinth from the lean does not climb onto it (no room for the body there)",
+        tags: &["beam", "ground"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "10.0,-112.4,120,12.8"), ("AC1_WALK", "1.5")],
+        secs: 4.0,
+        want: &["lean on the wall at"],
+        never: &["EMBED", "from leaning on it", "onto perch"],
     },
 ];
 

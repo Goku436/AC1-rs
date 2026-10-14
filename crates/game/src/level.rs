@@ -704,6 +704,29 @@ impl Level {
         n
     }
 
+    /// The half-width of the beam whose top line passes `q` along `axis` (m): how far its top goes on to either side, level
+    /// with `q`, probed every 5 cm up to AC1's widest beam (0.5 m); the wider side.
+    pub fn beam_half_width(&self, q: Vec3, axis: Vec3) -> f32 {
+        let side = axis.with_y(0.0).normalize_or_zero().cross(Vec3::Y);
+        let on = |p: Vec3| self.ground(p + Vec3::Y * 0.1, 0.0, 0.2).is_some_and(|g| (g.point.y - q.y).abs() < 0.08);
+        [side, -side].iter().map(|s| (1..=10).map(|k| k as f32 * 0.05).take_while(|&d| on(q + *s * d)).last().unwrap_or(0.0)).fold(0.0, f32::max)
+    }
+
+    /// May a beam be caught at `q` from the air (AC1's `sub_116D960`, the beam test of the air catch 0xE0B890 and of the
+    /// free-step arrival; read in Ghidra, as Banned445's port has it): `width + 0.2` m out to either side, a ray from 0.5 m
+    /// over the top 1.2 m down meets nothing within 0.5 m under the top (no floor beside it: a beam in a roof is landed on as
+    /// ground), and a ray across from one side to the other 0.2 m over the top meets nothing (no wall beside it). A post
+    /// (`axis` zero) has its own room test (`add_pilotis`).
+    pub fn beam_catch_clear(&self, q: Vec3, axis: Vec3) -> bool {
+        let axis = axis.with_y(0.0).normalize_or_zero();
+        if axis == Vec3::ZERO {
+            return true;
+        }
+        let side = axis.cross(Vec3::Y) * (self.beam_half_width(q, axis) + 0.2);
+        [side, -side].iter().all(|s| self.raycast(q + *s + Vec3::Y * 0.5, Vec3::NEG_Y, 1.2).is_none_or(|h| h.dist - 0.5 >= 0.5))
+            && self.raycast(q - side + Vec3::Y * 0.2, side.normalize(), side.length() * 2.0).is_none()
+    }
+
     /// No face within `r` of the segment `a`-`b` (a capsule's room).
     pub fn capsule_free(&self, a: Vec3, b: Vec3, r: f32) -> bool {
         let pad = Vec3::splat(r);
