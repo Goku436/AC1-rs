@@ -792,6 +792,14 @@ const REBOUND_LOWER: f32 = 0.3;
 /// The Ledge's entries other than the wall run's wall-hang catch take the jump off only in their first quarter
 /// (0xDCBF00: the playing action's normalised time under 0.25).
 const ENTRY_EJECT_SHARE: f32 = 0.25;
+/// The body's capsule moves through the air in steps no longer than this (m), not to pass through a thin wall.
+const CAPSULE_STEP: f32 = 0.15;
+/// The side jump's clearance capsule's radius (m; 0xDDDF85).
+const SIDE_JUMP_R: f32 = 0.35;
+/// A jump held back from its path this far in all (m) by what its capsule meets falls from there, its speed along kept
+/// to this share (Banned445's port: `JUMP_BLOCKED_LAG`, the 30 % has no game source).
+const JUMP_BLOCKED_LAG: f32 = 0.6;
+const JUMP_BLOCKED_KEEP: f32 = 0.3;
 
 /// A running jump at a wall's ledge this fast or faster (m/s) is received hard (`_max`, swinging in), else softly.
 const JUMP_RECEPTION_HARD_SPEED: f32 = 5.0;
@@ -1299,6 +1307,8 @@ pub struct WallClimb {
     eject_wait: Option<(Vec2, f32)>,
     /// `legs` called again for a press kept in `eject_wait` (not a new press).
     eject_retry: bool,
+    /// How far (m) walls have held this jump's body back from its path (`update`, `JUMP_BLOCKED_LAG`).
+    air_held: f32,
     /// On a bar: a whole swing has played since the catch (the first upswing alone settles into the still hang).
     swung: bool,
     /// Going over a wall (a passover): the height of its top, which the fall after does not land on (with long frames
@@ -1642,6 +1652,21 @@ pub(crate) fn climb_body_free(level: &Level, root: Vec3, fwd: Vec3, side: i32) -
 
 /// AC1's reach capsule (r `REACH_CAPSULE_R`, `REACH_CAPSULE_H` tall from the root) swept from `from` to `to` (roots), facing
 /// `fwd`: the box round the sweep, its rounded ends left out (`REACH_CAPSULE_R` in at the bottom and top), meets nothing.
+/// AC1's side jump's clearance (0xDDDF85): a capsule `SIDE_JUMP_R` round, `tall` m tall, from `root` 0.2625 m back along
+/// the way to `to` and 0.15 m out from the wall (`normal`), swept by the move to `to`, meets nothing (sampled every
+/// `CAPSULE_STEP`).
+fn side_jump_free(level: &Level, root: Vec3, to: Vec3, normal: Vec3, tall: f32) -> bool {
+    let out = normal.with_y(0.0).normalize_or_zero();
+    let u = (to - root).with_y(0.0).normalize_or_zero();
+    let q = root - u * 0.2625 + out * 0.15;
+    let d = to - root;
+    let n = (d.length() / CAPSULE_STEP).ceil().max(1.0) as usize;
+    (0..=n).all(|k| {
+        let c = q + d * (k as f32 / n as f32);
+        level.capsule_free(c + Vec3::Y * SIDE_JUMP_R, c + Vec3::Y * (tall - SIDE_JUMP_R).max(SIDE_JUMP_R), SIDE_JUMP_R)
+    })
+}
+
 fn reach_sweep_free(level: &Level, from: Vec3, to: Vec3, fwd: Vec3) -> bool {
     let right = fwd.cross(Vec3::Y).normalize_or_zero();
     let (lo, hi) = (from.y.min(to.y) + REACH_CAPSULE_R, from.y.max(to.y) + REACH_CAPSULE_H - REACH_CAPSULE_R);
@@ -2927,6 +2952,26 @@ fn eject_way(away: Vec3, input: Vec2) -> Option<Vec3> {
     Some(d)
 }
 
+/// The body's capsule moved by `step` from `p` (in place) in short steps, each pushed out of the walls it touches
+/// (`Level::capsule_push`, AC1's proxy sliding along them); returns the push, zero when nothing was touched.
+/// A jump's takeoff or flight (`*_to_air`, `xx_h_air_*`, `xx_h_beam_air_*`; in a mix too): in the air, the body's capsule
+/// swept along its path (`update`).
+fn in_air_clip(name: &str) -> bool {
+    name.contains("_to_air") || name.contains("xx_h_air_") || name.contains("xx_h_beam_air_")
+}
+
+fn sweep_capsule(level: &Level, p: &mut Vec3, step: Vec3) -> Vec3 {
+    let n = (step.with_y(0.0).length() / CAPSULE_STEP).ceil().max(1.0) as usize;
+    let mut pushed = Vec3::ZERO;
+    for _ in 0..n {
+        *p += step / n as f32;
+        let out = level.capsule_push(*p);
+        *p += out;
+        pushed += out;
+    }
+    pushed
+}
+
 /// A clip of one of AC1's climbing grid moves: the six poses' table moves (`climb_table`'s actions) and the corner climbs.
 /// The climb takes the jump off in the middle of one of these only (HumanClimb's event 2, 0xDF9230: always in Wait, in
 /// the Move and corner states only with the grid-move flag `ChooseMove` sets, +0x11F8; Banned445's port, CLIMB-7).
@@ -3072,6 +3117,7 @@ impl WallClimb {
             snap_turn: false,
             eject_wait: None,
             eject_retry: false,
+            air_held: 0.0,
             swung: false,
             lean_t: 0.0,
             hay_over: None,
@@ -7217,6 +7263,7 @@ impl WallClimb {
         self.released = [false; 4];
         self.tilt_to = 0.0;
         self.tilt_rate = self.tilt.abs() / clip.anim.duration.max(TILT_MIN_SPAN);
+        self.air_held = 0.0;
         self.mv = Some(Move {
             clip,
             t: 0.0,
@@ -8472,6 +8519,25 @@ impl WallClimb {
                     continue;
                 }
             }
+            // AC1's side jump between holds (`TrySideJumpToLedge` 0xDDD490, its clearance 0xDDDF85, Banned445's port
+            // 3580692): a capsule 0.35 m round from 0.2625 m back along the way and 0.15 m out from the root, 1.8 m tall to
+            // the climb, 1.0 m to a wall hang, 2.0 m to a free one, swept to the new root, must meet nothing. (Off a
+            // Damascus window box the friend's leap to the side went through a house's corner, the replay scan.)
+            if c.table.is_none() && c.names[0].starts_with("xx_h_climbing_") && !c.names[0].contains("_up_") && !c.names[0].contains("_down_") {
+                let tall = if matches!(c.to.as_str(), HANGWALL | HANGWALL_OPEN) {
+                    1.0
+                } else if is_free(&c.to) {
+                    2.0
+                } else {
+                    1.8
+                };
+                if !side_jump_free(level, root.translation, end.pos + err, normal, tall) {
+                    if why() {
+                        debug!("climb: {} : the body's sweep to the side meets something (AC1's side jump capsule)", c.names[0]);
+                    }
+                    continue;
+                }
+            }
             let tos = chain_states(clips.len(), &self.state, &c.to);
             let span: f32 = clips.iter().map(|c| c.anim.duration).sum();
             self.start_chain_turned(clips, tos, root, err, None, turn);
@@ -9107,9 +9173,20 @@ impl WallClimb {
             v.z = push.z;
             v.y = v.y.max(push.y);
         }
+        // The body moves as AC1's character proxy moves it in the air (0xE0DEF0 -> the controller, Banned445's port): its
+        // capsule swept along the step, sliding along what it touches, the speed into it gone. (The rays above at the
+        // chest and knees only saw what was straight ahead of the body's middle: past a building's corner at an angle, the
+        // body's side went into it, and a leap off a Damascus window box ended inside a house, the replay scan.)
+        let step = *v * dt;
+        let pushed = sweep_capsule(level, &mut root.translation, step);
+        if let Some(n) = pushed.with_y(0.0).try_normalize() {
+            let into = v.dot(n);
+            if into < 0.0 {
+                v.x -= n.x * into;
+                v.z -= n.z * into;
+            }
+        }
         let v = *v;
-        let step = v * dt;
-        root.translation += step;
         if v.y < 0.0
             && let Some(clip) = self.descend.take()
         {
@@ -9496,6 +9573,31 @@ impl WallClimb {
                 if slide.length() > 1e-4 && ((m.to != HAY_OUT && blocked(level, root.translation, slide)) || ledge) {
                     m.start -= slide;
                     next = at(m);
+                }
+            }
+            // A jump's takeoff and flight move the body as AC1's character proxy does (0xE0DEF0 drives the jump's path as
+            // a velocity through the controller, Banned445's port): its capsule swept along the frame's step, sliding along
+            // what it touches; held back from the path more than `JUMP_BLOCKED_LAG` in all, it falls from there, the
+            // path's speed along cut to 30 % (the port's anti-stuck, 0xE0B1E0 simplified). Ours flew the clips' path
+            // through walls, the clear way tested only along one line before the jump.
+            if in_air_clip(&m.clip.name) && !m.in_place {
+                let mut p = root.translation;
+                let pushed = sweep_capsule(level, &mut p, next - root.translation);
+                if pushed.length() > 1e-4 {
+                    m.start += pushed;
+                    self.air_held += pushed.with_y(0.0).length();
+                    let v = (next - root.translation) / dt.max(1e-4);
+                    next = p;
+                    if self.air_held > JUMP_BLOCKED_LAG {
+                        debug!("climb: the jump is held back by a wall at {next:.2} ({:.2} m): falling from there", self.air_held);
+                        self.queue.clear();
+                        m.to = FALL.into();
+                        self.state = FALL.into();
+                        self.fall_v = Some(Vec3::new(v.x * JUMP_BLOCKED_KEEP, v.y.min(0.0), v.z * JUMP_BLOCKED_KEEP));
+                        self.can_catch = true;
+                        self.aimed = false;
+                        self.free_jump = false;
+                    }
                 }
             }
             root.translation = next;
