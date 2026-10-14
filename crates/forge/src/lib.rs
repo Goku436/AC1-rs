@@ -13,6 +13,7 @@ pub mod action;
 pub mod ambiance;
 pub mod anim;
 pub mod animset;
+pub mod build;
 pub mod cloth;
 pub mod crowd;
 pub mod datafile;

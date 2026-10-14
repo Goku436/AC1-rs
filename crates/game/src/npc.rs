@@ -5,22 +5,19 @@
 //! builder with everything it uses (`Damascus_MB02 - Side Quest_DataBlock`: peasants, women, harassers,
 //! vigilantes, scholars, merchants, militia); the body skeleton comes from `DataPC_Common.forge`.
 //!
-//! Bytes (unaligned): a row is `[u32 id][u32 BuildRow class][u8][u32 table][f32 weight][u32 cells]`, then per
-//! cell `[u32 column][u32 value class (GraphicObject, TextureBase, BuildTable, Skeleton, or 0)][u32 code]` and
-//! a value whose size follows the code's third byte (0x1c a link, 4 bytes; 0x0d a colour, 16; 0x19 an enum,
-//! 4; 0x07 an integer, 4; 0x0a or 0 a float, 4). Rows are found by their header; links outside every row
-//! (a builder's own tables) always apply, and one row of each table is picked by weight.
+//! The tables' bytes are read by `forge::build`. Links outside every row (a builder's own tables) always apply, and one
+//! row of each table is picked by weight; a picked row's cells whose column is a material property (a mask's colours,
+//! a skin or hair colour, a texture set or map, the hidden flag) are AC1's per-person choices of look, applied to the
+//! parts' materials as they load (`assets::MaterialChoices`).
 
 use anyhow::{Context, Result};
 use bevy::prelude::*;
+use forge::build::{CLASS_BUILD_TABLE, CLASS_BUILDER, Value};
 use forge::datafile::{CLASS_ENTITY, DataFile};
 use std::collections::HashSet;
 use std::path::Path;
 
-const CLASS_BUILD_ROW: u32 = 0x348b28d6;
 const COMMON: &str = "DataPC_Common.forge";
-const CLASS_BUILD_TABLE: u32 = 0x22ecbe63;
-const CLASS_BUILDER: u32 = 0x971a842e;
 const CLASS_LOD_SELECTOR: u32 = 0x51dc6b80;
 const CLASS_MESH: u32 = 0x415d9568;
 const CLASS_SKELETON: u32 = 0x24aecb7c;
@@ -28,53 +25,6 @@ const CLASS_SKELETON: u32 = 0x24aecb7c;
 const GRAPHIC_OBJECT: u32 = 0xec6ac357;
 const SKELETON_VALUE: u32 = 0x24aecb7c;
 const BUILD_TABLE_VALUE: u32 = 0x22ecbe63;
-
-/// A row: its weight, its links (value class, object id) and float values.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Row {
-    pub weight: f32,
-    pub links: Vec<(u32, u32)>,
-    pub floats: Vec<f32>,
-}
-
-fn u32_at(b: &[u8], p: usize) -> Option<u32> {
-    b.get(p..p + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap()))
-}
-
-/// The rows of a table or builder body, and where they span (start, end).
-pub fn rows(b: &[u8]) -> (Vec<Row>, Vec<(usize, usize)>) {
-    let mut out = vec![];
-    let mut spans = vec![];
-    let starts: Vec<usize> = (4..b.len().saturating_sub(3)).filter(|&k| u32_at(b, k) == Some(CLASS_BUILD_ROW)).map(|k| k - 4).collect();
-    for (i, &s) in starts.iter().enumerate() {
-        let limit = starts.get(i + 1).copied().unwrap_or(b.len());
-        let mut p = s + 8 + 5;
-        let (Some(w), Some(n)) = (u32_at(b, p).map(f32::from_bits), u32_at(b, p + 4)) else { continue };
-        p += 8;
-        let mut row = Row { weight: if w.is_finite() && w >= 0.0 { w } else { 0.0 }, ..default() };
-        for _ in 0..n.min(64) {
-            let (Some(_col), Some(class), Some(code)) = (u32_at(b, p), u32_at(b, p + 4), u32_at(b, p + 8)) else { break };
-            let size = match (code >> 16) & 0xff {
-                0x1c | 0x19 | 0x07 => 4,
-                0x0a | 0x00 => 4,
-                0x0d => 16,
-                _ => break,
-            };
-            if p + 12 + size > limit {
-                break;
-            }
-            match (code >> 16) & 0xff {
-                0x1c => row.links.push((class, u32_at(b, p + 12).unwrap_or(0))),
-                0x0a | 0x00 => row.floats.push(f32::from_bits(u32_at(b, p + 12).unwrap_or(0))),
-                _ => {}
-            }
-            p += 12 + size;
-        }
-        spans.push((s, p.max(s + 8)));
-        out.push(row);
-    }
-    (out, spans)
-}
 
 /// What an NPC is made of: skeletons and meshes as (forge, data file, name), and its height scale.
 #[derive(Debug, Clone, Default)]
@@ -84,6 +34,8 @@ pub struct Recipe {
     pub scale: f32,
     /// Textures put on parts by material name: (material, (forge, data file, texture)).
     pub textures: Vec<(String, (String, String, String))>,
+    /// The picked rows' choices for the parts' materials.
+    pub choices: crate::assets::MaterialChoices,
 }
 
 /// A small deterministic generator (each NPC its own seed).
@@ -107,6 +59,8 @@ pub fn recipe(game_dir: &Path, forge_file: &str, datafile: &str, name: &str, see
     let builder = df.by_name(CLASS_BUILDER, name).with_context(|| format!("no builder {name}"))?;
     let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
     let mut r = Recipe { scale: 1.0, ..default() };
+    // (What the choices link to is in the builder's data file.)
+    r.choices.files.push((forge_file.to_string(), datafile.to_string()));
     // Links into the common forge (universal hands, trousers, the body skeletons) resolve through its index.
     let index = forge::index::ForgeIndex::load(&game_dir.join(COMMON))?;
     let common = |d: &str, n: &str| (COMMON.to_string(), d.to_string(), n.to_string());
@@ -188,39 +142,46 @@ pub fn recipe(game_dir: &Path, forge_file: &str, datafile: &str, name: &str, see
             continue;
         }
         let Some(o) = df.get(id) else { continue };
-        let (rows, spans) = rows(o.body);
-        let inside = |k: usize| spans.iter().any(|&(s, e)| (s..e).contains(&k));
+        let table = forge::build::parse(o.body, o.id);
+        let inside = |k: usize| table.spans.iter().any(|&(s, e)| (s..e).contains(&k));
         for (k, t) in df.refs(o) {
             if !inside(k) && t.class == CLASS_BUILD_TABLE && t.id != id {
                 stack.push(t.id);
             }
         }
-        if rows.is_empty() {
+        if table.rows.is_empty() {
             continue;
         }
-        let total: f32 = rows.iter().map(|r| r.weight).sum();
+        let total: f32 = table.rows.iter().map(|r| r.weight).sum();
         let mut pick = rng.next() * total.max(1e-6);
-        let row = rows.iter().find(|r| {
+        let row = table.rows.iter().find(|r| {
             pick -= r.weight;
             pick <= 0.0
         });
-        let Some(row) = row.or(rows.last()) else { continue };
-        for &(class, link) in &row.links {
-            match class {
-                GRAPHIC_OBJECT | SKELETON_VALUE => add(link, &mut r),
-                BUILD_TABLE_VALUE => stack.push(link),
+        let Some(row) = row.or(table.rows.last()) else { continue };
+        for cell in &row.cells {
+            match cell.value {
+                Value::Link(GRAPHIC_OBJECT | SKELETON_VALUE, link) => add(link, &mut r),
+                Value::Link(BUILD_TABLE_VALUE, link) => stack.push(link),
                 _ => {}
+            }
+            // A material's property: the person's look.
+            if let Some(c) = table.column(cell.column)
+                && (c.material != 0 || c.template != 0)
+                && !c.path.is_empty()
+            {
+                r.choices.sets.push(crate::assets::Choice { material: c.material, template: c.template, path: c.path.clone(), value: cell.value });
             }
         }
         // A size table: its row is the height scale.
         if o.name.starts_with("Size_")
-            && let Some(&s) = row.floats.first()
+            && let Some(s) = row.cells.iter().find_map(|c| if let Value::Float(s) = c.value { Some(s) } else { None })
             && (0.8..1.2).contains(&s)
         {
             r.scale = s;
         }
     }
-    info!("npc {name}: {} skeletons, {} meshes, scale {:.2}", r.skeletons.len(), r.meshes.len(), r.scale);
+    info!("npc {name}: {} skeletons, {} meshes, scale {:.2}, {} material choices", r.skeletons.len(), r.meshes.len(), r.scale, r.choices.sets.len());
     debug!("npc {name}: skeletons {:?} meshes {:?}", r.skeletons.iter().map(|s| &s.2).collect::<Vec<_>>(), r.meshes.iter().map(|s| &s.2).collect::<Vec<_>>());
     Ok(r)
 }
@@ -229,7 +190,7 @@ pub fn recipe(game_dir: &Path, forge_file: &str, datafile: &str, name: &str, see
 /// height scale.
 pub fn build(game_dir: &Path, forge_file: &str, datafile: &str, name: &str, seed: u64) -> Result<(crate::assets::CharacterData, f32)> {
     let r = recipe(game_dir, forge_file, datafile, name, seed)?;
-    let mut g = crate::assets::load_assembled_with(game_dir, &r.skeletons, &r.meshes, false)?;
+    let mut g = crate::assets::load_assembled_with(game_dir, &r.skeletons, &r.meshes, false, &r.choices)?;
     for (material, (f, d, t)) in &r.textures {
         match crate::assets::load_texture(game_dir, f, d, t) {
             Ok((id, img)) => {
@@ -273,9 +234,13 @@ pub fn concrete_builder(game_dir: &Path, name: &str, seed: u64) -> Result<String
         if df.refs(b).iter().any(|(_, o)| o.class == CLASS_ENTITY) {
             break;
         }
-        let (rows, _) = rows(b.body);
-        let choices: Vec<(f32, &String)> =
-            rows.iter().filter_map(|r| r.links.iter().find_map(|(_, id)| builders.get(id)).map(|n| (r.weight, n))).filter(|(_, n)| **n != name).collect();
+        let table = forge::build::parse(b.body, b.id);
+        let choices: Vec<(f32, &String)> = table
+            .rows
+            .iter()
+            .filter_map(|r| r.cells.iter().find_map(|c| if let Value::Link(_, id) = c.value { builders.get(&id) } else { None }).map(|n| (r.weight, n)))
+            .filter(|(_, n)| **n != name)
+            .collect();
         let total: f32 = choices.iter().map(|c| c.0).sum();
         if choices.is_empty() || total <= 0.0 {
             break;
@@ -313,32 +278,6 @@ pub fn anim_set_of(builder: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn reads_rows_and_cells() {
-        let mut b = vec![0u8; 6];
-        for (w, link) in [(0.25f32, 0x1111u32), (0.75, 0x2222)] {
-            b.extend(7u32.to_le_bytes());
-            b.extend(CLASS_BUILD_ROW.to_le_bytes());
-            b.push(1);
-            b.extend(9u32.to_le_bytes());
-            b.extend(w.to_le_bytes());
-            b.extend(2u32.to_le_bytes());
-            // A mesh link, then a float.
-            b.extend(1u32.to_le_bytes());
-            b.extend(GRAPHIC_OBJECT.to_le_bytes());
-            b.extend(0x001c_0000u32.to_le_bytes());
-            b.extend(link.to_le_bytes());
-            b.extend(2u32.to_le_bytes());
-            b.extend(0u32.to_le_bytes());
-            b.extend(0x000a_0000u32.to_le_bytes());
-            b.extend(1.02f32.to_le_bytes());
-        }
-        let (rows, spans) = rows(&b);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[1], Row { weight: 0.75, links: vec![(GRAPHIC_OBJECT, 0x2222)], floats: vec![1.02] });
-        assert_eq!(spans[0].1, spans[1].0);
-    }
 
     #[test]
     fn clip_sets_by_builder_name() {

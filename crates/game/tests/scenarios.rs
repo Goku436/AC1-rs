@@ -1392,7 +1392,8 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_PATH", "105.2,-50.21;106.08,-48.85;106.2,-47.6;106.0,-40"),
         ],
         secs: 4.0,
-        want: &["running jump at the wall's ledge [106.24, 7.77, -42.81]", "-> hangwall_open via xx_hangwall_reception_front_straight_max_c"],
+        // (Since 2026-10-14 the jump leaves at AC1's edge report, 0.45 m before the roof's edge: its grab point 1 cm on.)
+        want: &["running jump at the wall's ledge [106.25, 7.77, -42.81]", "-> hangwall_open via xx_hangwall_reception_front_straight_max_c"],
         never: &["EMBED", "xx_h_jumpfalling01"],
     },
     Scenario {
@@ -1773,7 +1774,9 @@ const SCENARIOS: &[Scenario] = &[
         want: &[
             "running jump at the wall's ledge [41.14, 9.99, -30.01]",
             "both hands onto the knob over the reception",
-            "drop -> hangwall via xx_hangwall_reception_front_straight_max_c at [41.15, 8.87",
+            // (Since 2026-10-14 the jump leaves at AC1's edge report, 0.45 m before the planks' edge: the gentler
+            // reception, `_min`.)
+            "drop -> hangwall via xx_hangwall_reception_front_straight_min_c at [41.15, 8.87",
         ],
         never: &["-> hangwall_open via xx_hangwall_reception", "EMBED"],
     },

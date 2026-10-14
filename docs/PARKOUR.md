@@ -124,6 +124,21 @@ mixed front / left / right by the edge's side), the pull-down
   in the air from its first frame at the speed carried, launched 0.5 m/s up, falling at the free jump's gravity; else,
   with a target in the **edge zones** (10-12, the primary only: 0.5-4.2 m on, 2.7 m up, 5 m down; the scorer's far side
   on), AC1's edge jump at it, either profile. Neither where the ledge stop takes the drop. **[B, ours, measured]**
+- **The edge reports in a city** (`edge_report.rs`, 2026-10-14): ours' free-run edge jump, edge jump at a target, step
+  off and ledge stop fire at AC1's foot-level edge reports (IHuman vt132 0xB1BC50, picked by vt136 0xB17EF0; Banned445's
+  port), not at collision drops: the guidance edges (all kinds but ladders and beams, up to 40 degrees) within 0.75 m whose
+  plane through the feet meets them within 0.3 m of their height, with 0.45 m of drop or more (0xB19620: first the line
+  from 1 m over the feet to 0.02 m past the edge, then the 45 and 10 degree rays, steep floors slid down, a step under
+  the edge adding the drop past it); +0x34 is the squared distance, negative past the edge. **[V]** in the interpreter
+  (0xEE7D64..0xEE7DCE): the free run's edge jump wants the facing report's drop over 0.5 m (0x1683384), +0x34 under 0.25
+  (0x1682378: 0.5 m) and its normal within 80 degrees of the stick (0x16FFD9C, cos 80), with the legs held. The edge jump
+  at a target: within 0.1 m (0.01) or past it, the stick and the facing within 45 degrees of the normal; the step off:
+  a drop of 0.53 m or more and room past the edge (0xB2E7A0's box); the ledge stop: a front report (within 60 degrees)
+  over 5 m within 0.15 m. Off a collision drop with no edge he falls. The free-run jump now leaves 0.3-0.5 m before the
+  edge, as the running game (audit JUMP-5: 0.13-0.31 m before ours' former 0.25 m test). A beam over a crack past a roof's
+  end, its top over the edge, gives no drop (the line from over the feet meets it): run over (`roof2_run_south`). The
+  test level has no guidance (its holds are ours), so there the collision tests stay (`Level::guided`;
+  `AC1_NO_EDGE_REPORTS` keeps them in a city too). **[B, V, ours]**
 - **AC1's candidate query and scorer** (`crate::jump_query`, after Banned445's port of 0xE18970 / 0xE96BF0): the hold
   edges in a box ahead (1 m either side of the way, 0.5-9 m on, 5 m down to 3 m up), chained, a grab point per chain
   where the forward line meets it, classed by three rays (room on top, what is below, a clear line from the chest) and
