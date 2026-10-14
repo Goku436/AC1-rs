@@ -1172,6 +1172,16 @@ area by area, written anew, each checked in Ghidra where it could be. **[B, V]**
 - Scenarios: `wall A: the legs late in the climb's entry ...`, `... early in the climb's entry ...`, `... in the middle of a
   climbing grid move ...`; the wall-run hang ejects now check the pose's foot and drop.
 
+**In the air, the body's capsule** **[B]**: AC1 drives a jump's path as a velocity through the character proxy
+(0xE0DEF0 → the controller), so the body slides along what it meets and a wall holds it back. Ours flew the clips' path
+(takeoff, flight) and the falls with two centre rays at the chest and knees: the 550 cm rebound takeoff crossed a 3 m
+alley into the opposite wall (reports 1064093, 158904), and a leap off a Damascus window box ended inside a house (the
+replay scan, ~326 s). Now the capsule (0.4 m, as on the ground) is swept along every takeoff and flight frame and every
+falling step, pushed out of walls, the speed into them gone; a jump held back more than 0.6 m in all falls from there, 30 %
+of its speed along kept (Banned445's port's anti-stuck stand-in; 0xE0B1E0's own nudge is ours already). The hangs' side
+leaps first sweep AC1's clearance capsule to the new hang (0xDDDF85: r 0.35, from 0.2625 m back and 0.15 m out, 1.8 / 1.0 /
+2.0 m tall to the climb / wall hang / free hang; Banned445's 3580692), as the vertical reach already did.
+
 | Commit(s) | What | Here |
 |---|---|---|
 | 6eec27f | eject during the wall run's grab (Entry state, 0xDCBF00) | ported |
@@ -1180,6 +1190,7 @@ area by area, written anew, each checked in Ghidra where it could be. **[B, V]**
 | 9369c0b, eda4aa7 | side takeoffs, the rebound takeoff (kind 2), its weights per clip | already ours (`jump::rebound`); the free eject's band ported |
 | 6400374 | ladder: the jump off is the rebound (kind 2) facing away | ported (QuickDrop's low release was already ours) |
 | 38c5bcf, 011aeac | walling: the stale stick angle decides the push; free run up along the last strong stick | push ported; the stale angle and the 0.2 s free-run gate skipped (ours has no stale stick) |
+| 3580692 | the side jump's clearance capsule | ported |
 | a14bd2c | the wall run's Ground lead-in from the lean / standing free run | ported (`xx_h_impultionstraight_footl_to_wallingfront_step1_footr` before the entry, from the lean on the legs in high profile and from the standing free run; from moving, at once as before) |
 
 ## How far ours follows AC1's tables (2026-10-08)

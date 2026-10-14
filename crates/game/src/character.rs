@@ -1366,7 +1366,8 @@ pub fn locomotion(
                     && let Some(w) = crate::climb::WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d * v.max(1.0), pose)
                 {
                     ch.wall = Some(w);
-                } else if let Some(d) = ch.wall.as_ref().and_then(|w| w.leaning()).filter(|_| ctl.high)
+                } else if pressed
+                    && let Some(d) = ch.wall.as_ref().and_then(|w| w.leaning()).filter(|_| ctl.high)
                     && let Some(w) = crate::climb::WallClimb::wall_run_led_in(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d, Some(ch.anim_pose.clone()))
                 {
                     // Leaning on a wall in high profile: the legs run up it, after AC1's Ground lead-in (event 49 in the

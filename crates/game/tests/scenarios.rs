@@ -39,6 +39,28 @@ fn windowed() -> bool {
 const QUIET: &[(&str, &str)] = &[("AC1_NO_CROWD", "1")];
 
 const SCENARIOS: &[Scenario] = &[
+    // User report 1064093 (test world, the alley at x 35.3 between walls 3 m apart): the wall run's rebound with nothing to
+    // land on flew its 550 cm takeoff and the flight 2.4 m and came down 0.5 m into the opposite wall, over and over. A
+    // jump's takeoff and flight now move the body's capsule as AC1's proxy does (0xE0DEF0 through the controller): it
+    // stops at the opposite wall.
+    Scenario {
+        name: "the alley at x 35.3: the wall run's rebound comes down against the opposite wall, not in it (report 1064093)",
+        tags: &["wallrun", "eject"],
+        env: &[("AC1_START", "35.3,-23.4,0"), ("AC1_WALK", "6.2"), ("AC1_STOP", "0.6-4"), ("AC1_HIGH", "0-4"), ("AC1_LEGS", "0-0.5"), ("AC1_JUMP", "0.8")],
+        secs: 3.5,
+        want: &["wall run rebound with nothing to land on (step1rebound)", "the run ends at [35.30, 0.00, -23.4"],
+        never: &["EMBED", "-23.0"],
+    },
+    // User report 158904 (test world, x -85.5, z 51.7): the rebound flew through the wall 1.6 m behind; held back by it
+    // now, it falls from there (AC1's jump held off its path by the proxy).
+    Scenario {
+        name: "the wall run's rebound at x -85.5 is held back by the wall behind and falls there (report 158904)",
+        tags: &["wallrun", "eject"],
+        env: &[("AC1_START", "-84.3,51.73,90"), ("AC1_WALK", "6.2"), ("AC1_STOP", "0.6-4"), ("AC1_HIGH", "0-4"), ("AC1_LEGS", "0-0.5"), ("AC1_JUMP", "0.9")],
+        secs: 3.5,
+        want: &["the jump is held back by a wall at [-84.4", "the run ends at [-84.4"],
+        never: &["EMBED", "rebound off the wall in the air"],
+    },
     // AC1's wall run from the lean (event 49 in the obstacle lean, 0xDA6FF0) plays the Ground's lead-in
     // `xx_h_impultionstraight_footl_to_wallingfront_step1_footr` first (Banned445's port a14bd2c, live RE/25 #49).
     Scenario {
