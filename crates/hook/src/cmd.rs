@@ -8,14 +8,41 @@
 //!   an event log, beside the exe (`live`; also on while the file `ac1-hook.live` is there);
 //! - `tp <x> <y> <z> [yaw]`: put the player there (game space, Z up; yaw in degrees from +X toward +Y);
 //! - `mouse <button> [frames]`: hold a mouse button (0 left, 1 right = high profile); `look <dx> <dy> <frames>`: move
-//!   the mouse that much each frame (the camera); `cursor <x> <y>`: the Windows cursor (the menus follow it).
+//!   the mouse that much each frame (the camera); `cursor <x> <y>`: the Windows cursor (the menus follow it);
+//! - `background [on|off|auto]`: background mode (on by default, `ac1-hook.foreground` beside the exe turns it off):
+//!   the game runs, draws and takes our input behind other windows (`input`, `d3d`);
+//!
+//! The pad, at the level the game reads it (`control`, `pad`): whatever has the focus, the keyboard left out:
+//! - `pad <buttons hex> <lx> <ly> [<rx> <ry> [<updates>]]`: hold this pad state (sticks -1..1, +y forward; buttons
+//!   bit k = button k: 0 legs, 3 empty hand, 12 high profile) for that many pad updates (a frame each; none or 0:
+//!   until `pad off`), in place of the device's; `pad off`: the device's again; `pad`: what the pad holds now;
+//! - `press <button> [updates]`: a button down for some updates (6 by default) on top (0..15, `legs`, `hand`, `high`);
+//! - `padrec <path>` / `padrec off`: what the pad holds each update into a pad file (`ac1lab pad v1`: a start line with
+//!   the player's place, then `dt buttons lx ly rx ry` a line); `padplay <path> [frames] [here]`: play one back (the
+//!   player first put at its start unless `here`; by game time, or a record an update with `frames`), stopped by
+//!   `pad off`;
+//!
+//! The clock (`control`): `pause`; `resume`; `step [n]`: n frames (1 by default) of 1/60 s (or the fixed rate), then
+//! paused again; `speed <x>` (0..16) / `speed off`: the game's clock times x; `fixed <fps>` / `fixed off`: every frame
+//! 1/fps s of game time, whatever the real time (the clock's own fixed-step mode); `clock`: its fields now.
+//!
+//! Places: `save <name>` / `load <name>`: the player's place and facing as a bookmark (`ac1-hook.bookmarks` beside the
+//! exe) and back there; `marks`: the list.
+//!
+//! Memory (`memcmd`, addresses as `expr` takes them: hex numbers, the names `human`, `entity`, `interp`, `pad`,
+//! `clock`, `actions`, `[...]` to read a pointer): `peek <address> [bytes]` (a hex dump); `poke <address> <u8|u16|u32|
+//! i32|f32|bytes> <value>...`; `fields <address[:type]>...` (u8 u16 u32 i32 f32 x vec3 m4 class ptrclass);
+//! `classes <address> [words]` (each word and the class of what it points at); `components [entity]` (the player's
+//! by default). Probes (`probe`): `probe <name> @<address> [hits=<n>] [field...]` (a breakpoint logging those fields,
+//! registers among the names, each time the game runs it, n times at most: 20 by default); `probe off [name]`;
+//! `probes`.
 //!
 //! `ac1-hook.status` holds the frame count, rewritten every second or so: the game is alive and drawing.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::{d3d, input, live, sys, trace};
+use crate::{control, d3d, input, live, memcmd, probe, sys, trace};
 
 static FRAME: AtomicU32 = AtomicU32::new(0);
 
@@ -79,6 +106,20 @@ pub fn frame(device: *mut c_void) {
             }
             "where" => trace::here(),
             "live" => live::command(rest),
+            "background" => input::background_command(rest),
+            "pad" => control::pad_command(rest),
+            "press" => control::press_command(rest),
+            "padrec" => control::rec_command(rest),
+            "padplay" => control::play_command(rest),
+            "pause" | "resume" | "step" | "speed" | "fixed" | "clock" => control::clock_command(word, rest),
+            "save" | "load" | "marks" => memcmd::marks(word, rest),
+            "peek" => memcmd::peek(rest),
+            "poke" => memcmd::poke(rest),
+            "fields" => memcmd::fields(rest),
+            "classes" => memcmd::classes(rest),
+            "components" => memcmd::components(rest),
+            "probe" => probe::command(rest),
+            "probes" => probe::command(""),
             _ => format!("unknown command: {line}"),
         };
         sys::log(&format!("[frame {n}] {said}"));

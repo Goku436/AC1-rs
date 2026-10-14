@@ -2,8 +2,9 @@
 //! written to a file while tracing (`cmd`: `trace <path>` / `trace off`, `where` for one line in the log).
 //!
 //! Found in the running game (v1.02 DX9, by RTTI and Frida; addresses are the exe's, base 0x400000):
-//! - the player's input interpreter (`GoAssassinActionInterpreter`, ground state 0xEE65A0, `thiscall`, 3 arguments)
-//!   holds its `Human` at +0x10 and `Entity` at +0x14: hooked to learn which Human is the player;
+//! - the player's input interpreter (`GoAssassinActionInterpreter`, ground state 0xEE65A0, `thiscall`, 3 arguments;
+//!   its `Update`, hooked in `control`, runs in every context) holds its `Human` at +0x10 and `Entity` at +0x14:
+//!   hooked to learn which Human is the player;
 //! - `Human` +0x48: the locomotion context now (`HumanGround`, `HumanClimb`, ...: its class names the mode); +0x104
 //!   the `Entity`; +0x7DC its `ActionComponent`;
 //! - `Entity` +0x10..+0x4C: its world matrix, rows X, Y, Z, then the position (game space, Z up; the character faces
@@ -72,14 +73,31 @@ unsafe extern "thiscall" fn play(this: usize, id: u32, b: u32, c: u32, d: u32) -
 }
 
 unsafe extern "thiscall" fn interpret(this: usize, a: u32, b: u32, c: u32) -> u32 {
+    found_interp(this);
+    // SAFETY: the original, through its stub, with the same arguments.
+    unsafe { std::mem::transmute::<usize, Interpret>(GROUND_STUB.load(Ordering::Relaxed))(this, a, b, c) }
+}
+
+/// The player's input interpreter is `this` (from its ground state here, or its `Update` in `control`): it and its
+/// `Human` (+0x10) are the player's.
+pub fn found_interp(this: usize) {
     INTERP.store(this, Ordering::Relaxed);
     if let Some(h) = sys::peek(this + 0x10).filter(|&h| h != 0)
         && HUMAN.swap(h as usize, Ordering::Relaxed) != h as usize
     {
         sys::log(&format!("trace: the player's Human is at {h:#x}"));
     }
-    // SAFETY: the original, through its stub, with the same arguments.
-    unsafe { std::mem::transmute::<usize, Interpret>(GROUND_STUB.load(Ordering::Relaxed))(this, a, b, c) }
+}
+
+/// Where the player is (game space) and his yaw (degrees), if known.
+pub fn player_at() -> Option<([f32; 3], f32)> {
+    now().map(|(p, yaw, _)| (p, yaw))
+}
+
+/// The player's `Entity` (0 until known).
+pub fn entity() -> usize {
+    let human = HUMAN.load(Ordering::Relaxed);
+    if human == 0 { 0 } else { sys::peek(human + HUMAN_ENTITY).unwrap_or(0) as usize }
 }
 
 /// The player now: position, yaw (degrees), context class. None until the player is known.

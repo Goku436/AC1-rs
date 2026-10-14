@@ -19,6 +19,11 @@
 //!   both beside the exe, each started over past its size limit. Its layouts and line format are in `livefmt` (pure
 //!   Rust, tested on any target); the `ac1` example `livelog` follows, sums up and compares them.
 //!
+//! - Driving and measuring (`control`, `pad`, `memcmd`, `expr`, `probe`): the player's pad set, recorded and played
+//!   back at the level the game reads it; the game clock's speed, a fixed step, pause and single frames; position
+//!   bookmarks; memory reads, writes and RTTI dumps; probes (breakpoints that log fields). In background mode (on by
+//!   default) the game runs, draws and takes this input behind other windows (`input`, `d3d`).
+//!
 //! What it does is written to `ac1-hook.log` beside the exe. Nothing here runs outside a 32-bit build (the 64-bit
 //! build is only for the workspace's checks).
 
@@ -29,7 +34,11 @@ use std::ffi::c_void;
 #[cfg(target_pointer_width = "32")]
 mod cmd;
 #[cfg(target_pointer_width = "32")]
+mod control;
+#[cfg(target_pointer_width = "32")]
 mod d3d;
+#[cfg_attr(not(target_pointer_width = "32"), allow(dead_code))]
+mod expr;
 #[cfg(target_pointer_width = "32")]
 mod input;
 #[cfg(target_pointer_width = "32")]
@@ -37,7 +46,13 @@ mod live;
 #[cfg_attr(not(target_pointer_width = "32"), allow(dead_code))]
 mod livefmt;
 #[cfg(target_pointer_width = "32")]
+mod memcmd;
+#[cfg_attr(not(target_pointer_width = "32"), allow(dead_code))]
+mod pad;
+#[cfg(target_pointer_width = "32")]
 mod patch;
+#[cfg(target_pointer_width = "32")]
+mod probe;
 mod sys;
 #[cfg(target_pointer_width = "32")]
 mod trace;
@@ -136,6 +151,7 @@ pub unsafe extern "system" fn DllMain(_module: Hmodule, reason: u32, _reserved: 
             log(&format!("ac1-hook loaded; GetAdaptersInfo {}", if patched { "now reports no adapters (startup fix)" } else { "not found in the imports" }));
             d3d::install();
             trace::install();
+            control::install();
         }
         #[cfg(not(target_pointer_width = "32"))]
         log("ac1-hook loaded (64-bit build: does nothing)");
