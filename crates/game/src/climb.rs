@@ -1961,7 +1961,7 @@ fn side_exit_toward(level: &Level, root: &Transform, normal: Vec3, right: bool) 
     let way = (-n).cross(Vec3::Y).normalize_or_zero() * if right { 1.0 } else { -1.0 };
     let p = root.translation;
     [0.75, 1.0, 1.5].iter().any(|d| level.ground(p + way * *d + Vec3::Y * 0.3, 0.3, STEP_OFF_MAX).is_some())
-        || level.ledges.iter().any(|l| {
+        || level.holds_near(p, 2.6).into_iter().any(|l| {
             let hands = p + Vec3::Y * 1.9;
             let d = l.closest(hands + way * 1.0) - hands;
             if l.out.dot(n).abs() < 0.7 {
@@ -1982,7 +1982,7 @@ fn reach_holds_toward(level: &Level, root: &Transform, normal: Vec3, input: Vec2
     let right = (-n).cross(Vec3::Y).normalize_or_zero();
     let hands = root.translation + Vec3::Y * 1.9;
     let side = input.x.abs() > input.y.abs();
-    level.ledges.iter().filter(|l| l.out.dot(normal) > 0.7).any(|l| {
+    level.holds_near(hands, 3.6).into_iter().filter(|l| l.out.dot(normal) > 0.7).any(|l| {
         let probe = if side { hands + right * input.x.signum() * 2.0 } else { hands + Vec3::Y * input.y.signum() * 1.5 };
         let d = l.closest(probe) - hands;
         let (along, up) = (d.dot(right), d.y);
@@ -2003,7 +2003,7 @@ fn reach_foot_hold(level: &Level, feet: Vec3, hand: Vec3, normal: Vec3, up: bool
     let along = Vec3::Y.cross(normal).normalize_or_zero();
     let way = if up { 1.0 } else { -1.0 };
     let line = hand + Vec3::Y * GRIP_DOWN;
-    let holds = || level.ledges.iter().filter(|l| l.out.dot(normal) > 0.7);
+    let holds = || level.holds_near(feet, 2.6).into_iter().filter(|l| l.out.dot(normal) > 0.7);
     let near = |l: &Ledge, at: Vec3, across: f32, vert: f32| {
         let d = l.closest(at) - at;
         (d.dot(along).abs() <= across && d.y.abs() <= vert && d.dot(normal).abs() <= 0.5).then_some(at + d)
