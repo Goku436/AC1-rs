@@ -968,6 +968,20 @@ fn spawn_world(
                 fx.placed.push((to_bevy * m, id));
             }
         }
+        // (And the ambient effects the `World` spreads round the camera, `forge::fx::WorldParticleSystem`: each its
+        // entity's particle system and its cells' points.)
+        for w in objects.iter().flatten().filter(|o| o.class == forge::world::CLASS_WORLD).flat_map(|o| forge::fx::world_particle_systems(o.body)) {
+            let is_system = |id: u32| index.get(&id).is_some_and(|o| o.class == forge::fx::CLASS_PARTICLE_SYSTEM);
+            let Some(id) = index.get(&w.entity).and_then(|e| forge::fx::shown_systems(e.body, is_system).first().copied()) else { continue };
+            let Some(ps) = index.get(&id) else { continue };
+            let cells = w.data.iter().filter_map(|d| index.get(d)).filter(|o| o.class == forge::fx::CLASS_WORLD_PARTICLE_DATA);
+            let points: Vec<Vec3> =
+                cells.flat_map(|o| forge::fx::world_particle_points(o.body).unwrap_or_default()).map(|p| to_bevy.transform_point3(Vec3::from(p))).collect();
+            if w.on && w.count > 0 && !points.is_empty() {
+                fx.systems.entry(id).or_insert_with(|| (ps.name.clone(), ps.body.to_vec()));
+                fx.ambient.push(crate::particles::Ambient { system: id, count: w.count, points });
+            }
+        }
     }
     for (pi, &(ent_id, body)) in placements.iter().enumerate() {
         let picked = moved.get(pi).copied().flatten();
