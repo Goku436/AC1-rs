@@ -367,6 +367,7 @@ mod tests {
             params: params.into_iter().map(|(n, p)| (forge::material::param_id(n), p)).collect(),
             alpha_test: None,
             two_sided: false,
+            hidden: false,
         }
     }
 

@@ -9,8 +9,10 @@
 //!   descriptor; names by CRC32 of the exe's strings, checked against the materials named for them over every material,
 //!   `examples/matflags`): +0x17 `BlendMode` (0 everywhere), +0x18 `AlphaDisplayMode`, +0x19 `InvertAlpha`,
 //!   +0x1A `AlphaTestValue` (the alpha test's reference, 0..255), +0x20 `InvertCulling`, +0x25 `AlphaTestEnabled`,
-//!   +0x26 `TwoSided`; the rest `?` (bools). Leaves, hay, trellises and tarps test alpha; the value alone is not enough
-//!   (windows carry one with the test off).
+//!   +0x26 `TwoSided`, +0x27 af654d1a (name not found; taken as "hidden": the one shipped material with it set is the
+//!   unused `EyeIris`, and the NPC builders' tables set it to hide beards, hair and head parts: `No_Hair`,
+//!   `Disabled_HeadOBJ`, `*_Beard_Dis_Mat`, `forge::build`); the rest `?` (bools). Leaves, hay, trellises and tarps
+//!   test alpha; the value alone is not enough (windows carry one with the test off).
 //! - +0x29 u32 `?` (0 in every material read here; the parse requires it)
 //! - +0x2D u32 the inside material's id (0 for none): what the back faces of two-sided cloth show
 //! - +0x31 u32 `?` (0 or 1)
@@ -98,12 +100,17 @@ pub struct Material {
     pub alpha_test: Option<f32>,
     /// Drawn from both sides (`TwoSided`).
     pub two_sided: bool,
+    /// Not drawn (+0x27, see the module docs).
+    pub hidden: bool,
 }
 
 /// The offsets of the render flags read (see the module docs).
 const ALPHA_TEST_VALUE: usize = 0x1A;
 const ALPHA_TEST_ENABLED: usize = 0x25;
 const TWO_SIDED: usize = 0x26;
+const HIDDEN: usize = 0x27;
+/// The CRC32 an NPC build table names the hidden flag by (`forge::build`).
+pub const HIDDEN_PROPERTY: u32 = 0xaf65_4d1a;
 
 /// CRC32 of a parameter name (what the table is keyed by).
 pub fn param_id(name: &str) -> u32 {
@@ -123,6 +130,19 @@ pub enum Style {
     Fresnel,
     /// Eyes: an iris tint from the diffuse alpha, a reflection cube.
     Eye,
+    /// The townsfolk's clothes (`Character-Mask2`/`3`/`4` and their `-NoSpecular`, `Alpha` kinds): cloth whose
+    /// diffuse is tinted by up to three colours (`Color_R`, `Color_G`, `Color_B`) through the channels of a mask map
+    /// (`DiffuseMask`), then dirtied toward `Dirt`; the specular tinted the same way from white.
+    Mask { channels: u8, specular: bool },
+    /// NPC arms and legs (`Character-Arms`): the diffuse dirtied toward `Dirt_Color` by `Dirt_Mask`, times
+    /// `saturate(MultiplyMask + SkinColor)`; the specular map's red the highlight's strength, its green a fifth of its power.
+    Arms,
+    /// NPC heads (`Character-GenericHead`): the diffuse times `HeadMultiply`; the specular map's red (x 1.5) the highlight's
+    /// strength, its green a tenth of its power, the highlight tinted by the diffuse's red.
+    Head,
+    /// NPC hair and beards (`Character-Hair`, `Character-Hair_Alpha`): the diffuse times `HairColor`, the highlight the
+    /// diffuse times `HairSpecular`; plain N.L, no ramp.
+    Hair,
 }
 
 impl Style {
@@ -135,8 +155,23 @@ impl Style {
             433_482_821 => Self::Skin,
             3_292_696_482 | 661_746_657 | 439_311_561 => Self::Fresnel,
             326_205_072 => Self::Eye,
+            0x3201_395a | 0x53f6_d750 | 0xb4dd_70cb => Self::Mask { channels: 3, specular: true },
+            0x4542_17b0 | 0x4dc4_fe7a => Self::Mask { channels: 2, specular: true },
+            0x4542_189d => Self::Mask { channels: 1, specular: true },
+            0x3201_2c2b => Self::Mask { channels: 3, specular: false },
+            0x4542_1983 | 0x4dc4_fb05 => Self::Mask { channels: 2, specular: false },
+            0x4542_1a31 => Self::Mask { channels: 1, specular: false },
+            0x1b43_0ea3 => Self::Arms,
+            0x018a_1172 => Self::Head,
+            0x2d29_5631 | 0xdfa4_3f8c => Self::Hair,
             _ => return None,
         })
+    }
+
+    /// Whether template `template` takes its alpha from a map (`AlphaTexture` dotted with `AlphaVector`): the masks'
+    /// and hair's `Alpha` kinds (their shaders' output alpha).
+    pub fn alpha_from_map(template: u32) -> bool {
+        matches!(template, 0x4dc4_fe7a | 0x53f6_d750 | 0xb4dd_70cb | 0x4dc4_fb05 | 0xdfa4_3f8c)
     }
 
     /// The lighting ramp (a TextureGradient id, in DataPC's "Game Fix") the template lights with; eyes have none.
@@ -145,7 +180,9 @@ impl Style {
             Self::Eye => None,
             Self::Skin => Some(329_254_216),
             Self::Fresnel => Some(439_311_685),
-            Self::Cloth | Self::InsideCloth => Some(433_482_686),
+            Self::Cloth | Self::InsideCloth | Self::Mask { .. } => Some(433_482_686),
+            Self::Arms | Self::Head => Some(329_254_216),
+            Self::Hair => None,
         }
     }
 }
@@ -160,6 +197,7 @@ impl Material {
         let inside = Some(w(0x2D)?).filter(|&id| id != 0);
         let alpha_test = (body[ALPHA_TEST_ENABLED] != 0).then(|| body[ALPHA_TEST_VALUE] as f32 / 255.0);
         let two_sided = body[TWO_SIDED] != 0;
+        let hidden = body[HIDDEN] != 0;
         let count = w(0x35)? as usize;
         ensure!(count <= 64, "material: {count} parameters at 0x35");
         let mut at = PARAMS_AT;
@@ -202,7 +240,7 @@ impl Material {
             at += size;
         }
         ensure!(at == body.len(), "material: {} bytes after the parameters at {at:#x}", body.len().saturating_sub(at));
-        Ok(Self { template, texture_set, inside, params, alpha_test, two_sided })
+        Ok(Self { template, texture_set, inside, params, alpha_test, two_sided, hidden })
     }
 
     pub fn param(&self, id: u32) -> Option<Param> {
@@ -237,6 +275,23 @@ impl Material {
 
     pub fn style(&self) -> Option<Style> {
         Style::of_template(self.template)
+    }
+
+    /// The lighting ramp the material's template lights with (the style's; `Character-Mask4Alpha-Vertex color` takes
+    /// the skin's, its template names that one).
+    pub fn ramp(&self) -> Option<u32> {
+        if self.template == 0xb4dd_70cb {
+            return Some(329_254_216);
+        }
+        self.style()?.ramp()
+    }
+
+    /// Set parameter `id` (an NPC builder's choice, `forge::build`): replaced where the material has it, added where not.
+    pub fn set(&mut self, id: u32, value: Param) {
+        match self.params.iter_mut().find(|(k, _)| *k == id) {
+            Some(p) => p.1 = value,
+            None => self.params.push((id, value)),
+        }
     }
 
     /// The texture (TextureMap or TextureGradient object) a slot names, with `get` looking objects up by id (in

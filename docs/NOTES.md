@@ -16,7 +16,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Static meshes (type 0, stride 24) | done: positions `xyz/32768 * |w|/8` m (sword, terrain tiles meeting exactly, houses on their ground); every mesh in every archive parses (43984/43984): vegetation and soft bodies (`Veg_Olivier_*`, `Herbe_Scatter_*`, `*_Softbody`: the cloth-simulation object 0x5755de7f embedded as in the robe, after `u32 0 or 1, u32 1 or 5, u8 0`; static LODs with an empty bone table) and effects meshes (type 2, laid out as the static ones); over 65535 vertices the indices are u32 (6 meshes, all the distant city's merged stand-ins, `Damascus_FakeMesh_26` ...) |
 | Entity (0984415e): meshes, skeletons, material overrides | done for characters |
 | City placement: entities' world transforms and meshes across a forge's data files, EntityGroup (3f742d26) members | done: Masyaf 4344 meshes placed (926 from groups; 2221 entities collide by their shapes, 5 data files of them looked up in `DataPC_Kingdom.forge`), Damascus 17581 (8851 entities from groups, 15.9 M collision triangles), shared props from `DataPC_Common.forge` |
-| Characters assembled from shared parts across data files (soldiers, crowds) | done: AC1's NPC builders (`EntityBuilder`/`BuildTable`), links into `DataPC_Common.forge` through an object index; the NPC line-up and scholars use them |
+| Characters assembled from shared parts across data files (soldiers, crowds) | done: AC1's NPC builders (`EntityBuilder`/`BuildTable`), links into `DataPC_Common.forge` through an object index; the NPC line-up and scholars use them; the tables' columns read (`forge::build`: 7337/7337 columns of the common forge and Damascus), each person's clothes, skin and hair colours, texture sets and maps and hidden parts applied |
 | Move graph (`ActionKit`/`ActionBlock`) | done: 452/452 blocks parse (15463 actions, 15958 items); blend spaces used for locomotion, stops, leans, grabs, leaps |
 | Collision shapes (`MeshShape`, `BoxShape`, `BarrelShape`, `CapsuleShape`, `ListShape`) and rigid bodies (`RigidBody`, its collision layer) | done: 14889/14889 meshes (6.5 M triangles) and 2098/2098 primitives parse; cities collide as AC1: by the entities' rigid bodies where their layer stops the player (Damascus: 16000 bodies, 289 left out: camera, horse and projectile barriers, out-of-bounds walls; 3.76 M triangles; only an entity's first body, a second is a broken state), entities with none collide with nothing but terrain; F11 draws it, `AC1_COLLISION_SWEEP` measures it ("Collision shapes") |
 | Levels of detail (`LODSelector`, `forge::lod`) | done: 18807/18807 selectors parse (`examples/lodcheck`); cities draw each mesh at AC1's level for its distance |
@@ -274,8 +274,8 @@ rim, skin's tiled specular and multiply map, Fresnel on weapons and the mouth, t
 masks `EyeColor`) and reflection cube. Cloth with an inside material (the robe, hood, flaps) is drawn twice: the
 outside back-culled, the inside front-culled with the inside material. Ours reads the colour parameters as sRGB
 (Banned445's as linear: the irises read near white). The light is the level's ("How AC1 lights its world"): the
-character ambient cube, the characters' sun through the ramp, Bevy's shadow maps, AC1's fog and grade; NPCs (other
-templates) keep `StandardMaterial`. `AC1_PLAIN_LOOK=1` draws Altaïr with `StandardMaterial` too.
+character ambient cube, the characters' sun through the ramp, Bevy's shadow maps, AC1's fog and grade; the townsfolk's
+templates (masks, arms, heads, hair) too since 2026-10-14 ("NPCs"); other templates keep `StandardMaterial`. `AC1_PLAIN_LOOK=1` draws Altaïr with `StandardMaterial` too.
 
 Test world labels: every feature has its name over it on screen (Block A-D, Tower T, Poles P and Q, Platform E,
 Hiding spots A-C, the course's P1-P4, Crowd A...).
@@ -464,8 +464,8 @@ there (back if none), stop for 2-7 s at a fifth of the ends, slow down and move 
 The player walking into someone: their soft 20 cm stumble; running (2.5 m/s): Altaïr's shove and their 50 cm stumble;
 sprinting (5 m/s): their strong stumble into unbalance. The militia fraction spawns `combat`'s guards (1-3 at once by
 the detail), on the player's locomotion within 20 m (where `combat` fights them), along the flow beyond. Left out: the
-thugs' cliques, beggars and harassers, merchants at their stalls, conversations, and the clothes' colours (the builders'
-colour tables, cells of code 0x0d, are not applied: townsfolk are drawn in their untinted textures).
+thugs' cliques, beggars and harassers, merchants at their stalls and conversations. Their clothes, skin and hair take
+their builders' colours since 2026-10-14 ("NPCs" below).
 Cost (headless, CPU over all threads a frame, Damascus street at (44, -50)): none 5.3 ms, 16 people 7.7 ms, 32 with 3
 militia 13.8 ms; a person is about 0.15 ms (its pose rebuilt every frame within 10 m, every second within 18 m, every
 third beyond: `character::AnimLod`; feet IK only within 8 m), a militia guard by the player's locomotion about 1.3 ms.
@@ -1177,6 +1177,36 @@ universal parts in `DataPC_Common.forge`, found through `forge::index` (every ob
 cached in the temp directory; `idx` tool). `npc.rs` picks a row per table by weight (seeded), so each NPC differs.
 The blend crowd is drawn from the hooded `CNMA_Scholar` builder; a
 line-up of every type stands south of the flow lane (`AC1_NPCS` in scripted runs).
+
+The tables' columns (2026-10-14, `forge::build`, `examples/buildcheck`: 7337/7337 columns of the common forge's and
+Damascus' 1921 tables and builders read, 31331 of 31345 cells naming a column of their table, the other 14 empty cells
+of one table): a `BuildColumn` holds a `PropertyPath` whose nodes name what its cells set (names by CRC32 of the exe's
+strings and the templates' parameter names); a `MaterialPropertyPathNodeSolver` in it names a material by id, or with
+none, the template of the entity's visual's material it is on. So a row sets, per person: the mask colours (`Color_R`,
+`Color_G`, `Color_B`, `Dirt`), cloth's `MultiplyColor`, arms' `SkinColor` and `Dirt_Color`, hair's `HairColor` and
+`HairSpecular`, the eyes' `EyeColor`, a material's `TextureSet`, a texture slot's map (`Texture`) and how the slot finds
+it (`TextureSpecificationMethod`: 0 the material's set, 1 another set, 2 the map, 3 the view's surface; the names from
+the exe's enum table, the selector's lookup at 0xA14670), and a bool at material +0x27 (CRC32 af654d1a, name not found)
+the tables named `No_Hair`, `Disabled_HeadOBJ`, `*_Beard_Dis_Mat` set to 1, and the one shipped material with it set is
+the unused `EyeIris`: taken as "hidden". A cell's kind 0 value is that one byte (it was read as 4: the cells after a
+bool were lost, among them the poor men's texture sets). `npc.rs` collects a picked row's cells on materials and
+`assets` applies them as the parts load (`MaterialChoices`); a hidden part is not drawn (the white-eyed `EyeIris`).
+The townsfolk's templates are drawn by the character shader (their DX9 code read for the equations): `Character-Mask2`/
+`3`/`4` (`-NoSpecular`, `Alpha`; 1, 2 or 3 colours) cloth whose diffuse goes toward diffuse x colour by each channel of
+`DiffuseMask`, then toward `Dirt` by `DirtTile` (at uv x (1, 2)) x `DirtMask` x `DirtIntensity`, the highlight tinted
+the same way from white, the cloth ramp, a rim of fixed power 0.7; `Character-Arms` the diffuse toward `Dirt_Color` by
+`Dirt_Mask`, times saturate(`MultiplyMask` + `SkinColor`), the skin ramp, the specular map's red the strength and its
+green x 5 the power; `Character-GenericHead` the diffuse x `HeadMultiply`, its highlight's strength the specular map's
+red x 1.5 (x a pore map at uv x `SkinPoreSize` that is a template default, not found: left out), power green x 10,
+tinted by the diffuse's red; `Character-Hair` the diffuse x `HairColor`, highlight the diffuse x `HairSpecular`, plain
+N.L. The masks come put together on the CPU in the multiply slot (RGB the mask, alpha the dirt: no more texture
+bindings); the alpha kinds' alpha (`AlphaTexture` . `AlphaVector`) goes into the diffuse's alpha, cut where the
+material tests alpha. The masks' default dirt maps (`DirtTile`'s set 351b3e91, `DirtMask` 351b4dfa) are in no forge:
+dirt only where a table names a dirt mask and a tile. Before/after shots: `reports/look4/` (not in the repo).
+Open: the Damascus crowd's militia (`MMMA_Damascus_Militia`) sets its tunic's diffuse slot to its dress map with method
+0 (the material's own set, the white placeholder `Military_PlaceholderMap`), which the exe's lookup ignores the map
+for; ours draws the placeholder too (white quilts, where the running game's militia are olive): something else must
+set it (not found).
 
 ## Viewpoints
 Cities place viewpoint towers and spires as entity groups named `ReachHighPoint_*` (and one entity with a

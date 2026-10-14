@@ -16,7 +16,10 @@
 // COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
-// Styles (`options.x`): 0 cloth, 1 inside cloth, 2 skin, 3 weapon / mouth (Fresnel), 4 eyes.
+// Styles (`options.x`): 0 cloth, 1 inside cloth, 2 skin, 3 weapon / mouth (Fresnel), 4 eyes; the townsfolk's (their
+// templates' DX9 code read for the equations): 5 clothes tinted through a mask (`Character-Mask*`), 6 arms and legs
+// (`Character-Arms`), 7 heads (`Character-GenericHead`), 8 hair (`Character-Hair*`). Their masks come put together in
+// the multiply map (`assets::npc_mask`: the mask's RGB, the dirt in alpha).
 //
 // Lit as AC1's character shaders light (their DX9 code, in the data's MaterialTemplates): the level's character ambient
 // cube (the normal's Z bent up) times the diffuse, plus the characters' sun through the template's ramp with its Phong
@@ -43,6 +46,9 @@ struct LayerControls {
     eye_color: vec4<f32>,
     // Whether the diffuse, specular, ramp and multiply maps are sRGB textures (decoded when sampled).
     srgb: vec4<f32>,
+    // The NPC styles' colours (see `character_material::LayerControls`) and dirt (w its intensity).
+    tint: array<vec4<f32>, 3>,
+    dirt: vec4<f32>,
 }
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> layers: LayerControls;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var specular_map: texture_2d<f32>;
@@ -69,7 +75,7 @@ fn light_response(style: u32, diffuse: vec3<f32>, specular: vec3<f32>, power: f3
     strength: f32, N: vec3<f32>, V: vec3<f32>, L: vec3<f32>) -> vec3<f32> {
     let nl = dot(N, L);
     var diffuse_light = vec3<f32>(max(nl, 0.0));
-    if style != 4u {
+    if style != 4u && style != 8u {
         diffuse_light = stored(textureSampleLevel(ramp, ramp_sampler, vec2<f32>((nl + 1.0) * 0.5, 0.5), 0.0).rgb, layers.srgb.z);
     }
     let highlight = pow(max(dot(reflect(-L, N), V), 0.0), power) * strength * max(nl, 0.0);
@@ -83,6 +89,32 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let base = stored(p.material.base_color.rgb, layers.srgb.x);
     // The eyes' diffuse alpha is the iris tint's mask: it must not cut holes in the eye.
     var diffuse = base * stored(layers.multiply.rgb, 1.0);
+    // The townsfolk's: the diffuse (and the clothes' highlight) tinted by their colours.
+    var spec_tint = vec3<f32>(1.0);
+    if style == 5u {
+        // Each mask channel takes the diffuse toward the diffuse times its colour, the highlight from white toward the
+        // same; then both toward the dirt colour by the dirt.
+        let m = textureSample(multiply_map, multiply_sampler, in.uv);
+        var c = base;
+        for (var k = 0; k < 3; k++) {
+            let tinted = base * stored(layers.tint[k].rgb, 1.0);
+            c = mix(c, tinted, m[k]);
+            spec_tint = mix(spec_tint, tinted, m[k]);
+        }
+        let d = clamp(m.a * layers.dirt.w, 0.0, 1.0);
+        let dirt = stored(layers.dirt.rgb, 1.0);
+        diffuse = mix(c, dirt, d);
+        spec_tint = mix(spec_tint, dirt, d);
+    } else if style == 6u {
+        // Dirtied by the dirt mask (alpha), then times the skin colour where the multiply mask (RGB) leaves it.
+        let m = textureSample(multiply_map, multiply_sampler, in.uv);
+        diffuse = mix(base, stored(layers.dirt.rgb, 1.0), m.a) * clamp(m.rgb + stored(layers.tint[0].rgb, 1.0), vec3<f32>(0.0), vec3<f32>(1.0));
+    } else if style == 7u {
+        diffuse = base * stored(textureSample(multiply_map, multiply_sampler, in.uv).rgb, layers.srgb.w);
+    } else if style == 8u {
+        diffuse = base * stored(layers.tint[0].rgb, 1.0);
+        spec_tint = base * stored(layers.tint[1].rgb, 1.0);
+    }
     if style == 4u {
         let tinted = mix(base, stored(layers.eye_color.rgb, 1.0), p.material.base_color.a);
         diffuse = mix(tinted, base, layers.options.w);
@@ -102,12 +134,24 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     if style == 2u {
         strength *= mask.r;
         diffuse *= stored(textureSample(multiply_map, multiply_sampler, in.uv).rgb, layers.srgb.w).r;
+    } else if style == 6u {
+        // Arms: the specular map's red the strength, its green a fifth of the power.
+        strength *= mask.r;
+        power = mask.g * 5.0;
+    } else if style == 7u {
+        // Heads: its red (x 1.5) the strength, its green a tenth of the power, tinted by the diffuse's red.
+        strength *= mask.r * 1.5;
+        power = mask.g * 10.0;
+        specular *= diffuse.r;
+    } else if style == 8u {
+        // Hair: no specular map; the highlight is the diffuse times its colour.
+        specular = spec_tint;
     } else if style != 4u {
-        specular *= mask;
+        specular *= mask * spec_tint;
         power += mask.b;
     }
     if style == 3u { strength *= mix(layers.highlight.w, 1.0, pow(abs(1.0 - nv), 5.0)); }
-    if style <= 1u {
+    if style <= 1u || style == 5u {
         // Cloth's rim lightens the diffuse towards the silhouette before lighting.
         diffuse += (0.7 * diffuse + vec3<f32>(0.1)) * (1.0 - pow(abs(nv), layers.highlight.z));
     }

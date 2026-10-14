@@ -48,6 +48,66 @@ pub struct Look {
     pub cube: Option<u32>,
 }
 
+/// Choices an NPC builder's tables made for its parts' materials (`npc`, `forge::build`): parameters set on a material
+/// by its id, or on every material of a template, by the path of properties to them; and the data files (forge, data
+/// file) holding what they link to.
+#[derive(Clone, Debug, Default)]
+pub struct MaterialChoices {
+    pub sets: Vec<Choice>,
+    pub files: Vec<(String, String)>,
+}
+
+/// One choice: on material `material`, or with none (0) on the materials of template `template`, the property at
+/// `path` (CRC32s of its names) set to `value`.
+#[derive(Clone, Debug)]
+pub struct Choice {
+    pub material: u32,
+    pub template: u32,
+    pub path: Vec<u32>,
+    pub value: forge::build::Value,
+}
+
+/// Property names (CRC32) the choices' paths use beyond the material's own parameters: its `TextureSet`, a texture
+/// slot's map (`Texture`) and how the slot finds it (`TextureSpecificationMethod`, its mode).
+const PROP_TEXTURE_SET: u32 = 0xd70e_6670;
+const PROP_TEXTURE: u32 = 0x4ddb_34ee;
+const PROP_METHOD: u32 = 0x3482_c6b5;
+/// A path's first node when it goes through the entity's visual to the material of a template (an entity property, its
+/// name not found).
+const PROP_VISUAL_ROUTE: u32 = 0xa115_f62d;
+
+impl MaterialChoices {
+    /// Apply the choices for material `id` to `m`, in the order they were made.
+    pub fn apply(&self, id: u32, m: &mut forge::material::Material) {
+        use forge::build::Value;
+        use forge::material::Param;
+        let template = m.template;
+        for c in self.sets.iter().filter(|c| c.material == id || (c.material == 0 && c.template != 0 && c.template == template)) {
+            let path: Vec<u32> = c.path.iter().copied().filter(|&p| p != PROP_VISUAL_ROUTE).collect();
+            match (path.as_slice(), c.value) {
+                ([p], Value::Color(v)) => m.set(*p, Param::Color(v)),
+                ([p], Value::Float(v)) => m.set(*p, Param::Scalar(v)),
+                ([forge::material::HIDDEN_PROPERTY], Value::Bool(b)) => m.hidden = b,
+                ([PROP_TEXTURE_SET], Value::Link(_, set)) => m.texture_set = set,
+                ([slot, field], v) => {
+                    let (mut mode, mut channel, mut set, mut map) = match m.param(*slot) {
+                        Some(Param::Map { mode, channel, set, map }) => (mode, channel, set, map),
+                        _ => (2, 0, 0, 0),
+                    };
+                    match (*field, v) {
+                        (PROP_TEXTURE, Value::Link(_, id)) => map = id,
+                        (PROP_METHOD, Value::Int(x)) if x <= 2 => mode = x,
+                        (PROP_TEXTURE_SET, Value::Link(_, id)) => (set, mode, channel) = (id, 1, channel),
+                        _ => continue,
+                    }
+                    m.set(*slot, Param::Map { mode, channel, set, map });
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct CharacterData {
     pub rig: Rig,
@@ -230,7 +290,7 @@ pub fn load_character(game_dir: &Path, forge_file: &str, datafile: &str, entity:
     let mut parts = vec![];
     let mut textures = HashMap::new();
     let mut seen_meshes = vec![];
-    let src = Source { df: &df, shared: shared.as_ref(), fix: fix.as_ref(), overrides: &overrides };
+    let src = Source { df: &df, shared: shared.as_ref(), fix: fix.as_ref(), overrides: &overrides, extra: &[], choices: &MaterialChoices::default() };
     for (_, o) in refs.iter().filter(|(_, o)| o.class == CLASS_MESH) {
         // Skip duplicate refs and distant LODs.
         if seen_meshes.contains(&o.id) || o.name.contains("_LOD") {
@@ -255,20 +315,22 @@ pub fn load_character(game_dir: &Path, forge_file: &str, datafile: &str, entity:
 /// and share skeletons and limbs from the common one). Skeletons stored next to the meshes (head face
 /// bones, ...) are merged in after the listed ones.
 pub fn load_assembled_from(game_dir: &Path, skeletons: &[(String, String, String)], meshes: &[(String, String, String)]) -> Result<CharacterData> {
-    load_assembled_with(game_dir, skeletons, meshes, true)
+    load_assembled_with(game_dir, skeletons, meshes, true, &MaterialChoices::default())
 }
 
 /// `load_assembled_from`; `auto_skeletons`: also every skeleton in the meshes' data files (hand-made recipes
-/// rely on it for hoods and such; an NPC builder names its own).
+/// rely on it for hoods and such; an NPC builder names its own); `choices`: an NPC builder's for its materials.
 pub fn load_assembled_with(
     game_dir: &Path,
     skeletons: &[(String, String, String)],
     meshes: &[(String, String, String)],
     auto_skeletons: bool,
+    choices: &MaterialChoices,
 ) -> Result<CharacterData> {
     let mut forges: HashMap<String, forge::Forge> = HashMap::new();
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
-    for (ff, df, _) in skeletons.iter().chain(meshes) {
+    let wanted: Vec<(&String, &String)> = skeletons.iter().chain(meshes).map(|(f, d, _)| (f, d)).chain(choices.files.iter().map(|(f, d)| (f, d))).collect();
+    for (ff, df) in wanted {
         if !files.contains_key(df) {
             if !forges.contains_key(ff) {
                 forges.insert(ff.clone(), forge::Forge::open(game_dir.join(ff))?);
@@ -281,6 +343,9 @@ pub fn load_assembled_with(
     let skeletons: Vec<(&str, &str)> = skeletons.iter().map(|(_, d, n)| (d.as_str(), n.as_str())).collect();
     let meshes: Vec<(&str, &str)> = meshes.iter().map(|(_, d, n)| (d.as_str(), n.as_str())).collect();
     let dfs: HashMap<&str, DataFile> = files.iter().map(|(k, v)| DataFile::parse(v).map(|d| (k.as_str(), d))).collect::<Result<_>>()?;
+    // The data files the choices link into, and DataPC's "Game Fix" for the character shader's ramps.
+    let extra: Vec<&DataFile> = choices.files.iter().filter_map(|(_, d)| dfs.get(d.as_str())).collect();
+    let fix = if choices.files.is_empty() { None } else { game_fix(game_dir) };
     let mut skels = vec![];
     let mut seen = vec![];
     for &(df, name) in &skeletons {
@@ -305,7 +370,8 @@ pub fn load_assembled_with(
             warn!("no mesh {name} in {df}");
             continue;
         };
-        add_mesh_parts(&Source { df: d, shared: None, fix: None, overrides: &HashMap::new() }, o, &rig, &by_hash, None, &mut parts, &mut textures);
+        let src = Source { df: d, shared: None, fix, overrides: &HashMap::new(), extra: &extra, choices };
+        add_mesh_parts(&src, o, &rig, &by_hash, None, &mut parts, &mut textures);
     }
     info!("assembled {} skeletons -> {} bones, {} parts", skels.len(), rig.len(), parts.len());
     let hashes = hashes_of(rig.len(), &by_hash);
@@ -332,6 +398,23 @@ const SHARED_DATAFILE: &str = "Game Bootstrap Settings";
 /// Data file `"Game Fix"` (in DataPC.forge) holds the character templates' lighting ramps and the eyes' cube.
 const SHADER_DATAFILE: &str = "Game Fix";
 
+/// DataPC.forge's "Game Fix", read once (the NPCs' ramps).
+fn game_fix(game_dir: &Path) -> Option<&'static DataFile<'static>> {
+    static BYTES: std::sync::OnceLock<Option<Vec<u8>>> = std::sync::OnceLock::new();
+    static FIX: std::sync::OnceLock<Option<DataFile<'static>>> = std::sync::OnceLock::new();
+    FIX.get_or_init(|| {
+        let bytes = BYTES
+            .get_or_init(|| {
+                let forge = forge::Forge::open(game_dir.join("DataPC.forge")).ok()?;
+                let e = forge.entries.iter().find(|e| e.name == SHADER_DATAFILE)?;
+                forge.read(e).ok()
+            })
+            .as_deref()?;
+        DataFile::parse(bytes).ok()
+    })
+    .as_ref()
+}
+
 /// Weapons Altaïr carries, each on its tag bone (by name hash): the sword in its sheath (the `UCMA_Sword_Tag`
 /// skeleton's bone) and the short blade in the back sheath. The pairs are from Banned445's AC1-Movement-Rewritten.
 const CARRIED: [(&str, u32); 2] = [("ARCM_Altair_Sword_D", 0x3a83_5926), ("UCMA_Altair_Dagger", 0x685e_46b6)];
@@ -345,6 +428,21 @@ struct Source<'s, 'a> {
     fix: Option<&'s DataFile<'s>>,
     /// Material overrides (placeholder -> real).
     overrides: &'s HashMap<u32, u32>,
+    /// More data files to find objects in (an NPC builder's).
+    extra: &'s [&'s DataFile<'s>],
+    /// An NPC builder's choices for the materials.
+    choices: &'s MaterialChoices,
+}
+
+impl<'s> Source<'s, '_> {
+    /// An object by id, in whichever of the data files holds it.
+    fn get(&self, id: u32) -> Option<&'s forge::Object<'s>> {
+        self.df
+            .get(id)
+            .or_else(|| self.shared.and_then(|d| d.get(id)))
+            .or_else(|| self.fix.and_then(|d| d.get(id)))
+            .or_else(|| self.extra.iter().find_map(|d| d.get(id)))
+    }
 }
 
 /// Skinned submeshes of mesh object `o` bound to `rig`, with their diffuse textures. A mesh with no skin of its own
@@ -424,6 +522,11 @@ fn add_submeshes(
 ) {
     let (df, overrides) = (src.df, src.overrides);
     for (si, sub) in m.submeshes.iter().enumerate() {
+        // (A material an NPC's choices hide is not drawn: a beard, hair or head part its builder turns off.)
+        let chosen = m.materials.get(si).map(|id| *overrides.get(id).unwrap_or(id)).and_then(|id| chosen_material(src, id));
+        if chosen.as_ref().is_some_and(|(_, m)| m.hidden) {
+            continue;
+        }
         let v0 = sub.first_vertex as usize;
         let vn = sub.vertex_count as usize;
         let range = v0..v0 + vn;
@@ -472,6 +575,8 @@ fn add_submeshes(
         let nrm = nrm.filter(|_| stored || mesh.generate_tangents().is_ok());
         let look = real.and_then(|id| look_of(src, id, textures));
         let inside = look.as_ref().and_then(|l| l.material.inside).and_then(|id| look_of(src, id, textures));
+        // (The masks' and hair's alpha kinds cut out by their map's alpha where the material tests alpha.)
+        let cut = chosen.as_ref().is_some_and(|(_, m)| forge::material::Style::alpha_from_map(m.template) && m.alpha_test.is_some());
         info!("  {} sub {si}: {} verts, material {mat_name}, texture {:?}", o.name, vn, tex.map(|t| &t.name));
         parts.push(Part {
             name: format!("{}#{si}", o.name),
@@ -481,7 +586,7 @@ fn add_submeshes(
             texture: tex.map(|t| t.id),
             normal: nrm.map(|t| t.id),
             // (Not the eyes: their diffuse alpha is the iris tint's mask, not a cut-out.)
-            alpha: mat_name.contains("Alpha"),
+            alpha: mat_name.contains("Alpha") || cut,
             material: mat_name.clone(),
             look,
             inside,
@@ -489,23 +594,36 @@ fn add_submeshes(
     }
 }
 
-/// The character material `id` (an `_Empty` placeholder left without an override: the material of its name without
-/// the suffix), if its template is a character one; its maps are decoded into `textures`.
-fn look_of(src: &Source, id: u32, textures: &mut HashMap<u32, Image>) -> Option<Look> {
-    let get = |id: u32| src.df.get(id).or_else(|| src.shared.and_then(|d| d.get(id))).or_else(|| src.fix.and_then(|d| d.get(id)));
-    let mut o = get(id)?;
+/// Material `id` (an `_Empty` placeholder left without an override: the material of its name without the suffix) as an
+/// NPC's choices leave it, and its object.
+fn chosen_material<'s>(src: &Source<'s, '_>, id: u32) -> Option<(&'s forge::Object<'s>, forge::material::Material)> {
+    let mut o = src.get(id)?;
     if let Some(r) = o.name.strip_suffix("_Empty").and_then(|base| src.df.by_name(CLASS_MATERIAL, base)) {
         o = r;
     }
-    let material = match forge::material::Material::parse(o.body) {
+    let mut material = match forge::material::Material::parse(o.body) {
         Ok(m) => m,
         Err(e) => {
             warn!("material {}: {e:#}", o.name);
             return None;
         }
     };
+    src.choices.apply(id, &mut material);
+    if o.id != id {
+        src.choices.apply(o.id, &mut material);
+    }
+    Some((o, material))
+}
+
+/// The character material `id` (see `chosen_material`), if its template is a character one; its maps are decoded into
+/// `textures`. The NPC styles' masks are put together into the multiply slot (`npc_mask`), and the alpha kinds' alpha
+/// into the diffuse (`with_alpha`).
+fn look_of(src: &Source, id: u32, textures: &mut HashMap<u32, Image>) -> Option<Look> {
+    use forge::material::Style;
+    let get = |id: u32| src.get(id);
+    let (o, material) = chosen_material(src, id)?;
     let style = material.style()?;
-    let mut load = |t: &forge::Object| -> Option<u32> {
+    let load = |t: &forge::Object, textures: &mut HashMap<u32, Image>| -> Option<u32> {
         if let std::collections::hash_map::Entry::Vacant(slot) = textures.entry(t.id) {
             let image = match t.class {
                 forge::texture::CLASS_GRADIENT => forge::texture::decode_gradient(t.body).map(gradient_image),
@@ -524,15 +642,132 @@ fn look_of(src: &Source, id: u32, textures: &mut HashMap<u32, Image>) -> Option<
         }
         Some(t.id)
     };
-    let mut slot = |names: &[&str]| material.slot(names).and_then(|s| material.resolve(s, get)).and_then(&mut load);
-    let diffuse = slot(&["DiffuseTexture", "DiffuseMap"]);
-    let normal = slot(&["NormalTexture", "NormalMap"]);
-    let specular = slot(&["SpecularTexture", "SpecularMap"]);
-    let multiply = slot(&["MultiplyTexture", "MultiplyMap"]);
-    let cube = slot(&["CubeMap"]);
-    let ramp = style.ramp().and_then(get).and_then(&mut load);
+    let map = |names: &[&str]| material.slot(names).and_then(|s| material.resolve(s, get));
+    let mut diffuse = map(&["DiffuseTexture", "DiffuseMap"]).and_then(|t| load(t, textures));
+    let normal = map(&["NormalTexture", "NormalMap"]).and_then(|t| load(t, textures));
+    let specular = map(&["SpecularTexture", "SpecularMap"]).and_then(|t| load(t, textures));
+    let cube = map(&["CubeMap"]).and_then(|t| load(t, textures));
+    let multiply = match style {
+        Style::Mask { .. } => {
+            let dirt = [(map(&["DirtTile"]), [1.0, 2.0]), (map(&["DirtMask"]), [1.0, 1.0])];
+            npc_mask(map(&["DiffuseMask"]), &dirt, textures)
+        }
+        Style::Arms => npc_mask(map(&["MultiplyMask"]), &[(map(&["Dirt_Mask"]), [1.0, 1.0])], textures),
+        Style::Head => map(&["HeadMultiply"]).and_then(|t| load(t, textures)),
+        _ => map(&["MultiplyTexture", "MultiplyMap"]).and_then(|t| load(t, textures)),
+    };
+    if Style::alpha_from_map(material.template)
+        && let (Some(d), Some(a), Some(v)) = (map(&["DiffuseTexture", "DiffuseMap"]), map(&["AlphaTexture"]), material.color("AlphaVector"))
+        && v != [0.0; 4]
+    {
+        diffuse = with_alpha(d, a, v, textures).or(diffuse);
+    }
+    let ramp = material.ramp().and_then(get).and_then(|t| load(t, textures));
     debug!("  look {}: {style:?}, ramp {ramp:?}, specular {specular:?}, multiply {multiply:?}, cube {cube:?}", o.name);
     Some(Look { style, material, diffuse, normal, specular, multiply, ramp, cube })
+}
+
+/// A texture's RGBA as stored (its first level), read with wrap at the nearest texel.
+struct Texels(forge::Texture);
+
+impl Texels {
+    fn of(o: &forge::Object) -> Option<Self> {
+        forge::decode_texture(o.body).map_err(|e| warn!("map {}: {e:#}", o.name)).ok().filter(|t| t.width > 0 && t.height > 0).map(Self)
+    }
+
+    fn at(&self, u: f32, v: f32) -> [u8; 4] {
+        let (w, h) = (self.0.width as usize, self.0.height as usize);
+        let x = ((u.rem_euclid(1.0) * w as f32) as usize).min(w - 1);
+        let y = ((v.rem_euclid(1.0) * h as f32) as usize).min(h - 1);
+        let i = (y * w + x) * 4;
+        self.0.rgba.get(i..i + 4).map_or([0; 4], |p| [p[0], p[1], p[2], p[3]])
+    }
+}
+
+/// A made texture's id: a hash (FNV-1a) of what it is made of, with the top bit set (out of the way of the data's ids).
+fn made_id(parts: &[u32]) -> u32 {
+    let h = parts.iter().flat_map(|p| p.to_le_bytes()).fold(0x811c_9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
+    h | 0x8000_0000
+}
+
+/// An RGBA8 picture with its whole mip chain (box-filtered), wrapped and filtered linearly.
+fn made_texture(width: u32, height: u32, rgba: Vec<u8>, srgb: bool) -> forge::Texture {
+    let mut mips: Vec<Vec<u8>> = vec![];
+    let (mut w, mut h) = (width as usize, height as usize);
+    let mut level = rgba.clone();
+    while w > 1 || h > 1 {
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let mut next = vec![0u8; nw * nh * 4];
+        for y in 0..nh {
+            for x in 0..nw {
+                for c in 0..4 {
+                    let mut sum = 0u32;
+                    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                        let (sx, sy) = ((x * 2 + dx).min(w - 1), (y * 2 + dy).min(h - 1));
+                        sum += level[(sy * w + sx) * 4 + c] as u32;
+                    }
+                    next[(y * nw + x) * 4 + c] = (sum / 4) as u8;
+                }
+            }
+        }
+        mips.push(next.clone());
+        (level, w, h) = (next, nw, nh);
+    }
+    let sampling = forge::texture::Sampling { srgb, address: [0, 0], filter: [1, 1, 1] };
+    forge::Texture { width, height, format: 0, rgba, mips, sampling, cube: false }
+}
+
+/// The NPC styles' masks in one texture (`Style::Mask`, `Style::Arms`): RGB map `rgb`'s (black where there is none),
+/// alpha the product of the `alpha` maps' red, each read at the UV times its scale (0 where one of them is missing: the
+/// masks' default dirt maps are in no forge). Put in `textures`; its id.
+fn npc_mask(rgb: Option<&forge::Object>, alpha: &[(Option<&forge::Object>, [f32; 2])], textures: &mut HashMap<u32, Image>) -> Option<u32> {
+    let ids: Vec<u32> = std::iter::once(rgb.map_or(0, |o| o.id)).chain(alpha.iter().map(|(o, _)| o.map_or(0, |o| o.id))).collect();
+    let id = made_id(&ids);
+    if textures.contains_key(&id) {
+        return Some(id);
+    }
+    let rgb = rgb.and_then(Texels::of);
+    let alpha: Option<Vec<(Texels, [f32; 2])>> = alpha.iter().map(|(o, s)| o.and_then(Texels::of).map(|t| (t, *s))).collect();
+    if rgb.is_none() && alpha.is_none() {
+        return None;
+    }
+    let size = |t: &Texels| (t.0.width, t.0.height);
+    let (w, h) = rgb.as_ref().map(size).or_else(|| alpha.as_ref().and_then(|a| a.iter().map(|(t, _)| size(t)).max())).unwrap_or((1, 1));
+    let mut out = vec![0u8; (w * h * 4) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let (u, v) = ((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
+            let i = ((y * w + x) * 4) as usize;
+            if let Some(t) = &rgb {
+                out[i..i + 3].copy_from_slice(&t.at(u, v)[..3]);
+            }
+            out[i + 3] =
+                alpha.as_ref().map_or(0, |a| (a.iter().map(|(t, [su, sv])| t.at(u * su, v * sv)[0] as f32 / 255.0).product::<f32>() * 255.0).round() as u8);
+        }
+    }
+    textures.insert(id, to_image(made_texture(w, h, out, false)));
+    Some(id)
+}
+
+/// Diffuse map `diffuse` with the alpha the alpha kinds draw with: map `alpha` dotted with `vector`. Put in `textures`;
+/// its id.
+fn with_alpha(diffuse: &forge::Object, alpha: &forge::Object, vector: [f32; 4], textures: &mut HashMap<u32, Image>) -> Option<u32> {
+    let id = made_id(&[diffuse.id, alpha.id, vector[0].to_bits(), vector[1].to_bits(), vector[2].to_bits(), vector[3].to_bits()]);
+    if textures.contains_key(&id) {
+        return Some(id);
+    }
+    let (d, a) = (Texels::of(diffuse)?, Texels::of(alpha)?);
+    let (w, h) = (d.0.width, d.0.height);
+    let mut out = d.0.rgba.clone();
+    for y in 0..h {
+        for x in 0..w {
+            let p = a.at((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
+            let dot: f32 = (0..4).map(|c| p[c] as f32 / 255.0 * vector[c]).sum();
+            out[((y * w + x) * 4 + 3) as usize] = (dot.clamp(0.0, 1.0) * 255.0).round() as u8;
+        }
+    }
+    textures.insert(id, to_image(made_texture(w, h, out, d.0.sampling.srgb)));
+    Some(id)
 }
 
 /// A TextureMap of type 2 (six faces).
