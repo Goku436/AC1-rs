@@ -1089,6 +1089,9 @@ const CORNER_HOP_COS: f32 = 0.766;
 const CORNER_HOP_TOWARD: f32 = 0.766;
 /// A free-step arrival may dive into a haystack once this far (fraction) through (AC1: 0.6).
 const HAY_ARRIVAL_DIVE: f32 = 0.6;
+/// The free-step stay takes the jump on from this far into its reception (AC1's `StateMovement_GuardJump` 0xE4C700:
+/// phase 0.5, dword_17028A8; Banned445's port `free_step.rs`).
+const FREESTEP_STAY_JUMP: f32 = 0.5;
 /// AC1's anti-stuck nudge in the air: under this speed (m/s) for this long (s), nudged; the push with no spot (m/s).
 const STUCK_SPEED: f32 = 0.25;
 const STUCK_TIME: f32 = 0.5;
@@ -1924,6 +1927,30 @@ fn foot_cell(level: &Level, hand: Vec3, normal: Vec3) -> bool {
             d.dot(along).abs() <= GRID_ALONG && d.y.abs() <= FOOT_CELL_UP && d.dot(normal).abs() <= GRID_DEPTH
         })
 }
+/// AC1's vertical reach's holds (`FindVerticalReachHolds` 0xDE8400, Banned445's port): from the feet (`feet`, on the
+/// stance's foot holds) a foot hold 1.2 m up or down (then 1.8 m), in a box 0.2 m across (also tried 0.4 m
+/// to either side), 0.5 m in or out and 0.4 m up or down, with a hand hold 1.2 m over it (0.375 m across, 0.3 up or
+/// down). True when the hands' grip `hand` is on that hand hold. Not the ground: the reach goes from holds to holds.
+fn reach_foot_hold(level: &Level, feet: Vec3, hand: Vec3, normal: Vec3, up: bool) -> bool {
+    let along = Vec3::Y.cross(normal).normalize_or_zero();
+    let way = if up { 1.0 } else { -1.0 };
+    let line = hand + Vec3::Y * GRIP_DOWN;
+    let holds = || level.ledges.iter().filter(|l| l.out.dot(normal) > 0.7);
+    let near = |l: &Ledge, at: Vec3, across: f32, vert: f32| {
+        let d = l.closest(at) - at;
+        (d.dot(along).abs() <= across && d.y.abs() <= vert && d.dot(normal).abs() <= 0.5).then_some(at + d)
+    };
+    [FOOT_ROWS, FOOT_ROWS + 0.6].iter().any(|step| {
+        let c = feet + Vec3::Y * (step * way);
+        [0.0, 0.4, -0.4].iter().any(|side| {
+            holds().filter_map(|l| near(l, c + along * *side, 0.2, 0.4)).any(|f| {
+                let h = f + Vec3::Y * FOOT_ROWS;
+                holds().filter_map(|l| near(l, h, 0.375, 0.3)).any(|q| (q.y - line.y).abs() <= 0.15 && (q - line).with_y(0.0).length() <= 0.6)
+            })
+        })
+    })
+}
+
 /// The feet's cell is two of AC1's 0.6 m rows under the hand's; a hold within this of it (m, up or down) counts.
 const FOOT_ROWS: f32 = 1.2;
 /// A step off the wall onto the ground needs room to stand there: the body pushed no more than this out of the walls (m).
@@ -2391,6 +2418,22 @@ fn beam_takeoff(lib: &mut AnimLib, takeoff: &[(String, f32)]) -> Vec<(String, f3
             (if lib.get(&beam).is_some() { beam } else { name.clone() }, *w)
         })
         .collect()
+}
+
+/// A beam piece ahead of `pos` along `dir` (IHuman vt148 0xB15DE0, Banned445's port: the guidance's beam pieces in a box
+/// 0.35-1.05 m on, 0.5 m to either side and up or down, within 45 degrees of `dir`).
+fn beam_ahead(level: &Level, pos: Vec3, dir: Vec3) -> bool {
+    let f = dir.with_y(0.0).normalize_or_zero();
+    let side = f.cross(Vec3::Y);
+    level.perches.iter().any(|l| {
+        let axis = l.axis();
+        axis != Vec3::ZERO
+            && axis.dot(f).abs() >= std::f32::consts::FRAC_1_SQRT_2
+            && (0..=20).any(|k| {
+                let d = l.a.lerp(l.b, k as f32 / 20.0) - pos;
+                (0.35..=1.05).contains(&d.dot(f)) && d.dot(side).abs() <= 0.5 && d.y.abs() <= 0.5
+            })
+    })
 }
 
 /// AC1's drop edge ahead of `pos` along `dir` (`Human__FindDropEdgeAhead` 0xB1C100 with the narrow interpreter's
@@ -7694,13 +7737,16 @@ impl WallClimb {
             debug!("climb: no top-out: no room over the edge at {edge:.2} (boxes clear {open}; top {:.2}, wrists {wrist:.2})", top.point);
             return false;
         }
-        // Nothing to stand on beside the hands (a post, the end of a wall): pull up with one hand.
+        // Nothing to stand on beside the hands (a post, the end of a wall): pull up with one hand. Only from a hang: the
+        // climbing stance's climb out (TryReachLedgeAbove 0xDF1730) plays the two-hand `xx_l_climb_<1m|2m>_tr_hangknee`
+        // whatever is beside the hands (the running game at the bureau's top, live route `wall1_climb`; ours pulled up
+        // one-handed there and stood 0.25 s longer).
         let along = Vec3::Y.cross(self.normal).normalize_or_zero();
         // (Looked for from the top found to stand on, a little further in: from the wrists the probe stood on a roof's
         // rounded lip, and one side missed the roof there; the running game pulled up there with both hands.)
         let p = top.point - self.normal * ONEHAND_PROBE_IN;
         let drops = |s: f32| level.ground(p + along * ONEHAND_SIDE * s + Vec3::Y * 0.05, 0.0, 0.25).is_none();
-        let one = if hay.is_none() && (drops(1.0) || drops(-1.0)) {
+        let one = if hay.is_none() && !matches!(self.state.as_str(), "1m" | "2m") && (drops(1.0) || drops(-1.0)) {
             let names: &[&str] = if is_free(&self.state) { &TOP_OUT_FREE_ONEHAND } else { &TOP_OUT_ONEHAND };
             names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>()
         } else {
@@ -8449,7 +8495,16 @@ impl WallClimb {
             // (Side and down leaps also go diagonally down onto a hold up to 1.2 m below where they land; an up
             // leap must land up: dropped back, it would catch the ledge it leapt from, over and over at a top.)
             let up = c.names.first().is_some_and(|n| n.contains("_up_"));
-            let drops: &[f32] = if leap && !up { &[0.0, 0.6, 1.2] } else { &[0.0] };
+            // (The climb's own reach up or down onto climbing holds, AC1's `ReachOtherSurfaceVertical` 0xDF0050: the feet's
+            // hold is searched 1.2 m from the feet, then 0.6 m further, no more.)
+            let vreach = c.names.first().is_some_and(|n| n.starts_with("xx_h_climbing_climb1m_tr_climb1m_"));
+            let drops: &[f32] = if vreach && !up {
+                &[0.0, 0.6]
+            } else if leap && !up {
+                &[0.0, 0.6, 1.2]
+            } else {
+                &[0.0]
+            };
             // (Both hands as far apart on the holds as in the clip: not one on each side of a gap.)
             let apart = end.hands[0].distance(end.hands[1]);
             // (A plain climbing move finds its holds as AC1's grid does, in a box round where the clip puts each hand;
@@ -8482,6 +8537,24 @@ impl WallClimb {
                 None => (c, clips, end),
             };
             let land = (targets[0] - end.hands[0] + targets[1] - end.hands[1]) * 0.5;
+            // (That reach lands both feet on a climbing hold 1.2 m under the hands' (`FindVerticalReachHolds` 0xDE8400: the
+            // foot hold in a box 0.2 m across (0.4 m to either side tried too), 0.5 deep, 0.4 up or down; the hand hold 1.2 m
+            // over it). Ours took any hold for the hands: at the bureau's wall the running game, two rows up, refused to
+            // reach down again (looking down instead, live route `w1_climb_down`); ours reached down twice.)
+            if vreach
+                && !reach_foot_hold(
+                    level,
+                    root.translation - normal.with_y(0.0).normalize_or_zero() * CLIMB_ROOT_OUT,
+                    (targets[0] + targets[1]) * 0.5,
+                    normal,
+                    up,
+                )
+            {
+                if why() {
+                    debug!("climb: {} : no climbing hold for the feet 1.2 m under the hands", c.names[0]);
+                }
+                continue;
+            }
             // A plain move up or down goes a row of AC1's grid (0.6 m): a hand the clip moves that way more than `GRID_ROW_MIN`
             // takes a hold that far from where it was, not the same one again (the grid snaps holds to rows; off the
             // bureau's wall-run hang, the next hold 1.35 m up, the running game reached for it, ours stepped onto the
@@ -9664,6 +9737,35 @@ impl WallClimb {
             *self = w;
             return;
         }
+        // AC1's free-step stay (every free-step arrival and climb-up onto a top plays its reception in HumanNarrowObject,
+        // whose interpreter takes the jump on, event 4, from half of it, `StateMovement_GuardJump` 0xE4C700): free
+        // running with the stick, a drop edge ahead that way (`Human__FindDropEdgeAhead` 0xB1C100) and no beam piece
+        // ahead (IHuman vt148 0xB15DE0): the jump kind 0, at a target, else the free jump on (Banned445's port
+        // `free_step.rs`). Pulled up onto a haystack's rim, the running game took off 0.15 s into the 0.27 s stand-up at
+        // a roof 4.4 m on (route `hay70_free`); ours stood on the rim, walked along it and stopped at its end.
+        if let Some(m) = &self.mv
+            && m.clip.name.contains("_tr_freestep_entry")
+            && m.t >= FREESTEP_STAY_JUMP * m.clip.anim.duration
+            && self.sprint
+            && self.high
+            && self.move_dir.with_y(0.0).length() > 0.35
+        {
+            let dir = self.move_dir.with_y(0.0).normalize();
+            let foot_left = m.clip.name.ends_with("_footl") || m.clip.name.contains("_entry_footl_");
+            if drop_edge_ahead(level, root.translation, dir).is_some() && !beam_ahead(level, root.translation, dir) {
+                let keep = (self.freestep_left, self.perch);
+                self.freestep_left = foot_left;
+                // (The top stood on is no target: the perch it ends on, if any, is left out.)
+                if self.perch.is_none() {
+                    self.perch = level.perch_at(root.translation, PERCH_REACH).map(|(i, _)| i);
+                }
+                if self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir) {
+                    debug!("climb: the jump on from the free-step stay at {:.2}", root.translation);
+                    return;
+                }
+                (self.freestep_left, self.perch) = keep;
+            }
+        }
         // An eject asked for during a leap: when the move lands on a hold, within the Legs buffer.
         if let Some((stick, left)) = self.eject_wait.take() {
             let left = left - dt;
@@ -9991,7 +10093,7 @@ impl WallClimb {
                 }
                 // (AC1's stand-up through the free step, the stick pushed on: off it at the gait's pace, as the running
                 // game ran on from it at once after topping out at the bureau.)
-                if on && (next.clip.name == STAND_UP || next.clip.name == STAND_UP_NARROW) {
+                if on && (next.clip.name == STAND_UP || next.clip.name == STAND_UP_NARROW || next.clip.name == TOP_OUT_ONEHAND[2]) {
                     self.exit_velocity = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero() * if self.sprint { TOP_OUT_JOG } else { TOP_OUT_WALK };
                 }
                 // (A step AC1's move graph does not have: logged, to find chains built wrong.)

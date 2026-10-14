@@ -1053,6 +1053,19 @@ const RUN_ACCEL: f32 = 13.0;
 const RUN_VAULT_SPEED: f32 = 2.5;
 const HANG_DROP: f32 = 1.75;
 
+/// AC1's wall ahead for the wall run (`HumanWalling`'s entry test, event 49's guard 0xDA2B10 -> 0xE18390, Banned445's
+/// port `walling::wall_ahead`): a ray along the facing from `FREE_RUN_PROBE` over the feet, `FREE_RUN_REACH` long, meeting
+/// a wall whose flattened normal faces back within 45 degrees of it. Ours cast along the stick and took any upright face:
+/// running at the bureau's wall 49 degrees off it (live route `w1_climb_side`, 2026-10-14) the running game slid along it
+/// into the corner and ran up the cross wall there, ours ran up the first wall at once.
+fn walling_wall(level: &Level, feet: Vec3, facing: Vec3) -> bool {
+    let f = facing.with_y(0.0).normalize_or_zero();
+    f != Vec3::ZERO
+        && level.raycast(feet + Vec3::Y * FREE_RUN_PROBE, f, FREE_RUN_REACH).is_some_and(|h| {
+            h.normal.y.abs() < crate::climb::WALL_RUN_MAX_UP && (-h.normal.with_y(0.0).normalize_or_zero()).dot(f) >= std::f32::consts::FRAC_1_SQRT_2
+        })
+}
+
 /// Movement: ground walking or climbing.
 pub fn locomotion(
     time: Res<Time>,
@@ -1144,12 +1157,8 @@ pub fn locomotion(
         if ctl.free_run && !ctl.legs_fresh && ch.wall.is_none() {
             let v = ch.velocity.with_y(0.0);
             let dir = ctl.move_dir.with_y(0.0).normalize_or_zero();
-            if v.length() > 0.5
-                && dir != Vec3::ZERO
-                && level
-                    .raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, dir, FREE_RUN_REACH)
-                    .is_some_and(|h| h.normal.y.abs() < crate::climb::WALL_RUN_MAX_UP)
-            {
+            let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+            if v.length() > 0.5 && dir != Vec3::ZERO && walling_wall(&level, tf.translation, facing) {
                 ctl.toggle_climb = true;
                 ctl.grab_only = true;
             }
@@ -1241,9 +1250,7 @@ pub fn locomotion(
             if legs_press && ctl.high && v.length() > STOP_SPEED && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(facing) >= std::f32::consts::FRAC_1_SQRT_2
             {
                 // (AC1's wall test from the legs: 1.5 m out at 1.3 m up, audit WALL-3.)
-                let wall = level
-                    .raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, way, FREE_RUN_REACH)
-                    .is_some_and(|h| h.normal.y.abs() < crate::climb::WALL_RUN_MAX_UP);
+                let wall = walling_wall(&level, tf.translation, facing);
                 if wall {
                     w = WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, way * v.length().max(1.0), pose());
                 }
@@ -1360,9 +1367,7 @@ pub fn locomotion(
                     .filter(|(d, _)| ctl.high && ctl.move_dir.with_y(0.0).normalize_or_zero().dot(*d) >= crate::climb::BEAM_WALL_RUN_COS);
                 let pose = Some(ch.anim_pose.clone());
                 if let Some((d, v)) = run
-                    && level
-                        .raycast(tf.translation + Vec3::Y * FREE_RUN_PROBE, d, FREE_RUN_REACH)
-                        .is_some_and(|h| h.normal.y.abs() < crate::climb::WALL_RUN_MAX_UP)
+                    && walling_wall(&level, tf.translation, d)
                     && let Some(w) = crate::climb::WallClimb::wall_run(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, d * v.max(1.0), pose)
                 {
                     ch.wall = Some(w);
