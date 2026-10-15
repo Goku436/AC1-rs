@@ -1300,10 +1300,14 @@ awning's frame (24.5 to 27.3, -11 to -12.6). Each report is a Damascus scenario 
 - **265066, through the roof**: the let-go was the empty hand (ours lets go of a hang only on it). The release clip
   carries the root 1 m down with no floor test; under the chimney's top the roof was 0.35 m under the root. A floor within
   the release's drop: the fall from where he hangs (`drop_now`), which lands on it.
-- **102743, the wall hang at the awning's end looking up**: [open] ours' top-out wanted a top under 37 degrees and within
+- **102743, the wall hang at the awning's end looking up**: AC1's own refusal (not live-checked). Ours' top-out wanted a top under 37 degrees and within
   0.35 m over the grip at 0.45 m in; AC1's CanPullup (0xDE2270) tests the room only, so the slope test is gone and the
   nearer probes are taken on a top rising from the edge. What is left is AC1's room box over the edge (0xB2E240), which
-  meets the planks' 40-degree slope by about 2 cm: whether the running game pulls up there is a live check.
+  meets the planks' slope. AC1's room test there is three boxes through the character's collision query, each
+  passing only when empty, with no layer mask (the last argument, 0x1934100, is a debug colour); its middle box, 0.2 x
+  0.2 m from 0.1 to 1.8 m over the edge, takes in the planks rising about 47 degrees from the edge (0.106 m higher 0.1 m
+  in) by about 6 mm, and AC1's shapes are a little fatter than ours: AC1 refuses the pull-up here too. Along the edge,
+  from the free hang, he pulls up. A live check would settle it for certain (the running game was not up).
 
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
