@@ -3,6 +3,7 @@
 From-scratch Rust runtime for Assassin's Creed (2007, PC). It reads data from the user's own install. It is **not** a port of the original code: IK, locomotion and climbing are recreations of behavior seen in-game.
 
 Full format notes and status table are in `docs/NOTES.md` (the README is the short public page). Read it before touching a format. Keep its status table and format notes up to date when something changes.
+`docs/SUBSYSTEMS.md` maps the executable's subsystems (its classes, functions and who calls whom) and the Rust layout that mirrors them; `docs/PARKOUR.md` is the movement reference.
 
 ## Hard rules
 - Never commit or publish game files, extracted data, IDBs, or decompiler output. `out/` is git-ignored. Check `git status` before committing.
