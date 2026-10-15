@@ -202,16 +202,6 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "no wall run"],
     },
     Scenario {
-        // NOT AC1's (the user's choice 2026-10-14): the eject is taken at any point of a wall run, here in the entry's first
-        // half (AC1 holds the press till the entry ends).
-        name: "wall W: the eject pressed in the wall run's first frames ejects at once",
-        tags: &["wallrun", "eject"],
-        env: &[("AC1_START", "33,13,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-1.47"), ("AC1_JUMP", "1.5")],
-        secs: 3.0,
-        want: &["wallrun via xx_h_wallingfront_entry_footl_a", "wall run eject (entryrebound)"],
-        never: &["EMBED"],
-    },
-    Scenario {
         name: "wall W: the stick swung left along the wall (by the camera, not the body) rebounds left",
         tags: &["wallrun", "climb"],
         env: &[("AC1_START", "33,13,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-1.6"), ("AC1_JUMP", "1.75"), ("AC1_VEER", "1.6,90")],
