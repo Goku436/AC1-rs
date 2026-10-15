@@ -1303,7 +1303,14 @@ animated city gates, left out, as AC1 does (GUIDE-9, 2026-10-15): the byte after
 `Component`'s enabled flag (bit 0x4000000 at +4, set by `Component`'s reader 0x5271C0), and AC1's guidance queries
 (0x5AAE50, 0x5AAFF0) skip every component without it; each edge's own enabled bit (bit 0 of the `GuidanceObject`'s first
 byte, 0x5ACC10) is tested as each is gathered (0x5452F0). A prop that breaks turns its other state's on; ours breaks
-none.
+none. Every enabled edge then goes through its system's `EdgeFilter` on its two normals in the world (0x6B0E10,
+`forge::guidance::EdgeFilter`, 2026-10-15): the cities' filters take floor/wall edges and slabs at 45 degrees, which
+turns down 8 of Damascus's ledge grabs (one of them steep anyway). Other open audit items closed: GUIDE-1 (AC1's steep
+rule is 40 degrees, `authored_steep`, as 0x66C350), GUIDE-8 (the air catch and the jump query take their grab points
+along the search's direction, `Ledge::project_along`, `jump_query::grab_point`), GUIDE-7 (haystacks and hiding places
+by their components, below; `BhvHidingPlace` is a `BhvHayStack` with no fields of its own, parent 0x19F58E6A in its
+class descriptor, and `BhvHayStack`'s one serialized property is a `BhvHayStackData`, 0x6C bytes, with no reflected
+fields: its volume is still not read).
 
 AC1's climbing grid (`HumanClimb__BuildHoldGrid` 0xDF6A40) and ledge report (0xDDCA8E) take the guidance as: the edges
 cut out of each ladder's zone (0x1170880: 0.3 m either side, 0.75 m out and in, 0.2 m under its foot and past its top),
@@ -1326,7 +1333,7 @@ before -> after:
 | none: in a ladder's zone | 57 -> 94 | 15 -> 4 | AC1's 0x1170880 (ours' box was taken round the settled top) |
 | lost (AC1's rules keep it, ours' holds do not) | 3 -> 0 | 0 | |
 
-Holds made: Damascus 190,719 (was 189,770), Masyaf 13,169. Ladders (333 / 42), poles (366 / 4: 183 / 2 swing bars, a
+Holds made: Damascus 190,712 (was 189,770; 190,719 before the edge filter), Masyaf 13,169. Ladders (333 / 42), poles (366 / 4: 183 / 2 swing bars, a
 pole's two side edges one bar) and kiosk pieces (336 / 27) are all kept. Haystacks and hiding places are found by their
 components (169 / 19, GUIDE-7). In a city with guidance nothing of ours' own is made any more but for one thing: no
 lips (`add_probed_ledges`), narrow wall tops, beam perches from `WoodBeam_*` names, beam-end holds, ladders or poles by
@@ -1342,9 +1349,9 @@ into `swing_cycle_front_up` and hung still at (47.03, 9.46); ours does the same 
 eject's own target). Each of AC1's searches sees the guidance through its own report and depth filter
 (`Level::holds_of`, `HoldView`, 2026-10-15): the climbing grid's and the ledge report's are the holds (`LEDGE`); the air
 catch's hand searches (`CATCH_HANDS`: 0.27 m out and 0.23 m under the edge, 45 degrees down x 1.2 m and 135 degrees back
-up x 0.38 m, the same thresholds; no ladder zones cut) Damascus 168,467 pieces; the jump query's (`JUMP`: 75 degrees
+up x 0.38 m, the same thresholds; no ladder zones cut) Damascus 168,462 pieces; the jump query's (`JUMP`: 75 degrees
 down x 0.27 m, 135 x 0.42 m) 172,466; the pull-down's ledge report (`PULL_DOWN`: 2 cm out and up, 60 degrees down x 1.2
-m, the ladders' zones cut) 176,308. A detector's threshold is its own (the catch's feet search wants 0.35 m of the 1.2 m
+m, the ladders' zones cut) 176,306. A detector's threshold is its own (the catch's feet search wants 0.35 m of the 1.2 m
 ray; ours' feet come from the climbing grid's holds). Made with the holds (2.7 s of an uncached Damascus load) and kept
 in the level cache. Not yet AC1's: the grab point shortening per probe box (`sub_116D3C0`) is done once at load, at free
 and cut ends only, the same for every view.

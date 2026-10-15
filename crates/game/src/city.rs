@@ -919,6 +919,8 @@ fn spawn_world(
     let fallback_collision = std::env::var("AC1_COLLISION").is_ok_and(|v| v == "fallback");
     // (Rigid bodies whose shape is in no loaded data file; bodies left out by their layer, by layer.)
     let mut missing_shapes = 0usize;
+    // (The enabled guidance edges their system's edge filter turns down, by kind.)
+    let mut filtered_edges: std::collections::BTreeMap<String, usize> = Default::default();
     let mut passed_layers: std::collections::BTreeMap<u8, usize> = std::collections::BTreeMap::new();
     let show_collision = std::env::var("AC1_SHOW_COLLISION").is_ok();
     // `AC1_COLLISION_SWEEP`: what is drawn against what collides (`sweep`).
@@ -1008,6 +1010,12 @@ fn spawn_world(
             };
             for e in g.edges.iter().filter(|e| e.enabled) {
                 let [n0, n1] = e.normals.map(|n| world.transform_vector3(Vec3::from(n)).normalize_or_zero());
+                // (Through its system's edge filter, on the normals in the world, as AC1 gathers every edge (0x5452F0 ->
+                // 0x6B0E10): Bevy's up is Y.)
+                if !g.filter.accepts(n0.to_array(), n1.to_array(), 1) {
+                    *filtered_edges.entry(format!("{:?}", e.subtype)).or_default() += 1;
+                    continue;
+                }
                 // (The wall's normal is the one nearer horizontal; the other is the top's.)
                 let wall = if n0.y.abs() < n1.y.abs() { n0 } else { n1 };
                 level.authored.push(crate::level::Authored {
@@ -1446,6 +1454,7 @@ fn spawn_world(
         level.viewpoints.push(top.unwrap_or(v));
     }
     info!("city {forge_file}: render: {parts} parts of {drawn_verts} vertices at full detail");
+    info!("city {forge_file}: guidance edges turned down by their system's edge filter (0x6B0E10): {filtered_edges:?}");
     info!(
         "city {forge_file}: {placed} meshes placed ({grouped} entities from groups, {shared_files} shared data files; {parts} parts, {} unique meshes, {} material slots), {} collision triangles ({shape_tris} from {shaped} entities' collision shapes, {prims} of them primitives; {skipped_bounds} left out: out-of-bounds or on layers the player passes through {passed_layers:?}; {missing_shapes} shapes not loaded), {} ledges, {} viewpoints, {:.1}s",
         parsed.values().filter(|p| p.is_some()).count(),
