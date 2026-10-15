@@ -449,7 +449,9 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   Swing bars.) Ours (2026-10-15): no bars along thin beams; AC1's scorer's free-hang pick (0x80) on a hold edge with
   no wall for the feet under it is jumped at and swung from like a bar (`swing_hold_ahead`: the running jump, the free
   step from a post or beam, and the eject, whose three at the bureau's beam ours now matches, `_to_swing`,
-  `swing_cycle_front_up`, the still hang at (47.03, 9.46)); feet on the wall take the wall reception (0xE093CC). A
+  `swing_cycle_front_up`, the still hang at (47.03, 9.46)); feet on the wall take the wall reception (0xE093CC). Ours keeps the
+  swing to holds with no top behind them (`top_behind`: no ground at the hold's height 0.4 m in, a beam's side or a pole):
+  a roof's lip over open air is caught into the free hang, `xx_fall_tr_hangfree_min_a/b` (user report 274414). A
   free-step jump onto a beam ends on it, its reception cut once its step is taken. **[B, V, ours]**
 - **Free running across beams** **[V, ours]** (route roof1_free_sw, off the Damascus bureau's roof south-west): AC1
   jumped onto a beam crossing its way 1.1 m on (its reach zone starts at 0.5 m; ours' targets started at 1 m, and its

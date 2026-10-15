@@ -350,6 +350,17 @@ fn wall_run_contact(level: &Level, root: &Transform, fwd: Vec3) -> Option<Vec3> 
     Some(hit.point + slope * WALL_RUN_OUT - Vec3::Y * (hit.point.y - root.translation.y - WALL_RUN_UP))
 }
 
+/// Whether a wall the wall run takes stands within its reach along `dir` from the feet: met at the wall run's probe
+/// height, within `WALL_RUN_ANGLE` of square, a wall by `wall_slope`.
+fn wall_run_wall_ahead(level: &Level, feet: Vec3, dir: Vec3) -> bool {
+    let run = dir.with_y(0.0).normalize_or_zero();
+    run != Vec3::ZERO
+        && level.raycast(feet + Vec3::Y * WALL_RUN_PROBE, run, WALL_RUN_REACH).is_some_and(|h| {
+            let n = h.normal.with_y(0.0).normalize_or_zero();
+            h.normal.y.abs() < WALL_RUN_MAX_UP && run.dot(-n) >= WALL_RUN_ANGLE.cos() && wall_slope(level, h.point, n).is_some()
+        })
+}
+
 /// A wall run takes walls whose face leans at most this much (the up part of its normal; about 44 degrees). Further
 /// over it is a floor (`level::WALL_MAX_UP`). The lean itself is measured by `wall_slope`.
 pub const WALL_RUN_MAX_UP: f32 = 0.7;
@@ -2770,8 +2781,20 @@ fn feet_find_wall(level: &Level, g: Vec3, out: Vec3) -> bool {
     footholds(level, g, out) || level.raycast(g - Vec3::Y * 1.2 + out * 0.4, -out, 0.8).is_some_and(|h| h.normal.dot(out) > 0.7)
 }
 
-/// The hold through the grab point `g` (its wall facing `out`) as the line swung from.
+/// Whether a top lies behind the grab point `g` (its wall facing `out`): ground at about the hold's height 0.4 m in. A
+/// roof's lip has one; a thin beam's side (0.17-0.2 m, the swings seen in the running game) or a pole has none. Ours:
+/// AC1's swing was only seen from those, and a roof edge over open air swung on like a bar (user report 274414).
+fn top_behind(level: &Level, g: Vec3, out: Vec3) -> bool {
+    let inward = -out.with_y(0.0).normalize_or_zero();
+    level.raycast(g + inward * 0.4 + Vec3::Y * 0.5, Vec3::NEG_Y, 1.0).is_some_and(|h| h.normal.y > 0.7 && (h.point.y - g.y).abs() < 0.4)
+}
+
+/// The hold through the grab point `g` (its wall facing `out`) as the line swung from: none on a ledge with a top
+/// behind it (`top_behind`), which takes the free hang instead.
 fn swing_hold_at(level: &Level, g: Vec3, out: Vec3) -> Option<Line> {
+    if top_behind(level, g, out) {
+        return None;
+    }
     // (On the jump query's own view of the guidance, where its pick lies.)
     level
         .holds_of(crate::level::HoldView::Jump)
@@ -10193,8 +10216,12 @@ impl WallClimb {
             let foot_left = m.clip.name.ends_with("_footl") || m.clip.name.contains("_entry_footl_");
             // (A haystack that way is the stay's own dive, past 0.6 of the arrival (above): a Damascus rooftop hiding
             // place's rim, 0.5 m on, is no jump target over it, user report #1.)
+            // (A wall to run up just past the edge: no jump on into it; the stay ends into the run, which runs up it, user
+            // report 152348: off a box at a wall 2.4 m over it, ours jumped into the wall, fell back onto the box and only
+            // then ran up.)
             if drop_edge_ahead(level, root.translation, dir).is_some()
                 && !beam_ahead(level, root.translation, dir)
+                && !wall_run_wall_ahead(level, root.translation, dir)
                 && Self::hay_dive_ahead(lib, level, root, self.move_dir, self.last.clone()).is_none()
             {
                 let keep = (self.freestep_left, self.perch);

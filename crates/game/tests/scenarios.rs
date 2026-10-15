@@ -1140,6 +1140,42 @@ const SCENARIOS: &[Scenario] = &[
         want: &["-> free_1m via xx_l_ledge_pulldown_soft_front_to_hangfree_b", "via xx_h_climbing_hangfree_tr_climb2m_down_", "leap -> 2m via"],
         never: &["EMBED"],
     },
+    // User report 274414 (2026-10-15): free running off a roof onto a post and on, the free step at a roof's lip over
+    // open air (no wall under it for the feet) swung on it like a bar. A ledge with a top behind it is caught into the
+    // free hang; only a thin beam's side or a pole is swung from.
+    Scenario {
+        name: "Damascus: free stepping at a roof's lip over open air hangs free from it, not a bar swing",
+        tags: &["jump", "hang", "bars"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "73.53,-85.89,-76.5,12.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0-5"),
+        ],
+        secs: 5.0,
+        want: &["onto perch 262", "-> free_1m via xx_fall_tr_hangfree_min_b"],
+        never: &["EMBED", "into the swing", "swing -> swing"],
+    },
+    // User report 152348 (2026-10-15): up onto a stepped box by a wall 2.4 m over its top, free running at the wall:
+    // the free-step stay jumped on into the wall, fell back onto the box and only then ran up. A wall to run up just past
+    // the edge leaves the stay to the run, which runs up it.
+    Scenario {
+        name: "Damascus: free running off the stepped box's top at the wall beside it runs up the wall, no jump into it",
+        tags: &["wallrun", "jump"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "-10.5,29.56,-23.4,16.5"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-3"),
+            ("AC1_LEGS", "0-3"),
+        ],
+        secs: 3.0,
+        want: &["_tr_freestep_entry_footr_fast at [-7.10, 17.63", "-> hangknee via xx_h_wallingfront_entry_footl_a at [-6.", "-> top via"],
+        never: &["EMBED", "the jump on from the free-step stay", "free jump off the narrow object"],
+    },
     // The ejects measured in the running game at the Damascus bureau's climbable wall: from the wall hang, high profile
     // and Space, the stick back onto the beam 3 m behind (AC1 landed at x 46.64), to the left onto the beam 3.3 m along
     // the wall and 1.1 m up (AC1 y 23.31).
