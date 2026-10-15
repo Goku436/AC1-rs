@@ -202,6 +202,16 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "no wall run"],
     },
     Scenario {
+        // (A press in the wall run's first frames is held, AC1's 0.3 s Legs buffer, and ejects as the entry ends: AC1's
+        // walling takes it at the end of EntryB, any time in Vertical and VerticalEnd, Banned445's `walling.rs`.)
+        name: "wall W: the eject pressed in the wall run's first frames ejects as soon as the entry allows",
+        tags: &["wallrun", "eject"],
+        env: &[("AC1_START", "33,13,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-1.47"), ("AC1_JUMP", "1.5")],
+        secs: 3.0,
+        want: &["wallrun via xx_h_wallingfront_entry_footl_a", "wall run eject"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "wall W: the stick swung left along the wall (by the camera, not the body) rebounds left",
         tags: &["wallrun", "climb"],
         env: &[("AC1_START", "33,13,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-1.6"), ("AC1_JUMP", "1.75"), ("AC1_VEER", "1.6,90")],
