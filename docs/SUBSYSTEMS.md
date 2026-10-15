@@ -152,7 +152,7 @@ Inside the step functions the game is reached by virtual dispatch (component upd
 resolve: the pad's `PadProxyPC::Update` (vtable slot 9, 0x909C90) and the player's `GoAssassinActionInterpreter::Update`
 (slot 18, 0xEEE700) have no static callers. The order of the game's phases within a frame was therefore measured live
 (2026-10-15, our hook's probes stamped with the frame, the thread and the time; Damascus, the bureau, standing still, 60 fps;
-the hit lists in `F:/Claude/re/work/subsys/hits1.txt`, `hits2.txt`, ordered by `order.py`).
+the hit lists in `F:/Claude/re/work/subsys/hits1.txt`, `hits2.txt` (standing) and `hits3.txt` with `live3.txt` (a wall-run jump), ordered by `order.py`).
 
 **The game is a two-thread pipeline with a job pool.** The engine thread runs the frame function and the clock tick; a
 game thread runs the player's input and logic and the serial physics phase; two more threads take per-character jobs. In
@@ -312,7 +312,13 @@ The hazards below are where the default Bevy shapes differ from the original.
    repeatable; the user's play is mode 2.
 2. **Same-frame handoffs.** A context switch in AC1 (ledge -> climb, walling -> ledge, ground -> in air) enters the new
    context in the same update, and the new context's first tick (its entry clip, its first room test, its first event
-   check) happens that frame. If each context were its own Bevy system, a switch made by system A is seen by system B
+   check) happens that frame. Measured (a scripted high-profile jump at the bureau wall, `hits3.txt` / `live3.txt`):
+   on the switch frame the interpreter's update (0xEEE700, 1.7 ms after the pad) reaches its wall-run side
+   (0xEE05E0) at 2.1 ms and `HumanWalling`'s update (0xE37590) at 2.6 ms on the same game thread, while `HumanGround`
+   slot 237 (the ground post-update, hit three times a frame until then) is not hit at all that frame: the old
+   context's per-frame work is skipped and the new one's runs, all before the serial controller pass. The same for
+   the walling -> in-air switch (the air-catch query 0xE0BB70 first fires on the switch frame). If each context were
+   its own Bevy system, a switch made by system A is seen by system B
    next frame (or this frame only if B happens to be ordered after A): one frame of hang pose at the start of every
    climb, one frame of the old clip after every catch. Keep the FSM in one system, as `WallClimb::update` does, and loop
    until the state settles within the frame.
