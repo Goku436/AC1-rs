@@ -99,6 +99,7 @@ mod fly;
 mod gait;
 mod gallery;
 mod grab_audit;
+mod guide_depth;
 mod jump;
 mod jump_query;
 mod ledge_grid;
