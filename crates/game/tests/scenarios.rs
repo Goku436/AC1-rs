@@ -584,7 +584,9 @@ const SCENARIOS: &[Scenario] = &[
         env: &[("AC1_START", "33,13,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-1.6"), ("AC1_JUMP", "1.75")],
         secs: 4.0,
         // (AC1's eject off a wall run is a hang's: its rebound takeoff at the hold, as the running game's off the bureau.)
-        want: &["wall run eject (step1rebound)", "xx_h_rebound_front", "-> free_1m via xx_fall_tr_hangfree"],
+        // (The hold over the doorway has no wall under it for the feet: AC1's arrival at a hang target with no foot
+        // support is the swing reception (0xE093CC, Banned445's port), not the air catch's free hang; since 2026-10-15.)
+        want: &["wall run eject (step1rebound)", "xx_h_rebound_front", "(a free hang: the swing)", "caught the free hang at [33.00, 2.99"],
         never: &["EMBED"],
     },
     Scenario {
@@ -1653,7 +1655,10 @@ const SCENARIOS: &[Scenario] = &[
         ],
         secs: 17.0,
         want: &[
-            "jump up from the climb to the ledge at [114.10, 11.48",
+            // (The first corbel since 2026-10-15: its edge, 0.49 m in from the second, is AC1's hold by its climbing grid's
+            // depth filter (`Awning_6x2_Wood_01A`), where ours' "buried" rule threw it away; the jump up takes it, the
+            // hand steps then go on out as before.)
+            "jump up from the climb to the ledge at [114.59, 11.33",
             // (How far up is measured from the free hang's hands; since 2026-10-13 the jump up hangs at AC1's 2.4 m under
             // the corbel it caught at once, and the steps are 0.43 and 0.33 m up where they were 0.12-0.13 and 0.3.)
             "hand steps onto the edge 0.33 up",
@@ -1680,7 +1685,8 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=3,up=3.4,left=1.2,up=10"),
         ],
         secs: 18.0,
-        want: &["jump up from the climb to the ledge at [114.10, 11.48, -2", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4"],
+        // (The first corbel, AC1's hold since 2026-10-15: see report #7's.)
+        want: &["jump up from the climb to the ledge at [114.59, 11.33, -2", "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [113.4"],
         never: &["EMBED"],
     },
     // Audit ANIM-14: the robe and the secondary motion run on AC1's own data (the cloth settings, its soft mesh and
@@ -1841,7 +1847,9 @@ const SCENARIOS: &[Scenario] = &[
         ],
         secs: 5.0,
         want: &[
-            "running jump at the wall's ledge [41.14, 9.99, -30.01]",
+            // (The jump query's own view of the knob since 2026-10-15, its depth filter (0.27 m out, 0.23 m under, 75
+            // degrees down and 135 back up), cuts the 0.18 m piece shorter: the grab point 0.04 m along from the grid's.)
+            "running jump at the wall's ledge [41.18, 9.99, -30.01]",
             "both hands onto the knob over the reception",
             // (Since 2026-10-14 the jump leaves at AC1's edge report, 0.45 m before the planks' edge: the gentler
             // reception, `_min`.)
@@ -2290,7 +2298,14 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,up=10"),
         ],
         secs: 9.0,
-        want: &["-> hangwall via xx_hangwall_reception_front_straight_", "up_l_hand_2_a : no room for the body there (AC1's body boxes)"],
+        // (Since 2026-10-15 the awning beam under the walkway's planks, 11.37 m, is a hold (AC1's by its climbing grid's
+        // depth filter; ours' "buried" rule threw it away): up from the knob's hang the free hang goes onto it, and the
+        // reach up from there is the one AC1's body boxes turn down.)
+        want: &[
+            "-> hangwall via xx_hangwall_reception_front_straight_",
+            "-> free_1m via xx_h_hangwall_tr_hangfree_up_left",
+            "xx_h_hangfree_u_climb_1m : no room for the body there (AC1's body boxes)",
+        ],
         never: &["leap -> 1m via xx_h_climbing_hangwall_tr_climb1m_up_l_hand_2_c", "EMBED"],
     },
     // User report 2026-10-13 (recording 1310993, "grabbing on stuff that doesn't look grabbable"): a free run off a Damascus
@@ -2455,7 +2470,10 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.5,up=3.2,wait=2,down=3"),
         ],
         secs: 11.0,
-        want: &["1lu -> 1m via xx_l_climb_1lu_u_1m at [42.53, 8.86", "1ru -> 1m via xx_l_climb_1ru_d_1m at [42.49, 8.28"],
+        // (Down: the frame's 0.13 m sloped piece at 8.28 m is cut to 0.1 m by AC1's depth filter since 2026-10-15 (kept in
+        // part), its foot hold 0.05 m further in; the way down goes by the hold at 7.20 m into the same stance at the
+        // bottom, where it went by 8.28 m.)
+        want: &["1lu -> 1m via xx_l_climb_1lu_u_1m at [42.53, 8.86", "1ru -> 1m via xx_l_climb_1ru_d_1m at [42.45, 6.97"],
         never: &["EMBED"],
     },
     // User reports 2026-10-15 (recordings 102743, 116822, "the inverted triangles"): the awning frame over the street by

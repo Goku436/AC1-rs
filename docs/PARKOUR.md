@@ -446,10 +446,11 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   frame's near beam (NarrowObject), jumped on 0.08 s later (`xx_h_freestep_front_front_050cm_footr_to_air`,
   `xx_h_air_front_050cm_footr_to_swing`) at the 0.2 m beam 5.6 m across, level with its feet (inside the narrow-object
   reach zone 7), and caught it. (It did not swing on: legs let go, it hung still 0.25 s into the first upswing; see
-  Swing bars.) Ours: a thin beam over open space (two holds facing apart at most 0.35 m across, nothing
-  within 2.5 m under, no wall under) is also a swing bar (Damascus 1341); a free-step jump onto a beam ends on it,
-  its reception cut once its step is taken; from a post or beam with no top in reach, a bar ahead down to 0.5 m under
-  the feet is jumped at with the free-step takeoff and the `_to_swing` flight.
+  Swing bars.) Ours (2026-10-15): no bars along thin beams; AC1's scorer's free-hang pick (0x80) on a hold edge with
+  no wall for the feet under it is jumped at and swung from like a bar (`swing_hold_ahead`: the running jump, the free
+  step from a post or beam, and the eject, whose three at the bureau's beam ours now matches, `_to_swing`,
+  `swing_cycle_front_up`, the still hang at (47.03, 9.46)); feet on the wall take the wall reception (0xE093CC). A
+  free-step jump onto a beam ends on it, its reception cut once its step is taken. **[B, V, ours]**
 - **Free running across beams** **[V, ours]** (route roof1_free_sw, off the Damascus bureau's roof south-west): AC1
   jumped onto a beam crossing its way 1.1 m on (its reach zone starts at 0.5 m; ours' targets started at 1 m, and its
   shortest clips' 1.6 m was too far to correct within 50% of 1 m: now of at least 1.5 m), then, with 1.45 m of that

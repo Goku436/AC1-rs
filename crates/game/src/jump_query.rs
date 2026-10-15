@@ -242,7 +242,7 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
     }
     let reach = pos + dir * 5.0;
     let mut pieces: Vec<Piece> = vec![];
-    for (l, kiosk) in level.ledges.iter().map(|l| (l, false)).chain(level.kiosks.iter().map(|k| (&k.edge, true))) {
+    for (l, kiosk) in level.holds_of(crate::level::HoldView::Jump).iter().map(|l| (l, false)).chain(level.kiosks.iter().map(|k| (&k.edge, true))) {
         let mid = (l.a + l.b) * 0.5;
         if (mid - reach).with_y(0.0).length() > 6.0 + l.a.distance(l.b) * 0.5 {
             continue;

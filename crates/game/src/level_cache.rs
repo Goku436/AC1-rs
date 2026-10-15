@@ -505,6 +505,7 @@ pub fn write_level(level: &Level) -> Vec<u8> {
         report_grid: _,
         hold_grid: _,
         hold_grid_len: _,
+        views,
         spawn,
         crowd_path,
         city,
@@ -590,6 +591,9 @@ pub fn write_level(level: &Level) -> Vec<u8> {
         w.v3(*v);
     });
     w.vec(tri_sound, |w, s| w.u8(*s));
+    for v in views {
+        w.vec(v, W::ledge);
+    }
     w.0
 }
 
@@ -640,6 +644,7 @@ pub fn read_level(d: &[u8]) -> Result<Level> {
     let beam_tops = r.vec(24, R::line)?;
     let labels = r.vec(20, |r| Ok((r.str()?, r.v3()?)))?;
     let tri_sound = r.vec(1, R::u8)?;
+    let views = [r.vec(36, R::ledge)?, r.vec(36, R::ledge)?, r.vec(36, R::ledge)?];
     ensure!(r.p == d.len(), "level cache has {} bytes past its end at {:#x}", d.len() - r.p, r.p);
     ensure!(authored.iter().all(|e| (e.src as usize) < authored_src.len()), "level cache: an authored edge's source is past the list");
     let authored_src_at = authored_src.iter().enumerate().map(|(i, s)| (s.clone(), i as u32)).collect();
@@ -669,6 +674,7 @@ pub fn read_level(d: &[u8]) -> Result<Level> {
         beam_tops,
         labels,
         tri_sound,
+        views,
         ..default()
     };
     level.build_grid();

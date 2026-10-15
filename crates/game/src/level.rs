@@ -330,6 +330,31 @@ pub enum CityObject {
 /// A lip is a hold only if the wall under it is at most this far behind it (m).
 const LIP_WALL_IN: f32 = 0.25;
 
+/// Which of AC1's other searches looks at the guidance (`Level::holds_of`; the climbing grid's and the ledge report's
+/// holds, the ladders' zones cut out and `guide_depth::LEDGE`, are `Level::ledges`): each runs its own report and depth
+/// filter over the same ledge grabs (steep ones out, ladders set aside), so each sees its own pieces of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HoldView {
+    /// The air catch's hand searches (`CheckAirCatch` 0xE0BB70's pre-filtered report): `guide_depth::CATCH_HANDS`, no
+    /// ladder zones.
+    Catch,
+    /// The jump query (0xE18970): `guide_depth::JUMP`, no ladder zones.
+    Jump,
+    /// The pull-down's ledge report (0xDDCD2F): the ladders' zones cut out, `guide_depth::PULL_DOWN`.
+    PullDown,
+}
+
+impl HoldView {
+    /// Its index in `Level::views`.
+    fn slot(self) -> usize {
+        match self {
+            HoldView::Catch => 0,
+            HoldView::Jump => 1,
+            HoldView::PullDown => 2,
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct Level {
     /// The city's navigation meshes, for walking routes (see `nav`).
@@ -376,6 +401,9 @@ pub struct Level {
     /// The holds by cell (`crate::ledge_grid`), made with the raycast grid, and how many holds it was made for.
     pub(crate) hold_grid: crate::ledge_grid::LedgeGrid,
     pub(crate) hold_grid_len: usize,
+    /// AC1's other searches' own views of the guidance (`HoldView`; `ledges` is the climbing grid's), each by AC1's own
+    /// filter for that search (`ac1_views`); empty without authored guidance (they read `ledges` then).
+    pub views: [Vec<Ledge>; 3],
     /// Where the player starts and a loop for a crowd, when the level says (a city).
     pub spawn: Option<Vec3>,
     pub crowd_path: Option<Vec<Vec3>>,
@@ -1010,6 +1038,17 @@ impl Level {
     /// (0xB27E80); each piece shortened as `authored_piece`. Needs the grid built. Returns the fate, the holds and the
     /// length kept before shortening (m).
     pub(crate) fn ac1_hold_pieces(&self, e: &Authored, zones: &[LadderZone], ends: &HashMap<(i64, i64, i64), u32>) -> (HoldFate, Vec<Ledge>, f32) {
+        self.ac1_pieces_by(e, zones, &[crate::guide_depth::LEDGE], ends)
+    }
+
+    /// `ac1_hold_pieces` with the zones cut out and the depth detectors a search of AC1's uses (`HoldView`).
+    pub(crate) fn ac1_pieces_by(
+        &self,
+        e: &Authored,
+        zones: &[LadderZone],
+        detectors: &[crate::guide_depth::Detector],
+        ends: &HashMap<(i64, i64, i64), u32>,
+    ) -> (HoldFate, Vec<Ledge>, f32) {
         if authored_steep(e) {
             return (HoldFate::Steep, vec![], 0.0);
         }
@@ -1044,7 +1083,7 @@ impl Level {
         let mut free = vec![];
         for (p0, p1) in pieces {
             let (a, b) = (e.a.lerp(e.b, p0 / len), e.a.lerp(e.b, p1 / len));
-            free.extend(crate::guide_depth::free_pieces(self, a, b, e.out, &[crate::guide_depth::LEDGE]).into_iter().map(|(f, t)| (p0 + f, p0 + t)));
+            free.extend(crate::guide_depth::free_pieces(self, a, b, e.out, detectors).into_iter().map(|(f, t)| (p0 + f, p0 + t)));
         }
         if free.is_empty() {
             return (HoldFate::Depth, vec![], 0.0);
@@ -1073,6 +1112,27 @@ impl Level {
         }
         self.ledges = ledges;
         (steep, ladder, depth)
+    }
+
+    /// AC1's other searches' views of the ledge grabs (`HoldView`: the air catch's, the jump query's, the pull-down's),
+    /// each by its own report's rules: steep ones out as for the grid, the ladders' zones cut only by the ledge reports
+    /// (the pull-down's), then that search's depth detectors (`crate::guide_depth`). Needs the grid built. Returns how
+    /// many holds each has.
+    pub fn ac1_views(&mut self) -> [usize; 3] {
+        use crate::guide_depth::{CATCH_HANDS, JUMP, PULL_DOWN};
+        let zones = self.ladder_zones();
+        let ends = self.authored_ends();
+        let grabs: Vec<&Authored> = self.authored.iter().filter(|e| e.kind == forge::guidance::SubType::LedgeGrab).collect();
+        let sets: [(&[LadderZone], &[crate::guide_depth::Detector]); 3] = [(&[], &CATCH_HANDS), (&[], &JUMP), (&zones, &[PULL_DOWN])];
+        let views = sets.map(|(z, d)| par_map(&grabs, |e| self.ac1_pieces_by(e, z, d, &ends).1).into_iter().flatten().collect::<Vec<_>>());
+        self.views = views;
+        [0, 1, 2].map(|i| self.views[i].len())
+    }
+
+    /// The holds the search `view` sees (`HoldView`); the grid's where there are no views (no authored guidance).
+    pub fn holds_of(&self, view: HoldView) -> &[Ledge] {
+        let v = &self.views[view.slot()];
+        if v.is_empty() { &self.ledges } else { v }
     }
 
     /// Where the holds are AC1's: leave out the perches with no authored ledge grab along them (within `BACKED_ACROSS`
@@ -2052,6 +2112,9 @@ fn build_city(
             level.ledges.len()
         );
         lap.lap("AC1's holds");
+        let [catch, jump, pull] = level.ac1_views();
+        info!("AC1's searches' own holds: the air catch {catch}, the jump query {jump}, the pull-down {pull}");
+        lap.lap("AC1's searches' holds");
     }
     // AC1's beams and posts: the pairs of its own holds as its runtime finds them (`beam_pairs`) and its posts
     // (`add_pilotis`), no beams from mesh names or single-hold tops (audit GUIDE-5): those stood him balancing on a

@@ -23,17 +23,42 @@ pub const SPACING: f32 = 0.1;
 pub const REACH: f32 = 0.5;
 
 /// A depth detector: its ray starts `out` out of the wall and `up` up from the edge, points out turned `angle` toward up
-/// (rad, negative down) about the edge, `length` long; a sample is free when nothing is met within `length`.
+/// (rad, negative down) about the edge, `length` long; a sample is free when nothing is met within `threshold` (at most
+/// `length`; the caller's threshold array, `Human__DepthFilterReport` 0xB28260).
 #[derive(Clone, Copy, Debug)]
 pub struct Detector {
     pub out: f32,
     pub up: f32,
     pub angle: f32,
     pub length: f32,
+    pub threshold: f32,
 }
 
-/// The ledge report's and the climbing grid's detector (`sub_B27E80` from 0xDDCA8E and 0xDF719E).
-pub const LEDGE: Detector = Detector { out: 0.02, up: 0.02, angle: -0.174_532_92, length: 1.0 };
+impl Detector {
+    /// 2 cm out and up from the edge (`sub_B27E80`, `sub_B27F70`), its threshold its length.
+    const fn edge(angle: f32, length: f32) -> Self {
+        Detector { out: 0.02, up: 0.02, angle, length, threshold: length }
+    }
+    /// 0.27 m out and 0.23 m under the edge (`Human__DepthDetectReport` 0xB28090: the air catch, the jump query, the
+    /// wall run).
+    const fn lip(angle: f32, length: f32, threshold: f32) -> Self {
+        Detector { out: 0.27, up: -0.23, angle, length, threshold }
+    }
+}
+
+/// 135 degrees from straight out toward up: back over the edge's top (the second detector of the two-detector sets).
+const BACK_UP: f32 = 2.356_194_5;
+
+/// The ledge report's and the climbing grid's detector (`sub_B27E80` from 0xDDCA8E and 0xDF719E): 10 degrees down, 1 m.
+pub const LEDGE: Detector = Detector::edge(-0.174_532_92, 1.0);
+/// The pull-down's ledge report (`sub_DDCB20` 0xDDCD2F): 60 degrees down, 1.2 m.
+pub const PULL_DOWN: Detector = Detector::edge(-std::f32::consts::FRAC_PI_3, 1.2);
+/// The air catch's reports (`CheckAirCatch` 0xE0BC9D-0xE0BF12, Banned445's `air_catches::catch_reports`): 45 degrees down
+/// x 1.2 m and back up x 0.38 m; the hands' searches (the ledge, climb and free-hang catches) want 1.2 / 0.38 of room,
+/// the feet's 0.35 / 0.38 (ours' catch takes the feet from the climbing grid's holds).
+pub const CATCH_HANDS: [Detector; 2] = [Detector::lip(-std::f32::consts::FRAC_PI_4, 1.2, 1.2), Detector::lip(BACK_UP, 0.38, 0.38)];
+/// The jump query's (0xE19113-0xE1914F): 75 degrees down x 0.27 m and back up x 0.42 m.
+pub const JUMP: [Detector; 2] = [Detector::lip(-1.308_997, 0.27, 0.27), Detector::lip(BACK_UP, 0.42, 0.42)];
 
 /// An edge's frame (`sub_675350`): along it, out (flat, across it, to the side of `out`), and up (across both, upward).
 fn frame(a: Vec3, b: Vec3, out: Vec3) -> Option<(Vec3, Vec3, Vec3, f32)> {
@@ -157,7 +182,7 @@ pub fn free_pieces(level: &Level, a: Vec3, b: Vec3, out: Vec3, detectors: &[Dete
         .map(|d| {
             let origin = start + s * d.out + z * d.up;
             let dir = s * d.angle.cos() + z * d.angle.sin();
-            samples(level, origin, t, dir, span, d.length).into_iter().map(|v| v >= d.length).collect()
+            samples(level, origin, t, dir, span, d.length).into_iter().map(|v| v >= d.threshold).collect()
         })
         .collect();
     let count = free.first().map_or(0, |f| f.len());
