@@ -38,6 +38,14 @@ struct Probe {
     armed: bool,
 }
 
+/// Global order of probe hits across threads.
+static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+unsafe extern "system" {
+    fn GetCurrentThreadId() -> u32;
+    fn QueryPerformanceCounter(count: *mut i64) -> i32;
+}
+
 static PROBES: Mutex<Vec<Probe>> = Mutex::new(Vec::new());
 static HANDLER: AtomicBool = AtomicBool::new(false);
 /// Every address a probe was ever put at: an `int3` taken there just as its probe went out is let through.
@@ -98,7 +106,21 @@ unsafe extern "system" fn handler(info: *mut [*mut u8; 2]) -> i32 {
                 })
                 .collect()
         };
-        sys::log(&format!("[probe {} #{}] {}", p.name, p.hits, said.join(" ")));
+        // Each hit stamped with the frame, the thread and a global order, so hits from several threads can be put back
+        // in sequence (the game updates characters on worker threads).
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut qpc: i64 = 0;
+        QueryPerformanceCounter(&mut qpc);
+        sys::log(&format!(
+            "[probe {} #{} f={} tid={} seq={} qpc={}] {}",
+            p.name,
+            p.hits,
+            crate::cmd::current_frame(),
+            GetCurrentThreadId(),
+            seq,
+            qpc,
+            said.join(" ")
+        ));
         // The instruction back, run once (trap flag), the int3 back after it (unless that was the last hit).
         sys::write(at, &[p.orig]);
         if p.hits >= p.limit {

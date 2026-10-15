@@ -46,6 +46,11 @@ use crate::{control, d3d, input, live, memcmd, probe, sys, trace};
 
 static FRAME: AtomicU32 = AtomicU32::new(0);
 
+/// The frame count so far (the `Present`s seen), for probe hits to carry.
+pub fn current_frame() -> u32 {
+    FRAME.load(Ordering::SeqCst)
+}
+
 /// Once a frame, from `Present`.
 pub fn frame(device: *mut c_void) {
     let n = FRAME.fetch_add(1, Ordering::SeqCst);

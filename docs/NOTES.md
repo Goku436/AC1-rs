@@ -973,7 +973,9 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
     0x450E90 walks them; `?` until checked live).
   - Probes: `probe <name> @<address> [hits=<n>] [field...]` (an `int3` there, our vectored exception handler logs the
     fields, the registers `eax`..`edi`, `esp`, `ebp`, `eip` among the names, runs the instruction once by the trap
-    flag and puts the `int3` back; 20 hits by default, then it takes itself out), `probe off [name]`, `probes`.
+    flag and puts the `int3` back; 20 hits by default, then it takes itself out), `probe off [name]`, `probes`. Each hit
+    is stamped `f=<frame> tid=<thread> seq=<order> qpc=<counter>` (2026-10-15), so hits from the game's threads can be put
+    back in sequence (docs/SUBSYSTEMS.md "The frame" is such a measurement; `F:/Claude/re/work/subsys/order.py` sorts them).
   Tested without the game: the pad image and files, playback timing, addresses, fields, pokes, bookmarks (`cargo test
   -p ac1-hook`). Live checks pending: see the status of each in the hook's log when first used.
 - The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
