@@ -128,6 +128,15 @@ fn ray_distance(level: &Level, from: Vec3, dir: Vec3, max: f32) -> f32 {
     level.raycast(from, dir.normalize_or_zero(), max).map_or(max, |h| h.dist)
 }
 
+/// Whether a hold's grab point `g` (its wall facing `w`, flat) keeps the free hang (0x80) by the query's rays below it:
+/// 2.5 m or more of drop under a point 0.5 m out, and no wall under it (`sub` 16: nothing within 1.2 m back from 0.5 m
+/// out, 1 m under it). The swing reception's target (Ledge sub-state 8).
+pub fn free_hang(level: &Level, g: Vec3, w: Vec3) -> bool {
+    let w = w.with_y(0.0).normalize_or_zero();
+    let o = g + w * 0.5 + Vec3::Y * 0.05;
+    ray_distance(level, o, -Vec3::Y, 3.05) - 0.05 >= 2.5 && ray_distance(level, g + w * 0.5 - Vec3::Y, -w, 1.4) - 0.5 >= 0.7
+}
+
 fn clear(level: &Level, from: Vec3, to: Vec3) -> bool {
     let d = to - from;
     let len = d.length();
