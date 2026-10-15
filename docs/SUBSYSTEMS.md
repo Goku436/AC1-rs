@@ -1,7 +1,7 @@
 # The executable's subsystems, and a Rust layout that mirrors them
 
 Made 2026-10-15 from the Ghidra project over `AssassinsCreed_Dx9.exe` (v1.02; 106,707 functions, 4,392 RTTI class
-namespaces, 9,194 vtables), without decompiling anything but the clock tick. The raw outputs (every function's address,
+namespaces, 9,194 vtables), decompiling only the clock tick and the frame graph's builders and node callbacks (section 4). The raw outputs (every function's address,
 subsystem and class; every class by subsystem) are derived from the user's own executable and stay out of the repo, in
 `F:/Claude/re/work/subsys/` (`function_map.tsv`, `classes_by_subsystem.md`, the dumps and the scripts that made them:
 `dump.java`, `group3.py`, `final.py`).
@@ -145,49 +145,88 @@ The patterns Bevy has to stand in for:
 
 ## 4. The frame
 
-The engine frame is `FUN_00417470` (its only caller is the main loop). In order it: ticks the clock (`FUN_00416420`),
-calls a device/begin-frame function (`FUN_0090E690` -> `FUN_0090E320`, render), then three engine step functions
-(`FUN_00417170`, `FUN_00417250`, `FUN_00415F10`) between profiler marks, then an end-of-frame function (`FUN_00942E70`).
-Inside the step functions the game is reached by virtual dispatch (component update lists), which static analysis does not
-resolve: the pad's `PadProxyPC::Update` (vtable slot 9, 0x909C90) and the player's `GoAssassinActionInterpreter::Update`
-(slot 18, 0xEEE700) have no static callers. The order of the game's phases within a frame was therefore measured live
-(2026-10-15, our hook's probes stamped with the frame, the thread and the time; Damascus, the bureau, standing still, 60 fps;
-the hit lists in `F:/Claude/re/work/subsys/hits1.txt`, `hits2.txt` (standing) and `hits3.txt` with `live3.txt` (a wall-run jump), ordered by `order.py`).
+**AC1's frame is a task graph.** `FUN_00417930` (run once, at start-up) builds it: each node is a named job (the names
+are the game's own profiler scopes) with a callback, and an edge `A -> B` (`0x942110`: B keeps a list of the nodes it
+waits for) makes B wait for A. A job pool runs whatever is ready, on any of four threads, so the frame has no fixed
+thread layout; what is fixed is the graph. `FUN_00417470`, found first as "the frame function", is only the callback of
+its first node, `Engine::BeginFrame`. The game's update is three more graphs per world (built by `0x45AA80`, `0x45ACC0`,
+`0x45C900`), joined into the frame each frame by `Engine::EngineLoop::Step` (`0x415FD0`).
 
-**The game is a two-thread pipeline with a job pool.** The engine thread runs the frame function and the clock tick; a
-game thread runs the player's input and logic and the serial physics phase; two more threads take per-character jobs. In
-one 16.6 ms frame, times from the tick:
+The top level (node, its callback):
 
-| when | thread | what (probe address, the vtable slot) |
+```
+Engine::BeginFrame (0x417470: the clock tick 0x416420)
+ |-> Graphic::BeginGraphicFrame (0x4162D0) -> Graphic::GraphicFrame (0x4168F0) -> Graphic::EndGraphicFrame (0x415730) -> Engine::EndFrame
+ '-> Engine::BeginEngineFrame (0x4167B0: the pad read, PadProxyPC::Update 0x909C90)
+      -> CheckEngineStop (a branch on engine +0xD8: stop -> Graphic::EndEngineFrame)
+      -> Engine::Step (0x415600)
+          -> Magma::MagmaStep (0x784FE0, the menus) | Ai::UpdateCamera (0x41E3E0) | Sound::Update (0x40ED40)   (in parallel)
+      -> a loop check (0x415F90, a branch: stop -> Graphic::EndEngineFrame)
+      -> Engine::EngineLoop::Step (0x415FD0), which adds this frame's chain:
+          Engine::StepPreWorlds (0x415620)
+          -> for each world: its PreAI graph (whose Gather node waits only on EngineLoop::Step: beside StepPreWorlds)
+          -> the global AI graph (DAT_01a11cb0: its entry node and +0x2A8)
+          -> for each world: its AI graph, then its PostAI graph
+          -> Ai::AvoidanceManagerUpdate (0x480E20) | Anim::ActionManagerUpdate (0x468FB0) | Ai::AccomplishmentManagerUpdate
+      -> Graphic::EndEngineFrame (0x415710) -> Engine::EndFrame (0x4157C0)
+```
+
+A world's three graphs (offsets in its scheduler block, `world+0xC0`):
+
+```
+PreAI   +0x4..+0x354:   Ai::UpdatePreAIGather (+0xAC) -> Ai::UpdatePreAISetup -> Ai::UpdatePreAI (jobs)
+                        | Ai::UpdatePreAISingleThreaded | Graphic::UpdateEntitiesCullingFlags -> Ai::UpdatePreAIWrapup
+AI      +0x4B4..+0x6B4: Ai::UpdateAISetup -> Ai::UpdateAISingleThreaded | Ai::UpdateAIMultiThreaded -> Ai::UpdateAIWrapup
+PostAI  +0x814..+0x1418:
+   Ai::UpdatePostAISetup -> Ai::UpdateActionStage2 (ActionComponent, jobs) and Ai::UpdatePostAIGatherComponents
+   then two branches that run AT THE SAME TIME:
+     physics:   Physic::BeforeSimulation -> Physic::PhysicUpdate (0x45C2B0, the Havok world step) -> Physic::AfterSimulation
+                -> Physic::PhysicsWrapup -> (the PostAI wrap-up)
+     animation: Anim::UpdateActionStage3 (jobs) -> Anim::UpdateAnimation (jobs)
+   joined at:   Anim::SkeletonUpdate (waits for AfterSimulation and UpdateAnimation) -> Physic::AfterAnimation
+                -> Ai::UpdateAIAfterPhysics -> Anim::SkeletonPostUpdate x4 (0x4E7C60, 0x4E07C0, 0x4E75C0, 0x4E6790)
+                -> Graphic::FXUpdate (0x4236C0) | Engine::UpdateAfter -> Ai::UpdatePostAIWrapup
+```
+
+Measured live (2026-10-15, our hook's probes on every node's callback, each hit stamped with the frame, the thread and
+the time; Damascus, the bureau, 8 characters in view; the probes stretch the times about ten-fold, but the order held in
+every frame; the hit lists are in `F:/Claude/re/work/subsys/hits1.txt` .. `hits5.txt`, and `hits3.txt` with `live3.txt`
+is a wall-run jump):
+
+| order | node | what runs in it (probe, vtable slot) |
 |---|---|---|
-| 0.0 ms | engine | `FUN_00417470` frame, then the clock tick 0x416420 |
-| 0.4 ms | game | `PadProxyPC::Update` 0x909C90 (slot 9): the pad read |
-| 0.7 ms | engine | `hkSkeletonMapper::mapPose` 0x10B96F0 (its strings `mapPose`, `chainMappings`, `enforceConstraints`; called from the ragdoll side 0x53F0E0 and a render-side pose function 0x5B4F00): the animation-to-ragdoll skeleton mapping, on the engine thread, in parallel with the game thread |
-| 1.2 ms | worker | `LowHighProfileCamera` slots 83 and 102 (0x692D90, 0x690160): the camera's update, **before** the interpreter |
-| 2.9 ms | game | `GoAssassinActionInterpreter::Update` 0xEEE700 (slot 18): the player's pad becomes action requests |
-| 3.2 ms | game | `Human` slot 34, 0xB17EF0 (the edge reports) and slot 33, 0xB1BC50 for the player, twice; then the same for every NPC spread over the three threads |
-| 3.6-5.8 ms | game + 2 workers | `HumanGround__UpdateHeading` 0xD95290 for each of the 8 characters in view, three at a time (the actor contexts' per-frame update, parallel by character) |
-| 6.3 ms | game | `HumanGround` slot 237, 0xDAC620, for the player only (643 B; the player's ground post-update) |
-| 6.9-10.2 ms | game, **serial** | `CharacterController` slot 33, 0x57D900, once per character (8), one after another on the game thread; it calls the animation side (0x57D070) and the camera (0x578070): the controller's pre-physics step, applying the frame's motion |
-| 7.2-9.3 ms | 2 workers | `AnimComponent` slot 32, 0x575220 (671 B): the animation update per character, in parallel with the serial controller phase |
-| 10.7-13.4 ms | all three | the controller's Havok proxy step, 0x57D240 and 0x57B0A0 (called from `CharacterController` slot 61, 0x57D660), per character, three at a time |
-| 13.7-15.0 ms | all three | `CharacterController` slot 62, 0x57A8A0: the post-physics write-back, per character |
-| 15.7-17.0 ms | all three | `SkeletonComponent` slot 33, 0x4E8920 (382 B): the final skeleton pose per character, the last thing in the frame |
+| 1 | BeginFrame, BeginGraphicFrame, GraphicFrame | the clock tick; then the **render of the previous frame's state** on one thread, alongside everything below until EndGraphicFrame |
+| 2 | BeginEngineFrame | `PadProxyPC::Update` 0x909C90 (slot 9): the pad read |
+| 3 | Engine::Step -> MagmaStep, UpdateCamera, Sound (in parallel) | `LowHighProfileCamera` slots 83 and 102 (0x692D90, 0x690160): **the camera updates before any character, from last frame's positions**; sound reads last frame's positions too |
+| 4 | EngineLoop::Step -> StepPreWorlds, PreAI | `Human` slot 34, 0xB17EF0 (the edge reports) for every character, as PreAI jobs |
+| 5 | AI: Setup, `GoAssassinActionInterpreter::Update` 0xEEE700 (slot 18), then AIMultiThreaded | the player's interpreter first, then every character's actor-context update as AI jobs (`HumanGround__UpdateHeading` 0xD95290 three at a time; `HumanGround` slot 237, 0xDAC620, the player's) |
+| 6 | PostAI: ActionStage2 (jobs) | the `ActionComponent`s' stage 2, per character |
+| 7 | PostAI: PhysicUpdate, on one thread | the Havok world step; in it `CharacterController` slot 33, 0x57D900, **serially** for each character (the pre-integration step, which takes the frame's motion), then the proxies' integration (0x57D240 / 0x57B0A0, from slot 61) and AfterSimulation (`CharacterController` slot 62, 0x57A8A0, the write-back) as jobs |
+| 7' | PostAI: ActionStage3, UpdateAnimation, **at the same time as 7** | `AnimComponent` slot 32, 0x575220, per character, on the other threads |
+| 8 | PostAI: SkeletonUpdate, AfterAnimation, AIAfterPhysics, SkeletonPostUpdate x4 | the join: the pose from this frame's animation and this frame's physics; `SkeletonComponent` slot 33, 0x4E8920, finalises it |
+| 9 | FXUpdate, UpdateAfter, then Avoidance, ActionManager, Accomplishment, EndEngineFrame, EndFrame | effects from the final poses; the managers last |
 
-Not per-frame (they fired once at a spawn, in the order `SkeletonComponent` slot 3 -> `ActionComponent` slot 3 ->
-`AIComponent` slot 3 -> `SkeletonComponent` slot 14 -> `HumanGround` slot 2 -> slot 14, then `Human` slot 12 a frame later):
-the component and context entry functions. Not measured: the Havok world step itself (rigid bodies, ragdolls; the
-`hkWorld` vtable holds only its destructor, and no probed candidate fired), the sound and FX updates, and the render
-extraction point on the engine thread (the frame function's three step calls 0x417170 / 0x417250 / 0x415F10 did not fire
-during play; the game thread's frame is not under them).
+The context handoff, measured on the wall-run jump: on the switch frame the interpreter's update (0xEEE700) reaches its
+wall-run side (0xEE05E0), and `HumanWalling`'s update (0xE37590) runs 0.5 ms later on the same thread, while `HumanGround`
+slot 237 is not hit that frame: the new context runs the same frame, inside the AI phase, before physics.
 
-What the measurement settles for the port: (1) the camera is updated before the interpreter reads the stick, from last
-frame's character position; (2) the actor contexts update in parallel by character, but the character-controller
-pre-physics step is one serial pass on the game thread, then the Havok proxy integration and the write-back are parallel
-again: three barriers a frame; (3) animation updates run concurrently with the serial controller phase, so the controller
-of character A reads A's animation state from this frame only if A's job ran first (it does: each character's controller
-step comes after its own animation job in the lists, the two phases are ordered per character, not globally); (4) the
-skeleton pose is finalised last, after physics, for every character.
+Spawns (once, not per frame): `SkeletonComponent` slot 3 -> `ActionComponent` slot 3 -> `AIComponent` slot 3 ->
+`SkeletonComponent` slot 14 -> `HumanGround` slot 2 -> slot 14, then `Human` slot 12 a frame later. Not hit in the
+measured frames: the PostAI `SkeletonUpdate` callback, the first two `SkeletonPostUpdate` callbacks and the AI
+single-threaded node (they may run only when they have work). The three calls `0x417170`, `0x417250`, `0x415F10` first
+taken for the engine's steps are not on the per-frame path: the graph is the frame.
+
+What this settles for the port:
+1. **The camera comes before the characters.** AC1 computes this frame's camera from last frame's body, before the
+   interpreter reads the stick.
+2. **The interpreter, then the contexts, all in the AI phase.** The player's interpreter runs before every character's
+   context update, and a context switch takes effect inside that phase.
+3. **Physics and animation run in parallel and meet at the skeleton.** The Havok step (the character controllers
+   serially, then their integration and write-back) runs beside this frame's animation update. The controllers use the
+   motion that the action stages set up, not the sampled pose. Both meet in `SkeletonUpdate`, and the pose is finalised
+   after physics.
+4. **Effects and managers come last, and the picture lags.** FX, avoidance and accomplishments run after the final poses.
+   The render draws the previous frame while this one updates, so AC1's picture is one update behind its simulation.
 
 **The clock** (`FUN_00416420`, decompiled): reads the performance counter; spin-waits until a target time if one is set
 (+0x20/+0x24: a frame-time floor, the frame cap); then the frame's game time by mode (+4): **0** a fixed step 1/(+8) s;
@@ -278,15 +317,15 @@ Why these boundaries:
 | `ActionItem` / `ActionSet` evaluation (the move graph) | `anim::Evaluator` as a component (the playing item, its gates and blend), stepped by the actor system in the same frame it changes state |
 | `AnimTrack*` sampling at the clock | `anim::sample` in `PostUpdate` before transform propagation; the game time from `Time<Virtual>` with the same cap as AC1 (hazard 1) |
 | `CharacterController` / `RigidBodyComponent` (Havok) | our capsule and ragdoll in `scimitar::actor`/`ik`, stepped inside the actor system (not a separate physics schedule, hazard 6) |
-| the camera stack (`LowHighProfileCamera`, `SweetCamera`...) | `CameraMode` enum resource + `camera::update` after the actor system, before propagation |
+| the camera stack (`LowHighProfileCamera`, `SweetCamera`...) | `CameraMode` enum resource + `camera::update`; AC1 runs it before the interpreter, on last frame's body (section 4, hazard 9); ours runs after the actor system, before propagation |
 | `TriggerComponent` / zones | `Zone` components + `world::triggers` system before the AI and actor systems (so a zone entered this frame acts this frame, as in AC1 where the trigger's event is immediate) |
 | `Resource` / pages | Bevy `Assets` + our loader threads and caches (`stream.rs`): the one place the frame may wait |
 
 ### The schedule
 
-AC1's frame is a single-threaded sequence: clock -> begin frame -> steps -> end frame, with the game's phases inside the
-steps in one fixed order (unmeasured, section 4). Bevy's default is parallel within a schedule and ordered only where
-told. The faithful shape is one chained set per stage with explicit `after`s between the stages:
+AC1's frame is a task graph run by a job pool (section 4): pad -> camera -> pre-AI -> interpreter -> contexts -> physics
+beside animation -> skeleton -> FX and managers, with the render of the previous frame alongside. Bevy's default is
+parallel within a schedule and ordered only where told. The faithful shape is one chained set per stage with explicit `after`s between the stages:
 
 ```
 First:      tick (Time<Virtual> with max_delta = 1/30 s: AC1's clock mode 2), script clocks, ledge grid
@@ -341,15 +380,17 @@ The hazards below are where the default Bevy shapes differ from the original.
    update (the limb IK goals, the camera's target bone, the hand-to-hold distances). We hit this (audit WALL-8: the eject's
    takeoff turned the root but the pose shown that frame was the hang's; fixed by `snap_now` applying the turn before the
    first frame is shown). Read our own `Pose` data, not `GlobalTransform`, in anything that runs before propagation.
-6. **Physics ordering.** Measured (section 4): after every character's context update, the character controllers take
-   one serial pass on the game thread (the pre-physics step, which reads the animation's motion), then their Havok
-   proxies integrate in parallel, then the positions are written back, then the skeletons are finalised: three barriers,
-   all at the frame's dt (the capped clock), and the character physics is a per-character step inside the game frame,
-   not part of a world step. With a separate physics system in the same schedule and no `after`, Bevy may run it before
-   or after movement on different frames (the executor's order is not fixed when systems do not conflict), so contacts,
-   the ragdoll and the character capsule see this frame's or last frame's pose at random: non-repeatable scenarios.
-   Chain it in AC1's order (contexts -> controller step -> integrate -> write back -> pose), and step it with the same
-   capped dt, not `FixedUpdate`. The Havok world step for free rigid bodies and ragdolls was not caught by the probes.
+6. **Physics ordering.** Measured (section 4): physics is one node of the frame graph, `Physic::PhysicUpdate`, after
+   every character's context update. In it the character controllers take one serial pass (the pre-integration step,
+   which takes the motion the action stages set up), then their proxies integrate as jobs, then `AfterSimulation`
+   writes the positions back. Meanwhile, on the other threads, this frame's animation is updated. The skeleton waits for
+   both. All of it runs at the frame's dt (the capped clock), once a frame. With a separate physics system in the same
+   schedule and no `after`, Bevy may run it before or after movement on different frames (the executor's order is not
+   fixed when systems do not conflict). Contacts, the ragdoll and the character capsule then see this frame's or last
+   frame's pose at random, and scenarios stop being repeatable. Chain it in AC1's order (contexts -> controller step ->
+   integrate -> write back, beside the animation sample -> pose), and step it with the same capped dt, not
+   `FixedUpdate`. Running physics and animation in parallel is safe only because neither reads what the other writes
+   that frame. If ours samples the pose and reads it back in the capsule step, keep the two chained instead.
 7. **Clip ends and locks on frame boundaries.** AC1 ends an item, applies its gate (the 0x20 lock, the 0x1000 takeoff
    bit) and starts the next item in the frame the clip's time passes its end; the leftover time carries into the next
    clip (our chain seams do this since 2026-10-13). Any scheme that samples animation in one system and decides the next
