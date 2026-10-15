@@ -336,6 +336,24 @@ fn main() {
         }
     }
     let game_dir = std::env::var("AC1_GAME_DIR").unwrap_or_else(|_| r"P:\SteamLibrary\steamapps\common\Assassins Creed".into());
+    // (No install there: say so and stop, rather than crash a second later on the data that never loaded.)
+    if !std::path::Path::new(&game_dir).join("DataPC.forge").is_file() {
+        let example = r#"set "AC1_GAME_DIR=D:\SteamLibrary\steamapps\common\Assassins Creed""#;
+        let msg = [
+            format!("ac1-rs: Assassin's Creed was not found at {game_dir} (no DataPC.forge there)."),
+            "Set AC1_GAME_DIR to your install folder, e.g. in a .bat:".into(),
+            format!("  {example}"),
+            "  ac1.exe".into(),
+        ]
+        .join(
+            "
+",
+        );
+        eprintln!("{msg}");
+        let dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())).unwrap_or_default();
+        let _ = std::fs::write(dir.join("ac1-error.txt"), &msg);
+        std::process::exit(1);
+    }
     let cam = env_f32s("AC1_CAM").unwrap_or_default();
     let script = script_from(&|k| std::env::var(k).map_err(|_| ()));
     let headless = std::env::var("AC1_HEADLESS").is_ok();
