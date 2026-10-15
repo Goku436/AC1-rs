@@ -2337,6 +2337,107 @@ const SCENARIOS: &[Scenario] = &[
         ],
         never: &["EMBED"],
     },
+    // User report 2026-10-15 (recording 152477, "the inverted triangles"): a Damascus pavilion at (-45.3, 45.4), its
+    // arches 12.15 m up with a knob over each (12.45) and the roof slab's edge 12.93 m up, 0.58 m out over them. Let go
+    // off the slab into the free hang on the arch, up: AC1's vertical rows step a hand onto the knob, then the hand step
+    // onto the slab's edge 0.45 m out, and over it. Ours' step onto the edge kept the body's depth, the hands 0.45 m short of
+    // the edge, in the slab, and the rest eased the root back down under the knob: up and down for ever. Now the hands go
+    // onto the edge (within AC1's rows' 0.5 m) and the body under it. And the free hang's rest under a knob, probed from the
+    // sinking root, slid on down onto the arch under it (the same loop on the next arch).
+    Scenario {
+        name: "Damascus pavilion: from the free hang on an arch, up onto its knob, the roof slab's edge and over, no hand stepping up and down (user report 152477)",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "-45.3,-45.4,90,13.5"),
+            ("AC1_WALK", "1.0"),
+            ("AC1_STOP", "0.4-30"),
+            ("AC1_HAND", "0.6,3.0"),
+            ("AC1_GRASP", "3.1-5"),
+            ("AC1_CLIMB", "nograb,wait=5.5,up=8"),
+        ],
+        secs: 13.0,
+        want: &[
+            "leap -> free_1m via xx_fall_tr_hangfree_min_b at [-45.29, 9.75",
+            "hand steps onto the edge 0.60 up and 0.04 out at [-45.28, 12.45",
+            "free_1ru -> free_1m via xx_h_hangfree_climb_1ru_u_1m at [-45.55",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [-45.56, 12.93",
+        ],
+        never: &["EMBED"],
+    },
+    // User report 2026-10-15 (recording 161446): the same pavilion, from the knob left: AC1's switch onto the wall under the
+    // next knob (`hangfree_tr_hangwall_left`), then up he hung looking up. AC1's hand step keeps the hang's type
+    // (StartHandStep 0xDDE0C0; only TrySwitchHangType changes it, and both its foot rays find the arch there): up onto the
+    // slab's edge 0.6 m out over the arch and over it onto the roof. Ours wanted each foot on a wall within 0.32 m of the
+    // new hold.
+    Scenario {
+        name: "Damascus pavilion: from the knob left into the wall hang, up onto the roof slab's edge and over (user report 161446)",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "-45.3,-45.4,90,13.5"),
+            ("AC1_WALK", "1.0"),
+            ("AC1_STOP", "0.4-30"),
+            ("AC1_HAND", "0.6,3.0"),
+            ("AC1_GRASP", "3.1-5"),
+            ("AC1_CLIMB", "nograb,wait=5.5,up=0.5,wait=1.5,left=0.5,wait=1.5,up=5"),
+        ],
+        secs: 13.0,
+        want: &[
+            "free_1m -> hangwall_open via xx_h_hangfree_tr_hangwall_left at [-45.33, 10.05",
+            "hangwall -> hangwall_1ru via xx_h_hangwall_climb_1m_u_1ru at [-45.69, 11.25",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [-45.6",
+        ],
+        never: &["EMBED"],
+    },
+    // User report 2026-10-15 (recording 116822): under a Damascus awning's frame at (24.5, 10.9) (beams 0.9-1.4 m out from
+    // the wall under the planks), the free hang's drop onto the wall below, then up: a hand stepped onto a knob 11.25 m up
+    // and on to the planks' edge, and the second hand never followed (no room for the wall hang's body under the planks'
+    // beam), the body held in the half step. AC1's FindVerticalRows tests the wall hang's box at the step's row before the
+    // step starts (0xDD8F70 -> 0xB2DC80): no step there, the look up.
+    Scenario {
+        name: "Damascus awning frame: the drop onto the wall under it, up: no hand step half done under the beams (user report 116822)",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "26.9,-12.5,-135,12"),
+            ("AC1_WALK", "1.0"),
+            ("AC1_STOP", "1.2-30"),
+            ("AC1_HAND", "1.6"),
+            ("AC1_CLIMB", "nograb,wait=4,left=3.3,wait=0.6,right=0.5,wait=1,down=0.5,wait=1.5,up=4"),
+        ],
+        secs: 16.0,
+        want: &["leap -> hangwall_open via xx_h_climbing_hangfree_tr_hangwall_down_max_200_c at [24.42, 9.55", "looking up"],
+        never: &["-> hangwall_1lu", "-> hangwall_1ru", "EMBED"],
+    },
+    // User report 2026-10-15 (recording 265066): off a Damascus roof, the fall's catch on a chimney's top (54.2, 13.1,
+    // -84.8) into the wall hang, its roof 0.35 m under the root; the empty hand let go (a press: ours has no let-go of its
+    // own) and the release carried the root 1 m down with no floor test, through the roof, and he fell 6 m. A floor within
+    // the release's drop: the fall from where he hangs, onto the roof. (Up beside the chimney in AC1's Ghost mode, then the
+    // fall with the hand held.)
+    Scenario {
+        name: "Damascus chimney: the fall's catch on its top over the roof, the empty hand lets go onto the roof, not through it (user report 265066)",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "53.95,-84.81,-90,12.5"),
+            ("AC1_FLY", "0.2-1.0"),
+            ("AC1_FLY_UP", "0.2-1.0"),
+            ("AC1_GRASP", "0.2-3"),
+            ("AC1_HAND", "4.0"),
+        ],
+        secs: 6.0,
+        want: &[
+            "leap -> hangwall_open via xx_fall_tr_hangwall_straight_max_b at [54.15, 12.10",
+            "let go with a floor within the release's",
+            "fall -> land via xx_h_landing_straight_soft_footr_tr_h_wait_footr_a at [54.19, 11.76",
+        ],
+        never: &["landing_damage", "EMBED"],
+    },
     // User report 2026-10-13 (recording 85785, "the triangle": a Damascus window box's frame, holds at 8.7, 9.5, a knob at
     // 10.1 and 10.7 m): up onto it and down off it again. (The stance's hands now go onto AC1's goals, the grid cell's
     // holds, up to 0.5 m off where the clip holds them: ours took a hold only within 0.2 m and gripped the air.)
