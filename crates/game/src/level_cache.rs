@@ -45,6 +45,7 @@ const SOURCES: &[&str] = &[
     include_str!("level_cache.rs"),
     include_str!("nav.rs"),
     include_str!("beam_pairs.rs"),
+    include_str!("guide_depth.rs"),
     include_str!("../../forge/src/lib.rs"),
     include_str!("../../forge/src/read.rs"),
     include_str!("../../forge/src/datafile.rs"),

@@ -2306,6 +2306,23 @@ const SCENARIOS: &[Scenario] = &[
         want: &["1lu -> 1m via xx_l_climb_1lu_u_1m at [42.53, 8.86", "1ru -> 1m via xx_l_climb_1ru_d_1m at [42.49, 8.28"],
         never: &["EMBED"],
     },
+    // User reports 2026-10-15 (recordings 102743, 116822, "the inverted triangles"): the awning frame over the street by
+    // (24, 11.5, -11) (`Awning_6x2_Wood_01A`), three beams under its planks, each cut where a diagonal brace crosses it.
+    // Its holds are AC1's ledge grabs by AC1's own rules (`Level::ac1_holds`: its climbing grid's depth filter, 0xB27E80):
+    // the third beam, 0.32 m behind the second, is a hold (ours' own "buried" rule threw it away); none on the braces.
+    Scenario {
+        name: "Damascus awning frame: its holds are AC1's, the three beams under it cut at the braces (user report 2026-10-15)",
+        tags: &["hang"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "24.5,-9.0,0,6"), ("AC1_HOLDS_AT", "23.75,11.45,-11.0,0.75")],
+        secs: 0.5,
+        want: &[
+            "[24.82, 11.59, -10.47] to [23.94, 11.59, -10.47], out [0.00, 0.00, 1.00]",
+            "[24.99, 11.47, -10.93] to [23.94, 11.47, -10.93], out [0.00, 0.00, 1.00]",
+            "[25.21, 11.32, -11.41] to [23.94, 11.32, -11.41], out [0.00, 0.00, 1.00]",
+            "[23.56, 11.32, -11.41] to [21.92, 11.32, -11.41], out [0.00, 0.00, 1.00]",
+        ],
+        never: &["ac1::level: perch ", "ac1::level: bar "],
+    },
     // City life (`city_life`): Damascus peopled from AC1's crowd data, 12 at most (scripted runs load and build in step,
     // so each run is the same).
     Scenario {

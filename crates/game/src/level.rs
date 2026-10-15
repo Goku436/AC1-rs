@@ -139,6 +139,8 @@ const LADDER_TOP_IN: f32 = 0.5;
 /// Holds are carved out this far either side of a ladder and out from it (m).
 pub(crate) const LADDER_CARVE_SIDE: f32 = 0.3;
 pub(crate) const LADDER_CARVE_OUT: f32 = 0.75;
+/// AC1's ladder zone runs this far under a ladder's foot and past its top (m; `sub_116F060`, Banned445's port).
+const LADDER_ZONE_PAST: f32 = 0.2;
 /// A thin beam swung from as a bar (see `add_beam_bars`; m).
 const BEAM_BAR_THICK: f32 = 0.35;
 const BEAM_BAR_OVERLAP: f32 = 0.5;
@@ -219,24 +221,104 @@ pub(crate) fn vertex_key(p: Vec3) -> (i64, i64, i64) {
     ((p.x * 1000.0).round() as i64, (p.y * 1000.0).round() as i64, (p.z * 1000.0).round() as i64)
 }
 
-/// The hold an authored ledge edge gives, or None when it gives none (steeper than `AUTHORED_MAX_SLOPE`, no wall to face
-/// out from). Shortened `AUTHORED_TRIM` at its free ends (`ends`: `Level::authored_ends`), as AC1's hold grid takes an
-/// edge; not where it goes on into another piece: a sill in three pieces of 0.15-0.23 m is one 0.87 m hold. A piece too
-/// short for that holds at its middle, as AC1's probes take one (`sub_116D3C0`: shortened 0.1 m at both ends, the
-/// midpoint when it is 0.2 m or less; audit GUIDE-2): a railing's knob, a lone window-frame piece.
-pub(crate) fn authored_hold(e: &Authored, ends: &HashMap<(i64, i64, i64), u32>) -> Option<Ledge> {
+/// Is an authored edge steeper than AC1's reports take (`GuidanceReport__RemoveSteepEdges` 0x66C350: past 40 degrees, or
+/// of no length)?
+pub(crate) fn authored_steep(e: &Authored) -> bool {
     let len = e.a.distance(e.b);
-    if len <= 1e-4 || (e.b.y - e.a.y).abs() / len > AUTHORED_MAX_SLOPE || e.out == Vec3::ZERO {
-        return None;
-    }
-    let free = |p: Vec3| if ends.get(&vertex_key(p)).copied().unwrap_or(0) <= 1 { AUTHORED_TRIM } else { 0.0 };
-    let (ta, tb) = (free(e.a), free(e.b));
+    len <= 1e-4 || (e.b.y - e.a.y).abs() / len > AUTHORED_MAX_SLOPE
+}
+
+/// The hold a piece of an authored ledge edge gives, `from` to `to` metres from its start along it. Shortened
+/// `AUTHORED_TRIM` at a free end (`ends`: `Level::authored_ends`) and where AC1's report cut it (round a ladder, the depth
+/// filter), as AC1's hold grid takes an edge; not where it goes on into another piece: a sill in three pieces of
+/// 0.15-0.23 m is one 0.87 m hold. A piece too short for that holds at its middle, as AC1's probes take one
+/// (`sub_116D3C0`: shortened 0.1 m at both ends, the midpoint when it is 0.2 m or less; audit GUIDE-2): a railing's knob,
+/// a lone window-frame piece.
+pub(crate) fn authored_piece(e: &Authored, from: f32, to: f32, ends: &HashMap<(i64, i64, i64), u32>) -> Ledge {
+    let len = e.a.distance(e.b).max(1e-6);
     let d = (e.b - e.a) / len;
-    if len > ta + tb + AUTHORED_POINT {
-        return Some(Ledge { a: e.a + d * ta, b: e.b - d * tb, out: e.out });
+    let free = |p: Vec3| if ends.get(&vertex_key(p)).copied().unwrap_or(0) <= 1 { AUTHORED_TRIM } else { 0.0 };
+    let ta = if from <= 1e-4 { free(e.a) } else { AUTHORED_TRIM };
+    let tb = if to >= len - 1e-4 { free(e.b) } else { AUTHORED_TRIM };
+    let (pa, pb) = (e.a + d * from, e.a + d * to);
+    if to - from > ta + tb + AUTHORED_POINT {
+        return Ledge { a: pa + d * ta, b: pb - d * tb, out: e.out };
     }
-    let mid = (e.a + e.b) * 0.5;
-    Some(Ledge { a: mid - d * AUTHORED_POINT * 0.5, b: mid + d * AUTHORED_POINT * 0.5, out: e.out })
+    let mid = (pa + pb) * 0.5;
+    Ledge { a: mid - d * AUTHORED_POINT * 0.5, b: mid + d * AUTHORED_POINT * 0.5, out: e.out }
+}
+
+/// What AC1's rules make of an authored ledge grab (`Level::ac1_hold_pieces`): holds kept (some of it), or none, and
+/// the rule that took the last of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HoldFate {
+    Kept,
+    /// Steeper than 40 degrees (0x66C350).
+    Steep,
+    /// No wall to face out from (no normal with a flat part).
+    NoWall,
+    /// Inside a ladder's zone (0x1170880).
+    Ladder,
+    /// Less than the depth detector's metre of room in front of it along all of it (`crate::guide_depth`).
+    Depth,
+}
+
+/// A ladder's zone that AC1's reports cut the ledge grabs out of (`sub_1170880` -> `sub_116F060`, Banned445's port): a
+/// box from the ladder edge's lower end, 0.3 m either side, 0.75 m out and in, from 0.2 m under it to 0.2 m past its top.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LadderZone {
+    base: Vec3,
+    right: Vec3,
+    fwd: Vec3,
+    up: Vec3,
+    len: f32,
+    lo: Vec3,
+    hi: Vec3,
+}
+
+impl LadderZone {
+    fn of(e: &Authored) -> Option<Self> {
+        let (base, top) = if e.a.y <= e.b.y { (e.a, e.b) } else { (e.b, e.a) };
+        let up = (top - base).normalize_or_zero();
+        let fwd = e.out.with_y(0.0).normalize_or_zero();
+        let right = fwd.cross(Vec3::Y).normalize_or_zero();
+        if up == Vec3::ZERO || right == Vec3::ZERO {
+            return None;
+        }
+        let len = top.distance(base);
+        let corner = |r: f32, f: f32, u: f32| base + right * r + fwd * f + up * u;
+        let pts = [-1.0f32, 1.0].iter().flat_map(|&r| [-1.0f32, 1.0].map(move |f| (r, f))).flat_map(|(r, f)| {
+            [
+                corner(r * LADDER_CARVE_SIDE, f * LADDER_CARVE_OUT, -LADDER_ZONE_PAST),
+                corner(r * LADDER_CARVE_SIDE, f * LADDER_CARVE_OUT, len + LADDER_ZONE_PAST),
+            ]
+        });
+        let (lo, hi) = pts.fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(l, h), p| (l.min(p), h.max(p)));
+        Some(LadderZone { base, right, fwd, up, len, lo, hi })
+    }
+
+    /// The part of the segment `a`-`b` inside the zone, as parameters (t0, t1) along it, if any.
+    fn cut(&self, a: Vec3, b: Vec3) -> Option<(f32, f32)> {
+        if a.max(b).cmplt(self.lo).any() || a.min(b).cmpgt(self.hi).any() {
+            return None;
+        }
+        let (mut t0, mut t1) = (0.0f32, 1.0f32);
+        let half = [LADDER_CARVE_SIDE, LADDER_CARVE_OUT, self.len * 0.5 + LADDER_ZONE_PAST];
+        let mid = self.base + self.up * self.len * 0.5;
+        for (axis, h) in [self.right, self.fwd, self.up].into_iter().zip(half) {
+            let (u, v) = ((a - mid).dot(axis), (b - mid).dot(axis));
+            if (v - u).abs() < 1e-9 {
+                if u.abs() > h {
+                    return None;
+                }
+                continue;
+            }
+            let (s0, s1) = ((-h - u) / (v - u), (h - u) / (v - u));
+            t0 = t0.max(s0.min(s1));
+            t1 = t1.min(s0.max(s1));
+        }
+        (t0 < t1).then_some((t0, t1))
+    }
 }
 
 /// A city mesh's part in parkour (see `city::city_object`).
@@ -766,6 +848,10 @@ impl Level {
     /// GUIDE-2: a box 0.3 m either side of the ladder and 0.75 m out and in from it): a ledge crossing a ladder keeps
     /// its parts either side. Returns how many pieces were cut.
     pub fn carve_ladders(&mut self) -> usize {
+        // (AC1's holds are cut round its ladders' own zones already: `ac1_holds`.)
+        if self.authored_holds {
+            return 0;
+        }
         // (Each ledge through the ladders in turn, its pieces on through the ladders after the one that cut it: the same
         // pieces in the same order as ladder by ladder over all the ledges, without copying the 190,000 Damascus holds
         // once per ladder, 2 s of its load.)
@@ -927,20 +1013,19 @@ impl Level {
     }
 
     /// Use AC1's own climbing markup where the city has it: its ledge grabs become the holds (instead of the edges and
-    /// lips found in the geometry), its ladders the ladders, its horizontal poles the swing bars (each pole's two side
-    /// edges as one bar). `AC1_GEOMETRY_HOLDS` keeps the geometry's holds. Returns (holds, ladders, bars), or None.
+    /// lips found in the geometry; made by `ac1_holds` once the collision is built), its ladders the ladders, its
+    /// horizontal poles the swing bars (each pole's two side edges as one bar). `AC1_GEOMETRY_HOLDS` keeps the geometry's
+    /// holds. Returns (ledge grabs, ladders, bars), or None.
     pub fn use_authored(&mut self) -> Option<(usize, usize, usize)> {
         if self.authored.is_empty() || std::env::var("AC1_GEOMETRY_HOLDS").is_ok() {
             return None;
         }
         use forge::guidance::SubType;
-        let mut ledges = vec![];
-        let (mut ladders, mut bars) = (0, 0);
-        let ends = self.authored_ends();
+        let (mut holds, mut ladders, mut bars) = (0, 0, 0);
         for e in self.authored.clone() {
             let len = e.a.distance(e.b);
             match e.kind {
-                SubType::LedgeGrab => ledges.extend(authored_hold(&e, &ends)),
+                SubType::LedgeGrab => holds += 1,
                 SubType::Ladder => {
                     let (lo, hi) = if e.a.y < e.b.y { (e.a, e.b) } else { (e.b, e.a) };
                     if e.out != Vec3::ZERO {
@@ -961,8 +1046,8 @@ impl Level {
                 _ => {}
             }
         }
-        let holds = ledges.len();
-        self.ledges = ledges;
+        // (The holds are made from them once the collision is built: `ac1_holds`.)
+        self.ledges.clear();
         self.authored_ladders = ladders > 0;
         self.authored_holds = true;
         Some((holds, ladders, bars))
@@ -983,25 +1068,80 @@ impl Level {
         self.kiosks.iter().find(|k| k.edge.closest(p).distance(p) <= within).copied()
     }
 
-    /// Leave out the authored holds that can't be reached from in front: AC1's markup has edges of shapes buried in a
-    /// wall (in Damascus a box's top 0.3 m behind a bare wall's face, grabbed through it). A hold stays where, at a
-    /// third of the points along it, the way in from 0.45 m out is open. Needs the grid built.
-    pub fn drop_buried_holds(&mut self) -> usize {
-        let before = self.ledges.len();
-        let ledges = std::mem::take(&mut self.ledges);
-        let keep = par_map(&ledges, |l| self.hold_open(l));
-        let kept: Vec<Ledge> = ledges.into_iter().zip(keep).filter(|(_, k)| *k).map(|(l, _)| l).collect();
-        self.ledges = kept;
-        before - self.ledges.len()
+    /// AC1's ladder zones (`LadderZone`), from the authored ladder edges.
+    pub(crate) fn ladder_zones(&self) -> Vec<LadderZone> {
+        self.authored.iter().filter(|e| e.kind == forge::guidance::SubType::Ladder).filter_map(LadderZone::of).collect()
     }
 
-    /// A hold reached from in front (`drop_buried_holds`): at a third of the points along it, the way in from 0.45 m out
-    /// is open.
-    pub(crate) fn hold_open(&self, l: &Ledge) -> bool {
-        [0.2, 0.5, 0.8].iter().any(|&t| {
-            let p = l.a.lerp(l.b, t) + Vec3::Y * 0.05;
-            self.raycast(p + l.out * 0.45, -l.out, 0.42).is_none()
-        })
+    /// The holds an authored ledge grab gives under AC1's rules, as its climbing grid and ledge report take the guidance
+    /// (`HumanClimb__BuildHoldGrid` 0xDF6A40, `crate::guide_depth`): none past 40 degrees or with no wall to face out
+    /// from; cut out of the ladders' zones (0x1170880); then only the runs with the depth detector's metre of room in front
+    /// (0xB27E80); each piece shortened as `authored_piece`. Needs the grid built. Returns the fate, the holds and the
+    /// length kept before shortening (m).
+    pub(crate) fn ac1_hold_pieces(&self, e: &Authored, zones: &[LadderZone], ends: &HashMap<(i64, i64, i64), u32>) -> (HoldFate, Vec<Ledge>, f32) {
+        if authored_steep(e) {
+            return (HoldFate::Steep, vec![], 0.0);
+        }
+        if e.out.with_y(0.0) == Vec3::ZERO {
+            return (HoldFate::NoWall, vec![], 0.0);
+        }
+        let len = e.a.distance(e.b);
+        // (Pieces as metres from its start along it.)
+        let mut pieces = vec![(0.0f32, len)];
+        for z in zones {
+            let mut next = Vec::with_capacity(pieces.len());
+            for (p0, p1) in pieces {
+                let (a, b) = (e.a.lerp(e.b, p0 / len), e.a.lerp(e.b, p1 / len));
+                match z.cut(a, b) {
+                    Some((t0, t1)) => {
+                        let span = p1 - p0;
+                        if t0 > 1e-4 {
+                            next.push((p0, p0 + span * t0));
+                        }
+                        if t1 < 1.0 - 1e-4 {
+                            next.push((p0 + span * t1, p1));
+                        }
+                    }
+                    None => next.push((p0, p1)),
+                }
+            }
+            pieces = next;
+        }
+        if pieces.is_empty() {
+            return (HoldFate::Ladder, vec![], 0.0);
+        }
+        let mut free = vec![];
+        for (p0, p1) in pieces {
+            let (a, b) = (e.a.lerp(e.b, p0 / len), e.a.lerp(e.b, p1 / len));
+            free.extend(crate::guide_depth::free_pieces(self, a, b, e.out, &[crate::guide_depth::LEDGE]).into_iter().map(|(f, t)| (p0 + f, p0 + t)));
+        }
+        if free.is_empty() {
+            return (HoldFate::Depth, vec![], 0.0);
+        }
+        let kept = free.iter().map(|(f, t)| t - f).sum();
+        (HoldFate::Kept, free.into_iter().map(|(f, t)| authored_piece(e, f, t, ends)).collect(), kept)
+    }
+
+    /// The holds of a city with authored guidance: every ledge grab under AC1's rules (`ac1_hold_pieces`). Needs the grid
+    /// built. Returns how many ledge grabs gave none, by the rule that took them: (steep or no wall, ladder, depth).
+    pub fn ac1_holds(&mut self) -> (usize, usize, usize) {
+        let zones = self.ladder_zones();
+        let ends = self.authored_ends();
+        let grabs: Vec<&Authored> = self.authored.iter().filter(|e| e.kind == forge::guidance::SubType::LedgeGrab).collect();
+        let each = par_map(&grabs, |e| self.ac1_hold_pieces(e, &zones, &ends));
+        let (mut steep, mut ladder, mut depth) = (0, 0, 0);
+        let mut ledges = vec![];
+        for (fate, holds, _) in each {
+            match fate {
+                HoldFate::Steep | HoldFate::NoWall => steep += 1,
+                HoldFate::Ladder => ladder += 1,
+                HoldFate::Depth => depth += 1,
+                HoldFate::Kept => {}
+            }
+            ledges.extend(holds);
+        }
+        self.ledges = ledges;
+        (steep, ladder, depth)
     }
 
     /// Where the holds are AC1's: leave out the perches with no authored ledge grab along them (within `BACKED_ACROSS`
@@ -1975,9 +2115,12 @@ fn build_city(
     level.build_grid();
     lap.lap("raycast grid");
     if authored.is_some() {
-        let buried = level.drop_buried_holds();
-        info!("{buried} authored holds left out: inside a wall, no way to them from in front");
-        lap.lap("buried holds");
+        let (steep, ladder, depth) = level.ac1_holds();
+        info!(
+            "AC1's holds: {} from the ledge grabs; none from {steep} steep, {ladder} in a ladder's zone, {depth} with no room in front (the depth filter)",
+            level.ledges.len()
+        );
+        lap.lap("AC1's holds");
     }
     // AC1's beams and posts: the pairs of its own holds as its runtime finds them (`beam_pairs`) and its posts
     // (`add_pilotis`), no beams from mesh names or single-hold tops (audit GUIDE-5): those stood him balancing on a

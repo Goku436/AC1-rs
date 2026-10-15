@@ -1276,7 +1276,7 @@ them (Damascus: 336 pieces, 112 stalls).
 - A ledge grab's two normals are its top's (up) and its wall's (out).
 Cities use them (`Level::use_authored`): the ledge grabs (sloping at most 40 degrees) are the holds, instead of the edges
 and lips found in the geometry; the ladders and horizontal poles replace the ones guessed from mesh names. Damascus:
-174,677 ledge pieces, of which 151,176 holds: a piece is shortened 0.1 m at a free end (a vertex no other piece uses), as AC1's hold grid shortens edges, so the lone 8-12 cm window-frame bits leave nothing (leaping to one hung him from the air) while a sill stored as three short pieces stays one hold; then 6,745 more left out as buried in a wall (no way to them from 0.45 m in front: a box's top 0.3 m behind a bare wall's face was grabbed through it), 333 ladders, 183 swing poles. `AC1_GEOMETRY_HOLDS` brings the geometry's holds back. A top-out may come down onto a floor up to 0.45 m under the hold (a parapet's lip in front of a
+203,012 ledge pieces (group members counted), of which 190,719 holds by AC1's own rules (`Level::ac1_holds`, 2026-10-15; see "The grab data against AC1's"): none past 40 degrees, cut out of the ladders' zones, then only where AC1's depth filter finds a metre of room in front (`guide_depth`); each piece is shortened 0.1 m at a free end (a vertex no other piece uses) and where AC1's report cut it, as AC1's hold grid shortens edges, a piece too short for that held at its middle (GUIDE-2), while a sill stored as three short pieces stays one hold; 333 ladders, 183 swing poles. `AC1_GEOMETRY_HOLDS` brings the geometry's holds back. A top-out may come down onto a floor up to 0.45 m under the hold (a parapet's lip in front of a
 roof: 0.21 m refused it before); it also
 needs room to stand (1.7 m of headroom 0.5 m in, no wall just past the edge, probed from in front of the wall, and the
 spot not inside a solid): window sills are holds whose top is a window, not a floor to climb onto, and a beam stuck into
@@ -1292,36 +1292,63 @@ guidance has no `Beam` edges at all (Damascus: 0): AC1's narrow objects come fro
 end onto another going on from it (within 0.45 m, 35 degrees) walks on along it. Climbing onto one ends crouched,
 balancing on it, and free running carries on along or off it.
 
-## The grab data against AC1's (2026-10-12)
+## The grab data against AC1's (2026-10-12; AC1's depth filter 2026-10-15)
 `AC1_GRAB_AUDIT=<file.tsv>` (`grab_audit`, cities) writes every authored guidance piece with its source (the group or
-entity placing it and its first mesh), its fate in ours, and ours' holds, perches, bars and ladders that no authored
-piece backs. Every `GuidanceSystem` in the data sits inline in an entity or a group member (none elsewhere, no
-`GuidanceSystemComponent` or run-time generated guidance in any city); the inactive ones (Damascus 180) are the other
-state of breakable props (`Kiosk_*`, `Scaffold_*`, `Storage_01a`: intact and broken) and the animated city gates.
-Ledge-grab pieces (Damascus 203,012; Masyaf 14,323), before -> after this pass:
+entity placing it and its first mesh), its fate by AC1's rules (`Level::ac1_hold_pieces`, the same code that makes the
+holds) and whether ours' holds have it, and ours' holds, perches, bars and ladders that no authored piece backs; it logs
+what was made, by where it comes from. Every `GuidanceSystem` in the data sits inline in an entity or a group member
+(none elsewhere, no `GuidanceSystemComponent` or run-time generated guidance in any city); the inactive ones (Damascus
+180) are the other state of breakable props (`Kiosk_*`, `Scaffold_*`, `Storage_01a`: intact and broken) and the
+animated city gates, left out (GUIDE-9: which byte AC1 tests is not confirmed).
 
-| fate | Damascus | Masyaf | why |
+AC1's climbing grid (`HumanClimb__BuildHoldGrid` 0xDF6A40) and ledge report (0xDDCA8E) take the guidance as: the edges
+cut out of each ladder's zone (0x1170880: 0.3 m either side, 0.75 m out and in, 0.2 m under its foot and past its top),
+the ladders set aside (0x66C220), the edges past 40 degrees dropped (0x66C350), then the depth filter (0xB27E80 with
+0xBE32B8C2, 0x3F800000 at 0xDF719E: one detector 0.02 m out and up from the edge, its ray straight out turned 10 degrees
+down, 1.0 m; samples every 0.1 m from 0.5 m before the edge to 0.5 m past it, each the nearest collision face crossing
+the slice through the edge and the ray in its band; an edge keeps its runs of samples with nothing within the metre,
+`crate::guide_depth`, read in Ghidra as Banned445's port has it). Ours makes the city's holds that way now
+(`Level::ac1_holds`), in place of ours' own "buried" rule (a ray back to the hold from 0.45 m out, at three points) and
+ours' ladder box (0.5 m under and over the ladder's settled top). Ledge-grab pieces (Damascus 203,012; Masyaf 14,323),
+before -> after:
+
+| fate | Damascus | Masyaf | rule |
 |---|---|---|---|
-| kept (half or more on a hold of ours) | 186,832 -> 188,188 | 13,074 -> 13,158 | |
-| steep (past 40 degrees) | 5,949 | 60 | AC1's own report rule (0x66C350): pointed window arches, roof slopes |
-| buried (`Level::hold_open`: no way in from 0.45 m in front) | 8,815 | 1,090 | ours' rule; scaffolds 1,243 of their 1,931 (a breakable's volume taken for collision, below), crates and baskets stacked side by side, an awning's back beam behind its front one, short end pieces; Masyaf's terrain edges under its render-mesh collision |
-| hay (on a haystack's heap) | 1,356 -> 0 | 83 -> 0 | the hiding places' tarp frames (2.3-2.5 m over the box's rim, authored), dropped only on the frames square to the city's axes; now only geometry holds are dropped there |
-| ladder (carved round a ladder) | 57 | 15 | AC1's report rule |
-| lost | 3 | 0 | tiny pieces |
+| kept whole | 189,836 -> 143,353 | 13,158 -> 9,875 | |
+| kept in part (cut by the depth filter or a ladder zone) | (in kept) -> 36,911 | (in kept) -> 2,660 | AC1's 0xB27E80 / 0x1170880 |
+| none: no room in front (depth filter) | 0 -> 16,705 | 0 -> 1,724 | AC1's 0xB27E80: a wall, the next beam or the floor within 1 m in front (Damascus: 9,407 a wall, 5,773 a floor 10 degrees down, i.e. a kerb or step under 0.17 m; 1,448 short pieces boxed in at both ends) |
+| none: buried (ours' rule) | 7,167 -> 0 | 1,090 -> 0 | ours, removed |
+| none: steep (past 40 degrees) | 5,949 | 60 | AC1's 0x66C350 |
+| none: in a ladder's zone | 57 -> 94 | 15 -> 4 | AC1's 0x1170880 (ours' box was taken round the settled top) |
+| lost (AC1's rules keep it, ours' holds do not) | 3 -> 0 | 0 | |
 
-Ladders (333 / 42), poles (366 / 4) and kiosk pieces (336 / 27) are all kept. Ours without an authored piece, before ->
-after: Damascus 29 perches (24 on `WoodBeam` meshes lying in the street 0.1-0.2 m up) and 16 beam-end holds from mesh
-names -> 0 (`Level::drop_unbacked`), 11 swing bars from `Pole_*` meshes -> 0 (no poles by name where the holds are
-authored); left: 1,347 thin-beam swing bars from pairs of authored holds (AC1 swings from any free hang a jump reaches).
-By prop type (Damascus, pieces / kept): houses 74,289 / 69,848, windows 19,649 / 17,469 (2,036 steep arches), souks
-8,064 / 7,904, towers and minarets 7,517 / 7,135, beams 5,549 / 5,228, walls 5,084 / 4,924, hiding places 4,836 / 4,805,
-doors 4,608 / 4,155, awnings 3,685 / 3,221, balconies 3,143 / 3,024, gardens 3,005 / 2,868, baskets 2,603 / 2,015,
-scaffolds 1,931 / 688, handrails 1,570 / 1,370, kiosks 1,344 / 1,132, barrels 915 / 689, lamps 643 / 630, stairs 548 /
-478, carts 494 / 446, crates 120 / 75 (only `Crate_1m_01A` carries guidance: 30 of 193 crates; a stall's small crates,
-most lanterns and suspended lamps, tents and most garden props have none in AC1 either). Open: scaffolds and market
-stalls refer to a `BhvBreakableStructure` volume (a `ListShape` of boxes round a scaffold from 1.05 to 4.8 m up, a
-`BoxShape` by each stall) and to their broken state's `MeshShape` (`*_01b`, `Kiosk_Collision_Broken`), which the city
-loads as solid collision: it buries the scaffolds' holds (for the collision builders).
+Holds made: Damascus 190,719 (was 189,770), Masyaf 13,169. Ladders (333 / 42), poles (366 / 4: 183 / 2 swing bars, a
+pole's two side edges one bar) and kiosk pieces (336 / 27) are all kept. Haystacks and hiding places are found by their
+components (169 / 19, GUIDE-7). In a city with guidance nothing of ours' own is made any more but for one thing: no
+lips (`add_probed_ledges`), narrow wall tops, beam perches from `WoodBeam_*` names, beam-end holds, ladders or poles by
+mesh name (all only without authored guidance, or with `AC1_GEOMETRY_HOLDS` / `AC1_OLD_BEAMS`); the beams are AC1's beam
+contacts paired from its ledge grabs (`beam_pairs`, GUIDE-5: Damascus 4,582) and its posts (`add_pilotis`, 1,373). The
+one left is ours: swing bars along thin beams (two holds facing apart 0.05-0.35 m across over open space, Damascus 2,170
+from the depth-filtered holds, was 1,442; Masyaf 13), standing for AC1's swing reception from a free hang a jump
+reaches (the running game swung from the 0.2 m beam east of the bureau's ladder): AC1 has no bar there, only the two
+ledge grabs. Not yet AC1's: AC1's other searches filter with other detectors (the air catch 0.27 m out and 0.23 m under
+the edge, -45 degrees x 1.2 m and 135 degrees x 0.38 m; the jump candidates -75 degrees x 0.27 m and 135 degrees x
+0.42 m; the pull-down -60 degrees x 1.2 m), ours' one hold list is the climbing grid's; the grab point shortening per
+probe box (`sub_116D3C0`) is done once at load, at free and cut ends only.
+By prop type (Damascus, pieces / kept, 2026-10-12, before the depth filter): houses 74,289 / 69,848, windows 19,649 /
+17,469 (2,036 steep arches), souks 8,064 / 7,904, towers and minarets 7,517 / 7,135, beams 5,549 / 5,228, walls 5,084 /
+4,924, hiding places 4,836 / 4,805, doors 4,608 / 4,155, awnings 3,685 / 3,221, balconies 3,143 / 3,024, gardens 3,005 /
+2,868, baskets 2,603 / 2,015, scaffolds 1,931 / 688, handrails 1,570 / 1,370, kiosks 1,344 / 1,132, barrels 915 / 689,
+lamps 643 / 630, stairs 548 / 478, carts 494 / 446, crates 120 / 75 (only `Crate_1m_01A` carries guidance: 30 of 193
+crates; a stall's small crates, most lanterns and suspended lamps, tents and most garden props have none in AC1 either).
+
+The user's spots of 2026-10-15 (Damascus): the awning frame by (24, 11.5, -11) (`Awning_6x2_Wood_01A`: its front edge at
+11.91 m, its back at the wall, and three beams under its planks at 11.59, 11.47 and 11.32 m, z -10.47, -10.93, -11.41,
+each cut where a diagonal brace crosses it, x 23.66-23.84 and 21.61-21.82; no holds on the braces themselves): the third
+beam, 0.32 m behind the second, was ours' "buried" and is AC1's hold (the depth ray passes under the second). The
+mosque pavilion (-45.2, 12, -45.5): its pointed arches are AC1's ledge grabs in 0.26 m pieces up to 34 degrees, kept
+whole (the lowest piece of each shortened 0.1 m at its free end, to 11.94 m). The chimney by (55, 14.15, -85.2)
+(`Chimney_01a`): four holds round its top and a post on it, all AC1's.
 
 ## City parkour objects
 Benches, and the ladders and poles of cities without authored ones, are found by mesh name. Haystacks and hiding spots
