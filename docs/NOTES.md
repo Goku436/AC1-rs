@@ -1813,13 +1813,14 @@ it changes AC1's look and the default MSAA. Shots off / on: `reports/perf/ao-*-p
 Low (low detail, 256 px, no shadows, no AA, 1.2 km) is for weak PCs: Damascus draws about 1.2 M vertices there against
 about 8 M at Ultra.
 
-Online (F10, `net.rs`; the old `feature/multiplayer` branch, folded in on 2026-10-12): two players over UDP, each
+Online (F10, `net.rs`; the old `feature/multiplayer` branch, folded in on 2026-10-12): up to 8 players over UDP (2026-10-14; two
+before), the host the hub: each friend sends to it, it gives each a player id and passes every packet on to the others; each
 sending its root, every bone's rotation (16-bit) and the first four bones' positions and its camera 30 times a second;
-the other player is a second Altaïr posed from them (made, hidden, when a session starts). Rows: Hosting on / off and,
+each other player is an Altaïr posed from them (made, hidden, when they are first heard). Rows: Hosting on / off and,
 when on, the hosting port (UDP, default 7777; open it in the firewall / router to be joined from outside); when off, Join
 IP, Join port and Join game (and Leave); Record replay (`replay.rs`: `replays/ac1-replay-<secs>-<pid>.bin`, about
 20 MB a minute, played back with `AC1_REPLAY=<file>` or `replay.bat`). The status line shows listening, connected (to
-whom), the peer count (a host takes one friend; a new one once the last has been quiet 6 s) and errors (a port in use,
+whom), the peer count (a host takes up to 7 friends; one quiet 6 s gives their place up) and errors (a port in use,
 a bad address, "nobody is listening there" when Windows reports the joined port closed). `AC1_HOST=port` /
 `AC1_JOIN=ip:port` start the same from the environment. Checked between two copies on 127.0.0.1 (windowed and
 headless): each hears and shows the other. Not done: NAT punching, more than two players, anything but poses (no
