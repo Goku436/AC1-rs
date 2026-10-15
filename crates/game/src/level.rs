@@ -141,11 +141,6 @@ pub(crate) const LADDER_CARVE_SIDE: f32 = 0.3;
 pub(crate) const LADDER_CARVE_OUT: f32 = 0.75;
 /// AC1's ladder zone runs this far under a ladder's foot and past its top (m; `sub_116F060`, Banned445's port).
 const LADDER_ZONE_PAST: f32 = 0.2;
-/// A thin beam swung from as a bar (see `add_beam_bars`; m).
-const BEAM_BAR_THICK: f32 = 0.35;
-const BEAM_BAR_OVERLAP: f32 = 0.5;
-const BEAM_BAR_DROP: f32 = 2.5;
-const BEAM_BAR_DEPTH: f32 = 0.4;
 /// (Up to this over the rim: the Damascus bureau's roof heap stands 2.5 m over it; above, a balcony over the hay.)
 pub(crate) const HAY_HEAP_TOP: f32 = 3.0;
 /// A city haystack is at most this wide each side of its middle (m).
@@ -932,70 +927,6 @@ impl Level {
         }
         self.perches.retain(|l| !(on_heap(l.a, 0.0, None) && on_heap(l.b, 0.0, None)));
         ledges - self.ledges.len() + perches - self.perches.len()
-    }
-
-    /// Thin beams over open space as swing bars: two holds facing apart at most `BEAM_BAR_THICK` across, side by side for
-    /// at least `BEAM_BAR_OVERLAP`, nothing within `BEAM_BAR_DROP` under them and no wall under either side. AC1 swings
-    /// from any free hang a jump reaches (target type 0x80, the swing reception; Banned445's port): the running game jumped
-    /// from the beam frame east of the Damascus bureau's ladder at its far 0.2 m beam and swung. Returns how many.
-    pub fn add_beam_bars(&mut self) -> usize {
-        // (Each hold against the later ones within 0.1 m of its height only, found by 0.1 m height bands, in their order;
-        // the holds on all cores, then the bars kept in that order. Every pair of the 190,000 Damascus holds took 15 s.)
-        let band = |y: f32| (y / 0.1).floor() as i32;
-        let mut bands: FastMap<i32, Vec<u32>> = FastMap::default();
-        for (j, m) in self.ledges.iter().enumerate() {
-            bands.entry(band(m.a.y)).or_default().push(j as u32);
-        }
-        let all: Vec<usize> = (0..self.ledges.len()).collect();
-        let each = par_map(&all, |&i| {
-            let l = &self.ledges[i];
-            let mut out: Vec<(Vec3, Vec3, Vec3)> = vec![];
-            let axis = (l.b - l.a).with_y(0.0);
-            let len = axis.length();
-            if len < BEAM_BAR_OVERLAP {
-                return out;
-            }
-            let axis = axis / len;
-            // (Two bands either side: within 0.1 m is at most one band apart, the second for rounding.)
-            let mut later: Vec<u32> =
-                (band(l.a.y) - 2..=band(l.a.y) + 2).flat_map(|k| bands.get(&k).into_iter().flatten().copied()).filter(|&j| j as usize > i).collect();
-            later.sort_unstable();
-            for m in later.iter().map(|&j| &self.ledges[j as usize]) {
-                if m.out.dot(l.out) > -0.95 || (m.a.y - l.a.y).abs() > 0.1 {
-                    continue;
-                }
-                // (Across: from l's face back to m's, the beam's thickness.)
-                let thick = (l.a - m.a).with_y(0.0).dot(l.out);
-                if !(0.05..=BEAM_BAR_THICK).contains(&thick) {
-                    continue;
-                }
-                let (s0, s1) = ((m.a - l.a).dot(axis), (m.b - l.a).dot(axis));
-                let (lo, hi) = (s0.min(s1).max(0.0), s0.max(s1).min(len));
-                if hi - lo < BEAM_BAR_OVERLAP {
-                    continue;
-                }
-                let mid_off = -l.out * thick * 0.5;
-                let (a, b) = (l.a + axis * lo + mid_off, l.a + axis * hi + mid_off);
-                let c = (a + b) * 0.5;
-                // (From under the beam, as deep as it may be.)
-                let under = c - Vec3::Y * BEAM_BAR_DEPTH;
-                let open = self.ground(under, 0.0, BEAM_BAR_DROP - BEAM_BAR_DEPTH).is_none()
-                    && [l.out, -l.out].iter().all(|o| self.raycast(c + *o * 0.6 - Vec3::Y * 1.0, -*o, 1.2).is_none());
-                if open {
-                    out.push((a, b, c));
-                }
-            }
-            out
-        });
-        let mut found: Vec<Line> = vec![];
-        for (a, b, c) in each.into_iter().flatten() {
-            if !found.iter().chain(&self.bars).any(|k| k.closest(c).distance(c) < 0.3) {
-                found.push(Line { a, b });
-            }
-        }
-        let n = found.len();
-        self.bars.extend(found);
-        n
     }
 
     /// The index of an authored edge's source (`Authored::src`): the group or entity placing it and that entity's first
@@ -2163,9 +2094,9 @@ fn build_city(
     lap.lap("ladder tops, carving");
     let heaped = level.drop_hay_holds();
     info!("{heaped} holds and beams left out: on a haystack's heap");
-    let beam_bars = level.add_beam_bars();
-    info!("{beam_bars} thin beams over open space swung from as bars");
-    lap.lap("hay holds, beam bars");
+    // (No bars along thin beams: AC1 has none there, only the two ledge grabs, and swings from one as from any free
+    // hang a jump aims at, its target type 0x80: `climb::swing_hold_ahead`.)
+    lap.lap("hay holds");
     for v in &level.viewpoints {
         let near = level.haystacks.iter().map(|h| ((h.centre - *v).with_y(0.0).length(), v.y - h.top())).min_by(|a, b| a.0.total_cmp(&b.0));
         debug!("viewpoint {v:.1}: nearest hay {near:.1?} (out, down)");

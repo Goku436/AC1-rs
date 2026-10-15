@@ -1467,6 +1467,9 @@ pub struct WallClimb {
     bar: Option<usize>,
     swing_off: Option<bool>,
     skip_bar: Option<(usize, f32)>,
+    /// The free-hang hold (AC1's jump target type 0x80) this jump flies at: caught as a bar is, into the swing reception
+    /// (`try_bar`; its `bar` is then `HOLD_BAR`).
+    swing_hold: Option<Line>,
     /// In the wall-free hang (AC1's `xx_h_hangwallfree_wait`, the standing jump's 2.5-3 m band with a wall under the hold):
     /// a free hang, the legs held off the wall under it, until the next move.
     wallfree: bool,
@@ -2729,6 +2732,31 @@ fn bar_ahead(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
     bar_ahead_within(level, from, dir, BAR_JUMP_RISE)
 }
 
+/// `WallClimb::bar` while swinging from a free-hang hold (`swing_hold`), not one of the level's bars.
+const HOLD_BAR: usize = usize::MAX;
+
+/// AC1's free-hang target that way (its scorer's pick of type 0x80 on a hold edge: no wall under it, a 2.5 m drop): the
+/// grab point and the hold it lies on. AC1 swings from any free hang a jump reaches (the swing reception, Ledge
+/// sub-state 8), a thin beam's side as much as a pole: the running game's three ejects at the 0.17 m beam by the
+/// Damascus bureau, 2.5 m over the feet (the query's zone 2: too high to land on, a hang) swung from it.
+fn swing_hold_ahead(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Option<(Vec3, Line)> {
+    if !ac1_targets(level) {
+        return None;
+    }
+    let Some(Ac1Jump::Hang { hold, out, free: true }) = ac1_jump_choice(level, from, dir, skip) else { return None };
+    swing_hold_at(level, hold, out).map(|l| (hold, l))
+}
+
+/// The hold through the grab point `g` (its wall facing `out`) as the line swung from.
+fn swing_hold_at(level: &Level, g: Vec3, out: Vec3) -> Option<Line> {
+    level
+        .holds_near(g, 0.1)
+        .into_iter()
+        .filter(|l| l.out.with_y(0.0).normalize_or_zero().dot(out) > 0.9 && l.closest(g).distance(g) < 0.05)
+        .min_by(|a, b| a.closest(g).distance(g).total_cmp(&b.closest(g).distance(g)))
+        .map(|l| Line { a: l.a, b: l.b })
+}
+
 /// `bar_ahead` with the bar `rise` over the feet.
 fn bar_ahead_within(level: &Level, from: Vec3, dir: Vec3, rise: std::ops::RangeInclusive<f32>) -> Option<Vec3> {
     let dir = dir.with_y(0.0).normalize_or_zero();
@@ -3400,6 +3428,7 @@ impl WallClimb {
             bar: None,
             swing_off: None,
             skip_bar: None,
+            swing_hold: None,
             wallfree: false,
             free_wait: None,
         }
@@ -3480,7 +3509,13 @@ impl WallClimb {
         // the beam set's flight (`xx_h_beam_air_*`, every no-target jump the running game made; audit JUMP-1: ours weighted
         // for a level target 2.5 m on). At a swing bar ahead, AC1's flight onto it (`_to_swing`); the fall catches it.
         let p = root.translation;
-        let bar = bar_ahead(level, p, dir);
+        Self::jump_at(lib, root, dir, left, from, bar_ahead(level, p, dir), None)
+    }
+
+    /// `jump` at the swing bar point `bar` (none: the free jump); `hold`, the free-hang hold it lies on when it is not one
+    /// of the level's bars (`swing_hold_ahead`), caught into the swing as a bar is.
+    fn jump_at(lib: &mut AnimLib, root: &Transform, dir: Vec3, left: bool, from: Option<Pose>, bar: Option<Vec3>, hold: Option<Line>) -> Option<WallClimb> {
+        let p = root.translation;
         let mut j = match bar {
             Some(q) => {
                 debug!("climb: jumping at the swing bar at {q:.2}");
@@ -3503,11 +3538,25 @@ impl WallClimb {
         let planned = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir.with_y(0.0).normalize_or(Vec3::NEG_Z)), ..*root };
         let mut w = WallClimb::new(JUMP, planned.rotation * Vec3::Z);
         // The air clip runs from the takeoff tuck to reaching for the ground over the flight.
-        let rate = air.anim.duration / jump_airtime();
-        w.queue = vec![Queued { rate, ..Queued::new(air, FALL) }];
-        w.launch = JUMP_UP_SPEED;
+        match (bar, hold.is_some()) {
+            // (At a free-hang hold, the flight aimed to come at it with the root `BAR_CATCH_UNDER` under it, as AC1 jumps
+            // at its target: such a hold may stand higher than a bar the plain launch reaches.)
+            (Some(q), true) => {
+                let off = p + world_rot(planned.rotation) * root_motion_at(&takeoff, takeoff.frames());
+                let (v, t) = ballistic(off, q - Vec3::Y * BAR_CATCH_UNDER);
+                w.queue = vec![Queued { rate: air.anim.duration / t.max(0.1), ..Queued::new(air, FALL) }];
+                w.fall_with = Some(v);
+                w.aimed = true;
+            }
+            _ => {
+                let rate = air.anim.duration / jump_airtime();
+                w.queue = vec![Queued { rate, ..Queued::new(air, FALL) }];
+                w.launch = JUMP_UP_SPEED;
+            }
+        }
         w.can_catch = true;
-        w.free_jump = bar_ahead(level, p, dir).is_none();
+        w.free_jump = bar.is_none();
+        w.swing_hold = hold;
         w.start(takeoff, JUMP.into(), &planned);
         w.ease_in(from, root);
         Some(w)
@@ -3595,6 +3644,13 @@ impl WallClimb {
         };
         if matches!(choice, Some(Ac1Jump::Pole)) {
             return Self::jump(lib, level, root, dir, left, from);
+        }
+        // (A free hang (0x80) on a hold edge: AC1's swing reception on it, flown at as at a bar.)
+        if let Some((hold, out, true)) = hang
+            && let Some(line) = swing_hold_at(level, hold, out)
+        {
+            debug!("climb: jumping at the free hang at {hold:.2} (the swing reception)");
+            return Self::jump_at(lib, root, dir, left, from, Some(hold), Some(line));
         }
         let top = if ac1 { choice.and_then(Ac1Jump::landing) } else { jump_target(level, p, dir, None) };
         // (A swing bar ahead as near and no lower than the top: AC1's scorer takes the hang target first (0xE96BF0, a pole
@@ -4746,10 +4802,19 @@ impl WallClimb {
         w.fall_with = Some(v);
         w.can_catch = true;
         w.aimed = true;
+        // (A free hang (AC1's 0x80: no wall under the hold, a 2.5 m drop): its swing reception on the hold, as the
+        // running game's three ejects at the beam by the Damascus bureau, `_to_swing` then `swing_cycle_front_up`.)
+        w.swing_hold = level
+            .holds_near(h, 0.6)
+            .into_iter()
+            .map(|l| (l.closest(h + Vec3::Y * JUMP_HOLD_FREE_HANG), l))
+            .filter(|(q, l)| (jump_hang_root(*q, l.out, true) - h).length() < 0.05 && crate::jump_query::free_hang(level, *q, l.out))
+            .min_by(|a, b| (a.0 - h).length().total_cmp(&(b.0 - h).length()))
+            .map(|(_, l)| Line { a: l.a, b: l.b });
         w.start(takeoff, JUMP.into(), &planned);
         w.snap_turn = true;
         w.ease_in(from, root);
-        debug!("climb: eject at the hold over {h:.2}");
+        debug!("climb: eject at the hold over {h:.2}{}", if w.swing_hold.is_some() { " (a free hang: the swing)" } else { "" });
         Some(w)
     }
 
@@ -6500,6 +6565,14 @@ impl WallClimb {
         {
             return true;
         }
+        // (Or AC1's own free-hang target (0x80) on a hold edge, its swing reception: a thin beam's side as a pole.)
+        if to.is_none()
+            && let Some((q, line)) = swing_hold_ahead(level, from, dir, self.perch)
+            && self.jump_at_bar(lib, root, q)
+        {
+            self.swing_hold = Some(line);
+            return true;
+        }
         let beam = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() != Vec3::ZERO);
         if let Some(to) = to {
             // (A target the free-step clips can't make: flown at on a ballistic arc from the post's crouch. Ours.)
@@ -6710,10 +6783,14 @@ impl WallClimb {
         let Some(v) = self.fall_v else { return false };
         let p = root.translation;
         let skip = self.skip_bar.map(|(i, _)| i);
+        // (The level's bars, and the free-hang hold this jump flies at (AC1's 0x80 target, `swing_hold`), caught alike.)
+        let hold = self.swing_hold.filter(|_| self.aimed);
         let Some((i, q)) = level
             .bars
             .iter()
+            .copied()
             .enumerate()
+            .chain(hold.map(|l| (HOLD_BAR, l)))
             .filter(|(i, _)| Some(*i) != skip)
             // (Moving along a bar is not swinging on it: only one lying across the way, as AC1 catches them.)
             .filter(|(_, b)| v.with_y(0.0).length() < 0.5 || b.axis().dot(v.with_y(0.0).normalize()).abs() < BAR_ACROSS)
@@ -6731,7 +6808,8 @@ impl WallClimb {
         let entry = lib.get(crate::jump::swing_entry(dz));
         let Some(first) = lib.get(SWING_CYCLE[0]) else { return false };
         // Face across the bar, the way we are going.
-        let mut out = level.bars[i].axis().cross(Vec3::Y).normalize_or(Vec3::X);
+        let Some(line) = (if i == HOLD_BAR { hold } else { level.bars.get(i).copied() }) else { return false };
+        let mut out = line.axis().cross(Vec3::Y).normalize_or(Vec3::X);
         let going = if v.with_y(0.0).length() > 0.3 { v } else { root.rotation * Vec3::NEG_Z };
         if out.dot(going) < 0.0 {
             out = -out;
@@ -6742,6 +6820,7 @@ impl WallClimb {
         self.queue.clear();
         self.descend = None;
         self.bar = Some(i);
+        self.swing_hold = None;
         self.swing_off = None;
         self.swung = false;
         let caught = Transform { rotation: rot, ..*root };
@@ -6758,7 +6837,11 @@ impl WallClimb {
             m.ease_rot = root.rotation * rot.inverse();
         }
         self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
-        debug!("climb: caught bar {i} at {q:.2}");
+        if i == HOLD_BAR {
+            debug!("climb: caught the free hang at {q:.2} into the swing");
+        } else {
+            debug!("climb: caught bar {i} at {q:.2}");
+        }
         true
     }
 
@@ -9644,6 +9727,9 @@ impl WallClimb {
             // (AC1's manual catch is the empty hand held, after 0.3 m of fall from its top (0xE0BB70, Banned445's port); it
             // never catches on the legs held, as ours did walking off an edge, audit AIR-12.)
             && (self.can_catch || (self.hand_held && !self.faith && self.fall_top - root.translation.y > CATCH_HELD_FALL))
+            // (Not on the way to a free-hang target (0x80): AC1's automatic catch takes only the targets of types 1,
+            // 0x10000, 0x40 and 0x400 (0xE0BB70, Banned445's `air_catches::automatic`); the swing reception takes it, `try_bar`.)
+            && (self.swing_hold.is_none() || self.hand_held)
             && v.y < 1.0
             && self.try_catch(lib, level, root, rig, base, cr)
         {

@@ -1200,6 +1200,57 @@ const SCENARIOS: &[Scenario] = &[
         want: &["xx_h_hangwall_strafe_left_050cm", "rebound off the wall at [49.", "via xx_h_rebound_right_", "_tr_freestep_entry_footl at [49.1"],
         never: &["EMBED"],
     },
+    // The running game's three ejects at the 0.17 m beam by the Damascus bureau (live log 2026-10-12, 2801 s): from the
+    // climb two rows up the bureau's wall (root 9.39 m), back off the wall at the beam's near hold 2.1 m away and 2.5 m
+    // over the feet: AC1's jump query zone 2, a hang, no wall under it, so a free hang (target type 0x80) and its swing
+    // reception, `xx_h_air_front_050cm_footl_to_swing`, `xx_h_swing_cycle_front_up`, then the still free hang at
+    // (47.03, 9.46) with the legs let go. AC1 has no bar there, only the beam's two ledge grabs (grab data, item 1).
+    Scenario {
+        name: "Damascus: the eject off the bureau wall's climb at the beam behind is AC1's free hang target, swung from",
+        tags: &["eject", "hang", "bars"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "47.6,-20,-90,5.55"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-10"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_JUMP", "2.6,5.9"),
+            ("AC1_CLIMB", "nograb,wait=2.4,up=1.6,wait=2.0,down=0.5"),
+        ],
+        secs: 9.0,
+        want: &[
+            "(a free hang: the swing)",
+            "_to_swing",
+            "caught the free hang at [47.03, 11.86",
+            "via xx_h_swing_cycle_front_up",
+            "hanging still",
+            "the run ends at [47.0",
+        ],
+        never: &["EMBED", "AC1's catch search"],
+    },
+    // The same beam frame's lower beam (0.2 m, its holds along the wall, 1.3 m under the climb a row up): ejected back
+    // along it, AC1's pick is the beam to land on (its beam contact), not a free hang: no swing (it was one of ours'
+    // invented thin-beam bars before).
+    Scenario {
+        name: "Damascus: the eject off the bureau wall's climb onto the lower thin beam lands on it, no swing",
+        tags: &["eject", "bars"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "47.6,-20,-90,5.55"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-9"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_JUMP", "2.6,5.45"),
+            ("AC1_CLIMB", "nograb,wait=2.4,up=1.0,wait=2.0,down=0.5"),
+        ],
+        secs: 8.0,
+        want: &["rebound off the wall at [46.26, 7.44", "onto perch"],
+        never: &["EMBED", "into the swing", "caught bar", "swing_cycle"],
+    },
     // Audit JUMP-10: the tap jump at the bureau's wall from 1.5 m off. AC1's scorer picks the hold 2.4 m up as a wall-hang
     // target (0x40): the running game flew `_to_surface` into `xx_h_air_surface_tr_hangwall_reception_front_straight_min`,
     // hanging at x 49.17, 5.36 m up (route wall1_tapjump). Ours ran up the wall and rebounded off it.
