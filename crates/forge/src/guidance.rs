@@ -8,8 +8,9 @@
 //! - per edge, 53 bytes: u32 id, u32 class 344fa659 (`GuidanceObject`), u8 enabled, u32 subtype, u32 vertex a,
 //!   u32 vertex b, f32x4 normal a, f32x4 normal b (xyz quantized to 1/511 by the game; w `?`)
 //! - u32 coordinate count, then that many u16: x, y, z per vertex, each `u16 * 0.005 - 163.84` m
-//! - an `EdgeFilter` (class 509c4552): 7 u8 flags, 3 f32 (`?`, corner angle, max angle in radians), u8 check world
-//!   orientation; then a `Partitioner` pointer (not read).
+//! - an `EdgeFilter` (class 509c4552): 7 u8 flags (bit 0 of each), 3 f32 (one the reader drops, replacing it with the
+//!   cosine of the third; the corner angle; the max angle in radians), u8 check world orientation (`?`: AC1's gather
+//!   filters every edge whatever it says); then a `Partitioner` pointer (not read). See `EdgeFilter`.
 //!
 //! Of the two normals, the one facing up is the top face's and the other the wall's: the wall normal is the way
 //! out from a ledge.
@@ -71,6 +72,50 @@ pub struct Guidance {
     /// The edge filter's max angle (radians) and whether it checks world orientation.
     pub max_angle: f32,
     pub check_orientation: bool,
+    /// The edge filter every edge is passed through as AC1 gathers it (`GuidanceSystem` +0x24).
+    pub filter: EdgeFilter,
+}
+
+/// A `GuidanceSystem`'s `EdgeFilter` (509c4552; reader 0x6B08B0): which pairs of face normals make an edge AC1 takes
+/// (`EdgeFilter::accepts`, 0x6B0E10, run on each enabled edge's two normals in the world as it is gathered, 0x5452F0).
+/// A normal is a floor's when its up component is over `cos_max`, a ceiling's under `-cos_max`, else a wall's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EdgeFilter {
+    /// The seven flag bytes as bits: 1 wall/wall corners (turned by more than `corner`), 2 floor/wall, 4 ceiling/wall,
+    /// 0x10 floor/ceiling (a slab); 8, 0x20, 0x40 `?`.
+    pub flags: u8,
+    /// The corner angle (radians) and the cosine of the max angle (the third float, as the reader stores it).
+    pub corner: f32,
+    pub cos_max: f32,
+}
+
+impl Default for EdgeFilter {
+    /// As the constructor (0x6B07F0) leaves it: no flags, cos 45 degrees, a 22.5 degree corner.
+    fn default() -> Self {
+        EdgeFilter { flags: 0, corner: f32::from_bits(0x3ec9_0fdb), cos_max: f32::from_bits(0x3f34_fdf4) }
+    }
+}
+
+impl EdgeFilter {
+    /// Whether an edge with face normals `a` and `b` (in the world, `up` the up component of each) is taken.
+    pub fn accepts(&self, a: [f32; 3], b: [f32; 3], up: usize) -> bool {
+        let c = self.cos_max;
+        let (za, zb) = (a[up], b[up]);
+        let wall = |z: f32| z.abs() < c;
+        let f = |bit: u8| self.flags & bit != 0;
+        let angle = {
+            let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+            let (la, lb) = ((a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt(), (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]).sqrt());
+            if la * lb > 1e-12 { (dot / (la * lb)).clamp(-1.0, 1.0).acos() } else { 0.0 }
+        };
+        if za > c {
+            (f(2) && wall(zb)) || (f(0x10) && zb < -c)
+        } else if za >= -c {
+            (f(1) && wall(zb) && angle > self.corner) || (f(2) && zb > c) || (f(4) && zb < -c)
+        } else {
+            (f(4) && wall(zb)) || (f(0x10) && zb > c)
+        }
+    }
 }
 
 fn u32_at(d: &[u8], o: usize) -> Result<u32> {
@@ -123,11 +168,15 @@ pub fn parse_at(d: &[u8], o: usize) -> Result<Guidance> {
     }
     // The edge filter (its max angle, and whether to check world orientation), when it follows.
     let (mut max_angle, mut check_orientation) = (std::f32::consts::PI, false);
+    let mut filter = EdgeFilter::default();
     if u32_at(d, p + 4).ok() == Some(CLASS_EDGE_FILTER) {
         max_angle = f32_at(d, p + 8 + 7 + 8)?;
         check_orientation = d.get(p + 8 + 7 + 12).is_some_and(|b| *b != 0);
+        let bytes = d.get(p + 8..p + 15).ok_or_else(|| anyhow::anyhow!("edge filter truncated at {:#x}", p + 8))?;
+        let flags = bytes.iter().enumerate().fold(0u8, |m, (k, b)| m | ((*b & 1) << k));
+        filter = EdgeFilter { flags, corner: f32_at(d, p + 8 + 7 + 4)?, cos_max: max_angle.cos() };
     }
-    Ok(Guidance { active, edges, max_angle, check_orientation })
+    Ok(Guidance { active, edges, max_angle, check_orientation, filter })
 }
 
 /// The `GuidanceSystem`s inside an entity's body (usually one; an animated gate has two), each parsed.
@@ -178,6 +227,17 @@ mod tests {
         assert_eq!(g.edges[1].subtype, SubType::Ladder);
         assert!((g.edges[0].b[0] - 1.0).abs() < 1e-3 && (g.edges[0].b[2] - 2.0).abs() < 1e-3);
         assert_eq!(g.edges[0].normals[0], [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn the_edge_filter_takes_floor_wall_edges_and_slabs() {
+        let f = EdgeFilter { flags: 2 | 0x10, corner: 0.39, cos_max: std::f32::consts::FRAC_1_SQRT_2 };
+        let (up, wall, down) = ([0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 0.0, -1.0]);
+        assert!(f.accepts(up, wall, 2) && f.accepts(wall, up, 2));
+        assert!(f.accepts(up, down, 2));
+        assert!(!f.accepts(wall, down, 2), "a ceiling's edge without flag 4");
+        assert!(!f.accepts(wall, [0.0, 1.0, 0.0], 2), "a wall corner without flag 1");
+        assert!(!EdgeFilter::default().accepts(up, wall, 2), "no flags, no edges");
     }
 
     #[test]
