@@ -1282,6 +1282,29 @@ leaps first sweep AC1's clearance capsule to the new hang (0xDDDF85: r 0.35, fro
   the wait half `xx_h_hangwallfree_wait` (its hands 0.46 m in front of the root, 0.35 m into G24's slab) after every
   shimmy step. Now the connector is mixed by h [ours: its second item too], the wait is the free one, until the next move.
 
+## The inverted triangles, user reports 2026-10-15
+A Damascus pavilion (-45.3, 45.4: arches 12.15 m up, a knob over each, the roof slab's edge 0.58 m out over them) and an
+awning's frame (24.5 to 27.3, -11 to -12.6). Each report is a Damascus scenario (`AC1_SCENARIO_FILTER=<report number>`).
+- **152477, up and down for ever**: the free hang's grid hand step onto an edge 0.45 m further out kept the body's depth,
+  the hands in the slab under the edge, and the rest then eased the root back under the knob. Now the hands go onto the
+  edge (within AC1's vertical rows' 0.5 m, `FindVerticalRows` 0xDD8F70) and the body out under it (as AC1's root follows
+  its hand targets, 0xB15AD0; never in toward a wall under a recessed edge: that is the switch onto the wall's); then over
+  the slab. And the free hang's rest finds its hold once, as it begins (`rest_hold`): probed from the sinking root, an
+  arch 0.3 m under a knob came nearer halfway down and the root sank onto it, and the knob was stepped onto again.
+- **161446, stuck in the wall hang under a knob**: AC1's hand step keeps the hang's type (StartHandStep 0xDDE0C0; only
+  TrySwitchHangType changes it, its foot rays finding the arch there). Ours wanted each foot on a wall within 0.32 m of
+  the new hold and refused the slab's edge 0.6 m out; now the wall hang's hand steps take any footing.
+- **116822, held in a half hand step**: the first half of a wall-hang hand step was tested at its own holds (one hand up,
+  one down) and passed under the awning's beam; the second, both hands up, never did. Now the first half tests the row
+  both hands end on, as AC1's FindVerticalRows tests the step row before starting (0xDD8F70 -> 0xB2DC80): no step there.
+- **265066, through the roof**: the let-go was the empty hand (ours lets go of a hang only on it). The release clip
+  carries the root 1 m down with no floor test; under the chimney's top the roof was 0.35 m under the root. A floor within
+  the release's drop: the fall from where he hangs (`drop_now`), which lands on it.
+- **102743, the wall hang at the awning's end looking up**: [open] ours' top-out wanted a top under 37 degrees and within
+  0.35 m over the grip at 0.45 m in; AC1's CanPullup (0xDE2270) tests the room only, so the slope test is gone and the
+  nearer probes are taken on a top rising from the edge. What is left is AC1's room box over the edge (0xB2E240), which
+  meets the planks' 40-degree slope by about 2 cm: whether the running game pulls up there is a live check.
+
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
 climbing stance (short / long tables, 10-way stick, redirects), the hangs (ledge-jump table, the sideways order), the
