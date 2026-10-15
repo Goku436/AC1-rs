@@ -1514,8 +1514,9 @@ fn catch_probe(level: &Level, centre: Vec3, dir: Vec3, half: Vec3) -> Option<(Ve
     let dir = dir.with_y(0.0).normalize_or_zero();
     let across = dir.cross(Vec3::Y);
     let cos70 = 70f32.to_radians().cos();
+    // (The air catch's own view of the guidance: its report's depth filter, `HoldView::Catch`.)
     level
-        .ledges
+        .holds_of(crate::level::HoldView::Catch)
         .iter()
         .filter(|l| (-l.out).dot(dir) >= cos70)
         .map(|l| (l.project_along(centre, dir), l.out))
@@ -2133,9 +2134,18 @@ fn arc_clear(level: &Level, p: Vec3, v: Vec3, t: f32) -> bool {
     })
 }
 
-/// Is `p` on a ledge shorter than `NARROW_LEDGE` (a pole's cap)?
-fn on_narrow_ledge(level: &Level, p: Vec3) -> bool {
-    level.ledges.iter().any(|l| l.a.distance(l.b) < NARROW_LEDGE && l.closest(p).distance(p) < 0.3)
+/// Is `p` on a ledge shorter than `NARROW_LEDGE` (a pole's cap)? The hold nearest `p` within 0.3 m (facing within 45
+/// degrees of `out`, the hang's, when given): not a short piece beside the one held (a hay box rim's inner edge 0.15 m
+/// behind the outer one, kept by AC1's depth filter, made the outer edge's hang one with the hands together).
+fn on_narrow_ledge(level: &Level, p: Vec3, out: Option<Vec3>) -> bool {
+    level
+        .holds_near(p, 0.3)
+        .into_iter()
+        .filter(|l| out.is_none_or(|o| l.out.dot(o) > std::f32::consts::FRAC_1_SQRT_2))
+        .map(|l| (l.closest(p).distance(p), l))
+        .filter(|(d, _)| *d < 0.3)
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .is_some_and(|(_, l)| l.a.distance(l.b) < NARROW_LEDGE)
 }
 
 /// Would moving the root by `slide` (horizontal) walk it into a wall? Probed at knee and chest height.
@@ -2746,14 +2756,26 @@ fn swing_hold_ahead(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -
         return None;
     }
     let Some(Ac1Jump::Hang { hold, out, free: true }) = ac1_jump_choice(level, from, dir, skip) else { return None };
+    if feet_find_wall(level, hold, out) {
+        return None;
+    }
     swing_hold_at(level, hold, out).map(|l| (hold, l))
+}
+
+/// Whether the feet find the wall under the hold at `g` (its wall facing `out`): footholds, or a wall 1.2 m under it within
+/// 0.4-1.2 m in (as `jump_hangwall` tests). AC1's arrival at a hang target (0xE093CC, Banned445's port): feet on the wall
+/// (`sub_B15C30`) take the wall reception whatever the target's type, the swing (Ledge sub-state 8) only a free-hang
+/// target (0x80) with none.
+fn feet_find_wall(level: &Level, g: Vec3, out: Vec3) -> bool {
+    footholds(level, g, out) || level.raycast(g - Vec3::Y * 1.2 + out * 0.4, -out, 0.8).is_some_and(|h| h.normal.dot(out) > 0.7)
 }
 
 /// The hold through the grab point `g` (its wall facing `out`) as the line swung from.
 fn swing_hold_at(level: &Level, g: Vec3, out: Vec3) -> Option<Line> {
+    // (On the jump query's own view of the guidance, where its pick lies.)
     level
-        .holds_near(g, 0.1)
-        .into_iter()
+        .holds_of(crate::level::HoldView::Jump)
+        .iter()
         .filter(|l| l.out.with_y(0.0).normalize_or_zero().dot(out) > 0.9 && l.closest(g).distance(g) < 0.05)
         .min_by(|a, b| a.closest(g).distance(g).total_cmp(&b.closest(g).distance(g)))
         .map(|l| Line { a: l.a, b: l.b })
@@ -3650,6 +3672,7 @@ impl WallClimb {
         }
         // (A free hang (0x80) on a hold edge: AC1's swing reception on it, flown at as at a bar.)
         if let Some((hold, out, true)) = hang
+            && !feet_find_wall(level, hold, out)
             && let Some(line) = swing_hold_at(level, hold, out)
         {
             debug!("climb: jumping at the free hang at {hold:.2} (the swing reception)");
@@ -4507,7 +4530,7 @@ impl WallClimb {
                     let perch = level.perch_at(edge, ONEHAND_POST_IN + 0.05);
                     // A standing jump at a capped pole hangs from its cap (hands together, feet on the
                     // pole); climbing up from there pulls up onto it.
-                    if perch.is_some() && carry.is_none() && on_narrow_ledge(level, edge - fwd * ONEHAND_POST_IN) {
+                    if perch.is_some() && carry.is_none() && on_narrow_ledge(level, edge - fwd * ONEHAND_POST_IN, None) {
                         continue;
                     }
                     if perch.is_some() {
@@ -4580,7 +4603,7 @@ impl WallClimb {
                         }
                     }
                     // (A pole's cap is hung from with the hands together.)
-                    let to = if to == HANGWALL_OPEN && on_narrow_ledge(level, mid) { HANGWALL } else { to };
+                    let to = if to == HANGWALL_OPEN && on_narrow_ledge(level, mid, None) { HANGWALL } else { to };
                     // (A hold up to 0.6 m lower than the clip's is reached by climbing less; real buildings
                     // fall between the heights the clips were made for.)
                     let hold = Some(mid);
@@ -4811,7 +4834,9 @@ impl WallClimb {
             .holds_near(h, 0.6)
             .into_iter()
             .map(|l| (l.closest(h + Vec3::Y * JUMP_HOLD_FREE_HANG), l))
-            .filter(|(q, l)| (jump_hang_root(*q, l.out, true) - h).length() < 0.05 && crate::jump_query::free_hang(level, *q, l.out))
+            .filter(|(q, l)| {
+                (jump_hang_root(*q, l.out, true) - h).length() < 0.05 && crate::jump_query::free_hang(level, *q, l.out) && !feet_find_wall(level, *q, l.out)
+            })
             .min_by(|a, b| (a.0 - h).length().total_cmp(&(b.0 - h).length()))
             .map(|(_, l)| Line { a: l.a, b: l.b });
         w.start(takeoff, JUMP.into(), &planned);
@@ -5328,7 +5353,7 @@ impl WallClimb {
         // (Not onto a post's cap: ours' one-hand holds, the hand step and the one-hand pull-up take those, as on the Damascus
         // minaret's balcony railing, user report #3. AC1's own room test there, 0xB2A410 with a 0.5 by 1.1 m body, is not
         // read yet.)
-        if on_narrow_ledge(level, mid) {
+        if on_narrow_ledge(level, mid, None) {
             return false;
         }
         if feet_on_wall(level, mid, n) == (false, false) {
@@ -5833,7 +5858,8 @@ impl WallClimb {
                 && level.ground(c + l.out * 0.3, 0.3, PULL_DOWN_DROP).is_none()
                 && (d.length() < 0.05 || level.raycast(p + Vec3::Y * 0.5, d.normalize(), d.length() + 0.3).is_none())
         };
-        let ledge = level.ledges.iter().filter(ok).max_by(|a, b| a.out.dot(fwd).total_cmp(&b.out.dot(fwd)))?;
+        // (The pull-down's own view of the guidance: its ledge report's depth filter, `HoldView::PullDown`.)
+        let ledge = level.holds_of(crate::level::HoldView::PullDown).iter().filter(ok).max_by(|a, b| a.out.dot(fwd).total_cmp(&b.out.dot(fwd)))?;
         let edge = ledge.closest(p);
         // The root faces the wall throughout; the body starts turned round, facing the drop, and comes
         // round as it steps back over the edge (`*_pulldown_front_orientation`, from looking down or from
@@ -5873,7 +5899,14 @@ impl WallClimb {
                 && level.ground(l.closest(p) + l.out * POST_DROP_OUT, 0.2, POST_DROP_MIN).is_none()
         };
         // (With the stick let go AC1 takes the camera's side; ours, any side, the facing's first.)
-        let pick = |w: Vec3, min: f32| level.ledges.iter().filter(near).filter(|l| l.out.dot(w) >= min).max_by(|a, b| a.out.dot(w).total_cmp(&b.out.dot(w)));
+        let pick = |w: Vec3, min: f32| {
+            level
+                .holds_of(crate::level::HoldView::PullDown)
+                .iter()
+                .filter(near)
+                .filter(|l| l.out.dot(w) >= min)
+                .max_by(|a, b| a.out.dot(w).total_cmp(&b.out.dot(w)))
+        };
         let ledge = if stick { pick(want, 0.3).or_else(|| pick(-want, 0.3)) } else { pick(want, -1.0) }?;
         let d = ledge.out;
         let side = if d.dot(fwd) > 0.7 {
@@ -5935,7 +5968,7 @@ impl WallClimb {
         let start = Transform { translation: root.translation, rotation: facing(-normal), ..*root };
         // On a short ledge (a pole's cap) the hands hang together.
         let (wall, wall_rest) =
-            if on_narrow_ledge(level, ledge.closest(edge)) { (HANGWALL, "xx_h_hangwall_waitclose") } else { (HANGWALL_OPEN, HANGWALL_REST) };
+            if on_narrow_ledge(level, ledge.closest(edge), Some(normal)) { (HANGWALL, "xx_h_hangwall_waitclose") } else { (HANGWALL_OPEN, HANGWALL_REST) };
         // (The wall hang's reception mixed toward the wall's lean under the edge: `30_out` full at a 30 degree overhang, `45_in`
         // full at a 45 degree slope, AC1's action 0x06E8BD81 by `PullDown_Update`'s weights; audit EXTRA-8.)
         let tilt = level.raycast(edge - Vec3::Y * 1.0 + normal * 0.6, -normal, 1.2).map_or(0.0, |h| (-h.normal.y).clamp(-1.0, 1.0).asin());
@@ -7856,7 +7889,7 @@ impl WallClimb {
             self.state = (if a <= b { pair[0].0 } else { pair[1].0 }).to_string();
             // From a pole's cap the hands hang together (where they hold, from a wall hang's root).
             let hold = root.translation + Vec3::Y * HANGWALL_HOLD_UP - self.normal * HANGWALL_HOLD_IN;
-            if self.state == HANGWALL_OPEN && on_narrow_ledge(level, hold) {
+            if self.state == HANGWALL_OPEN && on_narrow_ledge(level, hold, Some(self.normal)) {
                 self.state = HANGWALL.into();
             }
         }

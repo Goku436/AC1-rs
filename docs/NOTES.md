@@ -1299,7 +1299,11 @@ holds) and whether ours' holds have it, and ours' holds, perches, bars and ladde
 what was made, by where it comes from. Every `GuidanceSystem` in the data sits inline in an entity or a group member
 (none elsewhere, no `GuidanceSystemComponent` or run-time generated guidance in any city); the inactive ones (Damascus
 180) are the other state of breakable props (`Kiosk_*`, `Scaffold_*`, `Storage_01a`: intact and broken) and the
-animated city gates, left out (GUIDE-9: which byte AC1 tests is not confirmed).
+animated city gates, left out, as AC1 does (GUIDE-9, 2026-10-15): the byte after a `GuidanceSystem`'s class id is its
+`Component`'s enabled flag (bit 0x4000000 at +4, set by `Component`'s reader 0x5271C0), and AC1's guidance queries
+(0x5AAE50, 0x5AAFF0) skip every component without it; each edge's own enabled bit (bit 0 of the `GuidanceObject`'s first
+byte, 0x5ACC10) is tested as each is gathered (0x5452F0). A prop that breaks turns its other state's on; ours breaks
+none.
 
 AC1's climbing grid (`HumanClimb__BuildHoldGrid` 0xDF6A40) and ledge report (0xDDCA8E) take the guidance as: the edges
 cut out of each ladder's zone (0x1170880: 0.3 m either side, 0.75 m out and in, 0.2 m under its foot and past its top),
@@ -1327,14 +1331,30 @@ pole's two side edges one bar) and kiosk pieces (336 / 27) are all kept. Haystac
 components (169 / 19, GUIDE-7). In a city with guidance nothing of ours' own is made any more but for one thing: no
 lips (`add_probed_ledges`), narrow wall tops, beam perches from `WoodBeam_*` names, beam-end holds, ladders or poles by
 mesh name (all only without authored guidance, or with `AC1_GEOMETRY_HOLDS` / `AC1_OLD_BEAMS`); the beams are AC1's beam
-contacts paired from its ledge grabs (`beam_pairs`, GUIDE-5: Damascus 4,582) and its posts (`add_pilotis`, 1,373). The
-one left is ours: swing bars along thin beams (two holds facing apart 0.05-0.35 m across over open space, Damascus 2,170
-from the depth-filtered holds, was 1,442; Masyaf 13), standing for AC1's swing reception from a free hang a jump
-reaches (the running game swung from the 0.2 m beam east of the bureau's ladder): AC1 has no bar there, only the two
-ledge grabs. Not yet AC1's: AC1's other searches filter with other detectors (the air catch 0.27 m out and 0.23 m under
-the edge, -45 degrees x 1.2 m and 135 degrees x 0.38 m; the jump candidates -75 degrees x 0.27 m and 135 degrees x
-0.42 m; the pull-down -60 degrees x 1.2 m), ours' one hold list is the climbing grid's; the grab point shortening per
-probe box (`sub_116D3C0`) is done once at load, at free and cut ends only.
+contacts paired from its ledge grabs (`beam_pairs`, GUIDE-5: Damascus 4,582) and its posts (`add_pilotis`, 1,373). No
+swing bars along thin beams any more (2026-10-15; they were ours, Damascus 2,170, Masyaf 13): AC1 has no bar there, only
+the beam's two ledge grabs, and swings from one as from any hold a jump aims at as a free hang. Its jump query gives a
+hold the free hang (target type 0x80) by its zones and rays (a hang from its zone 2 or 3, 2.5 m of drop, no wall under
+from zone 2), and at the arrival (0xE093CC, Banned445's port) feet that find the wall take the wall reception whatever
+the type, none the swing reception (Ledge sub-state 8) for a 0x80 target. The running game's three ejects at the 0.17 m
+beam by the bureau (live log 2026-10-12, 2801 s: 2.1 m from the climb, 2.5 m over the feet, zone 2) flew `_to_swing`
+into `swing_cycle_front_up` and hung still at (47.03, 9.46); ours does the same now (`climb::swing_hold_ahead`, and the
+eject's own target). Each of AC1's searches sees the guidance through its own report and depth filter
+(`Level::holds_of`, `HoldView`, 2026-10-15): the climbing grid's and the ledge report's are the holds (`LEDGE`); the air
+catch's hand searches (`CATCH_HANDS`: 0.27 m out and 0.23 m under the edge, 45 degrees down x 1.2 m and 135 degrees back
+up x 0.38 m, the same thresholds; no ladder zones cut) Damascus 168,467 pieces; the jump query's (`JUMP`: 75 degrees
+down x 0.27 m, 135 x 0.42 m) 172,466; the pull-down's ledge report (`PULL_DOWN`: 2 cm out and up, 60 degrees down x 1.2
+m, the ladders' zones cut) 176,308. A detector's threshold is its own (the catch's feet search wants 0.35 m of the 1.2 m
+ray; ours' feet come from the climbing grid's holds). Made with the holds (2.7 s of an uncached Damascus load) and kept
+in the level cache. Not yet AC1's: the grab point shortening per probe box (`sub_116D3C0`) is done once at load, at free
+and cut ends only, the same for every view.
+
+The scenarios that failed after the depth filter (2026-10-15) were on ours' holds: the balcony corbels' first edge
+(reports #7, #8: 0.49 m in from the second, `Awning_6x2_Wood_01A`) and the awning beam under the plank walkway (11.37 m,
+user report 1319499) were ours' "buried" and are AC1's holds; the jump up from the climb takes the corbel, the free hang
+goes onto the beam; the window box's 0.13 m sloped piece (report 85785) is cut to 0.1 m, so the way down goes by the
+hold under it. A hay box rim's inner edge, now a 0.2 m piece behind the outer one, made ours' hang on the outer one a
+pole cap's (hands together): ours' pole-cap test takes only the hold nearest and facing the hang's way now.
 By prop type (Damascus, pieces / kept, 2026-10-12, before the depth filter): houses 74,289 / 69,848, windows 19,649 /
 17,469 (2,036 steep arches), souks 8,064 / 7,904, towers and minarets 7,517 / 7,135, beams 5,549 / 5,228, walls 5,084 /
 4,924, hiding places 4,836 / 4,805, doors 4,608 / 4,155, awnings 3,685 / 3,221, balconies 3,143 / 3,024, gardens 3,005 /
