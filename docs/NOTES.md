@@ -978,6 +978,14 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
     back in sequence (docs/SUBSYSTEMS.md "The frame" is such a measurement; `F:/Claude/re/work/subsys/order.py` sorts them).
   Tested without the game: the pad image and files, playback timing, addresses, fields, pokes, bookmarks (`cargo test
   -p ac1-hook`). Live checks pending: see the status of each in the hook's log when first used.
+- The live comparison (2026-10-15, `tools/live-compare.sh <pad file> [out]`): one `ac1lab pad v1` file played into the
+  real AC1 (the hook's `padplay`) and into ac1-rs (`AC1_PADPLAY`, `crates/game/src/padplay.rs`: its buttons as the
+  keys a controller's stand for, its sticks through AC1's dead zone, the player's own input path) at the same moment,
+  the real game's camera yaw at the start handed to ours (the stick is the camera's), then `livelog compare` of the
+  real live log and ours' recording. Pad files of our own making live in `crates/game/tests/pads/`; a scenario can
+  play one (`AC1_PADPLAY`, scripted runs take its input). First run, the bureau's wall: ours did not run up a wall it
+  leaned on with the legs pressed (fixed); open: running at a wall at an angle with the legs held, the running game
+  slid along it at about 1.8 m/s, ours at 0.5 m/s (run3, x 41.42).
 - The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
   each, with a `combo` scenario each (`AC1_SCENARIO_TAGS=combo`, about 40 s): G1 box, two beams across a gap, a swing
   bar, down onto a low beam (AC1's beam landing); G2 free running onto a ladder, up, a beam bridge, the leap of faith

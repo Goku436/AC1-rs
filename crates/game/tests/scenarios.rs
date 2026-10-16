@@ -1140,6 +1140,18 @@ const SCENARIOS: &[Scenario] = &[
         want: &["-> free_1m via xx_l_ledge_pulldown_soft_front_to_hangfree_b", "via xx_h_climbing_hangfree_tr_climb2m_down_", "leap -> 2m via"],
         never: &["EMBED"],
     },
+    // The live comparison's first pad file (2026-10-15, both games played it at once, `tools/live-compare.sh`): run north
+    // at the Damascus bureau's wall in high profile, the legs pressed and held once leaning on it. The running game ran
+    // up it from the lean (its Ground lead-in), rebounded off the top, landed and ran up again; ours stayed leaning (the
+    // lean's legs never reached it). Played through the player's own input, as a controller's.
+    Scenario {
+        name: "Damascus: pad file: leaning on the bureau's wall, the legs pressed in high profile run up it",
+        tags: &["wallrun", "ground"],
+        env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/bureau_wallrun.pad"))],
+        secs: 5.5,
+        want: &["-> lean via xx_h_collide_full_hand_150cm", "via xx_h_impultionstraight_footl_to_wallingfront_step1_footr", "rebound off it", "landed from"],
+        never: &["EMBED"],
+    },
     // User report 274414 (2026-10-15): free running off a roof onto a post and on, the free step at a roof's lip over
     // open air (no wall under it for the feet) swung on it like a bar. A ledge with a top behind it is caught into the
     // free hang; only a thin beam's side or a pole is swung from.

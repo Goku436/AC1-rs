@@ -69,10 +69,19 @@ pub fn read(
             mouse.release(MouseButton::Right);
         }
     }
-    let l = pad.left_stick().clamp_length_max(1.0);
-    stick.0 = if l.length() > DEAD { l.normalize() * ((l.length() - DEAD) / (1.0 - DEAD)) } else { Vec2::ZERO };
-    let r = pad.right_stick();
-    (r.length() > DEAD).then(|| r * TURN * time.delta_secs())
+    stick.0 = shaped(pad.left_stick());
+    camera_turn(pad.right_stick(), time.delta_secs())
+}
+
+/// The left stick past AC1's dead zone, its length mapped onto 0..1.
+pub fn shaped(l: Vec2) -> Vec2 {
+    let l = l.clamp_length_max(1.0);
+    if l.length() > DEAD { l.normalize() * ((l.length() - DEAD) / (1.0 - DEAD)) } else { Vec2::ZERO }
+}
+
+/// The camera's turn this frame (yaw, pitch; rad) from the right stick, past the dead zone.
+pub fn camera_turn(r: Vec2, dt: f32) -> Option<Vec2> {
+    (r.length() > DEAD).then(|| r * TURN * dt)
 }
 
 /// Log each controller as it connects (its name and USB ids), so a pad that isn't picked up can be told apart from one
