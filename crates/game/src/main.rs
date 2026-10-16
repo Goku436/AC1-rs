@@ -160,7 +160,22 @@ struct OrbitCam {
     dist: f32,
     /// Frames the video orbit (`AC1_ORBIT`) has gone round so far.
     orbit_frame: u32,
+    /// The seconds since the player last turned the camera (`camera_follow`).
+    manual: f32,
 }
+
+/// AC1's camera turning after Altaïr's heading: at this rate times the angle between (1/s), at most `CAMERA_FOLLOW_MAX`
+/// (rad/s), while he is within `CAMERA_FOLLOW_GATE` of the camera's way (rad), on the ground moving, in the air and on
+/// beams. Fitted to the running game's camera over ten live comparisons (2026-10-16): under 9 degrees rms in eight; held
+/// 57 degrees off the camera, the stick ran him round in a circle as the camera came round after him (street_run_stop);
+/// running at the camera, 144 degrees off, it held still (street_run_stop2); 116 off, it came round at up to 7 rad/s
+/// (roof_sprint2). Not modelled: the camera's own cuts off walls (run2).
+const CAMERA_FOLLOW: f32 = 4.0;
+const CAMERA_FOLLOW_MAX: f32 = 6.0;
+/// (Between the runs that bound it: 116 degrees off followed (roof_sprint2), 119.8 did not (roof_turn2).)
+const CAMERA_FOLLOW_GATE: f32 = 2.06;
+/// The follow waits this long after the player turns the camera (s): ours, so it does not fight the mouse.
+const CAMERA_FOLLOW_HOLD: f32 = 0.6;
 
 /// Frames a second of the video hooks (`AC1_ORBIT`, `AC1_FRAMES`).
 const FRAMES_FPS: f32 = 30.0;
@@ -464,6 +479,7 @@ fn main() {
             pitch: cam.get(1).copied().unwrap_or(-12.0).to_radians(),
             dist: cam.get(2).copied().unwrap_or(3.6),
             orbit_frame: 0,
+            manual: 0.0,
         })
         .insert_resource(GameDir(PathBuf::from(game_dir)))
         .insert_resource(Debug {
@@ -1240,6 +1256,9 @@ fn player_input(
     // (How far C's centring turned it: a cut, by the code, not the player's turn.)
     let centred = (cam.yaw - before_centre + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
     if grabbed {
+        if motion.delta.x != 0.0 {
+            cam.manual = 0.0;
+        }
         cam.yaw -= motion.delta.x * 0.003;
         let up = if cam.free.is_some() { 1.5 } else { 0.6 };
         cam.pitch = (cam.pitch - motion.delta.y * 0.003).clamp(-1.5, up);
@@ -1272,6 +1291,7 @@ fn player_input(
     let key = |k: KeyCode| -> f32 { if keys.pressed(k) { 1.0 } else { 0.0 } };
     let arrows = Vec2::new(key(KeyCode::ArrowRight) - key(KeyCode::ArrowLeft), key(KeyCode::ArrowUp) - key(KeyCode::ArrowDown));
     if arrows != Vec2::ZERO {
+        cam.manual = 0.0;
         cam.yaw -= arrows.x * ARROW_YAW_RATE * time.delta_secs();
         cam.pitch = (cam.pitch + arrows.y * ARROW_PITCH_RATE * time.delta_secs()).clamp(-1.5, 0.6);
     }
@@ -1434,6 +1454,7 @@ fn pad_input(
     mut cam: ResMut<OrbitCam>,
 ) {
     if let Some(turn) = pad::read(time, pads, keys, mouse, stick) {
+        cam.manual = 0.0;
         cam.yaw -= turn.x;
         let up = if cam.free.is_some() { 1.5 } else { 0.6 };
         cam.pitch = (cam.pitch + turn.y).clamp(-1.5, up);
@@ -1895,7 +1916,19 @@ fn camera_follow(
         cam.eye = tf.translation;
         return;
     }
-    let k = 1.0 - (-12.0 * time.delta_secs()).exp();
+    // AC1's camera turns after him while he moves (`CAMERA_FOLLOW`), unless the player turned it lately.
+    let dt = time.delta_secs();
+    cam.manual += dt;
+    let on_ground = ch.fall_v == 0.0 && ch.wall.as_ref().is_none_or(|w| w.legs_on_ground());
+    let moving = if on_ground { ch.velocity.with_y(0.0).length() > 0.3 } else { ch.wall.as_ref().is_some_and(|w| w.follows_camera()) || ch.fall_v != 0.0 };
+    if moving && cam.manual > CAMERA_FOLLOW_HOLD && dt > 0.0 {
+        let heading = target.rotation.to_euler(EulerRot::YXZ).0;
+        let d = (heading - cam.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        if d.abs() < CAMERA_FOLLOW_GATE {
+            cam.yaw += d.signum() * (CAMERA_FOLLOW * d.abs()).min(CAMERA_FOLLOW_MAX) * dt;
+        }
+    }
+    let k = 1.0 - (-12.0 * dt).exp();
     let at = cam.at.map_or(body, |a| a.lerp(body, k));
     cam.at = Some(at);
     let focus = at + Vec3::Y * cam.focus;

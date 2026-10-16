@@ -10,7 +10,8 @@
 //!
 //! `AC1_PADPLAY_GO=<file>` waits for that file to appear (and deletes it) before starting: the comparison script makes
 //! it as it sends the real game its `padplay`, so both start within a frame or two; it may hold the real game's camera
-//! yaw (ours' convention, radians), which ours' camera then starts at. `AC1_PADPLAY_RECORD=<file>`
+//! yaw (ours' convention, radians), which ours' camera then starts at. `AC1_PADPLAY_CAM=<yaw>` sets it without one (a scenario
+//! replaying a comparison's run). `AC1_PADPLAY_RECORD=<file>`
 //! writes the flight recorder's lines for every frame played (as a control run's `AC1_RECORD`), the ac1-rs side of
 //! `livelog compare`. `AC1_PADPLAY_QUIT=1` closes the game when the file is played out.
 
@@ -142,12 +143,12 @@ pub fn play(
         Stage::Waiting => {
             // (The go file may hold the real game's camera yaw (ours' convention, rad): the stick is the camera's,
             // so both games' cameras start the same way round the player.)
-            let mut cam_yaw = None;
+            let mut cam_yaw = std::env::var("AC1_PADPLAY_CAM").ok().and_then(|v| v.trim().parse::<f32>().ok());
             if let Some(go) = &play.go {
                 if !go.exists() {
                     return;
                 }
-                cam_yaw = std::fs::read_to_string(go).ok().and_then(|t| t.trim().parse::<f32>().ok());
+                cam_yaw = std::fs::read_to_string(go).ok().and_then(|t| t.trim().parse::<f32>().ok()).or(cam_yaw);
                 let _ = std::fs::remove_file(go);
             }
             let Ok((mut tf, mut ctl, mut ch)) = q.single_mut() else { return };
@@ -206,6 +207,7 @@ pub fn play(
     };
     stick.0 = pad::shaped(f.left);
     if let Some(turn) = pad::camera_turn(f.right, time.delta_secs()) {
+        cam.manual = 0.0;
         cam.yaw -= turn.x;
         cam.pitch = (cam.pitch + turn.y).clamp(-1.5, 0.6);
     }

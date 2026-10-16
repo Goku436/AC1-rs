@@ -28,6 +28,8 @@ const GROUND_PROLOGUE: [u8; 6] = [0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf0];
 
 const HUMAN_CONTEXT: usize = 0x48;
 const HUMAN_ENTITY: usize = 0x104;
+/// `HumanGround`'s heading: its angle (f32, radians), then the same as a direction (2 f32); read live 2026-10-16.
+const GROUND_HEADING: usize = 0x5FC;
 const HUMAN_ACTIONS: usize = 0x7dc;
 const ENTITY_MATRIX: usize = 0x10;
 
@@ -205,5 +207,18 @@ pub fn teleport(arg: &str) -> String {
         *f.add(13) = v[1];
         *f.add(14) = v[2];
     }
-    format!("tp to ({}, {}, {}); now {}", v[0], v[1], v[2], here())
+    // The ground's own heading too (`HumanGround` +0x5FC, its angle in radians from +X toward +Y, then the same as a
+    // direction): moving on from a teleport, the ground turns the body from it, not from the matrix. Left alone, the first
+    // step snapped the body back to the facing it had before the teleport (live comparison run3, 2026-10-16).
+    let mut heading = "";
+    if let (Some(&yaw), Some(ctx)) = (v.get(3), sys::peek(human + HUMAN_CONTEXT))
+        && crate::memcmd::class(ctx).as_deref() == Some("HumanGround")
+    {
+        let a = yaw.to_radians();
+        let bytes: Vec<u8> = [a, a.cos(), a.sin()].iter().flat_map(|x| x.to_le_bytes()).collect();
+        if sys::write(ctx as usize + GROUND_HEADING, &bytes) {
+            heading = ", the ground's heading too";
+        }
+    }
+    format!("tp to ({}, {}, {}){heading}; now {}", v[0], v[1], v[2], here())
 }

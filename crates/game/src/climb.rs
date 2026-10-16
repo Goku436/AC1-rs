@@ -361,6 +361,24 @@ fn wall_run_wall_ahead(level: &Level, feet: Vec3, dir: Vec3) -> bool {
         })
 }
 
+/// Whether the wall met at `hit` (outward normal `n`) goes on `WALL_SPAN` to both sides: a face there facing within 30
+/// degrees the same way, at most `WALL_SPAN_RECESS` behind the hit's plane (a pilaster or a window's reveal is no end: the
+/// Damascus bureau's wall run, user report 62377, met a strip 0.1 m proud of the wall; the corner of run3 steps 1.3 m back).
+fn wall_spans(level: &Level, hit: Vec3, n: Vec3) -> bool {
+    let n = n.with_y(0.0).normalize_or_zero();
+    let side = n.cross(Vec3::Y).normalize_or_zero();
+    [-WALL_SPAN, WALL_SPAN].iter().all(|s| {
+        let from = hit + side * *s + n * 0.3;
+        level.raycast(from, -n, 0.3 + WALL_SPAN_RECESS).is_some_and(|h| h.normal.with_y(0.0).normalize_or_zero().dot(n) > 0.87)
+    })
+}
+
+/// How far behind the contact's plane the wall to either side may be (m).
+const WALL_SPAN_RECESS: f32 = 0.3;
+
+/// How far to either side of the contact the wall run wants the wall (m): AC1's 0xE149E0.
+const WALL_SPAN: f32 = 0.5;
+
 /// A wall run takes walls whose face leans at most this much (the up part of its normal; about 44 degrees). Further
 /// over it is a floor (`level::WALL_MAX_UP`). The lean itself is measured by `wall_slope`.
 pub const WALL_RUN_MAX_UP: f32 = 0.7;
@@ -2127,6 +2145,8 @@ const EDGE_LAND_REACH: f32 = 0.4;
 const EDGE_LAND_IN: f32 = 0.15;
 const EDGE_LAND_DROP: f32 = 1.0;
 /// The knee catch takes a top under this much fall (m), the root ending this far onto it (m).
+/// The knee catch wants this much air under the feet (m): less is the landing.
+const KNEE_CATCH_AIR: f32 = 0.5;
 const KNEE_CATCH_FALL: f32 = 9.0;
 const KNEE_CATCH_IN: f32 = 0.3;
 
@@ -4348,6 +4368,13 @@ impl WallClimb {
             debug!("climb: no wall run: the wall is {:.0} degrees off square", run.dot(-n).clamp(-1.0, 1.0).acos().to_degrees());
             return None;
         }
+        // (AC1's test 0xE149E0, Banned445's port: the wall goes on 0.5 m to both sides of where the run meets it. Free running
+        // at the Damascus bureau's west wall 0.15 m from its corner, the running game stopped at it (its run stop); ours
+        // ran up into the recess past the corner, live comparison run3, 2026-10-16.)
+        if !wall_spans(level, hit.point, n) {
+            debug!("climb: no wall run: the wall ends within 0.5 m of where the run meets it");
+            return None;
+        }
         let fwd = -n;
         let facing = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, fwd), ..*root };
         let root = &facing;
@@ -5592,6 +5619,12 @@ impl WallClimb {
 
     /// Does a press of the legs act as on the ground (a stop at an edge, leaning on a wall), not as a wall move? (Stopped
     /// against a low block, the legs step up onto it: that is the climber's.)
+    /// Whether AC1's camera turns after him in this state (`camera_follow`): in the air (jumps, falls, vaults, leaps) and
+    /// on beams and posts, as on the ground; not hanging or climbing (the live comparisons, 2026-10-16).
+    pub fn follows_camera(&self) -> bool {
+        [JUMP, FALL, VAULT, LEAP, PERCH].contains(&self.state.as_str()) || self.beam_walk().is_some()
+    }
+
     pub fn legs_on_ground(&self) -> bool {
         self.state == GROUND_ACT || self.state == LEAN || self.state == CROUCH
     }
@@ -9866,7 +9899,11 @@ impl WallClimb {
         // AC1's knee catch (`xx_fall_tr_hangknee_<min|max>_a/b`, `max` after 3 m of fall, under 9 m; Banned445's
         // `air_catches.rs`, audit AIR-7): onto the top kneeling, then up, steered onto it. (Ours lifted the root onto
         // the top in one frame: off the bureau's roof north-west the running game caught the edge below with its knee.)
-        let knee = top_at_knees.filter(|_| self.fall_top - root.translation.y < KNEE_CATCH_FALL).and_then(|g| {
+        // (In the air: not with the ground under the feet, which is the landing. At the foot of a 7.7 m fall off a Damascus
+        // roof ours caught a 0.4 m kerb by the street with the knee, the feet already on the street, the hands popping
+        // 0.7 m; the running game landed and rolled, live comparison roof_turn2.)
+        let airborne = level.ground(root.translation + Vec3::Y * 0.1, 0.1, KNEE_CATCH_AIR).is_none();
+        let knee = top_at_knees.filter(|_| airborne && self.fall_top - root.translation.y < KNEE_CATCH_FALL).and_then(|g| {
             let m = if self.fall_top - root.translation.y >= CATCH_LONG_FALL { "max" } else { "min" };
             let clips = [format!("xx_fall_tr_hangknee_{m}_a"), format!("xx_fall_tr_hangknee_{m}_b"), STAND_UP.to_string()]
                 .iter()
@@ -10315,6 +10352,10 @@ impl WallClimb {
             // (Nor while still over the gap: AC1 aims the reception to start half a metre short of the edge, its step
             // carrying him onto it; left there, the run found no ground and fell.)
             && level.ground(root.translation, 0.3, 0.3).is_some()
+            // (Nor free running with the stick into a wall within 45 degrees of square: AC1's wall slide hands the ground a
+            // wanted speed of 0 there, no move to leave for; left for running, ours stopped against the wall over and over.
+            // Walking, the walk goes on into the lean on it.)
+            && !(self.sprint && crate::character::wall_head_on(level, root.translation, self.move_dir))
             && lib.graph.gate(&m.clip.name).is_some_and(|g| g.may_leave(true, self.high))
         {
             debug!("climb: {} left for running (its gate allows it)", m.clip.name);

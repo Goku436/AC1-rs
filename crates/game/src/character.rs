@@ -734,11 +734,17 @@ impl Character {
 }
 
 const WALL_DIST: f32 = 0.34;
-/// Turning on the ground (rad/s): AC1's rates, walking or running and free running, eased down to the `_NEAR` ones
-/// from `TURN_BAND_OUT` to `TURN_BAND_IN` off the way wanted (rad).
+/// Turning on the ground (rad/s): AC1's rates, high profile and free running (the interpreter's pairs at 0xEE6D3F: 4.0,
+/// 2.6), at that rate till the way wanted. (The live comparison, 2026-10-16, run2: from standing 51 degrees off, the
+/// running game turned 3.8-4.3 rad/s all the way to 2 degrees off; ours eased down to 1.5 there.)
 const TURN_RATE: f32 = 4.0;
 const TURN_RATE_FREE: f32 = 2.6;
+/// The low-profile walk's rate near the way wanted, and the band it eases over (rad): AC1's 1.5 rad/s and its
+/// RotateTowards band, 60 to 10 degrees, read live at the player's ground +0x6E0 / +0x6E4. Measured (roof_walk,
+/// 2026-10-16): 3.36 rad/s at 42 degrees off, 1.84 at 16, 1.58 at 9.
 const TURN_RATE_NEAR: f32 = 1.5;
+/// Free running's near rate, eased over the same band (AC1's 0.975 rad/s; roof_sprint2: from 26 to 6 degrees off at
+/// about 1.15 rad/s).
 const TURN_RATE_FREE_NEAR: f32 = 0.975;
 const TURN_BAND_OUT: f32 = std::f32::consts::FRAC_PI_3;
 const TURN_BAND_IN: f32 = 0.1745;
@@ -853,7 +859,14 @@ fn ground_move(
         // `xx_h_runstop_<foot>_tr_h_wait_hipm_<other>` (Banned445's port, audit GROUND-6 to 8).
         // (Not free running: that swings round at its turn rate.)
         let reversing = wants && ctl.high && !ctl.free_run && (input.dot(dir) < -std::f32::consts::FRAC_1_SQRT_2 || ch.reverse_hold >= REVERSE_LATCH);
-        if (!wants || reversing) && (ctl.high || ctl.free_run) {
+        // (Free running into a wall within 45 degrees of square that it does not run up: the wall slide's head-on case, the
+        // wanted speed 0 and the run stop allowed (0xEDD7C0's result 2). The running game stopped so (its legacy action 87,
+        // the run stop) at the Damascus bureau's west wall by its corner; ours ground along it, live comparison run3.)
+        let head_on = wants && ctl.free_run && wall_head_on(level, tf.translation, input);
+        if head_on {
+            debug!("ground: free running head-on into a wall at {speed:.2} m/s: the run stop");
+        }
+        if (!wants || reversing || head_on) && (ctl.high || ctl.free_run) {
             let s = crate::gait::value_at(speed);
             let sprint = ((s - crate::gait::BAND_RUN) * 4.0).clamp(0.0, 1.0);
             let stop = crate::animation::mix_name(&[(&format!("xx_h_runstop_{f}"), 1.0 - sprint), (&format!("xx_h_sprintstop_{f}"), sprint)]);
@@ -1136,6 +1149,29 @@ const HAY_WALK_IN_PILE: f32 = 1.2;
 const LADDER_AUTO_REACH: f32 = 0.6;
 /// ...or from its top, from this far in from its edge (m: AC1's feet within 1.5 m of the top).
 const LADDER_TOP_REACH: f32 = 1.5;
+/// Whether the stick `dir` meets a wall within 45 degrees of square at AC1's wall slide contact (`WALL_SLIDE_LOW` or 1 m
+/// over the feet, within `WALL_SLIDE_REACH` of the capsule): the slide's head-on case.
+pub fn wall_head_on(level: &Level, feet: Vec3, dir: Vec3) -> bool {
+    wall_contact(level, feet, dir).is_some_and(|n| dir.with_y(0.0).normalize_or_zero().dot(n) <= -std::f32::consts::FRAC_1_SQRT_2)
+}
+
+/// The flat outward normal of the wall the stick `dir` pushes into, touched at AC1's wall slide contact heights
+/// (`WALL_SLIDE_LOW` or 1 m over the feet) within `WALL_SLIDE_REACH` of the capsule, measured square to the wall (met at
+/// an angle, the wall is further along the stick than the capsule's radius: 0.54 m at 42 degrees off square, which a
+/// ray of the radius missed, and he ground along the Damascus bureau's west wall, live comparison run3).
+fn wall_contact(level: &Level, feet: Vec3, dir: Vec3) -> Option<Vec3> {
+    let d = dir.with_y(0.0).normalize_or_zero();
+    if d == Vec3::ZERO {
+        return None;
+    }
+    let reach = crate::level::BODY_RADIUS + WALL_SLIDE_REACH;
+    [WALL_SLIDE_LOW, 1.0].iter().find_map(|h| {
+        let hit = level.raycast(feet + Vec3::Y * *h, d, reach * 3.0).filter(|hit| hit.normal.y.abs() < 0.3)?;
+        let n = hit.normal.with_y(0.0).normalize_or_zero();
+        (hit.dist * -d.dot(n) <= reach).then_some(n)
+    })
+}
+
 /// AC1's wall slide: a wall touched this high over the feet or more (m), within this of the capsule (m).
 const WALL_SLIDE_LOW: f32 = 0.55;
 const WALL_SLIDE_REACH: f32 = 0.1;
@@ -1809,14 +1845,21 @@ pub fn locomotion(
         // cosine. (Nearer head-on, within 45 degrees, is the lean on it, `ground_move`.)
         if ch.wall.is_none() && target_v.length() > 0.1 {
             let d = target_v.normalize();
-            let contact = [WALL_SLIDE_LOW, 1.0].iter().find_map(|h| {
+            // (The slide's own contact along the stick within the capsule's reach; the head-on case measures square to the
+            // wall, `wall_contact`, as a wall met at an angle is further along the stick.)
+            let along = [WALL_SLIDE_LOW, 1.0].iter().find_map(|h| {
                 level.raycast(tf.translation + Vec3::Y * *h, d, crate::level::BODY_RADIUS + WALL_SLIDE_REACH).filter(|hit| hit.normal.y.abs() < 0.3)
             });
-            if let Some(hit) = contact {
-                let n = hit.normal.with_y(0.0).normalize_or_zero();
+            if let Some(n) =
+                along.map(|hit| hit.normal.with_y(0.0).normalize_or_zero()).or_else(|| wall_contact(&level, tf.translation, d).filter(|_| ctl.free_run))
+            {
                 let c = d.dot(n);
                 if c < 0.0 && c > -std::f32::consts::FRAC_1_SQRT_2 {
                     target_v = (d - n * c).normalize_or_zero() * target_v.length();
+                } else if c <= -std::f32::consts::FRAC_1_SQRT_2 && ctl.free_run {
+                    // (Head-on, free running: the wanted speed 0, as AC1's slide hands it the Ground; low and high profile
+                    // lean on the wall instead, `ground_move`.)
+                    target_v = Vec3::ZERO;
                 }
             }
         }
@@ -1917,9 +1960,17 @@ pub fn locomotion(
         let heading = if want.length() > 0.05 {
             let to = want.normalize();
             let angle = heading.angle_between(to);
-            let (fast, slow) = if ctl.free_run { (TURN_RATE_FREE, TURN_RATE_FREE_NEAR) } else { (TURN_RATE, TURN_RATE_NEAR) };
+            // (The low-profile walk and free running ease in over the last 60 to 10 degrees, AC1's RotateTowards band
+            // (0xD94F30, the band at the ground's +0x6E0 / +0x6E4); from standing and in high profile the running game turned
+            // at the full rate to within a few degrees, live comparisons 2026-10-16.)
             let near = ((angle - TURN_BAND_IN) / (TURN_BAND_OUT - TURN_BAND_IN)).clamp(0.0, 1.0);
-            let rate = slow + (fast - slow) * near;
+            let rate = if ctl.free_run {
+                TURN_RATE_FREE_NEAR + (TURN_RATE_FREE - TURN_RATE_FREE_NEAR) * near
+            } else if ctl.high || speed < STOP_SPEED {
+                TURN_RATE
+            } else {
+                TURN_RATE_NEAR + (TURN_RATE - TURN_RATE_NEAR) * near
+            };
             let step = (rate * dt).min(angle);
             let axis = if heading.cross(to).y >= 0.0 { Vec3::Y } else { Vec3::NEG_Y };
             if angle > 1e-4 { Quat::from_axis_angle(axis, step) * heading } else { to }
@@ -2086,19 +2137,20 @@ pub fn locomotion(
                 let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
                 let stick = ctl.move_dir.with_y(0.0).normalize_or_zero();
                 let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
-                let off = v.length() > 0.5 && stick.dot(facing) > std::f32::consts::FRAC_1_SQRT_2;
+                // (The stick held and not pulled back: running off a Damascus roof's edge with the stick already turned
+                // 54 degrees off the facing, 70 off the edge's way, the running game made its edge jump all the same; ours
+                // wanted both within 45 degrees and fell, live comparison roof_turn2, 2026-10-16.)
+                let off = v.length() > 0.5 && stick.dot(facing) > 0.0;
                 // (In a city, only off a guidance edge: AC1's step off (event 68) is sent for an edge report with a drop
-                // of 0.53 m or more and room for the body past it (0xD84190, 0xB2E7A0); its edge jump wants the stick and
-                // the facing within 45 degrees of the edge's normal. Off a drop with no edge he falls.)
+                // of 0.53 m or more and room for the body past it (0xD84190, 0xB2E7A0); its edge jump wants the facing
+                // within 45 degrees of the edge's normal. Off a drop with no edge he falls.)
                 let report = level
                     .guided()
                     .then(|| level.pick_report(tf.translation, facing, crate::edge_report::REPORT_RADIUS, std::f32::consts::PI))
                     .flatten()
                     .filter(|r| r.drop >= crate::climb::EDGE_STEP_DROP);
                 let at_edge = !level.guided() || report.is_some();
-                let jump = off
-                    && at_edge
-                    && report.is_none_or(|r| stick.dot(r.normal) > std::f32::consts::FRAC_1_SQRT_2 && facing.dot(r.normal) > std::f32::consts::FRAC_1_SQRT_2);
+                let jump = off && at_edge && report.is_none_or(|r| facing.dot(r.normal) > std::f32::consts::FRAC_1_SQRT_2);
                 let step = off && report.map_or(!level.guided(), |r| level.room_past_edge(&r));
                 debug!("ground: off the floor at {:.2}: edge report {report:?}, jump {jump}, step {step}", tf.translation);
                 ch.wall = jump

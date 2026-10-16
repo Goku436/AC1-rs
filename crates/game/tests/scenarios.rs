@@ -1152,6 +1152,38 @@ const SCENARIOS: &[Scenario] = &[
         want: &["-> lean via xx_h_collide_full_hand_150cm", "via xx_h_impultionstraight_footl_to_wallingfront_step1_footr", "rebound off it", "landed from"],
         never: &["EMBED"],
     },
+    // Live comparison run3 (2026-10-16): free running at the bureau's west wall 0.15 m from its corner, 36 degrees off
+    // square, the camera as the running game's was. AC1's wall run wants the wall 0.5 m to both sides (0xE149E0) and its
+    // wall slide's head-on case stops the run (legacy action 87, the run stop): one stop, no wall run, no grinding on.
+    Scenario {
+        name: "Damascus: pad file: free running into the bureau's wall by its corner stops at it once, no wall run",
+        tags: &["wallrun", "ground"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/bureau_wallrun.pad")),
+            ("AC1_PADPLAY_CAM", "2.20162"),
+        ],
+        secs: 5.5,
+        want: &["free running head-on into a wall at", "via xx_h_sprintstop_foot"],
+        never: &["EMBED", "via xx_h_wallingfront_entry_footl_a", "left for running"],
+    },
+    // Live comparison roof_turn2 (2026-10-16): running off a roof's edge in high profile with the stick turned 54 degrees
+    // off the facing, the running game made its edge jump (`run_front_050cm`); ours wanted the stick within 45 degrees of
+    // the edge's way too and fell.
+    Scenario {
+        name: "Damascus: pad file: running off the roof by the bureau with the stick turning right makes the edge jump",
+        tags: &["jump"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/roof_turn_edge.pad")),
+            ("AC1_PADPLAY_CAM", "-2.09159"),
+        ],
+        secs: 4.5,
+        want: &["climb: the edge jump"],
+        never: &["EMBED", "via xx_h_jumpstraight_clear_footall_tr_fall at [41.2"],
+    },
     // User report 274414 (2026-10-15): free running off a roof onto a post and on, the free step at a roof's lip over
     // open air (no wall under it for the feet) swung on it like a bar. A ledge with a top behind it is caught into the
     // free hang; only a thin beam's side or a pole is swung from.

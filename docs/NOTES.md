@@ -984,8 +984,13 @@ their idles). `AnimLib::use_set` gives a rig its replacements (under the shared 
   the real game's camera yaw at the start handed to ours (the stick is the camera's), then `livelog compare` of the
   real live log and ours' recording. Pad files of our own making live in `crates/game/tests/pads/`; a scenario can
   play one (`AC1_PADPLAY`, scripted runs take its input). First run, the bureau's wall: ours did not run up a wall it
-  leaned on with the legs pressed (fixed); open: running at a wall at an angle with the legs held, the running game
-  slid along it at about 1.8 m/s, ours at 0.5 m/s (run3, x 41.42).
+  leaned on with the legs pressed (fixed).
+  Later runs (21 in all, the street north of (44, 50), which has the city's crowd in the running game, and the roof at
+  (41, 20), which has none): the camera's follow, the turn rates, the wall run's span test, the head-on run stop, the
+  edge jump and the knee catch, in docs/PARKOUR.md "Live comparisons". The hook's `tp` sets the ground's own heading
+  too (`HumanGround` +0x5FC its angle, +0x600 its direction; left alone, the first step snapped back to the old
+  facing); the script gets the real player out of a hang first (the empty hand) and saves the real camera's yaw
+  (camyaw.txt).
 - The parkour gauntlet (2026-10-08, north-west: x -100 to -55, z 30 to 130): ten lanes along +X, one multi-move route
   each, with a `combo` scenario each (`AC1_SCENARIO_TAGS=combo`, about 40 s): G1 box, two beams across a gap, a swing
   bar, down onto a low beam (AC1's beam landing); G2 free running onto a ladder, up, a beam bridge, the leap of faith

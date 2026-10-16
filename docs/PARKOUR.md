@@ -80,9 +80,37 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 - **Turn attenuation** in high profile: beyond 45° off the facing the speed scales down to 0 at 90°, floor 0.1,
   rising back at 5/s and falling at 10/s. **[B]**
 - **Heading** turns toward the stick at a capped rate and the character moves along the heading, not the stick: 4.0
-  rad/s (2.6 free running), eased down to 1.5 / 0.975 within the last 60 to 10° (the interpreter's RotateTowards,
+  rad/s (2.6 free running), at that rate till the way wanted (no easing: live comparison run2, 3.8-4.3 rad/s to 2° off; the interpreter's RotateTowards,
   0xEE6D3F); a turn on the spot only past 90°. The running game turned 3.98 and 2.58 rad/s, its motion within 1-5° of
   its facing. **[B, measured; ours since 2026-10-10]**
+- **Live comparisons** (2026-10-16, `tools/live-compare.sh`: one pad file played into the running game and ours at
+  once, the real camera's yaw handed over; pad files in `crates/game/tests/pads/`). Found and fixed: **[V, ours]**
+  - The turn rates by profile: from standing and in high profile the full 4.0 rad/s to within 2 degrees (run2: 3.8-4.3);
+      the low-profile walk eases 4.0 to 1.5 over the 60-10 degree band (roof_walk: 3.36 at 42, 1.84 at 16, 1.58 at 9);
+      free running eases 2.6 to 0.975 (roof_sprint: 1.15 from 26 to 6 degrees off).
+  - AC1's camera turns after him: at 4/s times the angle to his heading, at most 6 rad/s, while he is within 118 degrees
+      of its way (116 off followed, 119.8 did not), on the ground moving, in the air and on beams; a held stick off its
+      way runs him round in a circle (street_run_stop). Fitted over 21 real runs: 510 degrees rms in all against 1331
+      with no follow. Not modelled: its cuts off walls (run2: 126 to 71 degrees in a frame). Paused 0.6 s after the
+      player turns it.
+  - The wall run wants the wall 0.5 m to both sides of where the run meets it (0xE149E0, a face within 0.3 m of the
+      contact's plane): at the bureau's west wall 0.15 m from its corner the running game stopped (its run stop, legacy
+      action 87) where ours ran up into the recess past the corner (run3).
+  - Free running into a wall within 45 degrees of square that is not run up: the wall slide's head-on case (0xEDD7C0
+      result 2, its 135 degree bound read in the exe), the wanted speed 0: the run or sprint stop once, then standing at
+      it; ours ground along the wall at 0.5 m/s. The contact is measured square to the wall (met at an angle the wall is
+      further along the stick).
+  - The edge jump wants the facing within 45 degrees of the edge's way and the stick held (not pulled back), not the
+      stick within 45 too: the running game jumped off a roof with the stick 70 degrees off the edge's way (roof_turn2).
+      Open: there it then fell past an awning 4.2 m down that ours' scorer takes as a far-edge target (AC1's own
+      LedgeGrab holds; its reason not found).
+  - The knee catch wants 0.5 m of air under the feet: at the foot of a 7.7 m fall ours caught a 0.4 m kerb with the
+      knee, the feet on the street (the running game landed and rolled).
+  - Leaning on a wall in high profile, the legs press runs up it (event 49 in the lean): ours' input sent the press to
+      the ground only (bureau_wallrun).
+  - Measured, not yet ours: the slide along a wall after the run stop is the camera coming round (it follows his
+      sideways slip), then a turn along the wall at walk speed (1.8-1.9 m/s); the real interpreter's high-profile flag
+      dropped mid-run in one run and not in another with the same input (not understood).
 - **Locomotion** is one action (0x05923BDB), an item per leading foot, each blending 17 clips by speed, hip lean
   (crowd avoidance, walk band) and bank (heading change, jog and up), with a jog slow-down timer and a sprint settle
   weight (`HumanGround__UpdateMoveBlend` 0xDA0810). The character moves by the blend's root motion, not by a speed.
