@@ -2,7 +2,8 @@
 //! work once a frame (`cmd::frame`), and screenshots of the frame the game just drew (its back buffer, through the
 //! game's own D3DX).
 //!
-//! With `ac1-hook.window` beside the exe (`x y w h`, screen pixels), the game draws at `w`×`h` in a window there: its
+//! With `ac1-hook.window` beside the exe (`x y w h`, screen pixels) and the game started `/windowed`, the game draws at
+//! `w`×`h` in a window there (started without `/windowed` it stays full screen): its
 //! `/windowed` mode otherwise makes a borderless window the size of the desktop, and resizing that window afterwards
 //! stops its rendering. The size is set where the device is made and on every `Reset`.
 //!
@@ -127,8 +128,13 @@ unsafe extern "system" fn reset(this: *mut c_void, params: *mut c_void) -> i32 {
     unsafe { std::mem::transmute::<usize, Reset>(RESET.load(Ordering::SeqCst))(this, params) }
 }
 
-/// The window asked for in `ac1-hook.window` (`x y w h`), if any.
+/// The window asked for in `ac1-hook.window` (`x y w h`), if any, and only when the game was started `/windowed`
+/// (`AC1 windowed.bat`): started any other way (Steam, `AC1 fullscreen.bat`) it keeps its own full-screen mode
+/// (`Fullscreen=1` in Assassin.ini).
 fn wanted() -> Option<[i32; 4]> {
+    if !std::env::args().any(|a| a.eq_ignore_ascii_case("/windowed")) {
+        return None;
+    }
     let text = std::fs::read_to_string(sys::game_file("ac1-hook.window")).ok()?;
     let v: Vec<i32> = text.split_whitespace().filter_map(|w| w.parse().ok()).collect();
     (v.len() >= 4 && v[2] > 0 && v[3] > 0).then(|| [v[0], v[1], v[2], v[3]])
