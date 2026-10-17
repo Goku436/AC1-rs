@@ -56,5 +56,4 @@ Driving which move plays from the move graph itself (`forge::graph::MoveGraph` i
 the code's action requests are found: 2035 action ids used in code, see docs/NOTES.md "What the executable's code asks for";
 every movement context now picks by AC1's tables or action ids, docs/PARKOUR.md "How far ours follows AC1's tables"; open: its 4 questions), the robe from AC1's own `DynamicMesh`/`ClothActionSettings`, combat (removed 2026-10-05; rebuild it
 on `HumanGround_Fight*` once movement is right), real hold data for climbing,
-Acre/Jerusalem/Kingdom checks, sound for Ogg-page tracks and the speech streams,
-the 64-bit quats of present-day Lucy's clips. Details are in the docs/NOTES.md status table and its Research section.
+Acre/Jerusalem/Kingdom checks, sound for Ogg-page tracks and the speech streams. Details are in the docs/NOTES.md status table and its Research section.
