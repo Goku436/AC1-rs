@@ -16,8 +16,9 @@
 //!   - `0c` 32 bit: `[idx:2][a:10][b:10][c:10]`, (v-511)/511*R
 //!   - `10` 48 bit: three u16, 15-bit field (v-16383)/16383*R, idx = top bits of u16 1,0
 //!   - `18` 96 bit: three f32 of a smallest-three quaternion, idx = low bits of f32 1,0
-//!   - `14` 64 bit: not decoded yet (104 tracks, all on two bones of present-day Lucy's `ucfa_lucy_*` clips: none of
-//!     Altaïr's)
+//!   - `14` 64 bit: one u64, `a` in bits 8-27, `c` in bits 32-51, and `b` split: its low 8 bits at 0 and its high 12
+//!     at 52 (bits 28-29 unused; idx at 30-31); each field `(v - 2^19 + 1)/(2^19 - 1) * R`. On two bones of
+//!     present-day Lucy's `ucfa_lucy_*` clips (104 tracks, none of Altaïr's).
 //! - translations, millimetres: `20` u32 `[x:11][y:11][z:10]` signed; `24` i16 x3; `1c` f32 x3 (m)
 //! - scalar byte channels (facial, events): `2c`, `34`, `38`; `28` f32, the camera clips' field of view (radians)
 //!
@@ -276,6 +277,15 @@ fn quat(kind: u8, b: &[u8]) -> Option<[f32; 4]> {
             let a: [u32; 3] = std::array::from_fn(|k| u16::from_le_bytes([b[k * 2], b[k * 2 + 1]]) as u32);
             let idx = (((a[1] >> 15) << 1) | (a[0] >> 15)) as usize;
             smallest_three(idx, a.map(|v| field(v & 0x7fff, 15)), false)
+        }
+        0x14 => {
+            // 64-bit smallest-three: `a` bits 8-27, `c` bits 32-51, `b` split (low 8 bits at 0, high 12 at 52),
+            // idx bits 30-31; bits 28-29 unused.
+            let q = u64::from_le_bytes(b[..8].try_into().unwrap());
+            let a = ((q >> 8) & 0xF_FFFF) as u32;
+            let bb = (((q >> 52) & 0xFFF) as u32) | (((q & 0xFF) as u32) << 12);
+            let cc = ((q >> 32) & 0xF_FFFF) as u32;
+            smallest_three(((q >> 30) & 3) as usize, [field(a, 20), field(bb, 20), field(cc, 20)], false)
         }
         0x18 => {
             // Three floats of a smallest-three quaternion; the dropped index hides in the low bits
@@ -575,6 +585,23 @@ mod tests {
         // 32-bit packed millimetre translation (helper bone at 73, 25, 7 mm).
         let t = translation(0x20, &[0x07, 0x64, 0x20, 0x09]).unwrap();
         assert!((t[0] - 0.073).abs() < 1e-4 && (t[1] - 0.025).abs() < 1e-4 && (t[2] - 0.007).abs() < 1e-4);
+    }
+
+    /// The 64-bit codec packs three 20-bit fields split across the word (the third across both ends) with the index
+    /// between them; round-trip three known components through it.
+    #[test]
+    fn codec_64_bit_splits_its_fields() {
+        let comps = [0.5f32, -0.25, 0.125];
+        let (idx, c) = (2usize, 524287u32);
+        let enc = |x: f32| (((x / R) + 1.0) * c as f32).round() as u32;
+        let (a, bb, cc) = (enc(comps[0]), enc(comps[1]), enc(comps[2]));
+        let q = ((a as u64) << 8) | ((cc as u64) << 32) | (((bb & 0xFFF) as u64) << 52) | (((bb >> 12) & 0xFF) as u64) | ((idx as u64) << 30);
+        let got = quat(0x14, &q.to_le_bytes()).unwrap();
+        let want = smallest_three(idx, comps, false);
+        for k in 0..4 {
+            assert!((got[k] - want[k]).abs() < 1e-3, "{got:?} vs {want:?}");
+        }
+        assert!((got.iter().map(|x| x * x).sum::<f32>() - 1.0).abs() < 1e-4);
     }
 
     fn clip(duration: f32, x: f32, angle: f32) -> Animation {
