@@ -1026,6 +1026,9 @@ const EJECT_REFUSE: f32 = 135.0 * std::f32::consts::PI / 180.0;
 const EJECT_FACE_UP: f32 = 1.0;
 const EJECT_FACE_REACH: f32 = 1.5;
 const EJECT_BEHIND_FACE: f32 = 0.15;
+/// An eject at a wall hang: the hold's wall within this far (m) of 1 m under it takes the surface flight (AC1's wall hang
+/// target, 0x40: its query's ray from 0.5 m out, `jump_query`'s sub-type 0x10 past 0.7 m).
+const EJECT_SURFACE_WALL: f32 = 0.7;
 /// An eject at a hold on an inside corner's other wall (its way out within 60 degrees of across the way he leaves, cos):
 /// turned onto that wall over the flight, up to this much (rad, `wall_hang_eject`).
 const EJECT_CORNER_OUT: f32 = 0.5;
@@ -2798,13 +2801,19 @@ fn drop_at_lip(level: &Level, feet: Vec3, x: Vec3, out: Vec3) -> Option<f32> {
     let (s, c) = 50f32.to_radians().sin_cos();
     let down = n * c - Vec3::Y * s;
     let len = (DROP_LIP_STEP + 0.05) / c;
-    if let Some(h) = level.raycast(q - down * len, down, len) {
+    // (A hit only short of the ray's end, as Havok's casts keep one under the fraction 1: a top that goes on flush past
+    // the edge, the ray ending on its plane, is no floor, else the lip's own top, a hair either way, decided the drop;
+    // the test level's doorway lintel, its hold strip 0.15 m out flush with the top, the edge line 0.06 m out.)
+    if let Some(h) = level.raycast(q - down * len, down, len).filter(|h| h.dist < len - DROP_LIP_END) {
         return Some(x.y - h.point.y);
     }
     let top = feet + Vec3::Y;
     let to = q - top;
-    level.raycast(top, to.normalize_or_zero(), to.length()).filter(|_| to.length() > 1e-4).map(|h| x.y - h.point.y)
+    level.raycast(top, to.normalize_or_zero(), to.length()).filter(|h| to.length() > 1e-4 && h.dist < to.length() - DROP_LIP_END).map(|h| x.y - h.point.y)
 }
+
+/// How far short of their ends the drop's lip rays must hit (m).
+const DROP_LIP_END: f32 = 0.001;
 
 /// How far past the edge the drop's lip checks aim (m): the step `Human__FindDropEdgeAhead` passes (0.02).
 const DROP_LIP_STEP: f32 = 0.02;
@@ -2847,11 +2856,11 @@ fn ladder_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
         .min_by(|a, b| (*a - from).length().total_cmp(&(*b - from).length()))
 }
 
-fn jump_hold_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
+fn jump_hold_target(level: &Level, from: Vec3, dir: Vec3, far: bool) -> Option<Vec3> {
     // (The hang the jump ends in decides where the root goes, as AC1's ledge targets (`hang_root`, 0xDD6730): under a
     // hold with a wall below for the feet, a wall hang; under one over nothing (a ledge over an arch), a free hang, the
     // root much lower. Aimed as for a wall hang there, the hands came by a metre over the hold and he flew on.)
-    jump_hold(level, from, dir).map(|(q, out)| {
+    jump_hold(level, from, dir, far).map(|(q, out)| {
         let wall = level.raycast(q - Vec3::Y * 1.0 + out * 0.5, -out, 0.5 + RECESS_MAX).is_some_and(|h| h.normal.dot(out) > 0.7);
         jump_hang_root(q, out, !wall)
     })
@@ -2895,8 +2904,16 @@ fn ac1_clear_way(level: &Level, from: Vec3, to: Vec3) -> bool {
 
 /// The hold a running jump along `dir` from `from` reaches for (see `jump_hold_target`): the point on it the hands go to,
 /// and its outward normal. As AC1: facing the jumper within 45 degrees, with room to hang under it (`Ac1Edge::hang`) and
-/// a clear way from the chest to the hang's chest (0.2 m out, 1.1 m under).
-fn jump_hold(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3)> {
+/// a clear way from the chest to the hang's chest (0.2 m out, 1.1 m under). `far`: past `JUMP_HOLD_REACH` too, inside
+/// AC1's hang zone (an eject: off the bureau wall's climb the running game flew 4.7 m across the courtyard onto the
+/// facing wall's hold 1.3 m up, live comparison 2026-10-23; ours made the no-target jump).
+fn jump_hold(level: &Level, from: Vec3, dir: Vec3, far: bool) -> Option<(Vec3, Vec3)> {
+    // (The far holds only with no near one: with them in, the nearest was a row under the one ejected at, report 423408.)
+    jump_hold_in(level, from, dir, false).or_else(|| far.then(|| jump_hold_in(level, from, dir, true)).flatten())
+}
+
+/// `jump_hold`'s holds within its reach and rise (`zoned` false), or past them in AC1's hang zone (`zoned`).
+fn jump_hold_in(level: &Level, from: Vec3, dir: Vec3, zoned: bool) -> Option<(Vec3, Vec3)> {
     let dir = dir.with_y(0.0).normalize_or_zero();
     level
         .ledges
@@ -2916,7 +2933,15 @@ fn jump_hold(level: &Level, from: Vec3, dir: Vec3) -> Option<(Vec3, Vec3)> {
         })
         .filter(|(q, _)| {
             let flat = (*q - from).with_y(0.0);
-            JUMP_HOLD_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_HOLD_RISE.contains(&(q.y - from.y))
+            let (d, rise) = (flat.length(), q.y - from.y);
+            // (Far, by AC1's zones: out of the jump's own (too high to land on there; its ceiling falls from 1.3 m at 3.5 m
+            // on to 0.8 at 4.7) and in the hang zone. The running game's hold was 1.28 m up, 4.8 m on.)
+            let within = if zoned {
+                d > 1.0 && rise <= *JUMP_HOLD_RISE.end() && !in_jump_zone(d, rise) && crate::jump_query::in_hang_zone(from, *q)
+            } else {
+                JUMP_HOLD_REACH.contains(&d) && JUMP_HOLD_RISE.contains(&rise)
+            };
+            within && flat.normalize().dot(dir) >= JUMP_TARGET_CONE
         })
         .filter(|(q, out)| Ac1Edge::probe(level, *q, *out).hang() && ac1_clear_way(level, from, *q + *out * 0.2 - Vec3::Y * 1.1))
         .min_by(|a, b| (a.0 - from).length().total_cmp(&(b.0 - from).length()))
@@ -3960,10 +3985,10 @@ impl WallClimb {
         {
             return Some(w);
         }
-        let hold = if ac1 { hang.map(|(q, out, _)| (q, out)) } else { jump_hold(level, p, dir) };
+        let hold = if ac1 { hang.map(|(q, out, _)| (q, out)) } else { jump_hold(level, p, dir, false) };
         let hang_root = match hang {
             Some((q, out, free)) => Some(jump_hang_root(q, out, free)),
-            None if !ac1 => jump_hold_target(level, p, dir),
+            None if !ac1 => jump_hold_target(level, p, dir, false),
             None => None,
         };
         let Some(mut to) = top.or(hang_root).or_else(|| ladder_target(level, p, dir)) else {
@@ -5006,7 +5031,7 @@ impl WallClimb {
         // wall of an inside corner stands out in front of the face, and stays a target.)
         let face = level.raycast(p + Vec3::Y * EJECT_FACE_UP, -away, EJECT_FACE_REACH).map(|w| w.point);
         let in_front = |h: Vec3| face.is_none_or(|f| (h - f).dot(away) >= -EJECT_BEHIND_FACE);
-        if let Some(h) = jump_hold_target(level, p, way).filter(|h| in_front(*h))
+        if let Some(h) = jump_hold_target(level, p, way, true).filter(|h| in_front(*h))
             && top.is_none_or(|t| (h - p).with_y(0.0).length() <= (t - p).with_y(0.0).length() + 0.3 && hold_y(h) >= t.y - 0.1)
         {
             return Some((h, true));
@@ -5079,7 +5104,7 @@ impl WallClimb {
         // the free step's: the running game's three ejects at holds, audit WALL-10.)
         let flight = format!("xx_h_air_front_050cm_{}_to_swing", if left { "footl" } else { "footr" });
         let (takeoff, air) = (lib.get(&mix_name(&parts))?, lib.get(&flight).or_else(|| lib.get(JUMP_AIR))?);
-        if let Some(w) = Self::wall_hang_eject(lib, level, root, h, away, &takeoff, &air, from.clone()) {
+        if let Some(w) = Self::wall_hang_eject(lib, level, root, h, away, &takeoff, &air, left, from.clone()) {
             return Some(w);
         }
         let planned = Transform { rotation: facing(away), ..*root };
@@ -5126,6 +5151,7 @@ impl WallClimb {
         away: Vec3,
         takeoff: &Arc<Clip>,
         air: &Arc<Clip>,
+        left: bool,
         from: Option<Pose>,
     ) -> Option<WallClimb> {
         let p = root.translation;
@@ -5140,9 +5166,20 @@ impl WallClimb {
             return None;
         }
         let tilt = level.raycast(hold - Vec3::Y * 0.8 + out * 0.6, -out, 1.2).map_or(0.0, |w| (-w.normal.y).clamp(-1.0, 1.0).asin());
-        let j = crate::jump::surface(h.y - p.y, (h - p).with_y(0.0).length(), true, false, tilt);
-        // (After the hang flight, the reception's own items, not the surface flight's way into them.)
-        let reception = j.reception.iter().skip(1).map(|(n, _)| lib.get(n)).collect::<Option<Vec<_>>>()?;
+        let j = crate::jump::surface(h.y - p.y, (h - p).with_y(0.0).length(), left, false, tilt);
+        // AC1's flight by the target's type: a hold with the wall within `EJECT_SURFACE_WALL` under it (its query's wall
+        // hang, 0x40) the surface flight (action 0x011E555B, `air_front_050cm_<foot>_to_surface`) and its way into the
+        // reception (`air_surface_tr_hangwall_reception_*`); one further out (0x80, a free hang) the hang flight (action
+        // 0x0121A149, `_to_swing`), the reception's own items after it when the feet find the wall on arriving. (Live
+        // comparison 2026-10-23: off the bureau wall's climb across the courtyard onto the facing wall's hold, the surface
+        // flight; ours flew the hang flight to every wall hang, its hands low at the hips, "about to grab a bar".)
+        let surface = level.raycast(hold - Vec3::Y + out * 0.5, -out, 1.4).is_some_and(|w| w.dist - 0.5 < EJECT_SURFACE_WALL);
+        let parts: Vec<(&str, f32)> = j.flight.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+        let (air, skip) = match lib.get(&mix_name(&parts)).filter(|_| surface) {
+            Some(f) => (f, 0),
+            None => (air.clone(), 1),
+        };
+        let reception = j.reception.iter().skip(skip).map(|(n, _)| lib.get(n)).collect::<Option<Vec<_>>>()?;
         let clips: Vec<Arc<Clip>> = [takeoff.clone(), air.clone()].into_iter().chain(reception).collect();
         let mut turn = Quat::IDENTITY;
         let mut motion = Vec3::ZERO;
@@ -5208,7 +5245,11 @@ impl WallClimb {
         w.catch_hold = Some(ledge);
         w.snap_turn = true;
         w.ease_in(from, root);
-        debug!("climb: eject at the wall hang on the hold at {hold:.2} ({:.2} m to correct)", correct.length());
+        debug!(
+            "climb: eject at the wall hang on the hold at {hold:.2} ({:.2} m to correct, {})",
+            correct.length(),
+            if surface { "the surface flight" } else { "the hang flight" }
+        );
         Some(w)
     }
 
@@ -5745,7 +5786,7 @@ impl WallClimb {
         (ac1 && ac1_jump_choice(level, p, dir, None).is_some())
             || jump_target(level, p, dir, None).is_some()
             || bar_ahead(level, p, dir).is_some()
-            || (!ac1 && jump_hold_target(level, p, dir).is_some())
+            || (!ac1 && jump_hold_target(level, p, dir, false).is_some())
             || ladder_target(level, p, dir).is_some()
     }
 
@@ -7323,7 +7364,7 @@ impl WallClimb {
             let t2 = t + fwd * SWING_TOP_IN;
             (level.ground(t2 + Vec3::Y * 0.3, 0.0, 0.6).map_or(t, |g| g.point), false)
         });
-        let target = bar.or(top).or_else(|| jump_hold_target(level, p, fwd).map(|t| (t, false)));
+        let target = bar.or(top).or_else(|| jump_hold_target(level, p, fwd, false).map(|t| (t, false)));
         // (No target: the free jump along the facing, AC1's free target `EJECT_FREE_ALONG` on and `EJECT_FREE_DOWN` down,
         // when the box ahead holds nothing (IHumanLedge vt104: half 0.2 across, 1 along and 0.75 up, 1 m ahead and 0.75 m
         // up of the root; Banned445's port `free_jump_room`); else it swings on.)
