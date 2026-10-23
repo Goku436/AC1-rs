@@ -23,6 +23,40 @@ static TRIGGER_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 /// Camera turn rate at full right stick (rad/s).
 const TURN: f32 = 2.6;
 
+/// AC1's stick tracker (`sub_55E7E0`): a stick within 5 degrees of straight ahead reads straight ahead (tracker +0xA8,
+/// cos 5 degrees), and the angle off ahead then goes through the left stick's response curve (tracker +0x600, x the
+/// angle over pi, y radians, piecewise linear): 10 degrees steers 5, 20 steers 10, 30 steers 20, from 40 on as pushed.
+/// The curved direction is the ground's steering (+0x1270). (Read by Banned445, 576860d..c78db3a; ours steered by the
+/// raw stick, a pad's small angles off ahead turning him twice as far.)
+const SNAP_COS: f32 = 0.996_194_7;
+const CURVE: [(f32, f32); 7] = [
+    (0.0, 0.0),
+    (0.027_777_78, 0.017_453_292),
+    (0.055_555_56, 0.087_266_46),
+    (0.111_111_11, 0.174_532_93),
+    (0.166_666_67, 0.349_065_86),
+    (0.222_222_22, 0.698_131_7),
+    (1.0, std::f32::consts::PI),
+];
+
+/// The stick (x right, y forward) as AC1's tracker passes it on: snapped, then curved, its length kept.
+pub fn tracked(stick: Vec2) -> Vec2 {
+    let len = stick.length();
+    if len < 1e-6 {
+        return Vec2::ZERO;
+    }
+    let n = stick / len;
+    if n.y > SNAP_COS {
+        return Vec2::Y * len;
+    }
+    let a = n.x.atan2(n.y);
+    let x = a.abs() / std::f32::consts::PI;
+    let c =
+        CURVE.windows(2).find(|w| x >= w[0].0 && x <= w[1].0).map_or(std::f32::consts::PI, |w| w[0].1 + (x - w[0].0) * (w[1].1 - w[0].1) / (w[1].0 - w[0].0))
+            * a.signum();
+    Vec2::new(c.sin(), c.cos()) * len
+}
+
 pub enum Target {
     Key(KeyCode),
     Mouse(MouseButton),
@@ -89,5 +123,22 @@ pub fn camera_turn(r: Vec2, dt: f32) -> Option<Vec2> {
 pub fn log_connected(pads: Query<(&Gamepad, Option<&Name>), Added<Gamepad>>) {
     for (pad, name) in &pads {
         info!("controller connected: {} (vendor {:04x?}, product {:04x?})", name.map_or("?", |n| n.as_str()), pad.vendor_id(), pad.product_id());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_tracker_snaps_ahead_and_curves_small_angles() {
+        let at = |deg: f32| Vec2::new(deg.to_radians().sin(), deg.to_radians().cos());
+        let angle = |v: Vec2| v.x.atan2(v.y).to_degrees();
+        assert_eq!(tracked(at(3.0)), Vec2::Y);
+        assert!((angle(tracked(at(10.0))) - 5.0).abs() < 0.01);
+        assert!((angle(tracked(at(-30.0))) + 20.0).abs() < 0.01);
+        assert!((angle(tracked(at(90.0))) - 90.0).abs() < 0.01);
+        assert!((tracked(at(60.0) * 0.5).length() - 0.5).abs() < 1e-5);
+        assert_eq!(tracked(Vec2::ZERO), Vec2::ZERO);
     }
 }

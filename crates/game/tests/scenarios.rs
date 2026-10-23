@@ -332,9 +332,11 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "rebound off block L's ladder: the legs with the stick pulled back",
         tags: &["ladder", "jump"],
+        // (Off the foot the rung's wait ends on: which one comes down to the step reached at 4.2 s, the right since the
+        // ladder's steps take their rate from the stick each frame.)
         env: &[("AC1_START", "23.5,-5.4,0"), ("AC1_CLIMB", "up=2.5,down=3"), ("AC1_HIGH", "4.0-4.6"), ("AC1_LEGS", "4.2-4.3")],
         secs: 7.0,
-        want: &["rebound off the ladder", "back eject, 0 degrees off straight away (xx_h_rebound_frontright_front_550cm_footl_to_air)", "land -> ground"],
+        want: &["rebound off the ladder", "back eject, 0 degrees off straight away (xx_h_rebound_frontright_front_550cm_foot", "land -> ground"],
         never: &["EMBED", "landing_damage_footl_roll"],
     },
     Scenario {
@@ -1152,16 +1154,163 @@ const SCENARIOS: &[Scenario] = &[
         want: &["-> lean via xx_h_collide_full_hand_150cm", "via xx_h_impultionstraight_footl_to_wallingfront_step1_footr", "rebound off it", "landed from"],
         never: &["EMBED"],
     },
+    // User recording 17480 (2026-10-20, "parkour freerun jump still doesn't work"): played, the test level has its prop
+    // zone, whose Damascus props brought AC1's guidance edges in, so the level counted as a city's (`Level::guided`) and
+    // free running off every platform waited for an edge report and fell; scripted runs leave the props out and jumped.
+    Scenario {
+        name: "test level with the prop zone: pad file: free running off the 6 m platform leaps the gap and jumps down on",
+        tags: &["jump", "ground"],
+        env: &[("AC1_PROPS", "1"), ("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/props_freerun.pad"))],
+        secs: 5.0,
+        want: &["running jump aimed at [4.58", "running jump aimed at [14.33"],
+        never: &["EMBED", "jump false, step false"],
+    },
+    // The eject at the inside corner's other wall: the side takeoff turns the root a quarter, so it starts turned away from
+    // the wall it leaves and the reception ends facing B. (Started facing B, it caught B's hold facing A, the hands
+    // stretched sideways, and the hang then squared up onto A; off the climb, turned into A, A's holds caught it 0.5 m up.)
+    Scenario {
+        name: "pad file: the eject off wall A's hang at the inside corner catches B's hold facing B",
+        tags: &["wallrun", "hang", "eject"],
+        env: &[("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/corner_eject.pad"))],
+        secs: 5.0,
+        want: &["eject at the wall hang on the hold at [-2.94, 4.19", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c"],
+        never: &["EMBED", "squaring up to the wall"],
+    },
+    Scenario {
+        name: "pad file: the climb's jump by the inside corner goes up onto B's hold, not back onto A",
+        tags: &["climb", "hang", "eject"],
+        env: &[("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/corner_climb_eject.pad"))],
+        secs: 6.5,
+        want: &["eject at the wall hang on the hold at [-2.94, 5.39", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c"],
+        never: &["EMBED", "squaring up to the wall", "xx_fall_tr_climb_min_a"],
+    },
+    // (Off C's hang the side eject caught A's side face 0.43 m behind C's face, curving round C's corner into the gap.)
+    Scenario {
+        name: "pad file: the side eject off block C's hang goes along the wall, not round into the gap at A's side",
+        tags: &["wallrun", "hang", "eject"],
+        env: &[("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/gap_eject.pad"))],
+        secs: 5.0,
+        want: &["back eject, -89 degrees off straight away", "-> land via xx_h_landing_damage_footl"],
+        never: &["EMBED", "eject at the wall hang on the hold at [3.06", "xx_hangwall_reception"],
+    },
+    // User recording 116252 (2026-10-22): up the test level's alley by the wall run's rebound and the climb, then back off
+    // the top from the stand-up (the free-step stay's free jump, AC1's back-right free-step takeoff). Planned already
+    // facing the way, the takeoff turned him a second time (-333 degrees), its 2.5 m back carried him onto the top toward
+    // the wall, and he flew off facing the wall. Now the takeoff turns him itself, from the facing he had.
+    Scenario {
+        name: "test level alley: the free jump back off the top from the stand-up turns once and goes away from the wall",
+        tags: &["jump", "wallrun", "eject"],
+        env: &[
+            ("AC1_PROPS", "1"),
+            ("AC1_START", "30.4,20.0,180"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HEADINGS", "0,-90;0.3,-90;0.32,90;3.87,90;3.89,-63"),
+            ("AC1_HIGH", "0-6"),
+            ("AC1_LEGS", "0-6"),
+            ("AC1_JUMP", "0.5"),
+            ("AC1_CLIMB", "nograb,none=1.6,up=2.3"),
+        ],
+        secs: 5.0,
+        want: &[
+            "free-step stay at [30.93, 3.59, 19.64]",
+            "via xx_h_freestep_backright_front_550cm_footl_to_air at [30.93, 3.59, 19.64] yaw -0",
+            "xx_h_air_down_800cm_footl_to_freestep_down at [31.5",
+        ],
+        never: &["EMBED", "_to_freestep_down at [29."],
+    },
+    // User recording 56678 (2026-10-23): Damascus, an inside corner by the street east of the roof, the run's jump onto
+    // wall A's hang, the eject right onto wall B's climb, up a metre and the eject front-left at A's hold 1.2 m along it.
+    // The reception refused a start facing along B and the fall flew him on facing away, caught A's hold side on and
+    // turned 70 degrees in the catch (the old build here missed it and fell 3.5 m). Now he turns onto A over the flight.
+    Scenario {
+        name: "Damascus inside corner: the eject off B's climb at A's hold turns onto A in the flight, into its reception",
+        tags: &["climb", "hang", "eject"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_START", "41.5,-101.5,-76,9.6"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-8"),
+            ("AC1_LEGS", "0-1.0"),
+            ("AC1_STOP", "1.2-2.4"),
+            ("AC1_HEADINGS", "0,16;2.39,16;2.4,90;4.79,90;4.8,-45"),
+            ("AC1_CLIMB", "nograb,none=4.0,up=0.3"),
+            ("AC1_JUMP", "2.6,5.6"),
+        ],
+        secs: 7.5,
+        want: &[
+            "-> 2m via xx_fall_tr_climb_min_b at [46.28, 9.52",
+            "eject at the wall hang on the hold at [47.01, 12.02",
+            "-> hangwall_open via xx_hangwall_reception_front_straight_min_c at [46.57, 10.92",
+        ],
+        never: &["EMBED", "squaring up to the wall", "xx_fall_tr_hangwall", "xx_h_jumpfalling01"],
+    },
+    // User recording 142770 (2026-10-23): Damascus, on the beam over the street east of the roof, at its T with the beam
+    // running north off it. Turned to face along that beam, he stayed crouched across his own; the stick held, the
+    // camera following and the turns went round. Now he walks on along the crossing beam.
+    Scenario {
+        name: "Damascus beam T: turned at the crossing to face along the other beam, he walks on along it",
+        tags: &["beam"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_START", "78.5,-94.0,-90,8.5"),
+            ("AC1_WALK", "3"),
+            ("AC1_HIGH", "0-2.5"),
+            ("AC1_STOP", "2.5-2.8"),
+            ("AC1_HEADINGS", "0,0;2.79,0;2.8,180;4.59,180;4.6,-90"),
+        ],
+        secs: 8.0,
+        want: &[
+            "onto perch 261",
+            "via xx_l_beam_crouchwait_footl_turn_left_to_crouchwait_90 at [84.5",
+            "on along the crossing beam 262",
+            "along the beam at the crouch walk",
+        ],
+        never: &["EMBED"],
+    },
+    // (The empty hand pressed in the flight unaimed it: the swing reception was never taken and he fell 2.8 m past the
+    // beam, or the fall's catch took it into the knee hang mid-flight (user recording 95192).)
+    Scenario {
+        name: "Damascus beam 1.4 m up: the hand pressed in the jump's flight, he still catches it into the swing",
+        tags: &["jump", "beam"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_START", "45.55,-55.82,1,6.5"),
+            ("AC1_WALK", "4.5"),
+            ("AC1_HIGH", "0-3"),
+            ("AC1_JUMP", "0.3"),
+            ("AC1_HAND", "0.6"),
+        ],
+        secs: 3.0,
+        want: &[
+            "jumping at the free hang at [45.51, 7.21, -59.86]",
+            "reaching to catch a hold on the way down",
+            "caught the free hang at [45.51, 7.21, -59.86] into the swing",
+        ],
+        never: &["EMBED", "landed from", "xx_fall_tr_hangknee"],
+    },
+    // (The plain step off's root goes 0.5 m in toward the wall and its stand 0.3 m more: he stood 0.35 m past the wall's
+    // face, round the corner. Now he stands 0.35 m out from it.)
+    Scenario {
+        name: "pad file: the step off sideways at block B's outside corner stands clear of the wall's face",
+        tags: &["climb", "ground"],
+        env: &[("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/corner_step_off.pad"))],
+        secs: 3.5,
+        want: &["stepped off the wall sideways (left)", "via xx_l_climb_1m_to_groundentry_left_tr_h_wait_footl at [-2.26, 0.00, 2.37]"],
+        never: &["EMBED"],
+    },
     // Live comparison run3 (2026-10-16): free running at the bureau's west wall 0.15 m from its corner, 36 degrees off
     // square, the camera as the running game's was. AC1's wall run wants the wall 0.5 m to both sides (0xE149E0) and its
     // wall slide's head-on case stops the run (legacy action 87, the run stop): one stop, no wall run, no grinding on.
     Scenario {
         name: "Damascus: pad file: free running into the bureau's wall by its corner stops at it once, no wall run",
         tags: &["wallrun", "ground"],
+        // (Its own pad, started on the heading the running game had (`bureau_corner.pad`'s note): from the shown yaw, 51
+        // degrees off, ours turned on the spot and the camera's follow came round after the turn, bending the run 14
+        // degrees off the wall's corner.)
         env: &[
             ("AC1_LEVEL", "damascus"),
             ("AC1_NO_CROWD", "1"),
-            ("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/bureau_wallrun.pad")),
+            ("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/bureau_corner.pad")),
             ("AC1_PADPLAY_CAM", "2.20162"),
         ],
         secs: 5.5,
@@ -1312,6 +1461,26 @@ const SCENARIOS: &[Scenario] = &[
         ],
         never: &["EMBED", "AC1's catch search"],
     },
+    // The same eject with the legs and high profile held on: a beam's side is a free hang, not a bar (user play-test
+    // 2026-10-16: beams swung on like bars). The one upswing of the reception, then the still free hang; no swing on.
+    Scenario {
+        name: "Damascus: the eject at the bureau beam with the legs held on hangs free from it, no bar swing",
+        tags: &["eject", "hang", "bars"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "47.6,-20,-90,5.55"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_STOP", "1.0"),
+            ("AC1_HIGH", "0-10"),
+            ("AC1_LEGS", "0-10"),
+            ("AC1_JUMP", "2.6,5.9"),
+            ("AC1_CLIMB", "nograb,wait=2.4,up=1.6,wait=2.6,up=2.4"),
+        ],
+        secs: 9.0,
+        want: &["(a free hang: the swing)", "caught the free hang at [47.03, 11.86", "hanging still"],
+        never: &["EMBED", "xx_h_swing_cycle_front_down", "swinging up again", "the swing jump", "the swing comes to rest"],
+    },
     // The same beam frame's lower beam (0.2 m, its holds along the wall, 1.3 m under the climb a row up): ejected back
     // along it, AC1's pick is the beam to land on (its beam contact), not a free hang: no swing (it was one of ours'
     // invented thin-beam bars before).
@@ -1446,8 +1615,49 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["bars", "jump"],
         env: &[("AC1_START", "50.3,0,-90"), ("AC1_WALK", "6"), ("AC1_HIGH", "0-10"), ("AC1_LEGS", "0-10")],
         secs: 3.0,
-        want: &["blend into xx_h_run_front_300cm_footr_to_air: kind 1 0.10 s", "blend into xx_h_swing_cycle_back_down: kind 0 0.00 s -> None"],
+        // (Held through the catch, the swing jump goes off at its end, one swing (AC1's guard 0xDCD000, user play-test
+        // 2026-10-16): no cycle, so no `back_down` cut; the catch hands over to the takeoff.)
+        want: &[
+            "blend into xx_h_run_front_300cm_footr_to_air: kind 1 0.10 s",
+            "caught bar 0 at [55.00, 4.40, 0.00]",
+            "blend into xx_h_swing_cycle_up_300cm_to_air: kind 2 0.20 s",
+        ],
         never: &["EMBED"],
+    },
+    // AC1's swing jump (event 7, guard 0xDCD000) is taken at the end of the catch or of `back_down`, when high profile,
+    // the legs and the stick within 75 degrees of the facing are held then: the stick let go over the catch, the legs
+    // held, it swings the whole cycle and jumps at the end of `back_down`, two swings; the next bar, everything held as
+    // its catch ends, in one (user play-test 2026-10-16).
+    Scenario {
+        name: "a swing bar with the stick let go as the catch ends swings the whole cycle, the next one held through in one",
+        tags: &["bars", "jump"],
+        env: &[
+            ("AC1_START", "66.14,23.4,0,6.5"),
+            ("AC1_WALK", "1.5"),
+            ("AC1_STOP", "0.9-1.6"),
+            ("AC1_JUMP", "0.5"),
+            ("AC1_HIGH", "0-5"),
+            ("AC1_LEGS", "0.6-5"),
+        ],
+        secs: 5.0,
+        want: &[
+            "caught bar 2 at [66.14, 8.09, 20.00]",
+            "via xx_h_swing_cycle_back_down",
+            "the swing jump at [66.14, 7.69, 16.60] (a bar)",
+            "caught bar 3 at [66.14, 8.09, 16.60]",
+            "via xx_h_air_up_300cm_footl_to_swing_tr_swing_front_a",
+        ],
+        never: &["hanging still", "EMBED"],
+    },
+    // AC1's stop (event 6, guard 0xDCCF40): the legs let go, it stops at the end of the next down item, the move graph's
+    // stop for it: `back_down` into the front stop (0x023E0C61), `front_down` into the back one (Banned445's port).
+    Scenario {
+        name: "swing bar: the legs let go mid-swing stop it at the end of the down item, the graph's stop for it",
+        tags: &["bars"],
+        env: &[("AC1_START", "50.3,0,-90"), ("AC1_WALK", "6"), ("AC1_STOP", "0.7-5"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-2.0")],
+        secs: 5.0,
+        want: &["caught bar 0 at", "via xx_h_swing_cycle_back_down", "the swing comes to rest (front)", "via xx_h_swing_stop_front_d"],
+        never: &["the swing jump", "EMBED"],
     },
     // The eject with nothing to land on (`back_eject`), from a wall run's catch at the hang on the test level's wall: the
     // stick to the left of the wall goes left (toward -Z here), to the right right. (The climbing stick is read facing the
@@ -1739,9 +1949,10 @@ const SCENARIOS: &[Scenario] = &[
             // depth filter (`Awning_6x2_Wood_01A`), where ours' "buried" rule threw it away; the jump up takes it, the
             // hand steps then go on out as before.)
             "jump up from the climb to the ledge at [114.59, 11.33",
-            // (How far up is measured from the free hang's hands; since 2026-10-13 the jump up hangs at AC1's 2.4 m under
-            // the corbel it caught at once, and the steps are 0.43 and 0.33 m up where they were 0.12-0.13 and 0.3.)
-            "hand steps onto the edge 0.33 up",
+            // (How far up is measured from the free hang's hands, AC1's rows' origin, 2.4 m over the root since 2026-10-20 (it
+            // was 2.1, 0.3 m under the hands at rest): the steps are 0.15, 0.13 and 0.32 m up. The steps now end on the free
+            // hang's rest, so no step is followed by the rest's 0.3 m slide down.)
+            "hand steps onto the edge 0.32 up",
             "up and 0.46 out",
             "hand steps onto the edge 0.3",
             // (0.38: the free hang's wait after the jump up from the climb is AC1's mix by how far out it jumped, its hands
@@ -1903,7 +2114,7 @@ const SCENARIOS: &[Scenario] = &[
         want: &[
             "hand steps onto the edge -0.32 up and -0.38 out at [82.14, 3.72",
             "hand steps onto the edge -0.12 up and -0.46 out at [82.14, 3.59",
-            "hand steps onto the edge 0.33 up and 0.38 out at [82.14, 4.03",
+            "hand steps onto the edge 0.32 up and 0.38 out at [82.14, 4.03",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [82.1",
         ],
         never: &["EMBED"],
@@ -2455,11 +2666,36 @@ const SCENARIOS: &[Scenario] = &[
         secs: 13.0,
         want: &[
             "leap -> free_1m via xx_fall_tr_hangfree_min_b at [-45.29, 9.75",
-            "hand steps onto the edge 0.60 up and 0.04 out at [-45.28, 12.45",
+            "hand steps onto the edge 0.30 up and 0.04 out at [-45.28, 12.45",
             "free_1ru -> free_1m via xx_h_hangfree_climb_1ru_u_1m at [-45.55",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [-45.56, 12.93",
         ],
         never: &["EMBED"],
+    },
+    // Played by hand (a pad file, 2026-10-20): the same let go off the slab's free hang, the empty hand pressed again in the
+    // fall (as a player catches: pressed and held, not held from before). The catch takes holds 0.45 m under the one let go
+    // of, which was taken as a wall hang's (1.13 m over the root, not the free hang's 2.4): the knob and the arch 0.4-0.8 m
+    // under the slab's edge were turned down and he fell 4 m to the floor. Now the knob under the slab is caught.
+    Scenario {
+        name: "Damascus pavilion: let go of the roof slab's free hang, the empty hand pressed again in the fall catches the knob under it (pad play 2026-10-20)",
+        tags: &["hang", "climb"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "-45.3,-45.4,90,13.5"),
+            ("AC1_WALK", "1.0"),
+            ("AC1_STOP", "0.4-30"),
+            ("AC1_HAND", "0.6,3.0,3.1"),
+            ("AC1_GRASP", "3.1-5"),
+            ("AC1_CLIMB", "nograb,wait=5.5,up=8"),
+        ],
+        secs: 13.0,
+        want: &[
+            "reaching to catch a hold on the way down",
+            "leap -> free_1m via xx_fall_tr_hangfree_min_b",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
+        ],
+        never: &["landing_straight_hard", "EMBED"],
     },
     // User report 2026-10-15 (recording 161446): the same pavilion, from the knob left: AC1's switch onto the wall under the
     // next knob (`hangfree_tr_hangwall_left`), then up he hung looking up. AC1's hand step keeps the hang's type
@@ -2482,7 +2718,9 @@ const SCENARIOS: &[Scenario] = &[
         secs: 13.0,
         want: &[
             "free_1m -> hangwall_open via xx_h_hangfree_tr_hangwall_left at [-45.33, 10.05",
-            "hangwall -> hangwall_1ru via xx_h_hangwall_climb_1m_u_1ru at [-45.69, 11.25",
+            // (The slab's wall is set back under its edge: the hang leans, its root 1.1 m down the body's axis and 0.5 m
+            // out square to it, 0.08 m lower than upright (AC1's sub_B157B0, Banned445's 9390e4e).)
+            "hangwall -> hangwall_1ru via xx_h_hangwall_climb_1m_u_1ru at [-45.69, 11.1",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [-45.6",
         ],
         never: &["EMBED"],
@@ -2625,8 +2863,9 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "rooftops: off the second swing bar onto B6 with the reception, not stepping back off its near edge (report 60396)",
         tags: &["bars", "jump"],
-        env: &[("AC1_START", "66.14,35,0,6"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-8"), ("AC1_LEGS", "0-8")],
-        secs: 8.0,
+        // (Over by 6 s since the bars are swung through in one swing each: held on to 8 s, it ran on off B6's far end.)
+        env: &[("AC1_START", "66.14,35,0,6"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-6"), ("AC1_LEGS", "0-6")],
+        secs: 6.0,
         want: &["the swing jump aimed at [66.14, 4.69, 13.01]", "-> ground via xx_h_air_front_300cm_footl_to_freestep_down_tr_freestep_entry_footr"],
         never: &["came down on an edge", "landing_damage", "EMBED"],
     },

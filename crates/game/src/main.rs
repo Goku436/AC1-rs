@@ -160,9 +160,19 @@ struct OrbitCam {
     dist: f32,
     /// Frames the video orbit (`AC1_ORBIT`) has gone round so far.
     orbit_frame: u32,
-    /// The seconds since the player last turned the camera (`camera_follow`).
+    /// The seconds since the player last turned the camera (`camera_follow`): infinite while he never has (or since the
+    /// centring).
     manual: f32,
+    /// The pitch the camera starts at, where the centring brings it back to.
+    default_pitch: f32,
+    /// C's centring under way: its clock, and the yaw and pitch it started from and turns through (see `CENTRE_RATE`).
+    centring: Option<(f32, f32, f32, f32, f32)>,
 }
+
+/// C's centring (AC1's camera reset, 0x692220 and its update 0x693336-0x6933D0, as Banned445's ca0e1ad reads it): the
+/// clock runs at this times pi over the larger of the turn and the pitch change (rad) per second, the camera at
+/// sin(clock pi / 2) of the way: 106 degrees round in 0.16 s, as the running game. Ours turned it in one frame.
+const CENTRE_RATE: f32 = 3.5;
 
 /// AC1's camera turning after Altaïr's heading: at this rate times the angle between (1/s), at most `CAMERA_FOLLOW_MAX`
 /// (rad/s), while he is within `CAMERA_FOLLOW_GATE` of the camera's way (rad), on the ground moving, in the air and on
@@ -174,8 +184,6 @@ const CAMERA_FOLLOW: f32 = 4.0;
 const CAMERA_FOLLOW_MAX: f32 = 6.0;
 /// (Between the runs that bound it: 116 degrees off followed (roof_sprint2), 119.8 did not (roof_turn2).)
 const CAMERA_FOLLOW_GATE: f32 = 2.06;
-/// The follow waits this long after the player turns the camera (s): ours, so it does not fight the mouse.
-const CAMERA_FOLLOW_HOLD: f32 = 0.6;
 
 /// Frames a second of the video hooks (`AC1_ORBIT`, `AC1_FRAMES`).
 const FRAMES_FPS: f32 = 30.0;
@@ -479,7 +487,9 @@ fn main() {
             pitch: cam.get(1).copied().unwrap_or(-12.0).to_radians(),
             dist: cam.get(2).copied().unwrap_or(3.6),
             orbit_frame: 0,
-            manual: 0.0,
+            manual: f32::INFINITY,
+            default_pitch: cam.get(1).copied().unwrap_or(-12.0).to_radians(),
+            centring: None,
         })
         .insert_resource(GameDir(PathBuf::from(game_dir)))
         .insert_resource(Debug {
@@ -1247,14 +1257,17 @@ fn player_input(
     }
     // C centres the camera behind Altair (AC1's Center Camera).
     let before_centre = cam.yaw;
+    // (How far C's centring turns it: a cut, by the code, not the player's turn.)
+    let mut centred = 0.0;
     if keys.just_pressed(KeyCode::KeyC)
         && cam.free.is_none()
         && let Ok((_, _, tf)) = q.single()
     {
-        cam.yaw = tf.rotation.to_euler(EulerRot::YXZ).0;
+        let heading = tf.rotation.to_euler(EulerRot::YXZ).0;
+        centred = (heading - cam.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        cam.centring = Some((0.0, cam.yaw, centred, cam.pitch, cam.default_pitch - cam.pitch));
+        cam.manual = f32::INFINITY;
     }
-    // (How far C's centring turned it: a cut, by the code, not the player's turn.)
-    let centred = (cam.yaw - before_centre + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
     if grabbed {
         if motion.delta.x != 0.0 {
             cam.manual = 0.0;
@@ -1355,6 +1368,7 @@ fn player_input(
     let yaw = stick_yaw.map_or(cam.yaw, |(y, _)| y);
     let fwd = Vec3::new(-yaw.sin(), 0.0, -yaw.cos());
     let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+    let input = pad::tracked(input);
     ctl.move_dir = fwd * input.y + right * input.x;
     // AC1's puppet controls: the right button is the high profile, Space the legs, Shift the empty hand
     // (see the module docs).
@@ -1918,11 +1932,28 @@ fn camera_follow(
     }
     // AC1's camera turns after him while he moves (`CAMERA_FOLLOW`), unless the player turned it lately.
     let dt = time.delta_secs();
+    // (Once the player turns the camera himself the follow stops for good: in the running game, turned with the right
+    // stick, it had not come back 10, 30 or 60 s later (live comparison follow/, 2026-10-16; the earlier runs, the camera
+    // untouched, all followed). Ours brings it back with the centring (C) and a new level; what brings AC1's back is not
+    // known.)
     cam.manual += dt;
+    // (C's centring, eased round; the player's own turn breaks it off.)
+    if let Some((t, y0, dy, p0, dp)) = cam.centring {
+        let t = t + CENTRE_RATE * dt * std::f32::consts::PI / dy.abs().max(dp.abs()).max(1e-3);
+        let w = (t.min(1.0) * std::f32::consts::FRAC_PI_2).sin();
+        cam.yaw = y0 + dy * w;
+        cam.pitch = p0 + dp * w;
+        cam.centring = (t < 1.0 && cam.manual.is_infinite()).then_some((t, y0, dy, p0, dp));
+    }
     let on_ground = ch.fall_v == 0.0 && ch.wall.as_ref().is_none_or(|w| w.legs_on_ground());
     let moving = if on_ground { ch.velocity.with_y(0.0).length() > 0.3 } else { ch.wall.as_ref().is_some_and(|w| w.follows_camera()) || ch.fall_v != 0.0 };
-    if moving && cam.manual > CAMERA_FOLLOW_HOLD && dt > 0.0 {
-        let heading = target.rotation.to_euler(EulerRot::YXZ).0;
+    if moving && cam.manual.is_infinite() && dt > 0.0 {
+        // (After the way he moves, not his facing: AC1's follow takes the average displacement's direction, the facing
+        // only when he stands still (`FreeRoamingCamera` +344 = 0x691890, Banned445's camera.rs). Turning on the spot into
+        // a run, ours turned the camera after the facing sweeping round and bent the run: the bureau's live run3, the real
+        // camera's direction unchanged for 2.8 s.)
+        let flat = ch.velocity.with_y(0.0);
+        let heading = if on_ground && flat.length() > 0.3 { (-flat.x).atan2(-flat.z) } else { target.rotation.to_euler(EulerRot::YXZ).0 };
         let d = (heading - cam.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         if d.abs() < CAMERA_FOLLOW_GATE {
             cam.yaw += d.signum() * (CAMERA_FOLLOW * d.abs()).min(CAMERA_FOLLOW_MAX) * dt;

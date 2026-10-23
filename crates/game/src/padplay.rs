@@ -13,7 +13,8 @@
 //! yaw (ours' convention, radians), which ours' camera then starts at. `AC1_PADPLAY_CAM=<yaw>` sets it without one (a scenario
 //! replaying a comparison's run). `AC1_PADPLAY_RECORD=<file>`
 //! writes the flight recorder's lines for every frame played (as a control run's `AC1_RECORD`), the ac1-rs side of
-//! `livelog compare`. `AC1_PADPLAY_QUIT=1` closes the game when the file is played out.
+//! `livelog compare`. `AC1_PADPLAY_QUIT=1` closes the game when the file is played out. `AC1_PADPLAY_MANUAL=1`: the
+//! camera counts as turned by the player at the start (its follow off), as the real one is after the script turns it.
 
 use bevy::prelude::*;
 
@@ -161,6 +162,9 @@ pub fn play(
             if let Some(y) = cam_yaw {
                 cam.yaw = y;
             }
+            // (The real camera turned by hand before the run (the comparison script's right stick): its follow is off from
+            // then on, `camera_follow`; ours too.)
+            cam.manual = if std::env::var("AC1_PADPLAY_MANUAL").is_ok() { 0.0 } else { f32::INFINITY };
             // (Fresh, as a control run starts him.)
             ch.wall = None;
             ch.velocity = Vec3::ZERO;

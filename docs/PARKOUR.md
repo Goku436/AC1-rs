@@ -439,6 +439,10 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   (Ours stopped playing the edge stop: AC1 just stops 0.3 m short.) Starting along a beam from the crouch plays AC1's
   start (`crouchwait_<foot>_tr_crouch<walk|jog>_<other>`, 0x34662CB4/B5) and letting go while jogging its stop
   (`crouchjog_stop_<foot>` + `_tr_crouchwait_<foot>`, 0x3466339D/9E). **[ours]**
+- **At a crossing, stopped** **[ours]**: crouched across his beam (the 90° wait) with another beam within 0.5 m running
+  his way, the stick forward walks on along that one (`crossing_beam`), the walk's start faded from the 90° wait. AC1's
+  corner hop is from the jog only and the 90° wait has no clip onto a crossing beam; how AC1 gets on one from a stop is
+  unchecked. Before, he turned to face it and stayed (user recording 142770, a Damascus T; scenario `Damascus beam T`).
 - **Side entry** (0xF7AAA0, actions 0xE6E0E9B8..BB): met across a beam (30-100° off the way the stick points along it)
   → `xx_h_freestep_entry_<foot>_tr_crouch<walk|jog>_<foot after>_<left|right>_<30|90>`, the 30° and 90° clips blended
   by the angle; a left turn goes on on the right foot, a right turn on the left. **[B, ours: not yet seen in play]**
@@ -480,7 +484,11 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   `swing_cycle_front_up`, the still hang at (47.03, 9.46)); feet on the wall take the wall reception (0xE093CC). Ours keeps the
   swing to holds with no top behind them (`top_behind`: no ground at the hold's height 0.4 m in, a beam's side or a pole):
   a roof's lip over open air is caught into the free hang, `xx_fall_tr_hangfree_min_a/b` (user report 274414). A
-  free-step jump onto a beam ends on it, its reception cut once its step is taken. **[B, V, ours]**
+  free-step jump onto a beam ends on it, its reception cut once its step is taken. The empty hand pressed in such a
+  flight arms the catch but keeps the aim at the hold (ours: AC1 jumps at its target; unaimed, the fall's catch took a
+  beam 1.4 m up into the knee hang mid-flight, user recording 95192). AC1's flights end only in `_to_swing`,
+  `_to_surface`, `_to_freestep*`, `_to_passover` and `_to_assassinate`: a beam out of reach zone 1 (over 1.3 m up, or
+  past about 5.6 m on when level) is a free hang, flown `_to_swing`. **[B, V, ours]**
 - **Free running across beams** **[V, ours]** (route roof1_free_sw, off the Damascus bureau's roof south-west): AC1
   jumped onto a beam crossing its way 1.1 m on (its reach zone starts at 0.5 m; ours' targets started at 1 m, and its
   shortest clips' 1.6 m was too far to correct within 50% of 1 m: now of at least 1.5 m), then, with 1.45 m of that
@@ -492,13 +500,22 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   its line over 1.5 m (route seams_free_north); off the open roof north, a beam carrying on in line from the edge, it
   jumped along it (roof2_free_north). Ours steps on when a beam's near end is within 1.2 m ahead, 0.3-0.6 m to the side
   and within 0.35 m in height; walking a beam, the root comes onto its line at most 1.5 m/s across (it snapped before).
-- **Swing bars** **[V, ours]**: AC1 swings on while high profile and the legs are held, and stops when they are let
-  go (the interpreter's ledge events 5 / 6, Banned445's port and reanalysis), not by the stick. Caught with them let go
-  (route ladder68_free), it hung still from the bar 0.25 s into the first upswing, no stop chain; ours settles into
-  `xx_h_hangfree_waitclose` after that upswing. Let go mid-swing: at the end of the down item (event 6's guard 0xDCCF40), AC1's stop (`xx_h_swing_stop_<front|back>_a..d`, the
-  last items of action 0x023E0C61), ending 1° from `xx_h_hangfree_wait`. Which stop is front and which back is to be
-  checked live (the reanalysis says the port's are swapped). The stick forward swings him up again
-  (`xx_h_swing_momentum_front_up`). The hay's hop out
+- **Swing bars** **[V, B, exe, ours]**: the catch (action 0x02926510, nine `xx_h_air_<way>_to_swing_tr_swing_front_a`,
+  blended as the flight it ends, Banned445's `swing::enter`), then the cycle (0x023E0C60: `front_up`, `front_down`,
+  `back_up`, `back_down`). The interpreter drives it with what is held each frame: high profile and the legs (+4397), and
+  the swing jump (event 7) with the stick within 75 degrees of the facing too; no press. The jump's guard (0xDCD000) takes
+  it at the end of the catch (the catch ends as `back_down` does, the feet going forward) or at the end of `back_down`,
+  both hands on a pole (contact kind 3, +0x700 / +0x704); it asks nothing of speed. So held through the catch it jumps off
+  in one swing; not held then, a whole cycle later (2026-10-16, after ours waited out a cycle always, as Banned445's port
+  does). With no target the free jump when a box ahead is free (IHumanLedge vt104, Banned445's `free_jump_room`), else it
+  swings on. Caught with the legs let go (route ladder68_free), it hung still from the bar 0.25 s into the first upswing,
+  no stop chain; ours settles into `xx_h_hangfree_waitclose` after that upswing. Let go mid-swing: at the end of a down
+  item (event 6's guard 0xDCCF40, never in the catch), the move graph's stop for it: `front_down` into the back stop
+  0x023E0C62, `back_down` into the front one 0x023E0C61, items a to d (ours had them swapped). From the still hang, high
+  profile and the legs held start it again (event 5, guard 0xDD3750, a box ahead free; 0xDCF080 plays the cycle from
+  `front_up` over 0.1 s); ours used the stick and `xx_h_swing_momentum_front_up`, which no code asks for. The one-item
+  action 0x02F4BF04 (`back_up` alone) is asked for by no code either. A beam's side (not a pole) is no bar: one upswing,
+  then the free hang. The hay's hop out
   ends in the stand of the profile held (`xx_l_haystack_hop_out_tr_<l|h>_wait`).
 - **Walling** (event 49, wall test 0xE18390): entry A → B → vertical → end (0xE37590); probes A-D hand over to the
   ledge with the `wallingfront_*_tr_*` exits; the rebound (0xE365C0) pushes off straight back when the stick is
@@ -677,7 +694,7 @@ in this batch, by audit id:
     left (event 16 after the pull-down, holds probed 0.95 m ahead or 0.8 m to a side; ours: the ground's climb start
     turned that way). Gauntlet G17.
   - NARROW-14: the swing's stop (the legs let go) starts at the end of a down item (event 6's guard 0xDCCF40), the front
-    stop after front_down and the back after back_down (Banned445's mapping; the reanalysis says swapped: a live check).
+    stop's side from the move graph's transitions: the back stop after front_down, the front after back_down (as the reanalysis and Banned445's current port have it; ours had them swapped until 2026-10-16).
   - EXTRA-16: the ledge stop breaks into a standing turn toward the edge in high profile (as the running game's 0.084 s
     into `waitturn_left_090`).
   - HAY-7: out of a haystack over its rim, the side and the drop (1.5 m under the haystack's floor) come from its own box,
@@ -1090,6 +1107,11 @@ Three user reports in the test world, each a jump at a target ending somewhere A
   feet), which read as reaching down for the lower hold. Now (`wall_hang_eject`): the rebound takeoff, the hang flight
   and `xx_hangwall_reception_front_<straight|30_out|45_in>_min_a..c`, ending 0.44 m out and 1.1 m under the aimed hold
   (where the wall hang's rest puts the root). A hold with no wall under it is still caught by the fall (free hang).
+  **[ours]** At an inside corner, a hold on the other wall all but straight away (its wall across the way, the takeoff a
+  front one turning little) has no start that both faces away and ends facing it: ours starts turned away as every
+  takeoff and turns the rest onto the hold's wall over the flight (up to 100 degrees, `EJECT_CORNER_TURN`). It refused
+  that start before and the fall flew him on facing away, caught the hold side on and turned 70 degrees in the catch
+  (user recording 56678, Damascus; scenario `Damascus inside corner`). How AC1 faces that flight is unchecked.
 
 ### The climbing round two (2026-10-13)
 The sweep's classes now follow AC1's own checks (`climb_sweep.rs`): `topout` only where AC1's room over the edge is
@@ -1207,6 +1229,14 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   on a beam across the way, it went straight up where the running game free-stepped on (end gap 2.14 -> 0.49 m). Not free
   running, the stick toward a drop edge under 2 m (within 45 degrees of the facing, or any way in high profile; along a beam
   only within 0.4 m of its end): the hop off, 1 m on in low profile, 3 m in high (kinds 1 / 2).
+  The free-step takeoff groups turn the body themselves (side 90 degrees, back 180, the back ones moving the root 2.5 m back
+  off the start facing), so every free-step takeoff (`narrow_free_jump`, `free_step`, `jump_at_bar`, as `jump_freestep`)
+  plays from the facing he has. Ours had planned these three already facing the jump: off a top's stand-up with the
+  stick back (user recording 116252) he turned twice (-333 degrees), was carried 2 m back onto the top toward the wall,
+  and flew off facing it, then snapped round 190 degrees on the catch (scenario `test level alley: the free jump back`).
+  Left: the drop edge right behind that stand-up is not one of ours' hold edges (only a ledge off to the side is, so the
+  jump fires or not by centimetres), and the 8 m target there lies through the alley's other wall, which he scrapes down
+  (ours has a room check only off a swing bar, `free_jump_room`; whether AC1's narrow free jump has one is unchecked).
 - **Posts [B]**: the body keeps its facing and the pilotis wait leans toward the stick (`_wait`, `_left`, `_right` by the
   stick's angle, 120 degrees full, at 3/s; 0xE51960); ours turned the body on the spot.
 - **Climbing onto a narrow top**: the lean's climb needs room for the body on the top (the capsule clear of walls), as the
@@ -1294,6 +1324,39 @@ leaps first sweep AC1's clearance capsule to the new hang (0xDDDF85: r 0.35, fro
 | beams, posts, swing (98b75f7 .. 5f55770, d5ad375, 142a8f3, fd795de, 00dc174, 5b1b9ff, 90560aa, f73c6a0) | narrow objects and swing bars | the beam agent's (fix/beams) |
 | guidance, animation, input, ground (c3b3ac1 .. 34c8049, 8816ad2, cebd9ec, 10253c9, 429bb82, 95217b4, d050de0, 0cf1fbc, 9f1b04b, db55991, 0f94032, bb34a58, e726a01, ...) | the guidance workspace, blend evaluation, input tracker, ground waits | not this round (shared core; each its own batch) |
 
+## Banned445's port, 2026-10-20 round
+Banned445's AC1-Movement-Rewritten moved on 80 more commits (5f081fa..c78db3a, his `feature/m3-group9`). Ported the same
+way: each rule rewritten here, credited in the comments. His README still calls it early and unfinished; his RE notes
+(RE/xx) are not public, so his exe addresses are taken as he gives them. **[B]**
+
+| His commit | What | Here |
+|---|---|---|
+| afec3cd | the pass-over only from the jump query's mode 2 | ported: ours' own passover fallback only off the test level (`jump_aimed`) |
+| 2764d9f | the let-go's hold record: 1.1 m over a wall hang's root, 2.4 a free hang's, 1.2 the climb's | ported (`LET_GO_HOLD_WALL`, `LET_GO_HOLD_CLIMB`) |
+| b31c01f, 3c2e51b | the let-go's fall action carries the fall by its root motion, then falls from rest | ported (`fall_by_clip`: `xx_h_hang<wall\|free>_tr_fall_b`) |
+| 895fb64 | the other FROMANIM fall actions (ladder releases, rebound, lost grip, vault fall) | the ladder's `_tr_falling` ported (3.5 m down in 0.73 s, ours fell 2.6 under gravity); the rebound keeps ours' live fit; FreeRun's start skipped |
+| 48b34bb | the let-go's dive enters the hay as a side jump | ported (`AIR_TO_HAY`, not the leap of faith's landing) |
+| c78db3a | the input tracker: the stick snapped ahead within 5 degrees, small angles curved | ported (`pad::tracked`, unit-tested), on all of `move_dir` |
+| a9007ff | an exact reversal pivots right; the ledge stop cuts a wait turn; the ladder step seams | ported / already ours (EXTRA-16) / ours by the move graph's blend kinds |
+| a061762, 5d1e35f | a wall move ending in a stand takes its wait's profile, then the stance change | ported (the wall-move finish in `character.rs`) |
+| b50fe65 | the ledge stop needs the pull-down's room (0xB2E4F0's two boxes) | ported (`pull_down_clear`, city edge reports only) |
+| f246687 | the ladder step's rate per frame, half under a 0.5 stick in low profile | ported (`ladder_rate`); the ladder rebound scenario's foot loosened (scripts climbed at half rate before) |
+| ca0e1ad | C centres the camera eased, 3.5 pi / the larger angle per second | ported (`OrbitCam::centring`) |
+| 4c9b126 | a swing started again from a still hang plays the momentum build-up first | ported (`SWING_MOMENTUM`) |
+| 9390e4e, afa4e0f | the wall hang's body axis from the foot records: the root 1.1 m down it and 0.5 m out square to it; the body box on that pose | ported for the hang at rest (`wall_hang_lean`, the body tilted by `tilt`, kept along its shimmies); where the leaned box meets the wall ours stays upright (gauntlet G24's upper row); his entries' support boxes and step roots not yet |
+| 73c8329, 693de57, a49244e, 3c2e51b (A01), 4257ced, 922c701 | shimmy across a bend, the wall-free hang, its switch clip, wall run from the lean, beam step-off, the free-step stay | already ours |
+| 6f0bfae, 9199a0e | the free jump falls from rest at its target | open: ours' live fit (`FREE_JUMP_FAST`, audit AIR-5) disagrees; needs a live check |
+| 2764d9f, ad6f172, e0cf444 | the long free-hang catch to the side, one hand, then the second hand's reach | open: his notes and constants disagree on which clip is which side, the side comes from a stale record, and ours has no second-hand reach |
+| b284b1e | the wall run's width check off a jut | skipped: ours' `wall_spans` is fitted to live runs (7813d93) |
+| 5d5b570 | the free-step stay's wall run from half of its reception (0xE503D0's first test) | ported (ours waited for the stay to end); the take-off foot from the pose skipped |
+| 400b4f4 | the drop past an edge measured from the actor's feet first: the lip ray, the line from 1 m over the feet | ported (`drop_at_lip` in `drop_edge_ahead`) |
+| 9f9e809 | the grasp: the falling blend on the upper body whenever the manual catch is armed, its reach eased at 7/s | ported (`Grasp`, `grasp_pose`, layered over the spine; unit-tested weights); ours had no grasp at all |
+| camera.rs (0x691890) | the follow turns after the average displacement's direction, the facing only standing still | ported for the ground (the velocity's way); the run3 pad scenario now starts on the heading the running game had (`bureau_corner.pad`: the old hook's teleport set only the shown yaw) |
+| d7a57fa, e78cc96, 84c0fd9, 15e7189, 4124a98 | the knee stand-up's root, the running jump's wall reception, the ladder back-approach turn, the reach's root on a leaning wall, the switches' lateral path | already ours (the stand 0.3 m in from the hands, live-fitted; the reception ends in the wall hang) or not in ours' structure (no back-approach turn, his own climb reach and path boxes) |
+| 2c5fdd5 | haystacks from the entity's origin and collision box | not yet: city data (a cache version and a hay sweep of its own) |
+| b87d783 | the over-drop per jump kind | skipped: ours has no per-kind over-drop |
+| 9a7cbf0, 94fa975, ba2f3f8, 380bc88, e7e811e, fd7987d, aee9e57, f149e21 | ledge-to-climb body boxes, the side move back onto a ladder, swing landing weights, the animation runtime's slot rules, the ledge's hand IK, first person, hand records, switch-frame clocks | not this round |
+
 ## The gauntlet's G14 and G24, user reports 2026-10-14
 - **Through G14's block** (289508, 440360: a wall run; 449200: hung under it, up): AC1's walling FindLedge (0xE36BD0) keeps
   an edge only with a clear line to it from 0.5 m back out of the walling root (Banned445's port); the block hides the
@@ -1312,6 +1375,20 @@ leaps first sweep AC1's clearance capsule to the new hang (0xDDDF85: r 0.35, fro
   behind it [1, 0] (0x503040, the requested action's item): `xx_h_hangfree_wait` whole. Ours had it the other way round,
   the wait half `xx_h_hangwallfree_wait` (its hands 0.46 m in front of the root, 0.35 m into G24's slab) after every
   shimmy step. Now the connector is mixed by h [ours: its second item too], the wait is the free one, until the next move.
+
+## The inverted triangles played by hand, 2026-10-20
+The same spots played as a player plays them (hand-written pad files through `AC1_PADPLAY`, the player's own input),
+both hands' world positions checked every frame against the holds (a flight-recorder run; a "glide" is the whole body
+sliding as a block, every bone the same way, which no clip does).
+- **The climb up and the glide back**: the free hang's hand steps (AC1's vertical rows) ended the root 2.1 m under the
+  new edge, the catch's height, where the free hang rests 2.4 m under it (`FREE_ROOT_DOWN`, AC1's 0xDD6730). Each step
+  ended with the hands 0.17-0.2 m over the edge, then the rest slid the whole body 0.3 m down onto it (the awning frame's
+  beams: 0.29 m in 0.5 s after each step). The steps now end on the rest, the hands within 2-5 cm of each beam, and the
+  rows are measured from the hands (AC1's origin; ours had measured from 0.3 m under them at rest).
+- **The empty hand pressed again in the fall** (as a player catches, where the scripts only held it) took only holds
+  0.45 m under the one let go of, taking it as a wall hang's (1.13 m over the root). Off the pavilion's roof slab's free
+  hang (2.4 m) that turned down the knob and the arch under the slab, and he fell 4 m to the floor. The let-go now keeps
+  its hold's height (`let_go_hold`): he catches the knob, then hand-steps up onto the slab and over.
 
 ## The inverted triangles, user reports 2026-10-15
 A Damascus pavilion (-45.3, 45.4: arches 12.15 m up, a knob over each, the roof slab's edge 0.58 m out over them) and an

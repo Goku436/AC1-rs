@@ -9,7 +9,8 @@
 # 2. The file's left stick is turned into that camera's frame (AC1_STICK_FROM_FACING=1, the default), so pushing it
 #    forward runs the way the start faces in both games, whichever way the real camera looks; ours' camera starts at
 #    the real one's yaw (the go file).
-# 3. ac1-rs is started (the same city, windowed beside it, `AC1_PADPLAY` waiting for the go file); then the real game
+# 3. ac1-rs is started headless (no window to take the focus; every frame 1/60 s of game time, `AC1_PADPLAY` waiting
+#    for the go file); then the real game
 #    gets `live on` + `padplay` and ours the go file in the same moment.
 # 4. When it has played out: the real game's live log and ours' recording in the out dir, and `livelog compare` of
 #    the two (compare.txt). AC1_GAME (the install), AC1_LEVEL (default damascus), AC1_EXE (target/release/ac1.exe).
@@ -49,13 +50,34 @@ if [[ -n "$start" ]]; then
   rm -f "$game/ac1-live.txt" "$game/ac1-live-events.txt"
   printf 'live on\ntp %s\n' "$start" > "$game/ac1-hook.cmd"
   sleep 2
-  camyaw=$(grep -o 'camdir=[-0-9.]*,[-0-9.]*,[-0-9.]*' "$game/ac1-live.txt" | tail -1 |
-    awk -F'[=,]' '{ printf "%.5f", atan2(-$2, -$4) }')
+  cam_now() { grep -o 'camdir=[-0-9.]*,[-0-9.]*,[-0-9.]*' "$game/ac1-live.txt" | tail -1 | awk -F'[=,]' '{ printf "%.5f", atan2(-$2, -$4) }'; }
+  wrapped() { awk -v e="$1" 'BEGIN { while (e > 3.14159265) e -= 6.2831853; while (e < -3.14159265) e += 6.2831853; printf "%.5f", e }'; }
+  camyaw=$(cam_now)
+  # (The real camera turned behind the player with the right stick, AC1_CAMERA_BEHIND=1 the default: its follow turns
+  # it after him once he moves, so a camera off his facing bends the run, differently in each game.)
+  if [[ "${AC1_CAMERA_BEHIND:-1}" == 1 && -n "$camyaw" ]]; then
+    want=$(echo "$start" | awk '{ printf "%.5f", ($4 - 90) * 3.14159265 / 180 }')
+    rate=""
+    for _ in $(seq 1 12); do
+      err=$(wrapped "$(awk -v w="$want" -v c="$camyaw" 'BEGIN { print w - c }')")
+      awk -v e="$err" 'BEGIN { exit !(e < 0.05 && e > -0.05) }' && break
+      # (Frames by the rate seen, 10 the first time; the right stick's +x turns the yaw down, as ours' pad does.)
+      frames=$(awk -v e="$err" -v r="$rate" 'BEGIN { if (r == "") n = 10; else n = (e < 0 ? -e : e) / r; if (n < 1) n = 1; if (n > 120) n = 120; printf "%d", n }')
+      rx=$(awk -v e="$err" 'BEGIN { print (e < 0) ? 0.8 : -0.8 }')
+      printf 'pad 0 0 0 %s 0 %s\n' "$rx" "$frames" > "$game/ac1-hook.cmd"
+      sleep "$(awk -v n="$frames" 'BEGIN { print n / 60 + 1.0 }')"
+      new=$(cam_now)
+      d=$(wrapped "$(awk -v a="$camyaw" -v b="$new" 'BEGIN { print b - a }')")
+      rate=$(awk -v d="$d" -v n="$frames" 'BEGIN { if (d < 0) d = -d; r = d / n; if (r < 0.002) r = 0.002; printf "%.5f", r }')
+      camyaw=$new
+    done
+    printf 'pad off\n' > "$game/ac1-hook.cmd"; sleep 0.3
+    echo "the real camera turned behind him: $camyaw rad (wanted $want)"
+  fi
   printf 'live off\n' > "$game/ac1-hook.cmd"
   sleep 0.5
   echo "the real camera's yaw at the start: ${camyaw:-unknown} rad"
-  printf '%s
-' "$camyaw" > "$out/camyaw.txt"
+  printf '%s\n' "$camyaw" > "$out/camyaw.txt"
 fi
 
 # 2. The stick in the real camera's frame.
@@ -87,7 +109,10 @@ fi
 # 3. ac1-rs, waiting for the go file.
 go="$out/go"
 rm -f "$go" "$out/ours.txt" "$out/ours-log.txt"
-AC1_LEVEL=${AC1_LEVEL:-damascus} AC1_BACKGROUND=1 AC1_NO_CROWD=1 \
+# (The real camera turned by hand above: its follow is off from then on; ours' too, AC1_PADPLAY_MANUAL.)
+manual=0; [[ "${AC1_CAMERA_BEHIND:-1}" == 1 && -n "$camyaw" ]] && manual=1
+[[ "$manual" == 1 ]] && export AC1_PADPLAY_MANUAL=1 || unset AC1_PADPLAY_MANUAL
+AC1_LEVEL=${AC1_LEVEL:-damascus} AC1_HEADLESS=1 AC1_STEP=60 AC1_MUTE=1 AC1_NO_CROWD=1 \
   AC1_PADPLAY="$(win "$pad")" AC1_PADPLAY_GO="$(win "$go")" AC1_PADPLAY_RECORD="$(win "$out/ours.txt")" AC1_PADPLAY_QUIT=1 \
   RUST_LOG=ac1=debug,wgpu=error NO_COLOR=1 "$exe" > "$out/ours-log.txt" 2>&1 &
 ours=$!

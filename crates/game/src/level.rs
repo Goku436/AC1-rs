@@ -2736,6 +2736,10 @@ pub fn spawn_level(
         {
             warn!("no prop zone: {e:#}");
         }
+        // (Not the props' guidance: the test level's holds are ours, and AC1's authored edges turn on the city's rules
+        // (`Level::guided`, the jump target search). With the tables' and crates' edges in, free running off every
+        // platform here waited for an edge report and fell, user recording 17480; scripted runs, without the props, jumped.)
+        level.authored.clear();
         level.labels.push(("Props (AC1 collision shapes)".to_string(), PROPS + Vec3::Y * 2.2));
     }
 

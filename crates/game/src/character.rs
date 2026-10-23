@@ -903,10 +903,19 @@ fn ground_move(
     // (High profile only: walking in low profile at an 8 m drop AC1 halts at the edge, no clip, and looks down, seen in the
     // running game.)
     // (Not with the empty hand just pressed: AC1's interpreter sends the pull-down before the ledge stop.)
+    // (Free running too, with the stick more than 80 degrees off the edge's way: the free run's edge jump wants it within
+    // 80 (0xEE7DCE); sprinting at a 7 m drop off the Damascus bureau's roof with the stick turned along the edge, the
+    // running game made its ledge stop where ours stepped off and fell, live comparison bureau_climb3, 2026-10-16.)
+    let stick_off_edge = || {
+        let stick = ctl.move_dir.with_y(0.0).normalize_or_zero();
+        level
+            .pick_report(tf.translation, v / speed, crate::edge_report::REPORT_RADIUS, std::f32::consts::FRAC_PI_3)
+            .is_some_and(|r| stick.dot(r.normal) <= 80f32.to_radians().cos())
+    };
     if speed > 1.0
         && wants
         && ctl.high
-        && !ctl.free_run
+        && (!ctl.free_run || (level.guided() && stick_off_edge()))
         && ch.edge_lock.is_none()
         && ctl.hand_drop <= 0.0
         && let Some(m) = ledge_stop(lib, level, tf, v / speed, speed, dt, from())
@@ -921,7 +930,10 @@ fn ground_move(
     let walking_round = !ctl.high && speed <= WALK_STOP_SPEED && angle.abs() > std::f32::consts::FRAC_PI_2;
     if (speed < 0.3 || walking_round) && wants && !ch.blend {
         let p = if ctl.high { "h" } else { "l" };
-        let side = if angle > 0.0 { "left" } else { "right" };
+        // (An exact reversal turns right: AC1's signed angle is +pi where the dot is -1 (0x55E470), and the pivot's side
+        // is right for one at or over 0; Banned445's a9007ff.)
+        let reversed = fwd.dot(input.normalize_or_zero()) <= -1.0 + 1e-6;
+        let side = if angle > 0.0 && !reversed { "left" } else { "right" };
         if angle.abs() < TURN_MIN {
             return None;
         }
@@ -989,6 +1001,9 @@ fn ledge_stop(
         level
             .pick_report(tf.translation, dir, crate::edge_report::REPORT_RADIUS, std::f32::consts::FRAC_PI_3)
             .filter(|r| r.drop > LEDGE_STOP_DROP && r.dist <= LEDGE_STOP_REPORT.max(reach - LEDGE_STOP_REACH + LEDGE_STOP_REPORT))
+            // (With room to hang under the edge, the pull-down's (0xB2E4F0 under the guard 0xDA5DE0): without, the walk
+            // steps off instead; Banned445's b50fe65.)
+            .filter(|r| pull_down_clear(level, tf.translation, r.point, r.normal))
             .map(|r| r.dist.max(0.0) / dir.dot(r.normal).max(0.5))
     } else {
         (1..=(reach / 0.05).ceil() as usize).map(|k| k as f32 * 0.05).find(|&d| drop(d) && drop(d + LEDGE_STOP_CRACK))
@@ -1002,6 +1017,21 @@ fn ledge_stop(
         return WallClimb::ground_action(lib, &at, &names, correct, false, from).map(|w| (w, Some(dir)));
     }
     None
+}
+
+/// Room to pull down and hang from the edge at `edge` (out over the drop along `out`) from the feet at `feet`: AC1's
+/// 0xB2E4F0, an upright box for the torso over the edge, then one tilted 30 degrees out for the way down (as Banned445's
+/// port reads it).
+fn pull_down_clear(level: &Level, feet: Vec3, edge: Vec3, out: Vec3) -> bool {
+    let out = out.with_y(0.0).normalize_or_zero();
+    let right = Vec3::new(-out.z, 0.0, out.x);
+    let upright = (edge + out * 0.25).with_y(feet.y + 1.075);
+    if !level.box_free(upright, [right, Vec3::Y, out], Vec3::new(0.3, 0.725, 0.75)) {
+        return false;
+    }
+    let tilt = Quat::from_axis_angle(right, 30f32.to_radians());
+    let (up, fwd) = (tilt * Vec3::Y, tilt * out);
+    level.box_free(edge + fwd * 0.4 - up * 0.4, [right, up, fwd], Vec3::new(0.3, 0.8, 0.3))
 }
 
 /// After a ledge stop, the stick this close to the edge's way (cos 70 degrees) pulls down onto it (AC1's event 70).
@@ -1674,6 +1704,16 @@ pub fn locomotion(
                         }
                     }
                     if let (Some(a), Some(name)) = (ch.animator.as_mut(), w.last_clip.as_deref()) {
+                        // (Ended in a stand: in its profile, whatever the button says, the stance change following
+                        // when they differ (above): AC1's run stop goes to Idle in the high wait (0xDA7710) and the
+                        // climb's drop to the ground hands the Ground the high wait (0xDE9C60, mode 1); Banned445's
+                        // a061762 / 5d1e35f. Ours stood in the button's profile at once.)
+                        let stand = name.rsplit("_tr_").next().unwrap_or("");
+                        if stand.starts_with("h_wait") {
+                            a.high = true;
+                        } else if stand.starts_with("l_wait") {
+                            a.high = false;
+                        }
                         // (Into a gait: the step and the point in it whose legs match the pose he is in, going on at
                         // its speed the way he faces.)
                         let legs: Vec<usize> = ch.bones.legs.iter().flat_map(|l| [l.upper, l.lower, l.foot]).collect();
@@ -2023,6 +2063,9 @@ pub fn locomotion(
                             .all(|d| level.ground(tf.translation + dir * *d, 0.3, FREE_RUN_EDGE_DROP).is_none()))
                         || (v.length() > SPRINT_SPEED && level.ground(tf.translation + dir * 0.6, 0.8, 1.2).is_none())
                 };
+            if ctl.free_run && !edge && !level.guided() && level.ground(tf.translation + dir * FREE_RUN_EDGE_AHEAD, 0.3, FREE_RUN_EDGE_DROP).is_none() {
+                debug!("ground: free running at a drop at {:.2}, no edge jump: on the ground {on_ground}, clear {clear}, dir {dir:.2}", tf.translation);
+            }
             // Free running steps or jumps onto a low obstacle; otherwise running stops against it or glances off.
             // (Toward where the stick points: sliding along a wall, the body's own velocity runs along it.)
             let toward = target_v.with_y(0.0).try_normalize().map_or(v, |d| d * v.length().max(if starting { RUN_VAULT_SPEED } else { 0.0 }));
@@ -2152,7 +2195,15 @@ pub fn locomotion(
                 let at_edge = !level.guided() || report.is_some();
                 let jump = off && at_edge && report.is_none_or(|r| facing.dot(r.normal) > std::f32::consts::FRAC_1_SQRT_2);
                 let step = off && report.map_or(!level.guided(), |r| level.room_past_edge(&r));
-                debug!("ground: off the floor at {:.2}: edge report {report:?}, jump {jump}, step {step}", tf.translation);
+                debug!(
+                    "ground: off the floor at {:.2}: edge report {report:?}, jump {jump}, step {step} (speed {:.2}, stick {:.2} along the facing, free run {}, high {}, move {:.2})",
+                    tf.translation,
+                    v.length(),
+                    stick.dot(facing),
+                    ctl.free_run,
+                    ctl.high,
+                    ctl.move_dir
+                );
                 ch.wall = jump
                     .then(|| crate::climb::WallClimb::edge_jump(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, v, lead_left, Some(ch.anim_pose.clone())))
                     .flatten()
@@ -2502,6 +2553,10 @@ pub fn animate(
                 layered(&mut pose, &layer, w, rig, &[b.legs[0].upper, b.legs[1].upper]);
             }
         }
+        // Falling with the empty hand held: AC1's grasp reaching out over the fall (`WallClimb::grasp_pose`).
+        if let Some((layer, w)) = ch.wall.as_ref().and_then(|w| w.grasp_pose(&ch.base, ch.climb_rig)) {
+            layered(&mut pose, &layer, w, rig, &[b.spine[0]]);
+        }
         // A paired fight clip played from the pair's root (`combat`): the whole body moved by the offset.
         if let Some(o) = ch.body_offset {
             for (i, l) in pose.local.iter_mut().enumerate() {
@@ -2649,7 +2704,8 @@ pub fn animate(
                 // (Round a corner in the wall hang, the hand goes onto the new hold's point, as AC1's hand targets: the
                 // hold kept is the nearest, so none is let go of to switch once round.)
                 // (Over a reception onto a knob, both hands onto it, as AC1's hand goals.)
-                let grip = w.corner_grip(i).or_else(|| w.knob_grip());
+                // (Over a wall-hang eject's catch, the hands onto the hold it catches.)
+                let grip = w.corner_grip(i).or_else(|| w.knob_grip()).or_else(|| w.catch_grip(wrist));
                 if grip.is_some() {
                     ch.wall_hand_t[i] = near.map(|(l, _, _)| l);
                 }
