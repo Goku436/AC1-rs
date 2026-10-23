@@ -1317,6 +1317,32 @@ const SCENARIOS: &[Scenario] = &[
         want: &["free running head-on into a wall at", "via xx_h_sprintstop_foot"],
         never: &["EMBED", "via xx_h_wallingfront_entry_footl_a", "left for running"],
     },
+    // Live comparison beam_eject (2026-10-23): from the wall run's hang on the bureau's west wall, the stick up: the
+    // running game pulled up onto the shallow ledge at 8.02 m (a step 0.7 m high just behind it), kneeling on its edge as
+    // on a narrow object (`hangwall_tr_hangknee_footl_a`, `hangknee_footl_tr_freestep_entry_footl`), and stood there,
+    // then walked into the step (`collide_full_hand_070cm`). Ours found the usual stand point inside the step and hung
+    // there looking up.
+    Scenario {
+        name: "Damascus: pad file: up from the wall hang onto the bureau's shallow ledge with a step behind it",
+        tags: &["climb", "hang"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/bureau_ledge_climb.pad")),
+            ("AC1_PADPLAY_CAM", "1.57286"),
+            ("AC1_PADPLAY_MANUAL", "1"),
+        ],
+        secs: 5.0,
+        want: &[
+            "top-out onto a shallow ledge, standing at its edge [44.27, 8.03",
+            "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
+            "via xx_h_collide_full_hand_",
+        ],
+        // (Not "EMBED": the check flags four frames of the wall run's catch under the ledge's overhang, the chest 0.12 m
+        // from the wall with the ledge 0.6 m over it, where the running game's root passed nearer the wall still (x 44.76
+        // to 44.79, ours 44.83).)
+        never: &["looking up"],
+    },
     // Live comparison roof_turn2 (2026-10-16): running off a roof's edge in high profile with the stick turned 54 degrees
     // off the facing, the running game made its edge jump (`run_front_050cm`); ours wanted the stick within 45 degrees of
     // the edge's way too and fell.

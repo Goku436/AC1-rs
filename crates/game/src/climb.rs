@@ -8404,9 +8404,27 @@ impl WallClimb {
         // (A haystack's rim: the hay heaped past it is in the way of the boxes, not of the climb into it.)
         let hay = level.haystacks.iter().find(|h| (h.centre - top.point).with_y(0.0).length() < h.half + 0.3 && (top.point.y - h.top()).abs() < 0.3).copied();
         let open = hay.is_some() || climb_out_room(level, edge, self.normal);
-        // (Ours: the top found is a beam's or a ledge piece's stuck into a building, inside it.)
-        if !open || (hay.is_none() && found.is_some() && level.inside_solid(stand + Vec3::Y * 0.5)) {
-            debug!("climb: no top-out: no room over the edge at {edge:.2} (boxes clear {open}; top {:.2}, wrists {wrist:.2})", top.point);
+        // (Ours: the top found is a beam's or a ledge piece's stuck into a building, inside it. A shallow ledge with a wall
+        // going on up just behind it is not that: AC1's boxes are clear and it pulls up, kneels on the edge as on a narrow
+        // object and stands there (live, the Damascus bureau's west wall: the ledge at 8.02 m, `hangwall_tr_hangknee_footl_a`,
+        // `hangknee_footl_tr_freestep_entry_footl`, standing at the edge); ours hung there looking up.)
+        // (Where: the first point in from the edge with the top under it, ours' lip being rounder than AC1's: on the edge
+        // line itself he stood over air and fell off.)
+        let cramped = hay.is_none() && found.is_some() && level.inside_solid(stand + Vec3::Y * 0.5);
+        let at_edge = (0..=8)
+            .map(|k| Vec3::new(edge.x, top.point.y, edge.z) - self.normal.with_y(0.0).normalize_or_zero() * (0.05 * k as f32))
+            .find(|p| {
+                level.ground(*p + Vec3::Y * 0.3, 0.0, 0.45).is_some_and(|g| g.normal.y > 0.7)
+                    && !level.inside_solid(*p + Vec3::Y * 0.5)
+                    && !level.inside_solid(*p + Vec3::Y * 1.2)
+            })
+            .map(|p| level.ground(p + Vec3::Y * 0.3, 0.0, 0.45).map_or(p, |g| g.point));
+        if !open || (cramped && at_edge.is_none()) {
+            debug!(
+                "climb: no top-out: no room over the edge at {edge:.2} (boxes clear {open}; top {:.2}, wrists {wrist:.2}; perch {:.2?})",
+                top.point,
+                level.perch_at(top.point, 0.6)
+            );
             return false;
         }
         // Nothing to stand on beside the hands (a post, the end of a wall): pull up with one hand. Only from a hang: the
@@ -8418,7 +8436,7 @@ impl WallClimb {
         // rounded lip, and one side missed the roof there; the running game pulled up there with both hands.)
         let p = top.point - self.normal * ONEHAND_PROBE_IN;
         let drops = |s: f32| level.ground(p + along * ONEHAND_SIDE * s + Vec3::Y * 0.05, 0.0, 0.25).is_none();
-        let one = if hay.is_none() && !matches!(self.state.as_str(), "1m" | "2m") && (drops(1.0) || drops(-1.0)) {
+        let one = if hay.is_none() && !cramped && !matches!(self.state.as_str(), "1m" | "2m") && (drops(1.0) || drops(-1.0)) {
             let names: &[&str] = if is_free(&self.state) { &TOP_OUT_FREE_ONEHAND } else { &TOP_OUT_ONEHAND };
             names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>()
         } else {
@@ -8473,6 +8491,10 @@ impl WallClimb {
                     }
                     // (Onto the top's height in full, up as well as down: AC1's pull-up corrects onto the top point
                     // (0xDDBE80); a hang lower than the clip expects ended 0.13 m inside the top, audit LEDGE-9.)
+                    None if let Some(at) = at_edge.filter(|_| cramped) => {
+                        debug!("climb: top-out onto a shallow ledge, standing at its edge {at:.2} (a wall just behind)");
+                        (clips.clone(), at - (root.translation + travel(&clips)), ON_TOP)
+                    }
                     None => {
                         // (A narrow top at the grip with the floor lower behind it (a parapet): AC1 kneels and stands on
                         // the edge itself, 0.1 m in from the hands, through the right foot's stand (0x248E9731, as a
@@ -11542,9 +11564,13 @@ impl WallClimb {
     /// True while the hands hang on holds (not while pulling up over the top, turning a corner,
     /// leaping or leaving the wall, where the clip alone is right).
     pub fn hands_on_wall(&self) -> bool {
+        // (Not from a jump off the wall's rebound pose on: the running game's limb goals all go off on its first frame
+        // (live comparison 2026-10-23, `hangwall_tr_rebound_footl`); ours held the hands on the holds through the pose,
+        // the clip lowering them 0.43 m under, and the feet on the wall 0.2 s into the takeoff.)
+        let leaving = self.mv.as_ref().is_some_and(|m| m.clip.name.contains("_tr_rebound_") || m.clip.name.starts_with("xx_h_rebound_"));
         self.knob_grip().is_some()
             || self.catching()
-            || (!off_wall(&self.state) && !self.mv.as_ref().is_some_and(|m| off_wall(&m.to) || m.clip.name.contains("corner")))
+            || (!leaving && !off_wall(&self.state) && !self.mv.as_ref().is_some_and(|m| off_wall(&m.to) || m.clip.name.contains("corner")))
     }
 
     /// Over a running jump's reception onto a knob: the knob's hold point, both hands' goal (AC1's hand contacts on it).

@@ -37,7 +37,7 @@ camyaw=""
 context() {
   local n; n=$(wc -l < "$game/ac1-hook.log")
   printf 'where\n' > "$game/ac1-hook.cmd"; sleep 1
-  tail -n +$((n + 1)) "$game/ac1-hook.log" | grep -o 'in [A-Za-z]*$' | tail -1 | cut -c4-
+  tail -n +$((n + 1)) "$game/ac1-hook.log" | grep -o 'in [A-Za-z]*$' | tail -1 | cut -c4-  || true
 }
 for _ in 1 2 3 4; do
   c=$(context)
@@ -47,31 +47,28 @@ for _ in 1 2 3 4; do
   printf 'press hand 10\n' > "$game/ac1-hook.cmd"; sleep 2.5
 done
 if [[ -n "$start" ]]; then
+  # (A run cut short leaves the live log on, its file held open: off first.)
+  printf 'live off\n' > "$game/ac1-hook.cmd"; sleep 0.8
   rm -f "$game/ac1-live.txt" "$game/ac1-live-events.txt"
   printf 'live on\ntp %s\n' "$start" > "$game/ac1-hook.cmd"
   sleep 2
   cam_now() { grep -o 'camdir=[-0-9.]*,[-0-9.]*,[-0-9.]*' "$game/ac1-live.txt" | tail -1 | awk -F'[=,]' '{ printf "%.5f", atan2(-$2, -$4) }'; }
   wrapped() { awk -v e="$1" 'BEGIN { while (e > 3.14159265) e -= 6.2831853; while (e < -3.14159265) e += 6.2831853; printf "%.5f", e }'; }
   camyaw=$(cam_now)
-  # (The real camera turned behind the player with the right stick, AC1_CAMERA_BEHIND=1 the default: its follow turns
+  # (The real camera turned behind the player with the mouse, AC1_CAMERA_BEHIND=1 the default: its follow turns
   # it after him once he moves, so a camera off his facing bends the run, differently in each game.)
   if [[ "${AC1_CAMERA_BEHIND:-1}" == 1 && -n "$camyaw" ]]; then
     want=$(echo "$start" | awk '{ printf "%.5f", ($4 - 90) * 3.14159265 / 180 }')
-    rate=""
-    for _ in $(seq 1 12); do
+    # (Turned by the mouse, `look`: the pad's right stick does not turn the PC game's camera (2026-10-23: it stayed put
+    # over 12 tries). Measured: +1 mouse unit turns the yaw down 0.00212 rad.)
+    for _ in $(seq 1 6); do
       err=$(wrapped "$(awk -v w="$want" -v c="$camyaw" 'BEGIN { print w - c }')")
-      awk -v e="$err" 'BEGIN { exit !(e < 0.05 && e > -0.05) }' && break
-      # (Frames by the rate seen, 10 the first time; the right stick's +x turns the yaw down, as ours' pad does.)
-      frames=$(awk -v e="$err" -v r="$rate" 'BEGIN { if (r == "") n = 10; else n = (e < 0 ? -e : e) / r; if (n < 1) n = 1; if (n > 120) n = 120; printf "%d", n }')
-      rx=$(awk -v e="$err" 'BEGIN { print (e < 0) ? 0.8 : -0.8 }')
-      printf 'pad 0 0 0 %s 0 %s\n' "$rx" "$frames" > "$game/ac1-hook.cmd"
+      awk -v e="$err" 'BEGIN { exit !(e < 0.03 && e > -0.03) }' && break
+      read -r dx frames < <(awk -v e="$err" 'BEGIN { u = -e / 0.00212; n = int((u < 0 ? -u : u) / 20) + 1; printf "%d %d\n", u / n, n }')
+      printf 'look %s 0 %s\n' "$dx" "$frames" > "$game/ac1-hook.cmd"
       sleep "$(awk -v n="$frames" 'BEGIN { print n / 60 + 1.0 }')"
-      new=$(cam_now)
-      d=$(wrapped "$(awk -v a="$camyaw" -v b="$new" 'BEGIN { print b - a }')")
-      rate=$(awk -v d="$d" -v n="$frames" 'BEGIN { if (d < 0) d = -d; r = d / n; if (r < 0.002) r = 0.002; printf "%.5f", r }')
-      camyaw=$new
+      camyaw=$(cam_now)
     done
-    printf 'pad off\n' > "$game/ac1-hook.cmd"; sleep 0.3
     echo "the real camera turned behind him: $camyaw rad (wanted $want)"
   fi
   printf 'live off\n' > "$game/ac1-hook.cmd"
@@ -83,7 +80,7 @@ fi
 # 2. The stick in the real camera's frame.
 pad="$src"
 if [[ -n "$camyaw" && -n "$start" && "${AC1_STICK_FROM_FACING:-1}" == 1 ]]; then
-  python -I - "$src" "$out/played.pad" "$camyaw" <<'PY'
+  "${PYTHON:-$(command -v python || command -v py)}" -I - "$src" "$out/played.pad" "$camyaw" <<'PY'
 import math, sys
 src, dst, cam = sys.argv[1], sys.argv[2], float(sys.argv[3])
 face = None
@@ -136,6 +133,6 @@ wait "$ours" || true
 # 4. The two lined up.
 cp "$game/ac1-live.txt" "$out/real.txt"
 cp "$game/ac1-live-events.txt" "$out/real-events.txt" 2>/dev/null || true
-cargo run -q --release -p ac1 --example livelog -- compare "$out/real.txt" "$out/ours.txt" > "$out/compare.txt"
+"${CARGO:-$(command -v cargo || echo "$HOME/.cargo/bin/cargo")}" run -q --release -p ac1 --example livelog -- compare "$out/real.txt" "$out/ours.txt" > "$out/compare.txt"
 echo "done: $out (real.txt, ours.txt, compare.txt)"
 grep -A40 "mode switches" "$out/compare.txt" | head -12

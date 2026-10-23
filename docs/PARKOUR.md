@@ -1417,6 +1417,24 @@ awning's frame (24.5 to 27.3, -11 to -12.6). Each report is a Damascus scenario 
   in) by about 6 mm, and AC1's shapes are a little fatter than ours: AC1 refuses the pull-up here too. Along the edge,
   from the free hang, he pulls up. A live check would settle it for certain (the running game was not up).
 
+## Live comparisons, 2026-10-23 (Damascus bureau courtyard, `tools/live-compare.sh`)
+
+Played into both games at once (the hook's background mode: AC1 needs no focus). The real camera is turned behind him
+with the hook's `look` (+1 mouse unit = -0.00212 rad of yaw); the pad's right stick does not turn the PC game's camera.
+- **Shallow ledge with a wall just behind** (the bureau's west wall, 8.02 m): AC1 pulls up (`hangwall_tr_hangknee_footl_a`,
+  `hangknee_footl_tr_freestep_entry_footl`, a moment in HumanNarrowObject, then Ground); ours hung on, looking up. Fixed:
+  `try_top_out` stands him at the first floor inward of the edge with room for the body (pad `bureau_ledge_climb.pad`).
+- **Limb IK at the eject:** AC1 drops every limb goal from `hangwall_tr_rebound` on; ours held the hands on the wall
+  through the pose and into the takeoff. Fixed in `hands_on_wall`.
+- **Eject flights by target type:** AC1's eject at a wall hang hold (target 0x40: a wall within 0.7 m under the hold)
+  flies the surface flight, action 0x011E555B (`air_*_<foot>_to_surface`), into `air_surface_tr_hangwall_reception_*`;
+  only a free hang (0x80) flies `_to_swing`. Ours flies `_to_swing` to every one (the "hands down / about to grab a bar"
+  look). AC1 also took a hold out of the landing zone 1 but in the hanging zone (4.83 m on, 1.28 m up). Both are on
+  branch `fix/eject-surface`, not yet on dev: three scenarios still differ there, and the courtyard eject is held back
+  by a wall at x 46.8 that AC1's lower path missed (ours' `hangwall_r_climb_1m` ends 0.6 m off AC1's along the wall).
+- The wall run catch's `251cm` name in AC1's events is the first clip of the blended action 0x0106CFC5, not a different
+  move.
+
 ## How far ours follows AC1's tables (2026-10-08)
 Every movement context picks its moves by AC1's own data, where the game has a table or an action id for it: the
 climbing stance (short / long tables, 10-way stick, redirects), the hangs (ledge-jump table, the sideways order), the
