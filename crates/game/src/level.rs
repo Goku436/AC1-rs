@@ -935,9 +935,10 @@ impl Level {
     }
 
     /// Thin beams over open space as swing bars: two holds facing apart at most `BEAM_BAR_THICK` across, side by side for
-    /// at least `BEAM_BAR_OVERLAP`, nothing within `BEAM_BAR_DROP` under them and no wall under either side. AC1 swings
-    /// from any free hang a jump reaches (target type 0x80, the swing reception; Banned445's port): the running game jumped
-    /// from the beam frame east of the Damascus bureau's ladder at its far 0.2 m beam and swung. Returns how many.
+    /// at least `BEAM_BAR_OVERLAP`, nothing within `BEAM_BAR_DROP` under them and no wall under either side. Only for
+    /// levels without AC1's guidance: AC1 plays the swing's landing on any free hang a running jump reaches (target type
+    /// 0x80; the running game's jump at the 0.2 m beam east of the Damascus bureau's ladder), but swings on only from Pole
+    /// edges (0xDCD300); its beams are two ledge grabs, settled on as a free hang. Returns how many.
     pub fn add_beam_bars(&mut self) -> usize {
         // (Each hold against the later ones within 0.1 m of its height only, found by 0.1 m height bands, in their order;
         // the holds on all cores, then the bars kept in that order. Every pair of the 190,000 Damascus holds took 15 s.)
@@ -2163,8 +2164,14 @@ fn build_city(
     lap.lap("ladder tops, carving");
     let heaped = level.drop_hay_holds();
     info!("{heaped} holds and beams left out: on a haystack's heap");
-    let beam_bars = level.add_beam_bars();
-    info!("{beam_bars} thin beams over open space swung from as bars");
+    // (Not where the holds are AC1's: AC1 swings only from Pole edges. A free hang caught from a running jump plays the
+    // swing's landing, and only with both hands on Pole contacts, kind 3, does it go on into the swing cycle; else it
+    // settles into the free hang, `SwingLandingToSettle` 0xDCD300 testing the hands' contact kinds at +0x700 / +0x704.
+    // Ours' bars along thin beams were ours'.)
+    if authored.is_none() {
+        let beam_bars = level.add_beam_bars();
+        info!("{beam_bars} thin beams over open space swung from as bars");
+    }
     lap.lap("hay holds, beam bars");
     for v in &level.viewpoints {
         let near = level.haystacks.iter().map(|h| ((h.centre - *v).with_y(0.0).length(), v.y - h.top())).min_by(|a, b| a.0.total_cmp(&b.0));
