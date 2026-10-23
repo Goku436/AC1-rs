@@ -37,6 +37,12 @@ const ZONES: [&[[f32; 2]]; 13] = [
     &[[0.5, -3.0], [0.5, 2.5], [1.0, 2.3], [2.5, 1.8], [4.0, -3.0]],
 ];
 
+/// Is `p` inside the ground jump's second reach zone (`ZONES[2]`: too high or far to land on, near enough to hang from)
+/// of a jumper with the feet at `origin`?
+pub fn in_hang_zone(origin: Vec3, p: Vec3) -> bool {
+    in_zone(2, origin, p)
+}
+
 /// Is `p` inside reach zone `slot` of a jumper with the feet at `origin`?
 fn in_zone(slot: usize, origin: Vec3, p: Vec3) -> bool {
     let x = (p - origin).with_y(0.0).length();
