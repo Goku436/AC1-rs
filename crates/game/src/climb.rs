@@ -2801,13 +2801,19 @@ fn drop_at_lip(level: &Level, feet: Vec3, x: Vec3, out: Vec3) -> Option<f32> {
     let (s, c) = 50f32.to_radians().sin_cos();
     let down = n * c - Vec3::Y * s;
     let len = (DROP_LIP_STEP + 0.05) / c;
-    if let Some(h) = level.raycast(q - down * len, down, len) {
+    // (A hit only short of the ray's end, as Havok's casts keep one under the fraction 1: a top that goes on flush past
+    // the edge, the ray ending on its plane, is no floor, else the lip's own top, a hair either way, decided the drop;
+    // the test level's doorway lintel, its hold strip 0.15 m out flush with the top, the edge line 0.06 m out.)
+    if let Some(h) = level.raycast(q - down * len, down, len).filter(|h| h.dist < len - DROP_LIP_END) {
         return Some(x.y - h.point.y);
     }
     let top = feet + Vec3::Y;
     let to = q - top;
-    level.raycast(top, to.normalize_or_zero(), to.length()).filter(|_| to.length() > 1e-4).map(|h| x.y - h.point.y)
+    level.raycast(top, to.normalize_or_zero(), to.length()).filter(|h| to.length() > 1e-4 && h.dist < to.length() - DROP_LIP_END).map(|h| x.y - h.point.y)
 }
+
+/// How far short of their ends the drop's lip rays must hit (m).
+const DROP_LIP_END: f32 = 0.001;
 
 /// How far past the edge the drop's lip checks aim (m): the step `Human__FindDropEdgeAhead` passes (0.02).
 const DROP_LIP_STEP: f32 = 0.02;
@@ -2902,6 +2908,12 @@ fn ac1_clear_way(level: &Level, from: Vec3, to: Vec3) -> bool {
 /// AC1's hang zone (an eject: off the bureau wall's climb the running game flew 4.7 m across the courtyard onto the
 /// facing wall's hold 1.3 m up, live comparison 2026-10-23; ours made the no-target jump).
 fn jump_hold(level: &Level, from: Vec3, dir: Vec3, far: bool) -> Option<(Vec3, Vec3)> {
+    // (The far holds only with no near one: with them in, the nearest was a row under the one ejected at, report 423408.)
+    jump_hold_in(level, from, dir, false).or_else(|| far.then(|| jump_hold_in(level, from, dir, true)).flatten())
+}
+
+/// `jump_hold`'s holds within its reach and rise (`zoned` false), or past them in AC1's hang zone (`zoned`).
+fn jump_hold_in(level: &Level, from: Vec3, dir: Vec3, zoned: bool) -> Option<(Vec3, Vec3)> {
     let dir = dir.with_y(0.0).normalize_or_zero();
     level
         .ledges
@@ -2924,9 +2936,12 @@ fn jump_hold(level: &Level, from: Vec3, dir: Vec3, far: bool) -> Option<(Vec3, V
             let (d, rise) = (flat.length(), q.y - from.y);
             // (Far, by AC1's zones: out of the jump's own (too high to land on there; its ceiling falls from 1.3 m at 3.5 m
             // on to 0.8 at 4.7) and in the hang zone. The running game's hold was 1.28 m up, 4.8 m on.)
-            let near = JUMP_HOLD_REACH.contains(&d) && JUMP_HOLD_RISE.contains(&rise);
-            let zoned = far && d > 1.0 && rise <= *JUMP_HOLD_RISE.end() && !in_jump_zone(d, rise) && crate::jump_query::in_hang_zone(from, *q);
-            (near || zoned) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE
+            let within = if zoned {
+                d > 1.0 && rise <= *JUMP_HOLD_RISE.end() && !in_jump_zone(d, rise) && crate::jump_query::in_hang_zone(from, *q)
+            } else {
+                JUMP_HOLD_REACH.contains(&d) && JUMP_HOLD_RISE.contains(&rise)
+            };
+            within && flat.normalize().dot(dir) >= JUMP_TARGET_CONE
         })
         .filter(|(q, out)| Ac1Edge::probe(level, *q, *out).hang() && ac1_clear_way(level, from, *q + *out * 0.2 - Vec3::Y * 1.1))
         .min_by(|a, b| (a.0 - from).length().total_cmp(&(b.0 - from).length()))

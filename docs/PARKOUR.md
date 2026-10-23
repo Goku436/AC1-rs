@@ -1429,9 +1429,16 @@ with the hook's `look` (+1 mouse unit = -0.00212 rad of yaw); the pad's right st
 - **Eject flights by target type:** AC1's eject at a wall hang hold (target 0x40: a wall within 0.7 m under the hold)
   flies the surface flight, action 0x011E555B (`air_*_<foot>_to_surface`), into `air_surface_tr_hangwall_reception_*`;
   only a free hang (0x80) flies `_to_swing`. Ours flies `_to_swing` to every one (the "hands down / about to grab a bar"
-  look). AC1 also took a hold out of the landing zone 1 but in the hanging zone (4.83 m on, 1.28 m up). Both are on
-  branch `fix/eject-surface`, not yet on dev: three scenarios still differ there, and the courtyard eject is held back
-  by a wall at x 46.8 that AC1's lower path missed (ours' `hangwall_r_climb_1m` ends 0.6 m off AC1's along the wall).
+  look). AC1 also took a hold out of the landing zone 1 but in the hanging zone (4.83 m on, 1.28 m up). Ours now does
+  both (`wall_hang_eject`, `EJECT_SURFACE_WALL`; `jump_hold`'s far holds, taken only with no hold in its own reach).
+  AC1 has no limb IK goals over the surface flight (they start at the reception), so `catching()` keeps to `_to_swing`.
+- **The catch onto a climb grid's hold point:** off the wall run AC1 caught at z -20.01 and slid onto the hold point
+  0.4 m along (hand goals at -20.406, the next at -21.406, 1 m on), then climbed in 1 m steps; ours catches where it
+  hits and climbs from there, so its eject started 0.6 m short and its flight met a wall at x 46.8 that AC1's missed
+  (it falls there). That is the open "real hold data for climbing".
+- **The drop's lip rays** (`drop_at_lip`) count a hit only short of their ends, as Havok's casts keep one under the
+  fraction 1: ending on the plane of a top that goes on flush past the edge, rounding decided the drop (the test
+  level's doorway lintel: the free jump off its stand-up came and went with the flight before it).
 - The wall run catch's `251cm` name in AC1's events is the first clip of the blended action 0x0106CFC5, not a different
   move.
 
