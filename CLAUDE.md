@@ -49,7 +49,14 @@ Full format notes and status table are in `docs/NOTES.md` (the README is the sho
 
 ## Skills
 Project skills are in `.claude/skills/`: `ida-reverse-engineering`, `rust-recomp-practices`, `bevy-port-architecture`.
-Use them for format reversing, parser/runtime Rust work, and Bevy work.
+Use them for format reversing, parser/runtime Rust work, and Bevy work. Also `scenarios` (which tags to run, how)
+and `live-ac1` (driving the real game through ac1-hook).
+
+## Crew
+Named agents that run inline in this session, never as subagents: `Desmond:` movement, `Malik:` formats/RE,
+`Lucy:` tests and live comparisons, `Vidic:` runtime/visuals/sound, `Robert:` combat, `Al Mualim:` merges and releases.
+A member's name (or `/crew <name>`) loads its soul, memory and skills from `.claude/crew/<id>/` through the `crew`
+skill; `A >> B` hands a task over; `save` writes the active member's memory. See `.claude/crew/README.md`.
 
 ## Open work
 Driving which move plays from the move graph itself (`forge::graph::MoveGraph` is loaded and checks every chain step;
