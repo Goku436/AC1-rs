@@ -1688,6 +1688,24 @@ const SCENARIOS: &[Scenario] = &[
         want: &["caught bar 0 at", "via xx_h_swing_cycle_back_down", "the swing comes to rest (front)", "via xx_h_swing_stop_front_d"],
         never: &["the swing jump", "EMBED"],
     },
+    // User recording 124019 (2026-10-23): at rest under the bar, the stick up pulled him up onto it one-handed and stood
+    // him over it. AC1's bars (its guidance sub-type 4, a pole) are nothing to pull up onto: the swing, the drop and the
+    // jump off only (`under_swing_bar`).
+    Scenario {
+        name: "swing bar: at rest under it, the stick up does not pull up onto it (a bar is no beam)",
+        tags: &["bars", "hang"],
+        env: &[
+            ("AC1_START", "50.3,0,-90"),
+            ("AC1_WALK", "6"),
+            ("AC1_STOP", "0.7-7"),
+            ("AC1_HIGH", "0-7"),
+            ("AC1_LEGS", "0-2.0"),
+            ("AC1_CLIMB", "none=3.5,up=3"),
+        ],
+        secs: 7.0,
+        want: &["jumping at the swing bar at [55.00, 4.40", "no top-out: hanging from a swing bar"],
+        never: &["pull-up", "-> top via", "hangwaist", "EMBED"],
+    },
     // The eject with nothing to land on (`back_eject`), from a wall run's catch at the hang on the test level's wall: the
     // stick to the left of the wall goes left (toward -Z here), to the right right. (The climbing stick is read facing the
     // wall; passed unturned into the facing-away side, A ejected right and D left: user report, 2026-10-12.) It goes the

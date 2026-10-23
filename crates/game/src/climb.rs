@@ -2996,6 +2996,20 @@ fn bar_ahead(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
 /// `WallClimb::bar` while swinging from a free-hang hold (`swing_hold`), not one of the level's bars.
 const HOLD_BAR: usize = usize::MAX;
 
+/// Hanging from one of the level's swing bars (AC1's poles, `HumanSwing`), the root at `root`: a bar over the root as
+/// the free hang holds one, 1.8 to 2.8 m up, within `BAR_UNDER` across. A bar is no beam: nothing to pull up onto, only
+/// the swing, the drop and the jump off. (The test level's bar stands 0.1 m off a 4.5 m upright's top: after the swing
+/// came to rest the free hang pulled up one-handed onto that and stood over the bar, user recording 124019.)
+fn under_swing_bar(level: &Level, root: Vec3) -> bool {
+    level.bars.iter().any(|b| {
+        let q = b.closest(root + Vec3::Y * FREE_ROOT_DOWN);
+        (q - root).with_y(0.0).length() < BAR_UNDER && (1.8..=2.8).contains(&(q.y - root.y))
+    })
+}
+
+/// How far across from a swing bar the hanging root may be (m; it sways about 0.2 m in the free hang).
+const BAR_UNDER: f32 = 0.5;
+
 /// AC1's free-hang target that way (its scorer's pick of type 0x80 on a hold edge: no wall under it, a 2.5 m drop): the
 /// grab point and the hold it lies on. AC1 swings from any free hang a jump reaches (the swing reception, Ledge
 /// sub-state 8), a thin beam's side as much as a pole: the running game's three ejects at the 0.17 m beam by the
@@ -8390,6 +8404,10 @@ impl WallClimb {
             FREE | FREE_OPEN => &TOP_OUT_FREE,
             _ => return false,
         };
+        if is_free(&self.state) && (self.bar.is_some_and(|i| i != HOLD_BAR) || under_swing_bar(level, root.translation)) {
+            debug!("climb: no top-out: hanging from a swing bar");
+            return false;
+        }
         let Some(mut clips) = names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() else { return false };
         // From a wall hang, the pull-up mixed toward the wall's lean under the edge: `30_out` full at a 30 degree overhang,
         // `45_in` full at a 45 degree slope (AC1's action 0x106D2C5, by the rule its receptions use, 0xE02790; audit
