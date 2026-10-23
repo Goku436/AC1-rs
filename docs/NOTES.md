@@ -1295,7 +1295,7 @@ and lips found in the geometry; the ladders and horizontal poles replace the one
 roof: 0.21 m refused it before); it also
 needs room to stand (1.7 m of headroom 0.5 m in, no wall just past the edge, probed from in front of the wall, and the
 spot not inside a solid): window sills are holds whose top is a window, not a floor to climb onto, and a beam stuck into
-a building shows its top inside the wall. Narrow wall tops (a fence's or a parapet's, 0.15-0.35 m deep behind a hold
+a building shows its top inside the wall. (Since 2026-10-14 a city's beams and posts are AC1's rules only, `pair_beams` and `add_pilotis`: 5218 beams, 1374 posts in Damascus, docs/PARKOUR.md "Beams as AC1 does them"; what follows, ours' narrow tops and the old pairing, is the `AC1_OLD_BEAMS=1` comparison build.) Narrow wall tops (a fence's or a parapet's, 0.15-0.35 m deep behind a hold
 with a drop past it and in front of the hold, open above; not a roof's parapet with the roof just under it) become perches along their middle (`Level::add_narrow_tops`), and so does AC1's own
 rule, its runtime beam contacts (as Banned445's port reads them): two holds along each other within 30 degrees, facing
 away from each other, overlapping, at most 1 m apart, with a drop past both (no floor within 0.5 m under the top 0.3 m
