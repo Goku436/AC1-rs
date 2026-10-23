@@ -419,3 +419,42 @@ pub const WAIT: [[u32; 2]; 4] = [[0x068d7393, 0x068d7394], [0x0108295c, 0x00fd64
 pub const DEFENCE_WAIT: [[u32; 2]; 4] = [[0x068d799e, 0x068d799f], [0x1122a264, 0x1122a265], [0x2c1692a2, 0x2c1692a3], [0x089ca74a, 0x089ca74b]];
 pub const DEFENCE_STRAFE: [[u32; 2]; 4] = [[0x869b2977, 0x869b2978], [0x1122a263, 0x1122a262], [0x2f2f3561, 0x2f2f3562], [0x69b54b98, 0x69b54b99]];
 pub const STRAFE: [[u32; 2]; 4] = [[0x0ed89b1d, 0x0ed89b1e], [0x0429c55b, 0x0429dbae], [0x2c168903, 0x2c168904], [0x69b54aeb, 0x69b54aec]];
+
+/// The attack's anticipation [weapon][foot] (0x1A31904, played by 0xF36F00 as the attack state's first sub-state
+/// +0xB18): `xx_h_<style>_front_atk_anticipation_<foot>`, 0.2 s for the fists and the sword, 0.07 s for the short blade.
+pub const ANTICIPATION: [[u32; 2]; 3] = [[0x1bdd4cf2, 0x1bdd4cf1], [0x1227b570, 0x1122a1fd], [0x2c16994b, 0x2c16994c]];
+
+/// The counter on a max attack (`HumanGround_CounterStrong`, the counter state's type 3, played by 0xF4A2B0): the
+/// defender's step in, its parry (`_a` then `_b`) and its branch [the attacker's blade direction][the defender's foot]
+/// (0x1A3341C, 0x1A33440, 0x1A33464): the `01` set off the left foot, `02` off the right.
+pub const COUNTER_MAX_START: [[u32; 2]; 4] = [[0xaf8626aa, 0xb4f3cd88], [0xb4f3cdf3, 0xb4f3ce02], [0xb4f3ce11, 0xb4f3ce20], [0xb4f3cd9b, 0xb4f3cdaa]];
+pub const COUNTER_MAX_PARRY: [[u32; 2]; 4] = [[0xaf8626ab, 0xb4f3cd89], [0xb4f3cdf4, 0xb4f3ce03], [0xb4f3ce12, 0xb4f3ce21], [0xb4f3cd9c, 0xb4f3cdab]];
+pub const COUNTER_MAX_BRANCH: [[u32; 2]; 4] = [[0xaf8626ac, 0xb4f3cd8a], [0xb4f3cdf5, 0xb4f3ce04], [0xb4f3ce13, 0xb4f3ce22], [0xb4f3cd9d, 0xb4f3cdac]];
+/// The finish after the branch [the defender's weapon: fists' kick, sword, short blade][its foot][variant] (0x1A33488).
+pub const COUNTER_MAX_FINISH: [[[u32; 2]; 2]; 3] =
+    [[[0xaf8626b3, NONE], [0xb4f3ce36, NONE]], [[0xaf8626b7, 0x1c26dd43], [0xb4f3ce38, 0x1c26dd46]], [[0xc2830344, 0x1c26dd3d], [0xc2830348, 0x1c26dd40]]];
+/// The attacker's side: countered (`_a` then `_b`) and stunned [its blade direction][the set, 01 / 02] (0x1A334BC,
+/// 0x1A334E0), and its death to the finish [the defender's weapon][set][variant] (0x1A33504).
+pub const COUNTERED_MAX: [[u32; 2]; 4] = [[0xb4f3cd9f, 0xb4f3cded], [0xb4f3ce15, 0xb4f3ce24], [0xb4f3cdf7, 0xb4f3ce06], [0xaf8626b0, 0xb4f3cd95]];
+pub const COUNTERED_MAX_STUNNED: [[u32; 2]; 4] = [[0xb4f3cda0, 0xb4f3cdee], [0xb4f3ce16, 0xb4f3ce25], [0xb4f3cdf8, 0xb4f3ce07], [0xaf8626b1, 0xb4f3cd96]];
+pub const COUNTERED_MAX_FINISH: [[[u32; 2]; 2]; 3] =
+    [[[0xaf8626b5, NONE], [0xb4f3ce3b, NONE]], [[0xaf8626b9, 0x1c26dd45], [0xb4f3ce3c, 0x1c26dd48]], [[0xc2830347, 0x1c26dd3f], [0xc2830346, 0x1c26dd42]]];
+
+/// The hidden blade's counter kill (the counter kill tables' 4th weapon, 0xF4A2B0 / 0xF44B40 index it 3 for the fists
+/// with the hidden blade out, +0x974): its step in and kill [the attacker's blade direction][its foot] (0x1A32E10's and
+/// 0x1A33118's hidden blade rows: `xx_h_blade_counter_light_<01|02>_kill_<dir>_step_start` / `_position`), and the
+/// victim's death, which the block pairs with the kill's mirror direction (ul with ur, dl with dr).
+pub const BLADE_COUNTER_STEP: [[u32; 2]; 4] = [[0x0ef67b19, 0x0ef67b1d], [0x0ef67b10, 0x0ef679e0], [0x0ef679e4, 0x0ef67a82], [0x073806c8, 0x089ca09c]];
+pub const BLADE_COUNTER_KILL: [[u32; 2]; 4] = [[0x0ef67b1a, 0x0ef67b1e], [0x0ef67b11, 0x0ef679e1], [0x0ef679e5, 0x0ef67a83], [0x073806c9, 0x089ca09d]];
+pub const BLADE_COUNTERED: [[u32; 2]; 4] = [[0x0ef67b1c, 0x0ef67b22], [0x0ef67b13, 0x0ef679e3], [0x0ef679e7, 0x0ef67a85], [0x073806cb, 0x089ca09f]];
+
+/// The grab (`HumanGround_Fight`): the grabber's start and pull, its throw by the side it goes [front, left, right,
+/// back] (0x1A318C0, the same for every weapon); the grabbed one's pull and throw (the actions the grab's items pair
+/// with), and the thrown one's fall and roll back up (`HumanGround_Hurt` 0xFA49213: its first item is 0x31663E96's, the
+/// action the throw links to).
+pub const GRAB_START: u32 = 0x3266a567;
+pub const GRAB_PULL: u32 = 0x3266a56a;
+pub const GRAB_THROW: [u32; 4] = [0x3266a56c, 0x3266a572, 0x3266a575, 0x3266a56f];
+pub const GRABBED_PULL: u32 = 0x3266a578;
+pub const GRABBED_THROW: [u32; 4] = [0x3266a57a, 0x3266a57e, 0x3266a580, 0x3266a57c];
+pub const THROWN: [u32; 1] = [0x0fa49213];

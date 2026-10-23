@@ -55,7 +55,7 @@ pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<FightInput>().init_resource::<FightScript>().add_systems(
+        app.init_resource::<FightInput>().init_resource::<FightScript>().init_resource::<FightSettings>().add_systems(
             Update,
             (spawn_guards, fight_input, fight).chain().after(crate::run_script).after(crate::fly::fly).before(crate::character::locomotion),
         );
@@ -180,6 +180,8 @@ pub struct FightInput {
     pub hand_release: bool,
     /// The legs pressed this frame (the counter dodge; the ground's own legs input is not read in a fight).
     pub legs_press: bool,
+    /// The empty hand pressed this frame (Shift): the grab, and while defending the counter grab.
+    pub empty_press: bool,
 }
 
 /// The scripted fight input (`AC1_WEAPON`, `AC1_LOCK`, `AC1_ATTACK`) and its clock.
@@ -200,6 +202,10 @@ enum HandCue {
     Combo,
     Counter,
     Dodge,
+    /// The weapon hand as a counter on a max attack parries: its finish.
+    Finish,
+    /// The empty hand as the next counter window opens (the counter grab).
+    Grab,
 }
 
 fn load_script(s: &mut FightScript) {
@@ -218,6 +224,8 @@ fn load_script(s: &mut FightScript) {
             "combo" => HandCue::Combo,
             "counter" => HandCue::Counter,
             "dodge" => HandCue::Dodge,
+            "finish" => HandCue::Finish,
+            "grab" => HandCue::Grab,
             _ => {
                 let (t, h) = p.split_once(':').unwrap_or((p, "0.05"));
                 HandCue::At(t.parse().unwrap_or(0.0), h.parse().unwrap_or(0.05))
@@ -253,11 +261,19 @@ fn fight_input(
         input.lock = script.locks.iter().any(|t| now(*t));
         // The weapon hand (or the legs): the next cue, when it is due.
         let counter_open = || fighters.iter().any(|f| f.counter_open_for(0.25));
+        let mut empty = false;
         let (due, legs) = match script.hand.first().copied() {
             Some(HandCue::At(t, h)) => ((t1 >= t).then_some(h), false),
+            Some(HandCue::Grab) => {
+                empty = true;
+                (counter_open().then_some(0.05), false)
+            }
             Some(HandCue::Combo) => (player.iter().next().is_some_and(|f| f.in_combo_window(0.5)).then_some(0.05), false),
             Some(HandCue::Counter) => (counter_open().then_some(0.05), false),
             Some(HandCue::Dodge) => (counter_open().then_some(0.05), true),
+            Some(HandCue::Finish) => {
+                (player.iter().next().is_some_and(|f| f.follow.is_some_and(|(_, l)| !l) && f.kind() == Some(Kind::Paired)).then_some(0.05), false)
+            }
             None => (None, false),
         };
         if let Some(h) = due {
@@ -265,6 +281,9 @@ fn fight_input(
             if legs {
                 input.legs_press = true;
                 debug!("combat: script presses the legs at {t1:.2} s");
+            } else if empty {
+                input.empty_press = true;
+                debug!("combat: script presses the empty hand at {t1:.2} s");
             } else {
                 input.hand_press = true;
                 script.held_until = t1 + h;
@@ -288,6 +307,7 @@ fn fight_input(
     input.hand_held = mouse.pressed(MouseButton::Left);
     input.hand_release = mouse.just_released(MouseButton::Left);
     input.legs_press = keys.just_pressed(KeyCode::Space);
+    input.empty_press = keys.just_pressed(KeyCode::ShiftLeft);
 }
 
 // --- Fighters -----------------------------------------------------------------------------------------------------
@@ -299,6 +319,8 @@ enum Kind {
     Stance,
     /// AC1's turn on the spot in the stance.
     Turn,
+    /// The attack's anticipation (0xF36F00): the weapon hand pressed, waiting for its release or the max.
+    Anticipate,
     WindUp,
     Strike,
     /// What the attacker plays as its strike lands (AC1's `hit` or `blocked` clip): the combo window's end.
@@ -308,6 +330,8 @@ enum Kind {
     Block,
     /// The counter dodge.
     Dodge,
+    /// The counter on a max attack, after its parry: the weapon hand now finishes the stunned attacker.
+    Branch,
     /// A throwing knife's throw (its release lets the knife go).
     Throw,
     /// A lead-in before a paired clip (steered to meet it).
@@ -454,16 +478,26 @@ pub struct Fighter {
     knife: Option<(Entity, f32)>,
     /// Lying dead (the player): how long, before the desynchronisation starts it again.
     dead_t: f32,
+    /// Countering a max attack: the stunned attacker, and the weapon hand pressed for the finish since the counter
+    /// started.
+    follow: Option<(Entity, bool)>,
 }
 
+/// Health a guard's hit point stands for (ours: AC1's `DamageData` takes 10 off a militia per sword blow; its NPC health
+/// is not found, so `AC1_GUARD_HP`'s blows times this).
+pub const GUARD_HIT: i32 = 10;
+/// The player's health in `DamageData`'s units (ours: AC1's sync bar per memory block is not decoded).
+const PLAYER_HEALTH: f32 = 100.0;
+
 impl Fighter {
-    pub fn new(selected: Weapon, hp: i32) -> Self {
+    /// A fighter with `hits` blows' worth of health (`GUARD_HIT` each).
+    pub fn new(selected: Weapon, hits: i32) -> Self {
         Fighter {
             selected,
             drawn: None,
             fight: false,
             target: None,
-            hp,
+            hp: hits * GUARD_HIT,
             dead: false,
             act: None,
             swing: None,
@@ -472,11 +506,12 @@ impl Fighter {
             draw: None,
             hold: None,
             last_random: None,
-            rng: 0x2545_f491 ^ hp as u32,
+            rng: 0x2545_f491 ^ hits as u32,
             fist_chain: f32::MAX,
             knives: KNIVES,
             knife: None,
             dead_t: 0.0,
+            follow: None,
         }
     }
 
@@ -497,9 +532,24 @@ impl Fighter {
         (self.rng >> 24) as u8
     }
 
-    /// The weapon in hand's table index (the sword's when none is: the guards').
+    /// The weapon in hand's index in AC1's attack tables (the sword's when none is: the guards'). The hidden blade's are
+    /// the fists' (the exe's weapon +0x970 is 0 with the hidden blade out, +0x974).
     fn weapon(&self) -> usize {
-        self.drawn.filter(|w| w.fights()).unwrap_or(Weapon::Sword).index()
+        match self.drawn {
+            Some(Weapon::HiddenBlade) => fd::FISTS,
+            Some(w) => w.index(),
+            None => fd::SWORD,
+        }
+    }
+
+    /// Fighting with the hidden blade out (its own stance; counters kill, no blocks).
+    fn blade(&self) -> bool {
+        self.fight && self.drawn == Some(Weapon::HiddenBlade)
+    }
+
+    /// The weapon's index in the stance tables (the hidden blade's own 4th).
+    fn stance_index(&self) -> usize {
+        if self.blade() { fd::HIDDEN_BLADE } else { self.weapon() }
     }
 
     /// In the combo window, `at` 0..1 of the way through the landed clip: the strike landed (hit or blocked) and its
@@ -544,10 +594,15 @@ pub struct Guard {
     /// Strike back at once (after deflecting a blow).
     riposte: bool,
     passive: bool,
+    /// The chance an attack of its is a max one (ours: AC1's fight AI, its `DecisionTreeDefault`, is not decoded).
+    max: f32,
+    /// Sent in by the fight manager's group attack: attack as soon as in reach, whatever the tokens.
+    group: bool,
 }
 
 impl Guard {
-    /// A guard with the defaults (`AC1_GUARD_BLOCK`, `AC1_GUARD_DEFLECT`, `AC1_GUARD_PASSIVE`, `AC1_GUARD_AWARE`), its
+    /// A guard with the defaults (`AC1_GUARD_BLOCK`, `AC1_GUARD_DEFLECT`, `AC1_GUARD_PASSIVE`, `AC1_GUARD_AWARE`,
+    /// `AC1_GUARD_MAX`), its
     /// dice seeded by `seed`. A guard only fights while it has a `Fighter` too.
     pub fn new(seed: u32) -> Guard {
         let env = |k: &str, d: f32| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
@@ -560,6 +615,8 @@ impl Guard {
             deflect: env("AC1_GUARD_DEFLECT", 0.0),
             riposte: false,
             passive: std::env::var("AC1_GUARD_PASSIVE").is_ok(),
+            max: env("AC1_GUARD_MAX", 0.35),
+            group: false,
         }
     }
 
@@ -744,6 +801,7 @@ fn spawn_guards(
     level: Res<Level>,
     mut lib: Option<ResMut<AnimLib>>,
     player: Query<Entity, (With<Player>, Without<Fighter>)>,
+    mut settings: ResMut<FightSettings>,
     (mut meshes, mut mats, mut images, mut bindposes): MeshAssets,
 ) {
     if *done {
@@ -753,6 +811,14 @@ fn spawn_guards(
     let Ok(p) = player.single() else { return };
     *done = true;
     commands.entity(p).insert(Fighter::new(Weapon::Sword, 10));
+    // AC1's damages and fight manager numbers, from the install.
+    match forge::Forge::open(dir.0.join("DataPC.forge")).and_then(|f| forge::fight::read_settings(&f)) {
+        Ok(s) => {
+            info!("combat: AC1's fight settings read (memory block {}: {:?})", memory_block(), s.blocks.get(memory_block() - 1).map(|b| b[0]));
+            settings.0 = Some(s);
+        }
+        Err(e) => warn!("combat: no fight settings ({e:#}); ours instead"),
+    }
     let spots = guard_spots(level.city);
     if spots.is_empty() {
         return;
@@ -831,6 +897,10 @@ enum Ev {
     ComboKill(Entity, Entity, u8),
     /// A throwing knife lands: by, on.
     Knife(Entity, Entity),
+    /// The finish of a counter on a max attack: the defender, the stunned attacker.
+    Finish(Entity, Entity),
+    /// A grab: by, on, the side it throws to, a counter grab (on an attack in its window).
+    Grab(Entity, Entity, usize, bool),
 }
 
 type FighterQuery<'w, 's> = Query<
@@ -839,14 +909,48 @@ type FighterQuery<'w, 's> = Query<
     (Entity, &'static mut Transform, &'static mut Character, &'static mut Controller, &'static mut Fighter, Option<&'static mut Guard>, Has<Player>),
 >;
 
-/// How many guards attack at once (ours, `AC1_FIGHT_ATTACKERS`: AC1's fight manager lets a memory block's share of the
-/// fighters take part, `fight_data::FIGHT_MANAGER`; the first blocks' one).
-fn attackers_at_once() -> usize {
-    std::env::var("AC1_FIGHT_ATTACKERS").ok().and_then(|v| v.parse().ok()).unwrap_or(fd::FIGHT_MANAGER[0].0 as usize).max(1)
+/// AC1's fight settings read from the install (`forge::fight`: the damage table and the fight manager's numbers per
+/// memory block), once the clip library is in; `None` without them (the fallbacks are ours).
+#[derive(Resource, Default)]
+pub struct FightSettings(pub Option<forge::fight::FightSettings>);
+
+/// The memory block whose fight manager settings apply (`AC1_MEMORY_BLOCK`, 1..7; ours: 1, AC1 takes the mission's).
+fn memory_block() -> usize {
+    std::env::var("AC1_MEMORY_BLOCK").ok().and_then(|v| v.parse().ok()).unwrap_or(1usize).clamp(1, 7)
+}
+
+/// The fight manager's state (AC1's `FightManager`, 0xAFF460): how long the fight has run (its ramp) and when the next
+/// group attack goes.
+#[derive(Default)]
+pub struct Manager {
+    t: f32,
+    group_in: f32,
+}
+
+/// What the fight manager tells a guard this frame.
+#[derive(Clone, Copy, Default)]
+struct Orders {
+    /// It holds an attack token (AC1's +0x324 against the block's `attackers`; ours: the token goes to the engaged guard
+    /// that waited longest, as AC1's fighters ask for one when their own AI wants to attack).
+    turn: bool,
+    /// Among the fighters the manager keeps in the fight (the nearest `engaged`; the rest stand off).
+    engaged: bool,
+    /// More guards may join the fight (fewer hostile than the block's `drawn_in`).
+    may_join: bool,
 }
 
 /// The fight: everyone's choices, moves and what they do to each other.
-pub fn fight(time: Res<Time>, level: Res<Level>, input: Res<FightInput>, mut lib: Option<ResMut<AnimLib>>, mut q: FighterQuery, mut started: Local<bool>) {
+#[allow(clippy::too_many_arguments)]
+pub fn fight(
+    time: Res<Time>,
+    level: Res<Level>,
+    input: Res<FightInput>,
+    settings: Res<FightSettings>,
+    mut lib: Option<ResMut<AnimLib>>,
+    mut q: FighterQuery,
+    mut started: Local<bool>,
+    mut mgr: Local<Manager>,
+) {
     let Some(lib) = lib.as_deref_mut() else { return };
     // (`AC1_PLAYER_HEALTH`: the player's health at the start, for the scripts.)
     if !*started {
@@ -876,20 +980,61 @@ pub fn fight(time: Res<Time>, level: Res<Level>, input: Res<FightInput>, mut lib
             attacking: f.swing.is_some() && matches!(f.kind(), Some(Kind::WindUp | Kind::Strike | Kind::Landed)),
         })
         .collect();
-    // The guards' attack turn (ours): free while fewer than `attackers_at_once` attack; it goes to the hostile guard
-    // that has waited longest among those ready.
+    // AC1's fight manager (0xAFF460 / 0xB00C30 / 0xAF8510) on the memory block's first difficulty set: the fighters it
+    // keeps in the fight (the nearest, ramped from the set's first number to its second), the attack tokens, and every
+    // so often a group attack, a share of the fighters sent at once.
+    let diff = settings.0.as_ref().and_then(|s| s.blocks.get(memory_block() - 1)).map(|b| b[0]);
+    let tokens = std::env::var("AC1_FIGHT_ATTACKERS").ok().and_then(|v| v.parse().ok()).or(diff.map(|d| d.attackers as usize)).unwrap_or(1).max(1);
+    let player_at = seen.iter().find(|s| s.player).map_or(Vec3::ZERO, |s| s.pos);
+    let mut hostile: Vec<&Seen> = seen.iter().filter(|s| s.guard && s.alive && s.hostile).collect();
+    hostile.sort_by(|a, b| a.pos.distance(player_at).total_cmp(&b.pos.distance(player_at)));
+    let mut group: Vec<Entity> = vec![];
+    let engaged_n = match diff {
+        Some(d) if !hostile.is_empty() => {
+            mgr.t += dt;
+            let k = (mgr.t / d.ramp.max(1e-3)).clamp(0.0, 1.0);
+            let lerp = |a: f32, b: f32| a + (b - a) * k;
+            let engaged = lerp(d.engaged[0] as f32, d.engaged[1] as f32).round() as usize;
+            mgr.group_in -= dt;
+            if mgr.group_in <= 0.0 {
+                // (The first as the fight starts, then every interval; the exe rounds to the nearest, ties to even.)
+                let n = (hostile.len() as f32 * lerp(d.group_share[0], d.group_share[1])).round_ties_even() as usize;
+                if n > 0 {
+                    group = hostile.iter().take(n).map(|s| s.e).collect();
+                    info!("combat: the fight manager's group attack ({n} of {})", hostile.len());
+                }
+                mgr.group_in = lerp(d.group_interval[0], d.group_interval[1]);
+            }
+            engaged.max(1)
+        }
+        _ => {
+            *mgr = Manager::default();
+            usize::MAX
+        }
+    };
+    let engaged: Vec<Entity> = hostile.iter().take(engaged_n).map(|s| s.e).collect();
+    let may_join = diff.is_none_or(|d| hostile.len() < d.drawn_in as usize);
+    // The attack token: free while fewer than `tokens` attack; it goes to the engaged guard that waited longest among
+    // those ready.
     let attacking = seen.iter().filter(|s| s.guard && s.attacking).count();
-    let turn: Option<Entity> = if attacking < attackers_at_once() {
+    let turn: Option<Entity> = if attacking < tokens {
         // (Logged by the guard that takes it.)
         q.iter()
-            .filter(|(_, _, _, _, f, g, _)| {
-                !f.dead && f.fight && f.act.is_none() && g.as_ref().is_some_and(|g| g.hostile && !g.passive && g.next_attack <= 0.0)
+            .filter(|(e, _, _, _, f, g, _)| {
+                engaged.contains(e) && !f.dead && f.fight && f.act.is_none() && g.as_ref().is_some_and(|g| g.hostile && !g.passive && g.next_attack <= 0.0)
             })
             .max_by(|a, b| a.5.as_ref().map_or(0.0, |g| g.waited).total_cmp(&b.5.as_ref().map_or(0.0, |g| g.waited)))
             .map(|x| x.0)
     } else {
         None
     };
+    for (e, _, _, _, _, g, _) in q.iter_mut() {
+        if let Some(mut g) = g
+            && group.contains(&e)
+        {
+            g.group = true;
+        }
+    }
     let mut evs: Vec<Ev> = vec![];
     for (me, mut tf, mut ch, mut ctl, mut f, guard, is_player) in &mut q {
         let (tf, ch, ctl, f) = (&mut *tf, &mut *ch, &mut *ctl, &mut *f);
@@ -902,13 +1047,15 @@ pub fn fight(time: Res<Time>, level: Res<Level>, input: Res<FightInput>, mut lib
         if is_player {
             player_choices(lib, &input, &seen, me, tf, ch, ctl, f, dt, &mut evs);
         } else if let Some(mut g) = guard {
-            guard_choices(lib, &seen, me, tf, ch, f, &mut g, turn == Some(me), dt);
+            let orders = Orders { turn: turn == Some(me), engaged: engaged.contains(&me), may_join };
+            guard_choices(lib, &seen, me, tf, ch, ctl, f, &mut g, orders, dt);
         }
         let aim = f.target.and_then(|t| seen.iter().find(|s| s.e == t && s.alive)).map(|s| s.pos);
         tick(lib, &level, me, tf, ch, ctl, f, aim, dt, &mut evs);
     }
+    let damage = settings.0.as_ref().map(|s| &s.damage);
     for ev in evs {
-        settle(lib, &mut q, ev);
+        settle(lib, &mut q, ev, damage);
     }
     // Fighters keep apart (not through a paired move, whose clips put them together).
     let mut pairs = q.iter_combinations_mut();
@@ -1008,8 +1155,16 @@ fn player_choices(
         if f.fight {
             leave_fight(lib, ch, tf, f);
         } else if let Some(t) = nearest_guard(seen, tf.translation, 10.0, true) {
-            // (With the weapon in hand; with none, or the hidden blade, the sword.)
-            let w = f.drawn.filter(|w| w.fights()).unwrap_or(Weapon::Sword);
+            // (With the weapon in hand; the hidden blade selected, its own stance, nothing to draw; with none, the
+            // sword.)
+            let w = if f.selected == Weapon::HiddenBlade && f.drawn.is_none_or(|d| d == Weapon::HiddenBlade) {
+                Weapon::HiddenBlade
+            } else {
+                f.drawn.filter(|w| w.fights()).unwrap_or(Weapon::Sword)
+            };
+            if w == Weapon::HiddenBlade {
+                f.drawn = Some(w);
+            }
             enter_fight(lib, ch, tf, f, t.e, w);
             if f.drawn != Some(w) && f.draw.is_none() {
                 f.selected = w;
@@ -1027,7 +1182,6 @@ fn player_choices(
             }
         }
     }
-    let target = f.target.and_then(|t| seen.iter().find(|s| s.e == t)).copied();
     // The legs while defending, as a guard's blow comes: the counter dodge to the stick's side (back with none).
     if input.legs_press
         && f.fight
@@ -1051,8 +1205,28 @@ fn player_choices(
             return;
         }
     }
+    // The empty hand in the fight: defending, the counter grab on a guard's blow; else the grab of the target in reach.
+    // The throw goes the stick's way (front with none).
+    if input.empty_press && f.fight && f.act.is_none() && f.draw.is_none() {
+        let stick = ctl.move_dir.with_y(0.0);
+        let side = if stick.length() < 0.3 { 0 } else { fd::side_of(angle_to(tf.rotation, Vec3::ZERO, stick)) };
+        let on = if ctl.high {
+            seen.iter().find(|s| s.guard && s.alive && s.busy && s.hostile && s.pos.distance(tf.translation) < 3.5).map(|s| (s.e, true))
+        } else {
+            f.target.and_then(|t| seen.iter().find(|s| s.e == t)).filter(|t| t.alive && t.pos.distance(tf.translation) < GRAB_REACH).map(|t| (t.e, false))
+        };
+        if let Some((on, counter)) = on {
+            evs.push(Ev::Grab(me, on, side, counter));
+            return;
+        }
+    }
     // The weapon hand.
-    if input.hand_press {
+    if input.hand_press
+        && let Some((_, latched)) = f.follow.as_mut()
+    {
+        // (Countering a max attack: the press that finishes the stunned attacker.)
+        *latched = true;
+    } else if input.hand_press {
         // The hidden blade, out of the fight: an assassination, if AC1's chooser finds one; in the air, the air one.
         if f.selected == Weapon::HiddenBlade && !f.fight && f.act.is_none() {
             // (A guard well below, from a jump, a ledge, a beam or a roof's edge: the air assassination.)
@@ -1085,13 +1259,16 @@ fn player_choices(
                 }
             }
         }
-        let armed = f.drawn.is_some_and(|w| w.fights());
+        let armed = f.drawn.is_some_and(|w| w.fights()) || f.blade();
         if f.fight && armed {
             if ctl.high {
                 // Defending: the counter, if a guard's attack on us is in its window.
                 if let Some(a) = seen.iter().find(|s| s.guard && s.alive && s.busy && s.hostile && s.pos.distance(tf.translation) < 3.5) {
                     evs.push(Ev::Counter(me, a.e));
                 }
+            } else if f.blade() {
+                // (With the hidden blade the weapon hand only counters: its attacks, the fists' tables with +0x974
+                // set, are not decoded.)
             } else {
                 match f.kind() {
                     // (AC1's latch: kept from the strike's start through the clip it lands with; a press in the
@@ -1101,7 +1278,7 @@ fn player_choices(
                             s.latched = true;
                         }
                     }
-                    None | Some(Kind::Stance | Kind::Turn) => f.hold = Some(0.0),
+                    None | Some(Kind::Stance | Kind::Turn) => anticipate(lib, ch, tf, f),
                     _ => {}
                 }
             }
@@ -1122,23 +1299,39 @@ fn player_choices(
             let w = f.drawn.unwrap_or(Weapon::Sword);
             enter_fight(lib, ch, tf, f, t.e, w);
             f.act = None;
-            f.hold = Some(0.0);
+            anticipate(lib, ch, tf, f);
         }
     }
-    // The attack itself: on the release (strong), or held long enough (max).
+    // The attack itself (AC1's attack state, 0xF36F00 / 0xF50CD0 / 0xF41B30): let go in the anticipation, the strong
+    // attack at once; still held at its end, the max one when held `MAX_HOLD` (never with the short blade).
     if let Some(h) = f.hold.as_mut() {
         *h += dt;
-        let max = *h >= fd::MAX_HOLD && input.hand_held;
-        if (input.hand_release || !input.hand_held || max)
-            && let Some(t) = target
-        {
+        let h = *h;
+        let len = f.act.as_ref().and_then(|a| a.step()).filter(|s| s.kind == Kind::Anticipate).map_or(0.0, |s| s.len);
+        let target = f.target.and_then(|t| seen.iter().find(|s| s.e == t)).copied();
+        if !input.hand_held || h >= len {
             f.hold = None;
-            if matches!(f.kind(), None | Some(Kind::Stance | Kind::Turn)) {
+            let max = input.hand_held && h >= fd::MAX_HOLD && fd::max_by_hold(f.weapon());
+            if let Some(t) = target
+                && matches!(f.kind(), None | Some(Kind::Stance | Kind::Turn | Kind::Anticipate))
+            {
                 attack(lib, ch, tf, f, t, max);
             }
         } else if target.is_none() {
             f.hold = None;
         }
+    }
+}
+
+/// The weapon hand pressed in the stance: AC1's anticipation (0xF36F00, `fight_tables::ANTICIPATION`), the attack to
+/// follow as it is let go or held (`player_choices`).
+fn anticipate(lib: &mut AnimLib, ch: &mut Character, tf: &Transform, f: &mut Fighter) {
+    f.hold = Some(0.0);
+    let Some(n) = fd::anticipation(f.weapon(), f.foot).and_then(|id| first_clip(lib, id)) else { return };
+    if let Some(mut s) = step(lib, ch.rig_id, &n, Kind::Anticipate, Root::Clip) {
+        s.blend = s.blend.min(0.1);
+        debug!("combat: anticipation {n}");
+        f.act = Some(Act::new(vec![s], *tf, Then::Stance, None));
     }
 }
 
@@ -1165,15 +1358,33 @@ fn air_victim(seen: &[Seen], at: Vec3, vel: Vec3) -> Option<Seen> {
         .copied()
 }
 
-/// A guard's choices (ours): turn hostile on what it sees, then fight, attacking when it holds the attack turn.
+/// How near a guard comes to attack (m, ours), and where it stops walking in.
+const GUARD_REACH: f32 = 2.6;
+const GUARD_CLOSE: f32 = 2.1;
+
+/// A guard's choices (ours, under AC1's fight manager's orders): turn hostile on what it sees, then fight: walk in
+/// while it is among the fighters the manager keeps in the fight, attack when it holds a token or is sent in a group
+/// attack.
 #[allow(clippy::too_many_arguments)]
-fn guard_choices(lib: &mut AnimLib, seen: &[Seen], me: Entity, tf: &mut Transform, ch: &mut Character, f: &mut Fighter, g: &mut Guard, turn: bool, dt: f32) {
+fn guard_choices(
+    lib: &mut AnimLib,
+    seen: &[Seen],
+    me: Entity,
+    tf: &mut Transform,
+    ch: &mut Character,
+    ctl: &mut Controller,
+    f: &mut Fighter,
+    g: &mut Guard,
+    orders: Orders,
+    dt: f32,
+) {
     let Some(player) = seen.iter().find(|s| s.player) else { return };
     let d = player.pos.distance(tf.translation);
     if !g.hostile {
-        // A weapon drawn within 4 m in front of it, the player fighting it, or a guard fighting within 15 m (the alarm).
+        // A weapon drawn within 4 m in front of it, the player fighting it, or a guard fighting within 15 m (the alarm,
+        // while the fight draws in fewer than the block's `drawn_in`).
         let facing = angle_to(tf.rotation, tf.translation, player.pos).abs() < 1.2;
-        let alarm = seen.iter().any(|s| s.guard && s.e != me && s.alive && s.hostile && s.pos.distance(tf.translation) < 15.0);
+        let alarm = orders.may_join && seen.iter().any(|s| s.guard && s.e != me && s.alive && s.hostile && s.pos.distance(tf.translation) < 15.0);
         if player.target == Some(me) || (d < 4.0 && facing && player.armed) || (alarm && player.alive && d < 20.0) {
             g.hostile = true;
         }
@@ -1193,20 +1404,27 @@ fn guard_choices(lib: &mut AnimLib, seen: &[Seen], me: Entity, tf: &mut Transfor
         enter_fight(lib, ch, tf, f, player.e, Weapon::Sword);
     }
     f.target = Some(player.e);
+    // Walking in, in the stance, while engaged and out of reach (on level ground, kept out of walls by `tick`).
+    let to = (player.pos - tf.translation).with_y(0.0);
+    ctl.move_dir = if !g.passive && (orders.engaged || g.group) && f.act.is_none() && d > GUARD_CLOSE { to.normalize_or_zero() } else { Vec3::ZERO };
+    ctl.high = false;
     if f.act.is_none() && !g.passive {
         g.next_attack -= dt;
         g.waited += dt;
-        if g.riposte && d < 2.6 {
+        if g.riposte && d < GUARD_REACH {
             g.riposte = false;
             g.next_attack = 2.2 + g.rand() * 1.6;
             g.waited = 0.0;
             info!("combat: the guard strikes back");
             attack(lib, ch, tf, f, *player, true);
-        } else if turn && g.next_attack <= 0.0 && d < 2.6 {
-            info!("combat: the guard takes the attack turn ({} attacking)", seen.iter().filter(|s| s.guard && s.attacking).count() + 1);
+        } else if ((orders.turn && g.next_attack <= 0.0) || g.group) && d < GUARD_REACH {
+            let how = if g.group { "is sent in the group attack" } else { "takes the attack turn" };
+            info!("combat: the guard {how} ({} attacking)", seen.iter().filter(|s| s.guard && s.attacking).count() + 1);
+            g.group = false;
             g.next_attack = 2.2 + g.rand() * 1.6;
             g.waited = 0.0;
-            attack(lib, ch, tf, f, *player, true);
+            let max = g.rand() < g.max;
+            attack(lib, ch, tf, f, *player, max);
         }
     }
 }
@@ -1229,11 +1447,15 @@ fn enter_fight(lib: &mut AnimLib, ch: &mut Character, tf: &Transform, f: &mut Fi
 
 /// Out of the fight stance, into the walk.
 fn leave_fight(lib: &mut AnimLib, ch: &mut Character, tf: &Transform, f: &mut Fighter) {
+    let style = fd::STYLE[f.stance_index()];
     f.fight = false;
     f.target = None;
     f.swing = None;
+    f.follow = None;
+    if f.drawn == Some(Weapon::HiddenBlade) {
+        f.drawn = None;
+    }
     let fo = FOOT[f.foot];
-    let style = fd::STYLE[f.weapon()];
     let steps: Vec<Step> = find_clip(lib, &format!("xx_h_{style}_wait_{fo}_tr_xx_h_wait_hipm"), |_| true)
         .and_then(|n| step(lib, ch.rig_id, &n, Kind::Stance, Root::Clip))
         .into_iter()
@@ -1509,6 +1731,7 @@ fn tick(
         let Some(s) = act.step().cloned() else {
             // The move is over.
             let then = act.then;
+            f.follow = None;
             if let Some(w) = &f.swing
                 && w.outcome != Some(Outcome::Killed)
                 && !w.knife
@@ -1554,6 +1777,13 @@ fn tick(
             stance(lib, tf, ch, ctl, f, aim, dt);
             return;
         };
+        // Countering a max attack: the weapon hand pressed by the branch finishes the stunned attacker.
+        if s.kind == Kind::Branch
+            && let Some((on, true)) = f.follow
+        {
+            evs.push(Ev::Finish(me, on));
+            f.follow = None;
+        }
         if act.fresh {
             act.fresh = false;
             // (The blend into the step, from the pose shown.)
@@ -1640,7 +1870,7 @@ fn tick(
         tf.rotation = r.rotation;
         // Facing the target through swings' wind-ups (they aim at it): the step's anchor turns with it. (Into the stance,
         // AC1's turns face it after.)
-        if s.kind == Kind::WindUp
+        if matches!(s.kind, Kind::WindUp | Kind::Anticipate)
             && f.fight
             && let Some(to) = aim
         {
@@ -1678,7 +1908,7 @@ fn stance(lib: &mut AnimLib, tf: &mut Transform, ch: &mut Character, ctl: &Contr
     let defend = ctl.high;
     let stick = ctl.move_dir.with_y(0.0);
     let moving = stick.length() > 0.3;
-    let w = f.weapon();
+    let w = f.stance_index();
     let fo = FOOT[f.foot];
     // Standing with the target over 30 degrees off: AC1's turn on the spot (0xF4BB60), its clip's turn scaled to the
     // angle (0xF38D10). Walking, or within 30 degrees, the facing follows the target (ours).
@@ -1745,21 +1975,43 @@ fn face(tf: &mut Transform, to: Vec3, rate: f32, dt: f32) {
 
 // --- Between two ------------------------------------------------------------------------------------------------
 
-fn settle(lib: &mut AnimLib, q: &mut FighterQuery, ev: Ev) {
+fn settle(lib: &mut AnimLib, q: &mut FighterQuery, ev: Ev, damage: Option<&forge::fight::DamageTable>) {
     match ev {
-        Ev::Strike(by, on, dir, max, combo) => strike(lib, q, by, on, dir, max, combo),
+        Ev::Strike(by, on, dir, max, combo) => strike(lib, q, by, on, dir, max, combo, damage),
         Ev::Counter(by, on) => counter(lib, q, by, on),
         Ev::Assassinate(by, on, t) => assassinate(lib, q, by, on, t),
         Ev::AirAssassinate(by, on) => air_assassinate(lib, q, by, on),
-        Ev::ComboKill(by, on, dir) => combo_kill(lib, q, by, on, dir),
-        Ev::Knife(by, on) => knife_lands(lib, q, by, on),
+        Ev::ComboKill(by, on, dir) => combo_kill(lib, q, by, on, dir, damage),
+        Ev::Knife(by, on) => knife_lands(lib, q, by, on, damage),
+        Ev::Finish(by, on) => counter_finish(lib, q, by, on),
+        Ev::Grab(by, on, side, counter) => grab(lib, q, by, on, side, counter, damage),
     }
 }
 
-/// The player's health a guard's blow takes (of 1; ours: AC1's `DamageData` table, DataPC `Game Bootstrap Settings`,
-/// holds per-attack damages of 10, 20 and 30, by rows not decoded).
-const DAMAGE_STRONG: f32 = 0.1;
-const DAMAGE_MAX: f32 = 0.15;
+/// What a blow of `weapon` (strong or max) does to a victim (AC1's `DamageData`: the row of the one who takes it, the
+/// column of the attack: `QuickAtk` for a strong blow, `StrongAtk` for a max one, the fists' punches), or ours without
+/// the table (10 and 14, the sword's against the player).
+fn blow_damage(damage: Option<&forge::fight::DamageTable>, victim: usize, weapon: usize, max: bool) -> i32 {
+    use forge::fight::source;
+    let src = match (weapon == fd::FISTS, max) {
+        (false, false) => source::QUICK_ATK,
+        (false, true) => source::STRONG_ATK,
+        (true, false) => source::QUICK_PUNCH,
+        (true, true) => source::STRONG_PUNCH,
+    };
+    damage.map_or(if max { 14 } else { 10 }, |d| d.get(victim, src) as i32)
+}
+
+/// A fighter's row in `DamageData` (`DamageData::CharacterType`): the player by the weapon in hand, the guards the
+/// militia's (the street militia; the yard's are AC1's free-mission militia).
+fn victim_row(f: &Fighter, player: bool) -> usize {
+    use forge::fight::character;
+    match (player, f.drawn) {
+        (true, Some(Weapon::ShortBlade)) => character::PLAYER_DAGGER,
+        (true, _) => character::PLAYER_SWORD,
+        (false, _) => character::MILITIA,
+    }
+}
 
 /// The victim's hurt reaction to a blow from `dir` (AC1's `HumanGround_Fight_Hurt`, the choice ours): from behind the
 /// back one; a strong attack the quick vertical one; a max or combo hit the strong one from the blade's side.
@@ -1779,7 +2031,7 @@ fn hurt_clip(lib: &AnimLib, w: usize, dir: u8, strong: bool, behind: bool, foot:
 
 /// A strike lands on `on`: blocked, deflected, a hit, or its death.
 #[allow(clippy::too_many_arguments)]
-fn strike(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity, dir: u8, max: bool, combo: bool) {
+fn strike(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity, dir: u8, max: bool, combo: bool, damage: Option<&forge::fight::DamageTable>) {
     let Ok([(_, atf, _, _, mut af, mut ag, _), (_, mut vtf, mut vch, vctl, mut vf, vg, v_player)]) = q.get_many_mut([by, on]) else { return };
     let reach = vtf.translation.distance(atf.translation);
     let angle = angle_to(atf.rotation, atf.translation, vtf.translation);
@@ -1790,11 +2042,11 @@ fn strike(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity, dir: 
     let outcome = if vf.dead || reach > 3.2 || !ahead || vf.kind() == Some(Kind::Dodge) {
         Outcome::Missed
     } else {
-        // Blocking: the player defending in the stance, a guard by chance (never a timed combo hit, ours); a guard may
-        // deflect instead, and strike back at once.
+        // Blocking: the player defending in the stance (not with the hidden blade, which AC1 does not block with), a
+        // guard by chance (never a timed combo hit, ours); a guard may deflect instead, and strike back at once.
         let free = matches!(vf.kind(), None | Some(Kind::Stance | Kind::Block | Kind::Turn)) && !behind;
         let (blocks, deflects) = if v_player {
-            (vctl.high && vf.fight && free, false)
+            (vctl.high && vf.fight && free && !vf.blade(), false)
         } else if let Some(mut g) = vg {
             g.hostile = true;
             let roll = g.rand();
@@ -1813,11 +2065,13 @@ fn strike(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity, dir: 
         } else if blocks {
             Outcome::Blocked
         } else {
+            // (AC1's damage for the victim and the blow; a combo hit as a strong blow, ours.)
+            let dmg = blow_damage(damage, victim_row(&vf, v_player), weapon, max);
             if !v_player {
-                vf.hp -= 1;
+                vf.hp -= dmg;
             }
             if v_player {
-                vch.health = (vch.health - if max || combo { DAMAGE_MAX } else { DAMAGE_STRONG }).max(0.0);
+                vch.health = (vch.health - dmg as f32 / PLAYER_HEALTH).max(0.0);
                 if vch.health <= 0.0 { Outcome::Killed } else { Outcome::Hit }
             } else if vf.hp <= 0 {
                 Outcome::Killed
@@ -1880,7 +2134,7 @@ fn strike(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity, dir: 
 }
 
 /// A throwing knife lands on `on`: a guard dies of it (ours: AC1's knives kill most guards in one).
-fn knife_lands(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity) {
+fn knife_lands(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity, damage: Option<&forge::fight::DamageTable>) {
     let Ok([(_, _, _, _, mut af, _, _), (_, vtf, vch, _, mut vf, mut vg, v_player)]) = q.get_many_mut([by, on]) else { return };
     if let Some(s) = af.swing.as_mut().filter(|s| s.knife) {
         s.outcome = Some(Outcome::Killed);
@@ -1891,6 +2145,15 @@ fn knife_lands(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity) 
     }
     if let Some(g) = vg.as_mut() {
         g.hostile = true;
+    }
+    // (AC1's `DamageData`: a throwing knife takes 255 off the militia, a kill; 20 off the bosses.)
+    let dmg = damage.map_or(255, |d| d.get(victim_row(&vf, false), forge::fight::source::THROWING_KNIFE) as i32);
+    vf.hp -= dmg;
+    if vf.hp > 0 {
+        info!("combat: the throwing knife hits ({} left)", vf.hp);
+        let steps = hurt_clip(lib, fd::SHORT_BLADE, 3, true, false, vf.foot).map(|n| with_way_back(lib, vch.rig_id, &n, Kind::Hit)).unwrap_or_default();
+        vf.act = Some(Act::new(steps, *vtf, Then::Stance, None));
+        return;
     }
     let name = format!("xx_h_light_death_wound_front_vertical_{}", FOOT[vf.foot]);
     let name = if lib.names.contains(&name) { name } else { format!("xx_h_light_death_wound_front_sl_{}", FOOT[vf.foot]) };
@@ -1904,9 +2167,11 @@ fn knife_lands(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity) 
 
 /// A timed combo hit on a guard that it would kill: AC1's paired combo kill for the hit's direction (the killer's
 /// tables by the direction, the victim's by 3 - the direction) in place of the hit; else nothing (the combo hit plays).
-fn combo_kill(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity, dir: u8) {
+fn combo_kill(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity, dir: u8, damage: Option<&forge::fight::DamageTable>) {
     let Ok([(_, atf, ach, _, mut af, _, _), (_, vtf, vch, _, mut vf, _, v_player)]) = q.get_many_mut([by, on]) else { return };
-    if v_player || vf.dead || vf.hp > 1 || vtf.translation.distance(atf.translation) > 3.0 {
+    // (The hit that would kill: its damage, a strong blow's, as much as the health left.)
+    let dmg = blow_damage(damage, victim_row(&vf, false), af.weapon(), false);
+    if v_player || vf.dead || vf.hp > dmg || vtf.translation.distance(atf.translation) > 3.0 {
         return;
     }
     let Some(ids) = fd::combo_kill(af.weapon(), dir) else { return };
@@ -1969,6 +2234,16 @@ fn counter(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity) {
         return;
     }
     let dir = vf.swing.map_or(3, |s| s.dir);
+    // AC1's choice (0xF44B40): with the hidden blade out its own counter kill; against a max attack the counter on it
+    // (the parry, the attacker stunned, a finish on the weapon hand); else the counter kill.
+    if af.blade() {
+        blade_counter(lib, (&atf, &ach, &mut af), (&vtf, &vch, &mut vf), dir);
+        return;
+    }
+    if vf.swing.is_some_and(|s| s.max) {
+        counter_max(lib, (&atf, &ach, &mut af), on, (&vtf, &vch, &mut vf), dir);
+        return;
+    }
     let (w, foot) = (af.weapon(), af.foot);
     let Some((step_id, kill_id)) = fd::counter_kill(w, vf.weapon(), dir, foot) else { return };
     let (Some(st), Some(ka)) = (first_clip(lib, step_id), first_clip(lib, kill_id)) else {
@@ -2009,6 +2284,180 @@ fn counter(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity) {
     vf.fight = false;
     vf.swing = None;
     vf.act = Some(Act::new(vsteps, *vtf, Then::Limp, Some(pair)));
+    af.swing = None;
+    af.act = Some(Act::new(ksteps, *atf, Then::Stance, Some(pair)));
+}
+
+/// One side of a pair: its root, character and fighter.
+type Side<'a, 'w> = (&'a Transform, &'a Character, &'a mut Mut<'w, Fighter>);
+
+/// The way back from a paired clip to the stance: the next clip of its action's names (`_tr_wait`, `_to_wait`,
+/// `_to_foot..`).
+fn way_back(lib: &AnimLib, kill_a: &str) -> Option<String> {
+    let base = kill_a.trim_end_matches("_a");
+    find_clip(lib, base, |r| r.contains("tr_wait") || r.contains("to_wait") || r.starts_with("_to_foot"))
+}
+
+/// The hidden blade's counter kill (the counter kill tables' 4th weapon): the defender steps in on the swing and
+/// kills; the attacker's death is the block's pair for the kill (its mirror direction).
+fn blade_counter(lib: &mut AnimLib, (atf, ach, af): Side, (vtf, vch, vf): Side, dir: u8) {
+    let Some([st, ka, da]) = fd::blade_counter(dir, af.foot) else { return };
+    let (Some(st), Some(ka), Some(da)) = (first_clip(lib, st), first_clip(lib, ka), first_clip(lib, da)) else {
+        warn!("combat: no hidden blade counter clips for direction {dir}");
+        return;
+    };
+    let kb = ka.strip_suffix("_a").map(|n| format!("{n}_b")).filter(|n| lib.names.contains(n));
+    let db = da.strip_suffix("_a").map(|n| format!("{n}_b")).filter(|n| lib.names.contains(n));
+    let tr = way_back(lib, &ka);
+    let (ar, vr) = (ach.rig_id, vch.rig_id);
+    let (Some(st_c), Some(ka_c)) = (clip(lib, ar, &st), clip(lib, ar, &ka)) else { return };
+    let pair = *vtf;
+    let (to, rot) = meet(&pair, &ka_c, &st_c, false);
+    let mut ksteps = vec![Step { len: st_c.anim.duration, clip: st_c.clone(), kind: Kind::Lead, root: Root::Steer(to, rot), frozen: None, blend: 0.1 }];
+    ksteps.extend(step(lib, ar, &ka, Kind::Paired, Root::Clip));
+    ksteps.extend(kb.and_then(|n| step(lib, ar, &n, Kind::Paired, Root::Clip)));
+    ksteps.extend(tr.and_then(|n| step(lib, ar, &n, Kind::Recover, Root::Clip)));
+    let mut vsteps = vec![];
+    if let Some((c, t)) = vf.act.as_ref().and_then(|a| a.step().map(|s| (s.clip.clone(), a.t.min(s.clip.anim.duration)))) {
+        vsteps.push(Step { len: st_c.anim.duration, clip: c, kind: Kind::Lead, root: Root::Hold, frozen: Some(t), blend: 0.0 });
+    }
+    vsteps.extend(step(lib, vr, &da, Kind::Paired, Root::Clip));
+    vsteps.extend(db.and_then(|n| step(lib, vr, &n, Kind::Death, Root::Clip)));
+    info!("combat: hidden blade counter kill {ka} against {da}");
+    vf.hp = 0;
+    vf.fight = false;
+    vf.swing = None;
+    vf.act = Some(Act::new(vsteps, *vtf, Then::Limp, Some(pair)));
+    af.swing = None;
+    af.act = Some(Act::new(ksteps, *atf, Then::Stance, Some(pair)));
+}
+
+/// The counter on a max attack (`HumanGround_CounterStrong`, the counter state's type 3): the defender steps in and
+/// parries (`_a`, `_b`) as the attacker is countered, then its branch while the attacker stands stunned; the weapon
+/// hand pressed from the counter on finishes it (`counter_finish`).
+fn counter_max(lib: &mut AnimLib, (atf, ach, af): Side, on: Entity, (vtf, vch, vf): Side, dir: u8) {
+    let foot = af.foot;
+    let (Some([st, pa, br]), Some([ca, stun])) = (fd::counter_max(dir, foot), fd::countered_max(dir, foot)) else { return };
+    let parry: Vec<String> = items(lib, pa).into_iter().filter_map(|i| i.first().cloned()).collect();
+    let countered: Vec<String> = items(lib, ca).into_iter().filter_map(|i| i.first().cloned()).collect();
+    let (Some(st), Some(br), Some(stun)) = (first_clip(lib, st), first_clip(lib, br), first_clip(lib, stun)) else {
+        warn!("combat: no counter clips on a max attack for direction {dir}");
+        return;
+    };
+    let (ar, vr) = (ach.rig_id, vch.rig_id);
+    let (Some(st_c), Some(pa_c)) = (clip(lib, ar, &st), parry.first().and_then(|n| clip(lib, ar, n))) else { return };
+    let pair = *vtf;
+    let (to, rot) = meet(&pair, &pa_c, &st_c, false);
+    let mut ksteps = vec![Step { len: st_c.anim.duration, clip: st_c.clone(), kind: Kind::Lead, root: Root::Steer(to, rot), frozen: None, blend: 0.1 }];
+    for n in &parry {
+        ksteps.extend(step(lib, ar, n, Kind::Paired, Root::Clip));
+    }
+    ksteps.extend(step(lib, ar, &br, Kind::Branch, Root::Clip));
+    // (No finish: the branch's way back.)
+    ksteps.extend(find_clip(lib, &br, |r| r.contains("tr_wait")).and_then(|n| step(lib, ar, &n, Kind::Recover, Root::Clip)));
+    let mut vsteps = vec![];
+    if let Some((c, t)) = vf.act.as_ref().and_then(|a| a.step().map(|s| (s.clip.clone(), a.t.min(s.clip.anim.duration)))) {
+        vsteps.push(Step { len: st_c.anim.duration, clip: c, kind: Kind::Lead, root: Root::Hold, frozen: Some(t), blend: 0.0 });
+    }
+    for n in &countered {
+        vsteps.extend(step(lib, vr, n, Kind::Paired, Root::Clip));
+    }
+    vsteps.extend(step(lib, vr, &stun, Kind::Hit, Root::Clip));
+    info!("combat: counter on a max attack {} against {}", parry.first().map_or("?", String::as_str), countered.first().map_or("?", String::as_str));
+    vf.swing = None;
+    vf.act = Some(Act::new(vsteps, *vtf, Then::Stance, Some(pair)));
+    af.swing = None;
+    af.follow = Some((on, false));
+    af.act = Some(Act::new(ksteps, *atf, Then::Stance, Some(pair)));
+}
+
+/// The finish of a counter on a max attack, the weapon hand pressed by the branch: by the defender's weapon (the
+/// fists kick), against the stunned attacker's death to it; both from the attacker's root.
+fn counter_finish(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity) {
+    let Ok([(_, atf, ach, _, mut af, _, _), (_, vtf, vch, _, mut vf, _, _)]) = q.get_many_mut([by, on]) else { return };
+    af.follow = None;
+    if vf.dead || vf.hp <= 0 {
+        return;
+    }
+    let Some((fin, death)) = fd::counter_max_finish(af.weapon(), af.foot) else { return };
+    let fin: Vec<String> = items(lib, fin).into_iter().filter_map(|i| i.first().cloned()).collect();
+    let (Some(death), Some(first)) = (first_clip(lib, death), fin.first().cloned()) else { return };
+    let (ar, vr) = (ach.rig_id, vch.rig_id);
+    let mut ksteps: Vec<Step> = vec![];
+    for n in &fin {
+        ksteps.extend(step(lib, ar, n, Kind::Paired, Root::Clip));
+    }
+    ksteps.extend(way_back(lib, &first).and_then(|n| step(lib, ar, &n, Kind::Recover, Root::Clip)));
+    let mut vsteps: Vec<Step> = step(lib, vr, &death, Kind::Paired, Root::Clip).into_iter().collect();
+    vsteps.extend(find_clip(lib, &death, |r| r.contains("tr_death")).and_then(|n| step(lib, vr, &n, Kind::Death, Root::Clip)));
+    info!("combat: the counter's finish {first} against {death}");
+    let pair = *vtf;
+    vf.hp = 0;
+    vf.fight = false;
+    vf.swing = None;
+    vf.act = Some(Act::new(vsteps, *vtf, Then::Limp, Some(pair)));
+    af.act = Some(Act::new(ksteps, *atf, Then::Stance, Some(pair)));
+}
+
+/// How near a target must be for the grab (m, ours: AC1's grab start steps in 1.07 m).
+const GRAB_REACH: f32 = 1.8;
+
+/// A grab and its throw (`HumanGround_Fight`'s grab actions, chained as the move graph links them): the grabber's start
+/// (steered to meet the pull) and pull, the throw to `side` (AC1's table 0x1A318C0 by the side, the same for every
+/// weapon) and its way back; the grabbed one's pull and throw, then `HumanGround_Hurt`'s fall and roll back up
+/// (0x31663E96, 0xFA49213). A counter grab (the empty hand while defending, the manual) must land in the counter window
+/// (ours) on the attacker's swing. The throw takes AC1's `DamageData` `Throw` off the victim.
+#[allow(clippy::too_many_arguments)]
+fn grab(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity, side: usize, counter: bool, damage: Option<&forge::fight::DamageTable>) {
+    let Ok([(_, atf, ach, _, mut af, _, _), (_, vtf, vch, _, mut vf, vg, v_player)]) = q.get_many_mut([by, on]) else { return };
+    if v_player || vf.dead {
+        return;
+    }
+    if counter && !vf.counter_open_for(0.0) {
+        info!("combat: the counter grab is mistimed");
+        return;
+    }
+    let side = side.min(3);
+    let [start, pull, throw] = [fd_t::GRAB_START, fd_t::GRAB_PULL, fd_t::GRAB_THROW[side]].map(|id| first_clip(lib, id));
+    let [vpull, vthrow] = [fd_t::GRABBED_PULL, fd_t::GRABBED_THROW[side]].map(|id| first_clip(lib, id));
+    let fall: Vec<String> = fd_t::THROWN.iter().flat_map(|&id| items(lib, id)).filter_map(|i| i.first().cloned()).collect();
+    let (Some(start), Some(pull), Some(throw), Some(vpull), Some(vthrow)) = (start, pull, throw, vpull, vthrow) else {
+        warn!("combat: no grab clips");
+        return;
+    };
+    let (ar, vr) = (ach.rig_id, vch.rig_id);
+    let (Some(st_c), Some(pull_c)) = (clip(lib, ar, &start), clip(lib, ar, &pull)) else { return };
+    let pair = *vtf;
+    let (to, rot) = meet(&pair, &pull_c, &st_c, false);
+    let mut ksteps = vec![Step { len: st_c.anim.duration, clip: st_c.clone(), kind: Kind::Lead, root: Root::Steer(to, rot), frozen: None, blend: 0.1 }];
+    ksteps.extend(step(lib, ar, &pull, Kind::Paired, Root::Clip));
+    ksteps.extend(step(lib, ar, &throw, Kind::Paired, Root::Clip));
+    ksteps.extend(find_clip(lib, &throw, |r| r == "_tr_wait").and_then(|n| step(lib, ar, &n, Kind::Recover, Root::Clip)));
+    let mut vsteps = vec![];
+    if let Some((c, t)) = vf.act.as_ref().and_then(|a| a.step().map(|s| (s.clip.clone(), a.t.min(s.clip.anim.duration)))) {
+        vsteps.push(Step { len: st_c.anim.duration, clip: c, kind: Kind::Lead, root: Root::Hold, frozen: Some(t), blend: 0.0 });
+    } else if let Some(p) = vch.playing.first() {
+        vsteps.push(Step { len: st_c.anim.duration, clip: p.clip.clone(), kind: Kind::Lead, root: Root::Hold, frozen: Some(p.t.min(p.clip.anim.duration)), blend: 0.0 });
+    }
+    vsteps.extend(step(lib, vr, &vpull, Kind::Paired, Root::Clip));
+    vsteps.extend(step(lib, vr, &vthrow, Kind::Paired, Root::Clip));
+    for n in &fall {
+        vsteps.extend(step(lib, vr, n, Kind::Hit, Root::Clip));
+    }
+    let dmg = damage.map_or(10, |d| d.get(victim_row(&vf, false), forge::fight::source::THROW) as i32);
+    vf.hp -= dmg;
+    info!(
+        "combat: {} {throw} against {vthrow} ({} left)",
+        if counter { "counter grab" } else { "grab" },
+        vf.hp.max(0)
+    );
+    if let Some(mut g) = vg {
+        g.hostile = true;
+    }
+    let then = if vf.hp <= 0 { Then::Limp } else { Then::Stance };
+    vf.swing = None;
+    vf.hold = None;
+    vf.act = Some(Act::new(vsteps, *vtf, then, Some(pair)));
     af.swing = None;
     af.act = Some(Act::new(ksteps, *atf, Then::Stance, Some(pair)));
 }
@@ -2063,8 +2512,9 @@ fn assassinate(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity, 
 
 /// The air assassination: AC1's jump onto an assassination target (`HumanInAir` 0x21B4DC3D / 0x21B4DC3E, the 9-way
 /// blend of `xx_h_air_<front|down|up>_<cm>_<foot>_to_assassinate`, picked by the jump code 0xB1EC40 for a target of
-/// kind 0x8000) steered through the air so its body lands where the kill starts; the kill is ours: AC1's finish on the
-/// ground (types 8 and 9), the victim knocked down under it.
+/// kind 0x8000) steered through the air so its body lands where the kill starts, then AC1's assassination type 6 (7
+/// from behind): the running assassination's kill (0x170A910's 6th and 7th), the victim playing its lead-in as the
+/// assassin comes down.
 fn air_assassinate(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Entity) {
     let Ok([(_, atf, mut ach, _, mut af, _, _), (_, vtf, vch, _, mut vf, _, _)]) = q.get_many_mut([by, on]) else { return };
     let (ar, vr) = (ach.rig_id, vch.rig_id);
@@ -2076,36 +2526,34 @@ fn air_assassinate(lib: &mut AnimLib, q: &mut FighterQuery, by: Entity, on: Enti
         .min_by(|a, b| (a.0 - drop).abs().total_cmp(&(b.0 - drop).abs()))
         .map_or("300cm", |c| c.1);
     let jump = format!("xx_h_air_down_{cm}_{fo}_to_assassinate");
-    // From behind the victim the back finish, else the front one.
+    // From behind the victim the back type, else the front one.
     let back = angle_to(vtf.rotation, vtf.translation, atf.translation).abs() > std::f32::consts::FRAC_PI_2;
-    let [a_lead, a_kill, v_lead, v_kill] = fd::ASSASSINATION[if back { 9 } else { 8 }];
+    let t = fd::ASS_AIR_FRONT | if back { fd::ASS_BACK_BIT } else { 0 };
+    let [_, a_kill, v_lead, v_kill] = fd::ASSASSINATION[t as usize];
     let flat = |id: u32| -> Vec<String> { items(lib, id).into_iter().filter_map(|i| i.first().cloned()).collect() };
-    let (al, ak, vl, vk) = (flat(a_lead), flat(a_kill), flat(v_lead), flat(v_kill));
-    let (Some(jump_c), Some(kill_a)) = (clip(lib, ar, &jump), al.first().cloned()) else {
+    let (ak, vl, vk) = (flat(a_kill), flat(v_lead), flat(v_kill));
+    let (Some(jump_c), Some(kill_a)) = (clip(lib, ar, &jump), ak.first().cloned()) else {
         warn!("combat: no air assassination clips");
         return;
     };
     let Some(kill_c) = clip(lib, ar, &kill_a) else { return };
-    let pair = *vtf;
-    let (to, rot) = meet(&pair, &kill_c, &jump_c, true);
     // (The jump stretched to the fall's time from this height, at least its own.)
     let len = jump_c.anim.duration.max((2.0 * drop.max(0.0) / 9.81).sqrt());
-    let mut asteps = vec![Step { len, clip: jump_c.clone(), kind: Kind::Air, root: Root::Steer(to, rot), frozen: None, blend: 0.15 }];
-    for (k, n) in al.iter().chain(ak.iter()).enumerate() {
-        let last = k + 1 == al.len() + ak.len();
-        asteps.extend(step(lib, ar, n, if last { Kind::Recover } else { Kind::Paired }, Root::Clip));
+    // The victim's lead-in through the fall, then where its root is when the kill starts.
+    let mut vsteps: Vec<Step> = vl.first().and_then(|n| step(lib, vr, n, Kind::Lead, Root::Clip)).into_iter().collect();
+    if let Some(s) = vsteps.first_mut() {
+        s.len = s.len.max(len);
     }
-    // The victim stands as it is until the landing (its pose held), then is knocked down under it.
-    let mut vsteps: Vec<Step> = vch
-        .playing
-        .first()
-        .map(|p| Step { len, clip: p.clip.clone(), kind: Kind::Lead, root: Root::Hold, frozen: Some(p.t.min(p.clip.anim.duration)), blend: 0.0 })
-        .into_iter()
-        .collect();
-    for (k, n) in vl.iter().chain(vk.iter()).enumerate() {
+    let pair = after(&vtf, &vsteps);
+    let (to, rot) = meet(&pair, &kill_c, &jump_c, true);
+    let mut asteps = vec![Step { len, clip: jump_c.clone(), kind: Kind::Air, root: Root::Steer(to, rot), frozen: None, blend: 0.15 }];
+    for (k, n) in ak.iter().enumerate() {
+        asteps.extend(step(lib, ar, n, if k == 0 { Kind::Paired } else { Kind::Recover }, Root::Clip));
+    }
+    for (k, n) in vk.iter().enumerate() {
         vsteps.extend(step(lib, vr, n, if k == 0 { Kind::Paired } else { Kind::Death }, Root::Clip));
     }
-    info!("combat: air assassination {jump} then {kill_a}");
+    info!("combat: air assassination (type {t}) {jump} then {kill_a}");
     vf.hp = 0;
     vf.fight = false;
     vf.act = Some(Act::new(vsteps, *vtf, Then::Limp, Some(pair)));

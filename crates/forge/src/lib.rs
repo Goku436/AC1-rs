@@ -16,6 +16,7 @@ pub mod animset;
 pub mod cloth;
 pub mod crowd;
 pub mod datafile;
+pub mod fight;
 pub mod fx;
 pub mod graph;
 pub mod guidance;

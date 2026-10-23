@@ -15,9 +15,16 @@
 //! - the combo (0xF50650 / 0xF506C0 / 0xF50710): when that clip may be left, a press latched since the strike started
 //!   plays the next combo hit, its direction turned by `next_combo_dir`.
 //!
-//! Ours (not found in the exe): how long a press is held for the max attack (the input interpreter sends the max attack
-//! as its own command, 0xF3A3F0; its timing is not in the fight code), the counter window, the hurt reaction a blow
-//! picks on the victim, the guards' choices and the hit points.
+//! The press itself (the input interpreter `GoAssassinActionInterpreter`, 0xEE1BE0): the weapon hand's press sends
+//! the attack command (`HumanGround` +0x158, 0xF3A2F0: the latch +0x805, the max flag +0x804 cleared); held
+//! `MAX_HOLD` it sends +0x164 (0xD939E0: the max flag set). The attack state's first sub-state (+0xB18, 0xF36F00)
+//! plays the weapon's anticipation (`fight_tables::ANTICIPATION`); let go in it, the wind-up starts at once, strong
+//! (0xF50CD0 on the release event 0x84); still held when it may be left, the wind-up takes the max flag (0xF41B30), never
+//! for the short blade.
+//!
+//! Ours (not found in the exe): the counter window, the hurt reaction a blow picks on the victim, the guards' choices
+//! and their hit points (AC1's damages are `forge::fight`'s `DamageData`, its fight manager's numbers its
+//! `FightManagerData`).
 
 use crate::fight_tables::{self as ft, NONE};
 
@@ -234,16 +241,6 @@ pub fn mobile(weapon: usize, drawing: bool, foot: usize) -> Option<Attack> {
     Some(Attack { start: some(ft::MOBILE_START[w][k][f])?, strike: some(strike)?, dir, random: None })
 }
 
-// --- The fight manager --------------------------------------------------------------------------------------------
-
-/// AC1's fight manager settings per memory block (DataPC.forge, `AssassinsCreed`'s `FightManagerData`, two
-/// `FightManagerDifficultyData` each; read by the getters 0xCD7430..0xCD74F0). The first two numbers ramp the
-/// fighters the manager lets take part (0xAFF460 sets +0x2A8 from them, 0xB00C30 sets the rest aside); what the others
-/// do is only partly read: a share of the fighters sent at once (0..0.3) every so many seconds (60..25), and counts at
-/// +0x20..+0x28. Memory blocks 1..7, the first set.
-pub const FIGHT_MANAGER: [(u32, u32, f32, f32); 7] =
-    [(1, 2, 0.0, 60.0), (1, 1, 0.0, 60.0), (4, 4, 0.0, 60.0), (7, 7, 0.15, 45.0), (10, 10, 0.15, 40.0), (12, 12, 0.2, 35.0), (14, 14, 0.25, 30.0)];
-
 // --- Assassinations -----------------------------------------------------------------------------------------------
 
 /// The 14 assassination types (0xF6C480's result, the index of 0x170A8D8's tables).
@@ -251,12 +248,16 @@ pub const ASS_FRONT: u8 = 0;
 pub const ASS_RUN_FRONT: u8 = 4;
 pub const ASS_RUN_FRONT_GROUND: u8 = 2;
 pub const ASS_STEALTH_FRONT: u8 = 10;
+/// From the air (the jump onto a target, `HumanInAir`'s `to_assassinate`): type 6 (7 from behind), whose kill is the
+/// running one's (0x170A910 lists 4's and 5's actions again) and whose failed kill is `xx_h_assassina_failure_air_*`
+/// (0xF6D970 and its kin pick 0x22009D3D.. for type 6 when the victim may not die).
+pub const ASS_AIR_FRONT: u8 = 6;
 /// Odd types are the back variants of the even ones before them.
 pub const ASS_BACK_BIT: u8 = 1;
 
 /// Per type: the assassin's lead-in, the assassin's kill, the victim's lead-in, the victim's kill (0x170A8D8, 0x170A910,
-/// 0x170A948, 0x170A980). Types 6 and 7 repeat 4 and 5 (the running ones from a horse or a crowd, AC1's code sets
-/// them elsewhere); 8 and 9 finish a victim on the ground.
+/// 0x170A948, 0x170A980). Types 6 and 7 are the air assassination's (`ASS_AIR_FRONT`, the running ones' actions); 8
+/// and 9 finish a victim on the ground.
 pub const ASSASSINATION: [[u32; 4]; 14] = [
     [0x019ef756, 0x1ac36311, 0x019ef757, 0x1ac36317],
     [0x019ef758, 0x1ac36310, 0x019ef759, 0x1ac36316],
@@ -345,11 +346,54 @@ pub fn lead_in_weights(t: u8, angle: f32, left: bool) -> [f32; 3] {
     if left { [f, 0.0, 1.0 - f] } else { [f, 1.0 - f, 0.0] }
 }
 
+// --- The press -----------------------------------------------------------------------------------------------
+
+/// The weapon hand held this long (s) asks for the max attack: the input interpreter's hold time (0xEE1BE0 tests the
+/// button held `DAT_0170861c`, 0.2 s, and sends +0x164, which sets the max flag), as long as the anticipation clip.
+pub const MAX_HOLD: f32 = 0.2;
+
+/// The anticipation played as the weapon hand is pressed in the stance (0xF36F00).
+pub fn anticipation(weapon: usize, foot: usize) -> Option<u32> {
+    some(ft::ANTICIPATION[weapon.min(2)][foot.min(1)])
+}
+
+/// Whether a weapon's attack can be a max one by holding (0xF41B30 clears it for the short blade; the fists' second
+/// attack within `FIST_CHAIN` is a max one as well).
+pub fn max_by_hold(weapon: usize) -> bool {
+    weapon != SHORT_BLADE
+}
+
+// --- Counters on max attacks and with the hidden blade --------------------------------------------------------------
+
+/// The counter on a max attack (0xF44B40 picks it, the counter state's type 3, for a max attack the defender may kill
+/// and no hidden blade out; 0xF4A2B0 plays it): the defender's step in, parry and branch, by the attacker's blade
+/// direction and the defender's foot.
+pub fn counter_max(dir: u8, foot: usize) -> Option<[u32; 3]> {
+    let (d, f) = ((dir as usize).min(3), foot.min(1));
+    Some([some(ft::COUNTER_MAX_START[d][f])?, some(ft::COUNTER_MAX_PARRY[d][f])?, some(ft::COUNTER_MAX_BRANCH[d][f])?])
+}
+
+/// The attacker's side of it: countered and stunned (its set is the defender's: `01` for the left foot).
+pub fn countered_max(dir: u8, foot: usize) -> Option<[u32; 2]> {
+    let (d, f) = ((dir as usize).min(3), foot.min(1));
+    Some([some(ft::COUNTERED_MAX[d][f])?, some(ft::COUNTERED_MAX_STUNNED[d][f])?])
+}
+
+/// The finish after the branch by the defender's weapon (the fists kick), and the attacker's death to it.
+pub fn counter_max_finish(weapon: usize, foot: usize) -> Option<(u32, u32)> {
+    let (w, f) = (weapon.min(2), foot.min(1));
+    Some((some(ft::COUNTER_MAX_FINISH[w][f][0])?, some(ft::COUNTERED_MAX_FINISH[w][f][0])?))
+}
+
+/// The hidden blade's counter kill: step in, kill, and the victim's death, by the attacker's blade direction and the
+/// defender's foot.
+pub fn blade_counter(dir: u8, foot: usize) -> Option<[u32; 3]> {
+    let (d, f) = ((dir as usize).min(3), foot.min(1));
+    Some([some(ft::BLADE_COUNTER_STEP[d][f])?, some(ft::BLADE_COUNTER_KILL[d][f])?, some(ft::BLADE_COUNTERED[d][f])?])
+}
+
 // --- Ours ---------------------------------------------------------------------------------------------------------
 
-/// A press held this long (s) asks for the max attack (the manual: "hold for a slower but stronger attack"; AC1's input
-/// interpreter sends it as its own command, 0xF3A3F0 sets +0x804; when, not found). Ours.
-pub const MAX_HOLD: f32 = 0.3;
 /// The counter: the weapon hand pressed while defending, from this long (s) before the enemy's strike lands to this
 /// long after (the manual: "with the right timing"). Ours.
 pub const COUNTER_BEFORE: f32 = 0.4;
