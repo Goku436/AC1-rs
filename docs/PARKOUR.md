@@ -1245,6 +1245,10 @@ position only, reads as a jump), the swing back's hand (the clip's own 8 m/s swi
 Sweep runs with each class (dev c4f4154 / this round): Damascus (147 runs) embed 5 / 0, topout 6 / 0, stuck 2 / 0,
 pop 5 / 5, hands-off 2 / 2, flipflop 1 / 1, free-on-wall 1 / 1; test level (102) topout 3 / 0,
 free-on-wall 4 / 1, pop 3 / 3, embed 1 / 1.
+Damascus again on dev 2026-10-24 (152 runs, after the day's seam, ladder and corner fixes): pop 3, hands-off 1, stuck 6
+(4 of them hangs with the stick held along a wall's end: the free hang's `e0` / `e5`, the wall hang's look-round at `e2`),
+no-grab 8 (two walls never reached from their starts, all four programs each), embed 1 (a sprint stop into a wall,
+`w25-run`, not seen again on a replay), flipflop 1, free-on-wall 1, no-hold 1.
 
 ### The routes again, and four new ones from the running game (2026-10-14)
 The 21 routes replayed on dev 98deb3d (before) and with this round's fixes (after); four new routes recorded in the
