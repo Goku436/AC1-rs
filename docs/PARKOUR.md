@@ -1267,6 +1267,14 @@ no-grab 8 (two walls never reached from their starts, all four programs each), e
   path) the free hang. Ours wanted the clip's feet flush within 0.32 m; a wall 0.39 m back gave a free hang against it.
   The grab into the wall hang now takes the switch's foot rays (0xDE0A60, to 0.7 m behind). The window cap's scenario
   (user report 2026-10-13) goes into the wall hang there now, not the free hang and the switch onto the wall.
+- **`w9-down`** (open): down the climbing stance the table move's hand target snaps to the nearest hold a grid row (0.6 m)
+  down, here the row the feet stood on (11.70 m), whose foot cell is empty; the 12.02 m row the climb came up by, 0.25 m
+  further, is not tried, and he looks down 2 m over the ground. How AC1's cells (0xDECD70) pick among holds in one cell
+  is not read yet.
+Acre and Jerusalem, first sweeps on dev 2026-10-24 (30 spots each): Acre 150 runs: no-grab 10, embed 4 (not seen again
+replayed alone), topout 4 (two low walls whose tops are enclosed by a solid: AC1's room boxes test faces only, ours' cramped
+test refuses them), stuck 3, pop 2, death 1 (a run off a roof 17 m up), no-hold 1. Jerusalem 144 runs: pop 6 (all under
+0.2 m, inside take-off and leap clips), stuck 2, embed 1, free-on-wall 1, hands-off 1, no-hold 1.
 
 ### The routes again, and four new ones from the running game (2026-10-14)
 The 21 routes replayed on dev 98deb3d (before) and with this round's fixes (after); four new routes recorded in the

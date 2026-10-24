@@ -9012,6 +9012,18 @@ impl WallClimb {
             })
             .map(|p| level.ground(p + Vec3::Y * 0.3, 0.0, 0.45).map_or(p, |g| g.point));
         if !open || (cramped && at_edge.is_none()) {
+            if why() && open {
+                for k in 0..=8 {
+                    let p = Vec3::new(edge.x, top.point.y, edge.z) - self.normal.with_y(0.0).normalize_or_zero() * (0.05 * k as f32);
+                    let g = level.ground(p + Vec3::Y * 0.3, 0.0, 0.45).map(|g| (g.point.y, g.normal.y));
+                    debug!(
+                        "climb:   at the edge +{:.2}: ground {g:.2?}, solid at 0.5 {} at 1.2 {}",
+                        0.05 * k as f32,
+                        level.inside_solid(p + Vec3::Y * 0.5),
+                        level.inside_solid(p + Vec3::Y * 1.2)
+                    );
+                }
+            }
             debug!(
                 "climb: no top-out: no room over the edge at {edge:.2} (boxes clear {open}; top {:.2}, wrists {wrist:.2}; perch {:.2?})",
                 top.point,
@@ -9934,7 +9946,12 @@ impl WallClimb {
             let grid = plain && c.names.first().is_some_and(|n| n.starts_with("xx_l_climb_"));
             if grid && !targets.iter().all(|t| foot_cell(level, *t, normal)) {
                 if why() {
-                    debug!("climb: {} : no hold for the feet two rows under the hands", c.names[0]);
+                    debug!(
+                        "climb: {} : no hold for the feet two rows under the hands (hands to {:.2?}, a foot cell under each {:?})",
+                        c.names[0],
+                        targets,
+                        targets.map(|t| foot_cell(level, t, normal))
+                    );
                 }
                 continue;
             }
