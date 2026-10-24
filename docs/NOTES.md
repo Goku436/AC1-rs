@@ -1355,8 +1355,10 @@ turns down 8 of Damascus's ledge grabs (one of them steep anyway). Other open au
 rule is 40 degrees, `authored_steep`, as 0x66C350), GUIDE-8 (the air catch and the jump query take their grab points
 along the search's direction, `Ledge::project_along`, `jump_query::grab_point`), GUIDE-7 (haystacks and hiding places
 by their components, below; `BhvHidingPlace` is a `BhvHayStack` with no fields of its own, parent 0x19F58E6A in its
-class descriptor, and `BhvHayStack`'s one serialized property is a `BhvHayStackData`, 0x6C bytes, with no reflected
-fields: its volume is still not read).
+class descriptor, and `BhvHayStack`'s one serialized property is a `BhvHayStackData`, 0x6C bytes, with no fields of
+its own: its reader (vtable 0x16FAFEC, slot 2, the thunk 0xD1A4E0) is `ObjectBehaviorData`'s, 0x704290, shared by seven
+other behaviour data classes: three dwords at +0x3C, two reference arrays at +0x48 / +0x50, two properties at +0x58 /
++0x5C. There is no hay volume to read: the entity and its meshes are all AC1 has, 2026-10-24).
 
 AC1's climbing grid (`HumanClimb__BuildHoldGrid` 0xDF6A40) and ledge report (0xDDCA8E) take the guidance as: the edges
 cut out of each ladder's zone (0x1170880: 0.3 m either side, 0.75 m out and in, 0.2 m under its foot and past its top),
@@ -1428,8 +1430,8 @@ Benches, and the ladders and poles of cities without authored ones, are found by
 are found by their components (audit GUIDE-7): `BhvHayStack` (0x19F58E6A) on the hay's entity, `BhvHidingPlace`
 (0xDC3F581A) on a meshless member of the hiding spot's group. The meshes named as below give the bounds (on an entity
 with the component and no such mesh, its first mesh). Damascus has 169 (46 hay, 123 hiding places), Masyaf 21; every one
-also matches the names, and the names alone are kept for entities with neither component. The components' own fields
-(the volume) are not read; they take the entity's position and facing. All of them are found when a city is placed and
+also matches the names, and the names alone are kept for entities with neither component. The components hold no volume (`BhvHayStackData`
+is a plain `ObjectBehaviorData`, above); they take the entity's position and facing. All of them are found when a city is placed and
 set up against the built collision (`Level::add_city_objects`), logged as "N haystacks, N ladders, ...":
 - hay: `Hay_Bale_Charette*`, `Hay_Bale_Chariot*`, `Hay_Bale_01` (not the straw strewn on the ground, `Hay_Bale_Tile*`).
   Their meshes use a vertex format not decoded yet, so a cart's stack stands where its entity is (1.8 x 1.8 m, 1.8 m
