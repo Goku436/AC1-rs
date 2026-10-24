@@ -194,7 +194,12 @@ mixed front / left / right by the edge's side), the pull-down
 - **Grabbing a wall** (the empty hand at it, event 50; the legs only run up it, from the run), in order: a climb start (hand holds 1.8-2.4 m up and
   foot holds 1.2 m below them) → `xx_h_wait_hipm_foot?_tr_climbing_1m` with the root interpolated onto the holds;
   else a ledge 0.53-3.0 m up → the standing straight jump at it (0xB21DA0: knee and waist heights pull up onto the
-  top, higher ones end hanging). The grab probe radius is 0.75 m (IHuman vt136). **[B]**
+  top, higher ones end hanging). The grab probe radius is 0.75 m (IHuman vt136). **[B]** The jump's bands **[V]**
+  2026-10-24, by the top's height h over the feet: under 0.7 m action 0x012B291B (weight (h − 0.5) / 0.2), to 1.5 m
+  0x01290ECF ((h − 0.7) / 0.8), to 2 m 0x01272A69 ((h − 1.5) × 2), to 2.5 m 0x01271639 onto the top or 0x01271631
+  hanging (a target of type 8), from 2.5 m 0x0121A598 / 0x0121A8B1 hanging ((h − 2.5) × 2, full at 3 m); from 1.5 m up
+  the 0x516D52Dx set instead unless the playing action is 0x59 or 0x01099C96 (the static jump's); crouched, 0x6DA7646E
+  (or the other foot's) by (h − 0.2) / 1.1 over 0.2-1.3 m.
 - **Character proxy**: capsule radius 0.4 (0.35 + 0.05 keep distance), height 1.8, floating 0.37 m over the feet
   (step), stick-to-ground cast 0.58 m (0x57D240). **[B, ours]**
 
@@ -233,7 +238,16 @@ mixed front / left / right by the edge's side), the pull-down
     The interpreter also asks `PassOver` (2), `Walling` (3), `Ladder` (5), `LeapOfFaith` (15) and bit 31 (unnamed), and
     the in-air catch `Grasp` (6, 0xEDBC26). Every rank allows the movement ones at sprint; ranks 0 to 3 lack `Grasp`
     (`forge::ability`, ours: `AC1_RANK`).
-  Events 68 and 119 are not in `HumanGround`'s handler: its sub-states take them.
+  Where they are handled **[V]** 2026-10-24: the ground's state machine (0xDB48B0) asks its current sub-states first,
+  then its own top: event **68** at the top, its guard 0xD84190 (the step off): a forcing flag (report +0x41) passes at
+  once; it fails held by a grab (0xC7F150), with the upper body in its modes 2 or 3 (0xB31260 / 0xB319D0) or a ground
+  flag (+0x261 bit 0); then a drop of 0.53 m or more and, for a guidance edge (+0x38 clear), the feet past the edge's
+  line (+0x34 under -0.01) and room for the body past it (0xB2E7A0), else a clear box swept from 0.7 m up toward the
+  edge (0.25 × 0.25 × 1 m). Event **119** (the look-down) only in a standing sub-state (0xD96A20; 0xDA7250 enters it):
+  its one guard there is the upper-body state machine (HumanGround +0x580) in its state 1; the state's enter
+  (0xDA5260) copies the edge report and plays the look-down (0xD9FC80). The rest of 119's guards are the interpreter's
+  (above). Ours: the step off's drop, room and edge as AC1's; no grabs or upper-body modes to fail it; the look-down
+  by the interpreter's rules.
   Ours: the look-down after standing still 0.25 s, the pull-down over a drop of more than 2 m (were: at once, 1.8 m);
   the ledge stop starts with the edge within 0.15 m, or a frame's run (0.05 s) at speed (it started within 0.6 m and
   the pull-down after it slid the body 0.4 m to the edge). The ledge stop is high profile only, never free running;
@@ -1500,4 +1514,3 @@ actions no data file has; `hangfree_strafe_*_000cm_*` are weighed 0).
 
 ## Open questions
 - Whether the player's jumps ever use the navigation meshes' jump links (the candidates come from the guidance).
-- Event 68's handler (a ground sub-state's) and event 119's guards in the game's own code (Banned445's values used).
