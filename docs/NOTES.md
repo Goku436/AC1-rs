@@ -652,8 +652,8 @@ no code):
   2026-10-06 we read 1 - raw / 4096 and patched the heads, which showed every texture at half scale).
 - Altaïr carries weapons with no skin of their own on tag bones, their vertices in the bone's frame: the sword
   `ARCM_Altair_Sword_D` on bone 3a835926 (from the `UCMA_Sword_Tag` skeleton) and the short blade `UCMA_Altair_Dagger`
-  on 685e46b6 (pairs from Banned445's repo); the entity does not list them. The scabbard hangs straight down: AC1
-  angles it with the sword tag's modifiers, not read yet.
+  on 685e46b6 (pairs from Banned445's repo); the entity does not list them. The scabbard is angled and swings by the sword
+  tag skeleton's own two hinge modifiers (`UCMA_Sword_Tag`, `forge::modifier` + `ik::secondary`, since 2026-10-12).
 - Some materials name a texture set kept in another data file, or are kept there themselves: the throwing daggers'
   are in DataPC's `Game Bootstrap Settings` (`DataFile::material_map_in`).
 - Cloth (materials named `*Cloth*`) is drawn from both sides: AC1 gives it an inside material, and the robe's tails
