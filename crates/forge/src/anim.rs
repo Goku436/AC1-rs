@@ -110,10 +110,13 @@ const CLASS_ANIM_TRACK_EVENT: u32 = 0x41682213;
 const CLASS_EVENT_SEED_LINK_DATA: u32 = 0x6ce04d52;
 const CLASS_CONTACT_EVENT: u32 = 0x97840cbf;
 const CLASS_AUDIO_EVENT: u32 = 0xa7a64a34;
+const CLASS_FX_EVENT: u32 = 0x6627c719;
+const CLASS_FX_COMMAND: u32 = 0x11598a66;
 
 /// Fields after an event's u32 handle, by class: `u` u32, `b` u8, `R` a sound reference (u32 object id, u32 class,
-/// u32 ?, u32 the referenced `SoundBao`'s object id). From each class's serializer, as Banned445's
-/// AC1-Movement-Rewritten lists them. `FXEvent` (0x6627c719) is not known: a clip holding one has no events.
+/// u32 ?, u32 the referenced `SoundBao`'s object id), `s` a string (u32 length, the bytes). From each class's serializer,
+/// as Banned445's AC1-Movement-Rewritten lists them; `FXEvent` and `AnimTimingEvent` from the exe's reflection and the
+/// data (`fx_event`).
 fn event_fields(class: u32) -> Option<&'static [u8]> {
     Some(match class {
         CLASS_CONTACT_EVENT => b"ubb",
@@ -126,6 +129,8 @@ fn event_fields(class: u32) -> Option<&'static [u8]> {
         0xd84e267f => b"uuuu",
         // AnimAssassinationEvent
         0x28c6e4ee => b"u",
+        // AnimTimingEvent: a name (its setter 0x6E0140 keeps its hash too) and a u32 ?
+        0xa9264210 => b"su",
         // EntityEvent, DropObjectEvent, AnimSyncFallEvent, AnimSyncDieEvent, AIAnimationEvent: the handle only
         0x691a6344 | 0x46d8b31e | 0x8ed28ae9 | 0x1b735fbf | 0xf9bfcb7c => b"",
         _ => return None,
@@ -193,6 +198,11 @@ pub fn parse_events(body: &[u8]) -> Result<Vec<AnimEvent>> {
             r.object()?;
             let at = r.at;
             let kind = match r.object()? {
+                Some(CLASS_FX_EVENT) => {
+                    r.u32()?;
+                    fx_event(&mut r)?;
+                    EventKind::Other(Some(CLASS_FX_EVENT))
+                }
                 Some(class) => {
                     let Some(fields) = event_fields(class) else { bail!("event class {class:08x} at {at:#x} not known") };
                     r.u32()?;
@@ -201,6 +211,12 @@ pub fn parse_events(body: &[u8]) -> Result<Vec<AnimEvent>> {
                         vals.push(match f {
                             b'u' => r.u32()?,
                             b'b' => r.u8()? as u32,
+                            b's' => {
+                                let n = r.u32()? as usize;
+                                ensure!(n < 4096, "a {n}-byte string at {:#x}", r.at - 4);
+                                r.take(n)?;
+                                n as u32
+                            }
                             _ => {
                                 r.take(12)?;
                                 r.u32()?
@@ -222,6 +238,10 @@ pub fn parse_events(body: &[u8]) -> Result<Vec<AnimEvent>> {
                 ensure!(c == CLASS_EVENT_SEED_LINK_DATA, "seed link class {c:08x} at {at:#x}");
                 r.take(9)?;
             }
+            // (An FX seed carries 8 more bytes, `?`, after its link.)
+            if matches!(kind, EventKind::Other(Some(CLASS_FX_EVENT))) {
+                r.take(8)?;
+            }
             kinds.push(kind);
         }
         r.u32()?;
@@ -234,6 +254,22 @@ pub fn parse_events(body: &[u8]) -> Result<Vec<AnimEvent>> {
     }
     out.sort_by(|a, b| a.time.total_cmp(&b.time));
     Ok(out)
+}
+
+/// An `FXEvent`'s one property, an `FXCommand` (class 11598a66) held inline with no tag: u32 id, u32 class, then u32 ?,
+/// u16 ?, u32 the FX object's id, f32 ? (1.0 in every clip), u32 ?. The command's reflection lists five properties
+/// (`CommandType` an enum, two of type code 0xc0, one with its own serializer, one of code 0x0a); how they map onto
+/// these bytes is not known. Returns the FX object's id.
+fn fx_event(r: &mut Cursor) -> Result<u32> {
+    r.u32()?;
+    let at = r.at;
+    let class = r.u32()?;
+    ensure!(class == CLASS_FX_COMMAND, "FXEvent's command class {class:08x} at {at:#x}");
+    r.u32()?;
+    r.u16()?;
+    let fx = r.u32()?;
+    r.take(8)?;
+    Ok(fx)
 }
 
 fn smallest_three(idx: usize, c: [f32; 3], negate: bool) -> [f32; 4] {
