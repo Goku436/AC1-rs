@@ -9994,7 +9994,10 @@ impl WallClimb {
             // climbing stance's ledge grab (`TryLedgeGrab` 0xDF0980, `xx_l_climb_1m_<way>_hangfree`): the free hang's pose
             // there (0xB15AD0: the root 2.4 m under the hands' middle, at the higher hand, facing the wall) must have room
             // for the body (0xB2DD50); a wall's end with the wall under the hands' new hold stops the hang there.
-            let off_wall_into_free = c.feet == Feet::ToFree || (is_free(&c.to) && is_climb_stance(&self.state) && c.names[0].starts_with("xx_l_climb_1m_"));
+            // (And a free hang's corner: TryTurnCorner 0xDD3BB0 tests the free hang's boxes at the root on the new face.)
+            let off_wall_into_free = c.feet == Feet::ToFree
+                || (is_free(&c.to) && is_climb_stance(&self.state) && c.names[0].starts_with("xx_l_climb_1m_"))
+                || (corner && is_free(&self.state) && is_free(&c.to));
             // (Ours' grid hand steps in a free hang, after AC1's vertical rows (`hang_row_step`, which tests AC1's boxes):
             // the hands' way from the edge held to the new one clear, 0.1 m out from them. [ours] Up past a block sticking out
             // of the wall, the gauntlet's G14, the hands went through it.)
