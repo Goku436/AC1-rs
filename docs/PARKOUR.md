@@ -570,7 +570,7 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   **[B]**
 
 ## 10. Limb IK
-- Limb weights rise at 4/s with a contact (0.25 s fade in) and fall at 5/s when released (0.2 s) (`LimbIK` 0xE57570); ours reads the contacts from the clips' hash 2 track (`forge::anim::contact`, `WallClimb::contacts`).
+- Limb weights rise at 4/s with a contact (0.25 s fade in) and fall at 5/s when released (0.2 s) (`LimbIK` 0xE57570, **[V]** 2026-10-24); ours reads the contacts from the clips' hash 2 track (`forge::anim::contact`, `WallClimb::contacts`).
   HumanIK's chest pull, shoulder correction and twist are off for humans; reaches stay in the limb. **[B]**
 
 ## 11. Cities: what makes Damascus different (ours)
@@ -1241,7 +1241,12 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   arrival): no floor within 0.5 m under the top at half-width + 0.2 m to either side, and no wall across 0.2 m over it.
 - **From the ground [B]**: AC1's mount guard (event 72, 0xD9F4C0): the stick past 0.35, the beam piece running from its
   nearer end within 90 degrees of the stick at any angle, head room from the feet to the entry 0.5 m on along it. Ours took a
-  beam only walking within 30 degrees of it. (The test level keeps ours' rule.)
+  beam only walking within 30 degrees of it. (The test level keeps ours' rule.) Read **[V]** 2026-10-24: event 72 goes to
+  `HumanGround`'s handler (0xDB1470, entering 0xD898A0), its guard 0xD9F4C0: the beam query (0x116E1A0) over a box
+  ±0.75 m across, 0-1 m up, ±0.53 m, within 90 degrees; the entry the piece's nearer end, moved half a step on; a capsule
+  (radius 0.25 m) swept from the feet to 1.1 m over the entry must be clear; the feet within the piece's half-width plus
+  up to 0.5 m (all of it level with the top, none 0.53 m under it) of its line; then a box (0.5 m past either side,
+  1 m up) along the piece. The stick's 0.35 is not in the guard (the event's sender).
 - **Speed [B]**: the crouch jog in high profile, the crouch walk in low (AC1's speed band by profile); ours jogged only
   free running.
 - **Ends [B]**: free running to a beam's end that runs into a wall holds there (no drop edge past it: AC1's
