@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 /// Bump whenever the code that builds a city's gameplay data changes what it builds (collision, holds, guidance, beams,
 /// perches, haystacks, ladders, bars, navigation, sound materials) in a file `SOURCES` does not list, or the payload's
 /// layout changes. (Changes in the listed sources invalidate the cache on their own.)
-pub const CACHE_VERSION: u32 = 2;
+pub const CACHE_VERSION: u32 = 3;
 
 /// The payload layout's version (in the header).
 const FORMAT: u32 = 1;
@@ -578,6 +578,7 @@ pub fn write_level(level: &Level) -> Vec<u8> {
         w.v3(l.base);
         w.f32(l.top);
         w.v3(l.out);
+        w.v3(l.lean);
     });
     w.vec(kiosks, |w, k| {
         w.ledge(&k.edge);
@@ -641,7 +642,7 @@ pub fn read_level(d: &[u8]) -> Result<Level> {
     let viewpoints = r.vec(12, R::v3)?;
     let perches = r.vec(24, R::line)?;
     let bars = r.vec(24, R::line)?;
-    let ladders = r.vec(28, |r| Ok(Ladder { base: r.v3()?, top: r.f32()?, out: r.v3()? }))?;
+    let ladders = r.vec(40, |r| Ok(Ladder { base: r.v3()?, top: r.f32()?, out: r.v3()?, lean: r.v3()? }))?;
     let kiosks = r.vec(48, |r| Ok(Kiosk { edge: r.ledge()?, axis: r.v3()? }))?;
     let spawn = r.opt(R::v3)?;
     let crowd_path = r.opt(|r| r.vec(12, R::v3))?;
@@ -724,7 +725,7 @@ mod tests {
             city_objects: vec![(CityObject::Bench, v(1.0), v(2.0), Transform::from_xyz(1.0, 2.0, 3.0).with_rotation(Quat::from_rotation_y(0.7)))],
             haystacks: vec![HayStack { centre: v(5.0), half: 1.0, height: 1.5, facing: Vec3::X, own: Some((v(4.0), v(6.0))) }],
             perches: vec![Line { a: v(7.0), b: v(8.0) }],
-            ladders: vec![Ladder { base: v(9.0), top: 12.0, out: -Vec3::X }],
+            ladders: vec![Ladder { base: v(9.0), top: 12.0, out: -Vec3::X, lean: Vec3::new(0.05, 0.0, -0.02) }],
             kiosks: vec![Kiosk { edge: Ledge { a: v(1.0), b: v(3.0), out: Vec3::Z }, axis: Vec3::X }],
             spawn: Some(v(0.5)),
             crowd_path: Some(vec![v(1.0), v(2.0)]),

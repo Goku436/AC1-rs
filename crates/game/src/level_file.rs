@@ -213,7 +213,7 @@ pub fn build(p: &Piece, level: &mut Level) -> Built {
                 b.decor.cuboid(Vec3::new(-0.25, y - 0.02, -0.02), Vec3::new(0.25, y + 0.02, 0.02));
                 y += 0.25;
             }
-            own.ladders.push(Ladder { base: Vec3::ZERO, top: s.y, out: Vec3::NEG_Z });
+            own.ladders.push(Ladder::upright(Vec3::ZERO, s.y, Vec3::NEG_Z));
         }
         Kind::Bar => {
             for x in [-hw - 0.1, hw + 0.1] {
@@ -233,7 +233,7 @@ pub fn build(p: &Piece, level: &mut Level) -> Built {
     level.ledges.extend(own.ledges.iter().map(|l| Ledge { a: at(l.a), b: at(l.b), out: rot * l.out }));
     level.perches.extend(own.perches.iter().map(|l| Line { a: at(l.a), b: at(l.b) }));
     level.bars.extend(own.bars.iter().map(|l| Line { a: at(l.a), b: at(l.b) }));
-    level.ladders.extend(own.ladders.iter().map(|l| Ladder { base: at(l.base), top: p.pos.y + l.top, out: rot * l.out }));
+    level.ladders.extend(own.ladders.iter().map(|l| Ladder { base: at(l.base), top: p.pos.y + l.top, out: rot * l.out, lean: rot * l.lean }));
     level.haystacks.extend(own.haystacks.iter().map(|h| HayStack { centre: at(h.centre), ..*h }));
     b
 }

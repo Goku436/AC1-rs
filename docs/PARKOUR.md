@@ -707,7 +707,12 @@ in this batch, by audit id:
   off the top from the back), and in the wait the stick within 30° of a side goes round to the other side when AC1's
   box beside it is clear (the revolve, `xx_h_ladder_turn_<l|r>_a` / `_b_tr_h_wait_<l|r>`, guard 0xE262B0); against a
   wall the box is in the wall. Gauntlet G16 (a free-standing ladder). Not done: the back-approach turn (TURN
-  0x0A64400C/D, when the attach box is blocked) and the leaning ladder's forced revolve. (Fixed after: onto a ladder
+  0x0A64400C/D, when the attach box is blocked). The leaning ladder's forced revolve (leaning 10 degrees or more over the
+  climber) is taken at load: ours climbs such a ladder from its other side (Masyaf's one, 11 degrees). (2026-10-24, LADDER-17)
+  Ladders lean as AC1 climbs them, along the authored edge's axis (`Ladder::lean`: entries, catches, jump targets, each
+  step's root and the exit off the top follow it; Damascus' lean up to 8 degrees, ladder 68 3.8, so its top is 0.5 m
+  in from its foot). ladder68_walk against AC1: mean 0.27 -> 0.14 m, end 0.58 -> 0.06; no other route moved. The body
+  does not tilt with the ladder yet (AC1's frame does). (Fixed after: onto a ladder
   from its top, the pull-down turns him round and the wall normal turned with it, ending into the wall: the box was
   tested behind him in the open and he went round into E's wall, then off its far side onto E's holds from inside it,
   and the exit off the top took him for being on its back. The normal now starts turned back by the chain's turn.)
@@ -874,7 +879,8 @@ in this batch, by audit id:
     - INPUT-15 (AC1's ability stack): not needed yet. Nothing in ours gives or takes an ability (no missions, memory
       blocks or tutorial); in free roam AC1 allows every one at MaxSpeed 4 (Banned445's default set), so the stack would
       only ever say yes. It comes with the first mission or Masyaf's opening, which lock moves.
-    - LADDER-7 (the rest): Damascus' 333 authored ladder edges lean less than 10 degrees (278 under 5), so the forced
+    - LADDER-7 (the rest; 2026-10-24: Masyaf's 42 have one at 11 degrees, now climbed from its other side at load, and
+      ladders lean, see the ladder section): Damascus' 333 authored ladder edges lean less than 10 degrees (278 under 5), so the forced
       revolve off a ladder leaning 10 degrees or more over the climber never fires there; ours keeps ladders upright
       (the authored edge's top is kept as a height). The back-approach turn needs a ladder whose near side is blocked at
       chest height (AC1's attach box, 0.95 m up); none is known. To settle: the other cities' ladders' leans, and a

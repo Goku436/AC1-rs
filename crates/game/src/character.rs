@@ -1326,7 +1326,7 @@ pub fn locomotion(
         if ch.wall.is_none()
             && ctl.move_dir.with_y(0.0).length() > 0.1
             && level.ladders.iter().any(|l| {
-                let d = tf.translation - l.base;
+                let d = l.off_axis(tf.translation);
                 let side = l.out.cross(Vec3::Y);
                 let stick = ctl.move_dir.with_y(0.0).normalize_or_zero();
                 d.dot(side).abs() < 0.5

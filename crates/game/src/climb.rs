@@ -3282,7 +3282,7 @@ fn ladder_target(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
             // a catch can take: up to 1.95 m short of its top.)
             // (The root `LADDER_TARGET_UP` over the feet, so it comes down onto a rung the catch takes: at least 0.6 m up.)
             let y = (from.y + LADDER_TARGET_UP).clamp(l.base.y + 0.6, l.top - LADDER_TARGET_MIN);
-            let q = Vec3::new(l.base.x, y, l.base.z) + l.out * LADDER_OFF;
+            let q = l.at(y) + l.out * LADDER_OFF;
             let flat = (q - from).with_y(0.0);
             (JUMP_HOLD_REACH.contains(&flat.length()) && flat.normalize().dot(dir) >= JUMP_TARGET_CONE && JUMP_TARGET_RISE.contains(&(q.y - from.y)))
                 .then_some(q)
@@ -5158,7 +5158,7 @@ impl WallClimb {
         {
             let planned = *root;
             let travel: Vec3 = clips.iter().map(|c| world_rot(planned.rotation) * root_motion_at(c, c.frames())).sum();
-            let spot = l.base + l.out * LADDER_OFF;
+            let spot = l.at((p + travel).y) + l.out * LADDER_OFF;
             let correct = (spot - (p + travel)).with_y(0.0);
             let mut w = WallClimb::new(WALL_RUN_STATE, n);
             w.ladder = Some(i);
@@ -6080,7 +6080,7 @@ impl WallClimb {
         let p = root.translation;
         let reach = if self.hand_held { 0.5 } else { 0.25 };
         let Some((i, l)) = level.ladders.iter().enumerate().find(|(_, l)| {
-            let d = p - l.base;
+            let d = l.off_axis(p);
             let rung = d.y;
             d.dot(l.out.cross(Vec3::Y)).abs() < 0.4
                 && (LADDER_OFF - 0.1..LADDER_OFF + reach).contains(&d.dot(l.out))
@@ -6093,7 +6093,7 @@ impl WallClimb {
             return false;
         };
         let rung = ((p.y - l.base.y) / 0.5).floor() * 0.5;
-        let at = Transform { translation: Vec3::new(l.base.x, l.base.y + rung, l.base.z) + l.out * LADDER_OFF, rotation: facing(-l.out), ..*root };
+        let at = Transform { translation: l.at(l.base.y + rung) + l.out * LADDER_OFF, rotation: facing(-l.out), ..*root };
         debug!("climb: caught ladder {i} falling, at {:.2}", at.translation);
         self.fall_v = None;
         self.ladder = Some(i);
@@ -6594,7 +6594,7 @@ impl WallClimb {
         }
         // (Not at a ladder's foot: walked into, that is got on (AC1's event 38 within 0.6 m), not leant on.)
         if level.ladders.iter().any(|l| {
-            let d = p - l.base;
+            let d = l.off_axis(p);
             d.dot(l.out.cross(Vec3::Y)).abs() < 0.5 && (-0.2..1.0).contains(&d.dot(l.out)) && (p.y - l.base.y).abs() < 0.5
         }) {
             return None;
@@ -8130,7 +8130,7 @@ impl WallClimb {
     ) -> Option<WallClimb> {
         let p = root.translation;
         let (i, l, out) = level.ladders.iter().enumerate().find_map(|(i, l)| {
-            let d = p - l.base;
+            let d = l.off_axis(p);
             let side = l.out.cross(Vec3::Y);
             if d.dot(side).abs() >= 0.5 {
                 return None;
@@ -8167,9 +8167,9 @@ impl WallClimb {
             let clips = names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>()?;
             let end = chain_end(&clips, rig, base, cr)?;
             let out_rot = facing(l.out);
-            let start = spot - world_rot(out_rot) * end.motion;
-            // (Ending on the rung grid: see `rung_snap`.)
+            // (Ending on the rung grid: see `rung_snap`; on a leaning ladder, on its axis there.)
             let end_y = p.y + (world_rot(out_rot) * end.motion).y;
+            let start = l.at(end_y) + out * LADDER_OFF - world_rot(out_rot) * end.motion;
             let at = Transform { translation: start.with_y(p.y + Self::rung_snap(l, end_y) - end_y), rotation: out_rot, ..*root };
             w.start_chain(clips, vec![LADDER_R.into(), LADDER_R.into(), LADDER_R.into()], &at, Vec3::ZERO);
             // (The pull-down starts facing out and turns round onto the rungs; the normal turns with each clip's own turn
@@ -8221,8 +8221,8 @@ impl WallClimb {
                 if l.out.dot(self.normal) < 0.9 || end.y < l.base.y + 0.3 || end.y > l.top - 0.6 {
                     continue;
                 }
-                let spot = l.base + l.out * LADDER_OFF;
-                let off = right * (l.base - hands).dot(right) + l.out * (spot - end).dot(l.out);
+                let spot = l.at(end.y) + l.out * LADDER_OFF;
+                let off = right * (spot - hands).dot(right) + l.out * (spot - end).dot(l.out);
                 if off.length() < reach && best.as_ref().is_none_or(|b| off.length() < b.0) {
                     let to = if name.contains("ladder_wait_l") { LADDER_L } else { LADDER_R };
                     // (Onto the rung grid, 0.5 m from the ladder's base, as AC1 snaps a ladder entry (reanalysis GUIDE-1,
@@ -8266,7 +8266,7 @@ impl WallClimb {
             return false;
         };
         // (Ending as far out from the ladder's line on its other side, at the same height.)
-        let out = (root.translation - l.base).dot(self.normal);
+        let out = l.off_axis(root.translation).dot(self.normal);
         let far = root.translation - self.normal * (2.0 * out);
         let travel: Vec3 = clips.iter().map(|c| world_rot(root.rotation) * root_motion_at(c, c.frames())).sum();
         let correct = (far - (root.translation + travel)).with_y(0.0);
@@ -8328,7 +8328,8 @@ impl WallClimb {
                 let need = l.top - root.translation.y;
                 // (The high steps are 1 m: the exit may be up to half a step off, made up over it.)
                 if (need - up).abs() < if self.high { 0.55 } else { 0.3 } {
-                    self.start_chain(vec![a, b], vec![KNEEL.into(), ON_TOP.into()], root, Vec3::Y * (need - up));
+                    // (Up a leaning ladder its top is in from where its foot is: the clips climb upright.)
+                    self.start_chain(vec![a, b], vec![KNEEL.into(), ON_TOP.into()], root, Vec3::Y * (need - up) + l.lean * need);
                     self.ladder = None;
                     return;
                 }
@@ -8339,7 +8340,8 @@ impl WallClimb {
             if room >= LADDER_STEP
                 && let Some(c) = lib.get(&format!("xx_{p}_ladder_climb_up_{hand}"))
             {
-                play(self, c, if hand == "l" { LADDER_R } else { LADDER_L }, Vec3::ZERO);
+                let rise = root_motion_at(&c, c.frames()).z;
+                play(self, c, if hand == "l" { LADDER_R } else { LADDER_L }, l.lean * rise);
             }
         } else if input.y < -0.3 {
             // (The bottom by the ladder's own base, AC1's ReachedBottom, not the ground under the root; audit LADDER-11.)
@@ -8354,10 +8356,11 @@ impl WallClimb {
                     .or_else(|| lib.get(&format!("xx_l_ladder_climb_down_{hand}_tr_l_wait_hipm_{foot}")))
                 {
                     self.ladder = None;
-                    play(self, c, GROUND, Vec3::Y * -above);
+                    play(self, c, GROUND, (Vec3::Y + l.lean) * -above);
                 }
             } else if let Some(c) = lib.get(&format!("xx_{p}_ladder_climb_down_{hand}")).or_else(|| lib.get(&format!("xx_l_ladder_climb_down_{hand}"))) {
-                play(self, c, if hand == "l" { LADDER_R } else { LADDER_L }, Vec3::ZERO);
+                let rise = root_motion_at(&c, c.frames()).z;
+                play(self, c, if hand == "l" { LADDER_R } else { LADDER_L }, l.lean * rise);
             }
         }
     }

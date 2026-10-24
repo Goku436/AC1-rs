@@ -78,12 +78,32 @@ impl Line {
 }
 
 /// A ladder on a wall: `base` is the foot of its rungs (on the ground, on the rung plane), `top` the
-/// height of the walkable top it leads to, `out` points away from the wall.
+/// height of the walkable top it leads to, `out` points away from the wall, `lean` how far its axis runs level for each
+/// metre up (AC1 climbs along its ladder's axis, the frame leaning with it: reanalysis LADDER-17; Damascus' authored
+/// ladders lean up to 8 degrees, ladder 68 3.8, its top 0.5 m in from its foot).
 #[derive(Clone, Copy, Debug)]
 pub struct Ladder {
     pub base: Vec3,
     pub top: f32,
     pub out: Vec3,
+    pub lean: Vec3,
+}
+
+impl Ladder {
+    /// An upright ladder.
+    pub fn upright(base: Vec3, top: f32, out: Vec3) -> Self {
+        Ladder { base, top, out, lean: Vec3::ZERO }
+    }
+
+    /// The point of its axis at height `y`.
+    pub fn at(&self, y: f32) -> Vec3 {
+        (self.base + self.lean * (y - self.base.y)).with_y(y)
+    }
+
+    /// `p` from its axis at `p`'s height, its height from its base.
+    pub fn off_axis(&self, p: Vec3) -> Vec3 {
+        (p - self.at(p.y)).with_y(p.y - self.base.y)
+    }
 }
 
 /// A haystack to dive into: square footprint around `centre` (on the ground), `height` tall. Not part
@@ -694,7 +714,7 @@ impl Level {
                     let out = -to_wall;
                     // The foot: toward the outer side of its bounds (a leaning ladder's foot stands off the wall).
                     let off = (size.dot(thin) * 0.5 - 0.25).max(0.0);
-                    self.ladders.push(Ladder { base: (mid + out * off).with_y(lo.y), top, out });
+                    self.ladders.push(Ladder::upright((mid + out * off).with_y(lo.y), top, out));
                     ladders += 1;
                 }
                 CityObject::Bench => {
@@ -910,7 +930,7 @@ impl Level {
         let mut moved = 0;
         for i in 0..self.ladders.len() {
             let l = self.ladders[i];
-            let p = Vec3::new(l.base.x, l.top + 0.5, l.base.z) - l.out * LADDER_TOP_IN;
+            let p = l.at(l.top + 0.5) - l.out * LADDER_TOP_IN;
             if let Some(g) = self.ground(p, 0.0, 1.5).filter(|g| g.normal.y > 0.7 && (g.point.y - l.top).abs() > 0.05) {
                 self.ladders[i].top = g.point.y;
                 moved += 1;
@@ -1040,7 +1060,13 @@ impl Level {
                 SubType::Ladder => {
                     let (lo, hi) = if e.a.y < e.b.y { (e.a, e.b) } else { (e.b, e.a) };
                     if e.out != Vec3::ZERO {
-                        self.ladders.push(Ladder { base: lo, top: hi.y, out: e.out });
+                        let rise = (hi.y - lo.y).max(0.01);
+                        let lean = (hi - lo).with_y(0.0) / rise;
+                        // (Leaning over its climbing side by 10 degrees or more, AC1 takes the climber round to its other
+                        // side, or lets go (Banned445's ladder.rs, reanalysis LADDER-4): ours climbs that side. Masyaf
+                        // has one, 11 degrees.)
+                        let out = if lean.dot(e.out) >= 10f32.to_radians().tan() { -e.out } else { e.out };
+                        self.ladders.push(Ladder { base: lo, top: hi.y, out, lean });
                         ladders += 1;
                     }
                 }
@@ -1781,7 +1807,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     // G2: a ladder up a 5 m block, a beam across to a second block, its beam out over a haystack: the leap of faith.
     let z = 44.0;
     walls.cuboid(Vec3::new(-90.0, 0.0, z - 1.5), Vec3::new(-87.0, 5.0, z + 1.5));
-    level.ladders.push(Ladder { base: Vec3::new(-90.08, 0.0, z), top: 5.0, out: Vec3::NEG_X });
+    level.ladders.push(Ladder::upright(Vec3::new(-90.08, 0.0, z), 5.0, Vec3::NEG_X));
     beam(walls, level, -87.0, -83.0, z, 5.0);
     walls.cuboid(Vec3::new(-83.0, 0.0, z - 1.5), Vec3::new(-79.0, 5.0, z + 1.5));
     beam(walls, level, -79.0, -77.6, z, 5.0);
@@ -1901,7 +1927,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
 
     // G16: a ladder standing free in the open (its front to -X): climbed from either side, and round it from one side to
     // the other (AC1's revolve; audit LADDER-7).
-    level.ladders.push(Ladder { base: Vec3::new(-90.0, 0.0, 204.0), top: 4.5, out: Vec3::NEG_X });
+    level.ladders.push(Ladder::upright(Vec3::new(-90.0, 0.0, 204.0), 4.5, Vec3::NEG_X));
 
     // G17: a beam run up to a wall with holds up it: standing on the beam, the empty hand climbs onto the wall (AC1's
     // climb from a beam, event 16).
@@ -1987,7 +2013,7 @@ fn rooftops(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     building(walls, strips, level, up(40.0, 30.0), Vec3::new(46.0, b1, 36.0), &[Vec3::NEG_Z, Vec3::NEG_X]);
     building(walls, strips, level, up(48.0, 30.0), Vec3::new(53.0, b2, 36.0), &[]);
     building(walls, strips, level, up(55.5, 30.0), Vec3::new(61.0, b3, 36.0), &[]);
-    level.ladders.push(Ladder { base: Vec3::new(58.0, 0.0, 29.92), top: b3, out: Vec3::NEG_Z });
+    level.ladders.push(Ladder::upright(Vec3::new(58.0, 0.0, 29.92), b3, Vec3::NEG_Z));
     // The beam across the alley to B4, its top level with the roofs.
     let b4 = b3;
     building(walls, strips, level, up(64.0, 30.0), Vec3::new(69.0, b4, 36.0), &[]);
@@ -2582,7 +2608,7 @@ pub fn spawn_level(
         ledge_geo.cuboid(a - Vec3::Y * 0.07 - Vec3::Z * HOLD_DEPTH, b);
         level.ledges.push(Ledge { a: a - Vec3::Z * 0.06, b: b - Vec3::Z * 0.06, out: Vec3::NEG_Z });
     }
-    level.ladders.push(Ladder { base: Vec3::new(10.0, 0.0, 16.08), top: e_top, out: Vec3::Z });
+    level.ladders.push(Ladder::upright(Vec3::new(10.0, 0.0, 16.08), e_top, Vec3::Z));
     // Holds up E's back to the right of its ladder (seen from the ladder): hanging on them, sideways goes across onto
     // the ladder, and off it back onto them.
     for k in 0..7 {
@@ -2654,7 +2680,7 @@ pub fn spawn_level(
     // market stall's counter as AC1's (`Kiosk_*`: 3.7 m along its front, 2.2 m deep, its top 0.74 m up), its front facing
     // south (-Z) and its kiosk pieces along the front and the two sides, as the cities' stalls carry them.
     c.cuboid(Vec3::new(22.0, 0.0, -9.0), Vec3::new(25.0, 5.0, -6.0));
-    level.ladders.push(Ladder { base: Vec3::new(23.5, 0.0, -5.92), top: 5.0, out: Vec3::Z });
+    level.ladders.push(Ladder::upright(Vec3::new(23.5, 0.0, -5.92), 5.0, Vec3::Z));
     let (kx0, kx1, kz_front, kz_back, kh) = (28.0, 31.7, -10.2, -8.0, 0.74);
     c.cuboid(Vec3::new(kx0, 0.0, kz_front), Vec3::new(kx1, kh, kz_back));
     for (a, b, out) in [
