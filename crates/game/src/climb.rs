@@ -2074,18 +2074,34 @@ fn lean_refused(m: &crate::climb_table::Move, hands: [Vec3; 2], to_hands: [Vec3;
 /// The hold for a wrist at `wrist` in AC1's climbing probe box (`BuildHoldGrid` 0xDF6A40, docs/PARKOUR.md section 4):
 /// `GRID_ALONG` along the wall, `GRID_UP` up or down and `GRID_DEPTH` in or out of the wall; the nearest one in it.
 fn hold_in_box(level: &Level, wrist: Vec3, normal: Vec3) -> Option<Vec3> {
+    holds_in_box_of(level, wrist, normal).min_by(|a, b| (*a - wrist).length().total_cmp(&(*b - wrist).length()))
+}
+
+/// `holds_in_box` for a grid move: each hand's nearest hold in the box with a foot cell under it (`foot_cell`), else the
+/// nearest. (Down the climbing stance the nearest a row down was the row the feet stood on, with no foot cell under it,
+/// and the row the climb came up by, 0.25 m further, was never taken: he hung looking down, the sweep's w9-down.)
+fn holds_in_box_footed(level: &Level, hands: &[Vec3; 2], normal: Vec3) -> Option<[Vec3; 2]> {
+    let pick = |w: Vec3| {
+        let mut all: Vec<Vec3> = holds_in_box_of(level, w, normal).collect();
+        all.sort_by(|a, b| (*a - w).length().total_cmp(&(*b - w).length()));
+        all.iter().copied().find(|t| foot_cell(level, *t, normal)).or(all.first().copied())
+    };
+    Some([pick(hands[0])?, pick(hands[1])?])
+}
+
+/// The grip targets of the holds in `hold_in_box`'s box round `wrist`.
+fn holds_in_box_of(level: &Level, wrist: Vec3, normal: Vec3) -> impl Iterator<Item = Vec3> {
     let along = Vec3::Y.cross(normal).normalize_or_zero();
     // (The box reaches `GRID_ALONG` + `GRID_DEPTH` across the ground, the grip target `GRIP_OUT` off its hold.)
     level
         .holds_near(wrist, GRID_ALONG + GRID_DEPTH + GRIP_OUT)
         .into_iter()
-        .filter(|l| l.out.dot(normal) > 0.7)
-        .map(|l| grip_target(l.closest(wrist - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN), l.out))
-        .filter(|t| {
+        .filter(move |l| l.out.dot(normal) > 0.7)
+        .map(move |l| grip_target(l.closest(wrist - l.out * GRIP_OUT + Vec3::Y * GRIP_DOWN), l.out))
+        .filter(move |t| {
             let d = *t - wrist;
             d.dot(along).abs() <= GRID_ALONG && d.y.abs() <= GRID_UP && d.dot(normal).abs() <= GRID_DEPTH
         })
-        .min_by(|a, b| (*a - wrist).length().total_cmp(&(*b - wrist).length()))
 }
 
 /// The least and most a move's holds may face away from the wall it starts on for the climber to turn to them (rad, 3
@@ -9873,11 +9889,18 @@ impl WallClimb {
             // (A plain climbing move finds its holds as AC1's grid does, in a box round where the clip puts each hand;
             // leaps and corners steer onto the nearest within their reach.)
             let plain = !leap && !corner;
+            let grid = plain && c.names.first().is_some_and(|n| n.starts_with("xx_l_climb_"));
             let Some(targets) = drops
                 .iter()
                 .filter_map(|d| {
                     let hands = end.hands.map(|h| h - Vec3::Y * d);
-                    if plain { holds_in_box(level, &hands, normal) } else { holds_within(level, &hands, normal, reach) }
+                    if grid {
+                        holds_in_box_footed(level, &hands, normal)
+                    } else if plain {
+                        holds_in_box(level, &hands, normal)
+                    } else {
+                        holds_within(level, &hands, normal, reach)
+                    }
                 })
                 .find(|t| (t[0].distance(t[1]) - apart).abs() < HANDS_APART_SLACK)
             else {

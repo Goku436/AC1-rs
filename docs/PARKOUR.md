@@ -1267,10 +1267,11 @@ no-grab 8 (two walls never reached from their starts, all four programs each), e
   path) the free hang. Ours wanted the clip's feet flush within 0.32 m; a wall 0.39 m back gave a free hang against it.
   The grab into the wall hang now takes the switch's foot rays (0xDE0A60, to 0.7 m behind). The window cap's scenario
   (user report 2026-10-13) goes into the wall hang there now, not the free hang and the switch onto the wall.
-- **`w9-down`** (open): down the climbing stance the table move's hand target snaps to the nearest hold a grid row (0.6 m)
+- **`w9-down`** [ours]: down the climbing stance the table move's hand target snapped to the nearest hold a grid row (0.6 m)
   down, here the row the feet stood on (11.70 m), whose foot cell is empty; the 12.02 m row the climb came up by, 0.25 m
-  further, is not tried, and he looks down 2 m over the ground. How AC1's cells (0xDECD70) pick among holds in one cell
-  is not read yet.
+  further, was not tried, and he looked down 2 m over the ground. A grid move's hand now takes the nearest hold in the
+  box with a foot cell under it, else the nearest; he climbs back down the rows he came up. How AC1's cells (0xDECD70)
+  pick among holds in one cell is not read yet.
 Acre and Jerusalem, first sweeps on dev 2026-10-24 (30 spots each): Acre 150 runs: no-grab 10, embed 4 (not seen again
 replayed alone), topout 4 (two low walls whose tops are enclosed by a solid: AC1's room boxes test faces only, ours' cramped
 test refuses them), stuck 3, pop 2, death 1 (a run off a roof 17 m up), no-hold 1. Jerusalem 144 runs: pop 6 (all under
