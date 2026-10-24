@@ -712,7 +712,9 @@ in this batch, by audit id:
   Ladders lean as AC1 climbs them, along the authored edge's axis (`Ladder::lean`: entries, catches, jump targets, each
   step's root and the exit off the top follow it; Damascus' lean up to 8 degrees, ladder 68 3.8, so its top is 0.5 m
   in from its foot). ladder68_walk against AC1: mean 0.27 -> 0.14 m, end 0.58 -> 0.06; no other route moved. The body
-  does not tilt with the ladder yet (AC1's frame does). (Fixed after: onto a ladder
+  lies along the ladder as AC1's frame does (the climb's tilt, eased at 1 rad/s, upright again off it): on ladder 68 the
+  hands reach 0.07 m further in toward its rungs (the clip holds them 0.18 m in from the feet on an upright ladder; upright on
+  68's lean they were 0.04, tilted 0.11). (Fixed after: onto a ladder
   from its top, the pull-down turns him round and the wall normal turned with it, ending into the wall: the box was
   tested behind him in the open and he went round into E's wall, then off its far side onto E's holds from inside it,
   and the exit off the top took him for being on its back. The normal now starts turned back by the chain's turn.)

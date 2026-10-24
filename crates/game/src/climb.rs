@@ -1486,6 +1486,8 @@ pub struct WallClimb {
     tilt: f32,
     tilt_to: f32,
     tilt_rate: f32,
+    /// The tilt is a ladder's (`Ladder::lean`): set back upright once off it.
+    ladder_tilt: bool,
     /// Last vertical choice, so up/down alternates hands.
     last_hand_up: usize,
     /// Let go once the current move ends.
@@ -4142,6 +4144,7 @@ impl WallClimb {
             tilt: 0.0,
             tilt_to: 0.0,
             tilt_rate: 0.0,
+            ladder_tilt: false,
             last_hand_up: 0,
             want_drop: false,
             eject_after: None,
@@ -11281,6 +11284,21 @@ impl WallClimb {
     #[allow(clippy::too_many_arguments)]
     pub fn update(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, base: &Pose, cr: ClimbRig, input: Vec2, leap: bool, dt: f32) {
         self.legs_held = leap;
+        // On a ladder the body lies along its axis, as AC1's ladder frame does (Damascus' lean up to 8 degrees: upright, the
+        // hands came off the rungs of one leaning back by the lean's share of the reach); upright again once off it.
+        match self.ladder.and_then(|i| level.ladders.get(i)) {
+            Some(l) => {
+                self.tilt_to = (-l.lean.dot(l.out.with_y(0.0).normalize_or_zero())).atan();
+                self.tilt_rate = HANG_LEAN_RATE;
+                self.ladder_tilt = true;
+            }
+            None if self.ladder_tilt => {
+                self.tilt_to = 0.0;
+                self.tilt_rate = HANG_LEAN_RATE;
+                self.ladder_tilt = false;
+            }
+            None => {}
+        }
         self.tilt += (self.tilt_to - self.tilt).clamp(-self.tilt_rate * dt, self.tilt_rate * dt);
         // (Out of the fall, or caught, the grasp is let go.)
         if self.fall_v.is_none() {
