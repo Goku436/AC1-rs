@@ -9,6 +9,7 @@ use crate::level::{Hit, Ledge, Level};
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::prelude::*;
+use forge::ability;
 use ik::chain::{LookLink, look_at};
 use ik::placement::{Arm, place_hand};
 use ik::{Pose, Rig, limited_arc, two_bone_ik};
@@ -271,6 +272,26 @@ pub struct Character {
     spawn: Vec3,
     /// Debug: world-space IK targets drawn as gizmos.
     pub debug_targets: Vec<(Vec3, Color)>,
+}
+
+/// The player's abilities (`forge::ability`): everything, as AC1's rank 9 allows, or `AC1_RANK=<0..9>`'s set from the
+/// install. Every rank allows the movement; ranks 0 to 3 lack the catch in a fall.
+pub fn abilities() -> ability::AbilitySet {
+    static SET: std::sync::OnceLock<ability::AbilitySet> = std::sync::OnceLock::new();
+    *SET.get_or_init(|| {
+        let Some(rank) = std::env::var("AC1_RANK").ok().and_then(|r| r.parse().ok()) else { return ability::AbilitySet::ALL };
+        let game = std::env::var("AC1_GAME_DIR").unwrap_or_else(|_| r"P:\SteamLibrary\steamapps\common\Assassins Creed".into());
+        match ability::rank_set(std::path::Path::new(&game), rank) {
+            Ok(s) => {
+                info!("abilities of rank {rank}: {:09x}", s.flags);
+                s
+            }
+            Err(e) => {
+                warn!("abilities of rank {rank} not read ({e:#}): everything allowed");
+                ability::AbilitySet::ALL
+            }
+        }
+    })
 }
 
 /// Entity carrying the model->Bevy rotation and floor offset (child of the character root).
@@ -1496,7 +1517,8 @@ pub fn locomotion(
         // AC1 clip-driven climbing.
         if let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some()) {
             if let Some(w) = &mut ch.wall {
-                w.hand_held = ctl.hand_held;
+                // (The empty hand's catch in a fall needs the rank's Grasp, AC1's 0xEDBC26: `abilities`.)
+                w.hand_held = ctl.hand_held && abilities().allows(ability::bit::GRASP);
                 w.move_dir = ctl.move_dir.with_y(0.0).clamp_length_max(1.0);
                 w.sprint = ctl.speed > SPRINT_SPEED;
                 w.high = ctl.high;

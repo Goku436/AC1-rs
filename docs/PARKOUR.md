@@ -215,17 +215,21 @@ mixed front / left / right by the edge's side), the pull-down
   asks whether the event would pass (it runs the guards, 0xDB48B0, and returns true on 2), the next one sends it
   (0xDB4A40): 184/185 event 68 (0x44), 186/187 69, 191/192 70, 385/386 119. In the interpreter, in order:
   - **119, look down**: an edge flagged for it (interpreter +0x1050) with more than 2 m under it, stood still for more
-    than 0.25 s (a timer, ticks / 30000), and the playing item allowing it (bit 29 of the item's 64-bit move mask).
+    than 0.25 s (a timer, ticks / 30000), and the player's abilities allowing it (`LookDown`, bit 29: see below).
   - **69, ledge stop**: an edge report, queried within 0.15 m (0.0225 squared), sent only when it is ahead (direction
     1) and the drop over 5 m.
   - **68**, when no jump was just started (+0x112F): an edge report → sent at once (handled by a sub-state; with the
     +0x112B flag set it is sent with 1.0).
-  - **70, pull-down**: an edge report and the playing item allowing it (bit 4 of the move mask), then either the legs
+  - **70, pull-down**: an edge report and the abilities allowing `Climb` (bit 4), then either the legs
     pressed within the last 0.2 s (button 3, the empty hand, 0xED4A20) or the stick within 70° (1.2217 rad) of the edge;
     otherwise the interpreter only
     marks the frame (+4 = 0x1D).
-  - The **jump** asks the playing item too (bit 0 of the mask) before `JumpToGuidanceTarget`. The mask is checked only
-    when the item has its flag 0x14 & 2 (0xEF0320), against the current item and the one blending out.
+  - The **jump** asks the abilities too (`Jump`, bit 0) before `JumpToGuidanceTarget`. These "masks" are not the
+    playing item's: 0xEF0320 asks the player's ability stack (`BhvAssassinData` +0x290: the rank's `AssassinAbilitySet`
+    and any set a zone or a mission pushed), each set needing `AllActions` (+0x14 bit 1) and the flag (+8, 64 bits).
+    The interpreter also asks `PassOver` (2), `Walling` (3), `Ladder` (5), `LeapOfFaith` (15) and bit 31 (unnamed), and
+    the in-air catch `Grasp` (6, 0xEDBC26). Every rank allows the movement ones at sprint; ranks 0 to 3 lack `Grasp`
+    (`forge::ability`, ours: `AC1_RANK`).
   Events 68 and 119 are not in `HumanGround`'s handler: its sub-states take them.
   Ours: the look-down after standing still 0.25 s, the pull-down over a drop of more than 2 m (were: at once, 1.8 m);
   the ledge stop starts with the edge within 0.15 m, or a frame's run (0.05 s) at speed (it started within 0.6 m and
@@ -1486,6 +1490,4 @@ actions no data file has; `hangfree_strafe_*_000cm_*` are weighed 0).
 
 ## Open questions
 - Whether the player's jumps ever use the navigation meshes' jump links (the candidates come from the guidance).
-- The move mask the interpreter checks (64 bits at the playing item's +8: jump bit 0, pull-down bit 4, look-down bit 29)
-  is not the 12-byte flag word we read; where it comes from in the action data.
 - Event 68's handler (a ground sub-state's) and event 119's guards in the game's own code (Banned445's values used).

@@ -9,6 +9,7 @@
 //! - name table: count x 0xBC bytes, name (NUL-terminated) at +0x2C
 //! - each record at `offset`: "FILEDATA" + name, a metadata copy, then the payload
 
+pub mod ability;
 pub mod action;
 pub mod ambiance;
 pub mod anim;

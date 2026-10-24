@@ -30,6 +30,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Navigation meshes (`NavMeshManager`) | done: 1432/1432 parse (67836 pieces, 1.13 M triangles); city routes (A*) |
 | Crowds (`RegionLayout` `CrowdRegion_<City>`, `CrowdDutyRegion`, `CrowdFlow`; `forge::crowd`, the `crowd` tool) | done: Damascus 29/29 regions (16303 triangles), 29 duty regions, 451/451 flows (6.8 km); Acre 40/520, Jerusalem 23/401, Kingdom 16/82, Arsuf 2/0 (Masyaf has no crowd layout); every region and flow parses. Played (`city_life`): townsfolk and militia by the regions' fractions walking the flows round the player ("City life") |
 | Clip sets (`AnimSet`) | done: 81 read; soldiers and townsfolk play their own clips |
+| The player's abilities (`AssassinAbilitySet` ba317db0 in the rank objects 76a91f10, `forge::ability`) | done: 10/10 ranks read ("Rank 0" ... "Rank 9" in DataPC.forge); 27 of the 34 flags named from their CRC32 hashes; ours plays rank 9 (everything), `AC1_RANK` another (only `Grasp`, the catch in a fall, differs for movement) |
 | Flight recorder (F9), controller, scenario suite | done |
 | In-game menus: graphics settings (F8, presets for low-end PCs, saved beside the exe), online (F10: two players over UDP, host / join, replays) | first version ("Graphics settings and online play") |
 | Level editor (the ` key, `editor.rs`, `level_file.rs`): blocks, platforms, beams, posts, haystacks, walls, ladders, swing bars placed with the test level's builders; saved to `levels/<name>.level` (plain text); `AC1_LEVEL=<file>.level` / `empty` | first version ("The level editor") |
@@ -1229,6 +1230,17 @@ blowing along its placement's X axis. Its force wanders by AC1's 1D gradient noi
 generator, seeds 84 and 42), on game time since the map loaded; `ik::wind` reproduces a value Banned445 read from the
 running game. The data block takes seconds to read, so `wind.rs` keeps the wind in the temp directory after the first
 time. The test level uses Masyaf's; Acre, Jerusalem and Kingdom have none yet. `AC1_WIND=0` turns it off.
+
+## The player's abilities (`AssassinAbilitySet`, 2026-10-23)
+What the ground's input interpreter may ask for (the jump, the pull-down, the look-down, the wall run's pass-over, the
+ladder, the leap of faith) and the in-air catch: the "64-bit move mask" of the earlier notes. It is not in the action
+data: 0xEF0320 asks the player's ability stack (`BhvAssassinData` +0x290) with one getter per flag (0xD324C0 on), each set
+on it needing `AllActions` and the flag. Its base set is the rank's; zones (the bureaus) and mission clips
+(`AbilitySetClip`) push more (not read). Layout, serialization and the named bits are in `forge::ability`'s header
+(the flags serialize bits 32 and 33 first, as Banned445's port found; the names are the reflection's CRC32 hashes
+matched against the executable's strings and a word list: `Jump`, `Crouch`, `PassOver`, `Walling`, `Climb`, `Ladder`,
+`Grasp`, ..., `LookDown`, `EagleVision`, `BlendPray`; 7 unnamed). Every rank allows the movement at sprint, the high
+profile too; ranks 0 to 3 lack `Grasp`; the fight's counters, combo kills and assassinations come with the ranks.
 
 ## NPCs (`EntityBuilder`, `BuildTable`)
 A builder names a base entity and tables; a table is weighted rows whose cells set a column: a mesh (through its
