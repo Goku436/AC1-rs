@@ -308,8 +308,14 @@ struct Overlay {
 struct MapMenu;
 
 /// The maps F2 offers: (key, name, `AC1_LEVEL`; `None` the test level).
-const MAPS: [(KeyCode, &str, Option<&str>); 3] =
-    [(KeyCode::Digit1, "Test level", None), (KeyCode::Digit2, "Masyaf", Some("masyaf")), (KeyCode::Digit3, "Damascus", Some("damascus"))];
+const MAPS: [(KeyCode, &str, Option<&str>); 6] = [
+    (KeyCode::Digit1, "Test level", None),
+    (KeyCode::Digit2, "Masyaf", Some("masyaf")),
+    (KeyCode::Digit3, "Damascus", Some("damascus")),
+    (KeyCode::Digit4, "Acre", Some("acre")),
+    (KeyCode::Digit5, "Jerusalem", Some("jerusalem")),
+    (KeyCode::Digit6, "The Kingdom", Some("kingdom")),
+];
 
 /// The test script from its settings (`AC1_WALK`, `AC1_HIGH`, ...): the environment at start, or a control file's run.
 fn script_from(get: &dyn Fn(&str) -> Result<String, ()>) -> Script {
