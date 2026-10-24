@@ -831,7 +831,13 @@ fn turn_round(
     // tipped over with the legs crossed).
     let shown = rig.find("Reference").map(|r| {
         let mut p = pose.clone();
-        p.rotate_model(rig, r, Quat::from_rotation_z(std::f32::consts::PI - TURN_FLIP_SHORT));
+        let turn = Quat::from_rotation_z(std::f32::consts::PI - TURN_FLIP_SHORT);
+        p.rotate_model(rig, r, turn);
+        // (Its place too, about the root: the clip's Reference stands off it (0.1 m at a run stop's end), and kept where it
+        // was under the flipped root it mirrored to the other side, the body 0.27 m across in a frame.)
+        if rig.parents[r].is_none() {
+            p.local[r].pos = turn * p.local[r].pos;
+        }
         p
     });
     crate::climb::WallClimb::ground_action(lib, &back, &names, Vec3::ZERO, false, shown.or(Some(pose.clone()))).map(|w| w.steered(-dir, stop))
