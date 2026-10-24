@@ -1278,7 +1278,11 @@ no-grab 8 (two walls never reached from their starts, all four programs each), e
 Acre and Jerusalem, first sweeps on dev 2026-10-24 (30 spots each): Acre 150 runs: no-grab 10, embed 4 (not seen again
 replayed alone), topout 4 (two low walls whose tops are enclosed by a solid: AC1's room boxes test faces only, ours' cramped
 test refuses them), stuck 3, pop 2, death 1 (a run off a roof 17 m up), no-hold 1. Jerusalem 144 runs: pop 6 (all under
-0.2 m, inside take-off and leap clips), stuck 2, embed 1, free-on-wall 1, hands-off 1, no-hold 1.
+0.2 m, inside take-off and leap clips), stuck 2, embed 1, free-on-wall 1, hands-off 1, no-hold 1. The Kingdom 147 runs: no-grab 12
+(three starts never reach their wall), pop 7 (two the respawn after a run off a 40 m drop, the deaths 2; three at one spot,
+not seen alone), stuck 5, no-hold 4, topout 2, free-on-wall 1, hands-off 1. Most of its hang faults are on a battered fort
+wall (`e6`, `e10`, `w10`): the wall under the ledge slopes back 0.4-1.1 m behind the hold and changes along it, and the hang
+flips between finding and missing it under the feet; what AC1 does on those wants a live look.
 
 ### The routes again, and four new ones from the running game (2026-10-14)
 The 21 routes replayed on dev 98deb3d (before) and with this round's fixes (after); four new routes recorded in the
