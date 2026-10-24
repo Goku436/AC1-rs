@@ -10158,7 +10158,11 @@ impl WallClimb {
                 });
                 if into {
                     if why() {
-                        debug!("climb: {} : the body would go into a wall beside", c.names[0]);
+                        let hit = [0.5, 1.2].iter().find_map(|h| {
+                            level.raycast(root.translation + Vec3::Y * *h, side.normalize(), side.length() + BODY_SIDE).filter(|w| w.normal.y.abs() < 0.5)
+                        });
+                        let hit = hit.map(|w| (w.dist, w.point, w.normal));
+                        debug!("climb: {} : the body would go into a wall beside (along, at, normal: {hit:.2?})", c.names[0]);
                     }
                     continue;
                 }

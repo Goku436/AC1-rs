@@ -1256,6 +1256,11 @@ no-grab 8 (two walls never reached from their starts, all four programs each), e
   Ours tested it at the new holds, which straddled the recess's side wall; it now tests it at the lead hand. Still stuck:
   ours' own side rays from the low free hang root meet that wall, where AC1 sweeps the body between the two hangs
   (0xB2A410, 27 KB, with the free hang's 2.4 m and the wall hang's 1.1 m; not ported).
+- **`e2`**: a wall rises from the ledge 0.8 m to the wall hang's right with no holds on it: the hang stops and looks round,
+  as the running AC1 did at the bureau's wall (route `wall1_hang_right`). Not a fault.
+- **`e5`**: round an inside corner in the wall hang, then into a free hang; back toward the corner the next face has a wall
+  under the feet, and ours has no corner from the free hang into the wall hang (`xx_h_hangfree_corner_*` wants free feet
+  on both faces) while the switch's slide runs into the corner's other wall. What AC1 does there wants a live look.
 
 ### The routes again, and four new ones from the running game (2026-10-14)
 The 21 routes replayed on dev 98deb3d (before) and with this round's fixes (after); four new routes recorded in the
