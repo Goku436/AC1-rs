@@ -2,8 +2,10 @@
 //! (analog), the right stick turns the camera; A / Cross the legs, B / Circle the empty hand, Y / Triangle the head
 //! (Eagle Vision, synchronizing); the right bumper or trigger (R1 / R2) high profile; Back / Share writes the flight
 //! recorder; Start / Options toggles the free camera; the right stick's click (R3) centres the camera, the left's (L3)
-//! shows the holds (G). Read only with `AC1_PAD=1`. (The weapon
-//! hand, lock-on and weapons go with combat, left out for now.) Buttons are passed on as the keys and mouse buttons
+//! shows the holds (G); X / Square the weapon hand (the left mouse button), the left trigger or bumper (L2 / L1) held the
+//! target lock (F as it goes down and again as it comes up: AC1 locks while it is held, ours' F toggles), the D-pad the
+//! weapons (up the sword, right the short blade, down the fists, left the hidden blade: the keys 3, 1, 4, 2). Read only
+//! with `AC1_PAD=1`. Buttons are passed on as the keys and mouse buttons
 //! they stand for, so everything reading those works with a pad too. A DualShock 4 is read through Windows' gamepad
 //! API, no driver or remapper needed.
 
@@ -20,6 +22,7 @@ const DEAD: f32 = 0.35;
 /// press is at 0.75).
 const TRIGGER: f32 = 30.0 / 255.0;
 static TRIGGER_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static LOCK_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Camera turn rate at full right stick (rad/s).
 const TURN: f32 = 2.6;
 
@@ -64,10 +67,15 @@ pub enum Target {
 
 // (The right trigger is read by its value, below. R3 centres the camera, AC1's `StickRight` binding; ours had the
 // sticks' clicks swapped, audit INPUT-9.)
-const MAP: [(GamepadButton, Target); 8] = [
+const MAP: [(GamepadButton, Target); 13] = [
     (GamepadButton::South, Target::Key(KeyCode::Space)),
     (GamepadButton::East, Target::Key(KeyCode::ShiftLeft)),
     (GamepadButton::North, Target::Key(KeyCode::KeyE)),
+    (GamepadButton::West, Target::Mouse(MouseButton::Left)),
+    (GamepadButton::DPadUp, Target::Key(KeyCode::Digit3)),
+    (GamepadButton::DPadRight, Target::Key(KeyCode::Digit1)),
+    (GamepadButton::DPadDown, Target::Key(KeyCode::Digit4)),
+    (GamepadButton::DPadLeft, Target::Key(KeyCode::Digit2)),
     (GamepadButton::RightTrigger, Target::Mouse(MouseButton::Right)),
     (GamepadButton::Select, Target::Key(KeyCode::F9)),
     (GamepadButton::Start, Target::Key(KeyCode::KeyP)),
@@ -102,6 +110,12 @@ pub fn read(
         } else {
             mouse.release(MouseButton::Right);
         }
+    }
+    // The left trigger or bumper held: the target lock (F toggles ours: pressed as it goes down and as it comes up).
+    let lock = pad.pressed(GamepadButton::LeftTrigger) || pad.get(GamepadButton::LeftTrigger2).unwrap_or(0.0) > TRIGGER;
+    if lock != LOCK_DOWN.swap(lock, std::sync::atomic::Ordering::Relaxed) {
+        keys.release(KeyCode::KeyF);
+        keys.press(KeyCode::KeyF);
     }
     stick.0 = shaped(pad.left_stick());
     camera_turn(pad.right_stick(), time.delta_secs())
