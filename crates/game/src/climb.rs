@@ -2013,11 +2013,17 @@ fn free_hang_body_free(level: &Level, root: Vec3, fwd: Vec3) -> bool {
 /// tall centred on the root 0.65 m up. The root is the wall hang's (0xB157B0): 1.1 m under the lower hand, 0.5 m out from
 /// the hands' middle (Banned445's `hang_root`).
 fn wall_hang_body_free(level: &Level, holds: [Vec3; 2], normal: Vec3) -> bool {
+    let (centre, axes, half) = wall_hang_box(holds, normal);
+    level.box_free(centre, axes, half)
+}
+
+/// The wall hang's body box under `holds` (centre, axes, half sizes), as `wall_hang_body_free` tests it.
+fn wall_hang_box(holds: [Vec3; 2], normal: Vec3) -> (Vec3, [Vec3; 3], Vec3) {
     let n = normal.with_y(0.0).normalize_or(Vec3::Z);
     let mid = (holds[0] + holds[1]) * 0.5;
     let root = mid.with_y(holds[0].y.min(holds[1].y) - 1.1) + n * 0.5;
     let right = (-n).cross(Vec3::Y).normalize_or_zero();
-    level.box_free(root + Vec3::Y * 0.65, [right, -n, Vec3::Y], Vec3::new(0.375, 0.25, 0.65))
+    (root + Vec3::Y * 0.65, [right, -n, Vec3::Y], Vec3::new(0.375, 0.25, 0.65))
 }
 
 /// The lean of the line through `a` and `b` seen from the side (rad, from straight up): positive when its upper end is
@@ -10065,9 +10071,30 @@ impl WallClimb {
                 Some("1ru") => [targets[0].with_y(targets[1].y), targets[1]],
                 _ => targets,
             };
-            if into_wall_hang && !wall_hang_body_free(level, row.map(|t| grip_hold(t, normal)), normal) {
+            // (The sideways switch from the free hang tests it under the lead hand where it holds now: 0xDE1060 hands
+            // 0xB157B0 that hand's hold, +0x5F0 / +0x600, the new holds only tilting the box's up along the body from the
+            // feet's wall to the hand [ours: kept upright]. Tested at the new holds, a free hang in the recess under a
+            // Damascus ledge never got back onto the wall beside it, the box meeting the recess's side wall: the sweep's
+            // e0 `stuck`.)
+            let lead = match c.names[0].rsplit('_').next() {
+                Some("left") => Some(0),
+                Some("right") => Some(1),
+                _ => None,
+            };
+            let row = match (c.feet, lead, self.last.as_ref()) {
+                (Feet::ToWall, Some(k), Some(p)) => {
+                    let hand = root.translation + world_rot(root.rotation) * p.model(rig)[cr.hands[k]].pos;
+                    [hand, hand]
+                }
+                _ => row.map(|t| grip_hold(t, normal)),
+            };
+            if into_wall_hang && !wall_hang_body_free(level, row, normal) {
                 if why() {
-                    debug!("climb: {} : no room for the wall hang's body there (AC1's box)", c.names[0]);
+                    let (centre, axes, half) = wall_hang_box(row, normal);
+                    debug!("climb: {} : no room for the wall hang's body there (AC1's box) at {centre:.2}", c.names[0]);
+                    for t in level.box_hits(centre, axes, half).iter().take(3) {
+                        debug!("climb:   the box meets the face {:.2} {:.2} {:.2}", t.a, t.b, t.c);
+                    }
                 }
                 continue;
             }
