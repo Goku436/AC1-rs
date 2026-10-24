@@ -2931,7 +2931,7 @@ const SCENARIOS: &[Scenario] = &[
         never: &["city life: no crowd data", "city life: bump ("],
     },
     Scenario {
-        name: "city life: running into the crowd, Altaïr shoves through and they stumble 50 cm aside",
+        name: "city life: running into the crowd, Altaïr shoves through and they stumble (AC1's hurt type 0 from Fast)",
         tags: &["crowd"],
         env: &[
             ("AC1_LEVEL", "damascus"),
@@ -2942,11 +2942,11 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_HIGH", "0-10"),
         ],
         secs: 10.0,
-        want: &["bump (run, 3.5 m/s) MCxx_Poor plays xx_stumble_soft_50cm_"],
+        want: &["bump (run, 3.5 m/s) MCxx_Poor plays xx_stumble_strong_"],
         never: &["city life: no crowd data"],
     },
     Scenario {
-        name: "city life: free running into the crowd, a passer-by's strong stumble",
+        name: "city life: free running into the crowd, a passer-by knocked down (AC1's hurt type 7 from SuperFast)",
         tags: &["crowd"],
         env: &[
             ("AC1_LEVEL", "damascus"),
@@ -2958,7 +2958,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_LEGS", "0-10"),
         ],
         secs: 10.0,
-        want: &["bump (sprint, ", "m/s) MCxx_Poor plays xx_stumble_strong_"],
+        want: &["bump (sprint, ", "m/s) MCxx_Poor plays xx_fall_straight_", "then [\"xx_getup_slow_face"],
         never: &["city life: no crowd data"],
     },
     Scenario {

@@ -465,8 +465,13 @@ AC1's data (read, `crowd` tool: `crowd <game> [DataPC_<City>.forge]`):
   hands the request to its context. The stumble is a table (0xF222F0, 11 x 5 x 5 actions): a hurt type, the side it
   is hit from (front, front, back, left, right; the medium and strong ones fall back to back from the sides) and the
   bumper's class (Idle to SuperFast: the medium stumbles to Slow... Medium, the strong ones from Fast). Hurt type 0 is
-  the medium / strong stumbles, 2 the soft ones, 3 the victim's own run stumbles, 5 and 6 the rolls, 1 the fight's;
-  which type a bump gives is not read (the context's handler of the request).
+  the medium / strong stumbles, 2 the soft ones, 3 the victim's own run stumbles, 5 and 6 the rolls, 1 the fight's,
+  7 the knock-down (`xx_fall_straight_<front|back>`). A bump's type (read 2026-10-24): the victim's ground context
+  takes the request into its Hurt context with type 0 and the bumper's class (event +0xAC; 0xD954C0, 0xD93760, and the
+  Hurt context's own 0xF25170 when already stumbling), and the `TransitionSetupDataToHurt` setup (0xE9B470, its mode 3)
+  turns a `SuperFast` bumper's (or a fight's types 8-10 from Fast) into type 7, by damage (+0x54) mode 1 or 2. The
+  table is read by 0xF22290 (type x 25 + side x 5 + class; the side remapped 0, 2, 1, 4, 3) on entering the Hurt
+  context (0xF24F70, 0xF25420). So running in high profile gives the strong stumble, free running knocks down.
 
 Ours (`city_life.rs`, see its header): the people kept round the player are those the densities give within 26 m,
 at most 12 / 24 / 32 / 48 by the graphics menu's city detail (AC1_CROWD_MAX); new ones on a flow 22-34 m off (all
@@ -474,8 +479,9 @@ round the player at the first fill), parked beyond 42 m and reused; each a build
 one at a time on a thread) with its clip set (`cmma_anim_set`, `cfaa_anim_set`, `mmaa_anim_set`) over AC1's
 locomotion; they walk a flow at 0.95-1.35 m/s anywhere across it (more on its right), at its end on to a flow linked
 there (back if none), stop for 2-7 s at a fifth of the ends, slow down and move over for people and the player ahead.
-The player running into someone in high profile (AC1's Fast): Altaïr's shove and their 50 cm stumble; free running
-(SuperFast): their strong stumble into unbalance; walking, no bump (since 2026-10-23; it was their soft 20 cm stumble). The militia fraction spawns `combat`'s guards (1-3 at once by
+The player running into someone in high profile (AC1's Fast): Altaïr's shove and their strong stumble into unbalance;
+free running (SuperFast): knocked down, `xx_fall_straight_*`, then ours' get-up (`xx_getup_slow_*`); walking, no bump
+(since 2026-10-23; by AC1's hurt types since 2026-10-24, before that the 50 cm and the strong stumble). The militia fraction spawns `combat`'s guards (1-3 at once by
 the detail), on the player's locomotion within 20 m (where `combat` fights them), along the flow beyond. Left out: the
 thugs' cliques, beggars and harassers, merchants at their stalls and conversations. Their clothes, skin and hair take
 their builders' colours since 2026-10-14 ("NPCs" below).

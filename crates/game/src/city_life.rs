@@ -16,8 +16,8 @@
 //! `SPAWN_MIN`..`SPAWN_MAX` away, near the player only at the start) and go (parked beyond `DESPAWN`, reused for the
 //! next of their kind), how they walk (along a flow at their own pace, on its right half, at its end on to a flow
 //! linked there, sometimes stopping a while; stepping aside for each other and the player), the bumps (by AC1's mover
-//! classes: running in high profile, the shove and the 50 cm stumble; free running, their strong stumble; walking is no
-//! bump, `bump`), and the
+//! classes: running in high profile, the shove and their strong stumble; free running, knocked down and getting up;
+//! walking is no bump, `bump`), and the
 //! militia (AC1's militia fraction as `combat`'s guards, `GUARD_MAX` at once, patrolling the flows with the player's
 //! locomotion within `GUARD_NEAR`, where `combat` has them, along the lane beyond: a guard's probes cost a millisecond).
 //! The thugs' cliques are left out.
@@ -988,9 +988,13 @@ type Bumper<'w, 's> = Query<'w, 's, (&'static Transform, &'static mut Character,
 /// The player bumping into people, by AC1's mover classes (`CollidedMvtState`, 0xF218A0, read 2026-10-23): only a
 /// run in high profile (`Fast`) or free running (`SuperFast`) bumps (`CollideActorInteraction` 0xF26AD0 sends the
 /// collision request for the classes from `Medium` up, `Medium` only in a fight); walking, in either profile (`Slow`),
-/// sends nothing and the person is only in the way. Running: the shove and their 50 cm stumble; free running, their
-/// strong stumble (AC1's `HumanGround_Hurt` clips, see the module docs; the victim's table 0xF222F0 is indexed by a
-/// hurt type, the direction and the bumper's class, the hurt type a bump gives not read).
+/// sends nothing and the person is only in the way. The victim's ground context takes the request into its Hurt
+/// context with hurt type 0 and the bumper's class (0xD954C0 / 0xD93760), and the transition's setup (0xE9B470) makes a
+/// free runner's (`SuperFast`) type 7, the knock-down; the stumble table (0xF222F0, read by 0xF22290) gives type 0 from
+/// `Fast` the strong stumble (`xx_stumble_strong_<side>_to_unbalance_<side>`, out to the jog when pushed forward, else
+/// the wait) and type 7 `xx_fall_straight_<side>`. Running: the shove and their strong stumble; free running, knocked
+/// down. [ours: the get-up after the fall, `xx_getup_slow_<facedown|faceup>` out to the wait, is not read from the Hurt
+/// context's ground state (0xF25420).]
 fn bump(mut lib: Option<ResMut<AnimLib>>, life: Res<Life>, mut player: Bumper, mut q: Walkers) {
     let (Some(lib), Ok((ptf, mut pch, ctl))) = (lib.as_deref_mut(), player.single_mut()) else { return };
     let v = pch.velocity.with_y(0.0);
@@ -1013,11 +1017,20 @@ fn bump(mut lib: Option<ResMut<AnimLib>>, life: Res<Life>, mut player: Bumper, m
         let facing = (tf.rotation * Vec3::NEG_Z).with_y(0.0);
         // (Hit from the front it goes back, from behind forward.)
         let from = if facing.dot(fwd) < 0.0 { "back" } else { "front" };
-        let foot = if c.rng.f() < 0.5 { "footl" } else { "footr" };
         let (how, clips, knock) = if sprint {
-            ("sprint", vec![format!("xx_stumble_strong_{from}_to_unbalance_{from}"), format!("xx_stumble_unbalance_{from}_tr_h_wait_footl")], 1.4)
+            let face = if from == "front" { "facedown" } else { "faceup" };
+            (
+                "sprint",
+                vec![
+                    format!("xx_fall_straight_{from}"),
+                    format!("xx_getup_slow_{face}"),
+                    format!("xx_getup_slow_{face}_tr_h_wait_footl_{}", if c.rng.f() < 0.5 { "a" } else { "b" }),
+                ],
+                1.8,
+            )
         } else {
-            ("run", vec![format!("xx_stumble_soft_50cm_{from}_{foot}")], 0.9)
+            let out = if from == "front" { "tr_jog_footl" } else { "tr_h_wait_footl" };
+            ("run", vec![format!("xx_stumble_strong_{from}_to_unbalance_{from}"), format!("xx_stumble_unbalance_{from}_{out}")], 1.4)
         };
         let rig = ch.rig_id;
         let mut got: Vec<Arc<crate::animation::Clip>> = clips.iter().filter_map(|n| lib.get_for(rig, n)).collect();
@@ -1042,6 +1055,7 @@ fn bump(mut lib: Option<ResMut<AnimLib>>, life: Res<Life>, mut player: Bumper, m
                 a.oneshot = Some((clip, 0.0));
             }
         }
-        info!("city life: bump ({how}, {speed:.1} m/s) {} plays {}", life.kinds.get(c.kind).map_or("?", |k| k.builder.as_str()), first.name);
+        let then: Vec<&str> = c.then.iter().map(|n| n.name.as_str()).collect();
+        info!("city life: bump ({how}, {speed:.1} m/s) {} plays {} then {then:?}", life.kinds.get(c.kind).map_or("?", |k| k.builder.as_str()), first.name);
     }
 }
