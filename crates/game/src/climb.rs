@@ -541,9 +541,11 @@ const HANG_SETTLE_SPEED: f32 = 0.6;
 const HANG_LEAN_RATE: f32 = 1.0;
 /// A lean under this (rad) is a wall flush under the hold: the upright rest.
 const HANG_LEAN_MIN: f32 = 0.05;
-/// The wall hang's shimmy steps (m): the first from a catch, then each one after.
+/// The wall hang's first shimmy step from a catch, the hands still apart (m).
 const SHIMMY_FIRST: f32 = 0.23;
-const SHIMMY_STEP: f32 = 0.43;
+/// The hands' spacing along a wall hang AC1's shimmy starts from with no steps of its own yet (m): a hang with the hands
+/// apart (`hangwall_open`, the catches' and receptions': the first closing step is `SHIMMY_FIRST`), with them together.
+const SHIMMY_OPEN_SPAN: f32 = SHIMMY_CLOSE + 2.0 * SHIMMY_FIRST;
 /// A fall meeting a wall head-on faster than this into it (m/s) rebounds off it.
 const AIR_REBOUND_SPEED: f32 = 2.0;
 /// A jump's takeoff and flight are blended for the flight's end, this far short of where it lands (m): the free-step
@@ -1130,6 +1132,12 @@ const SHIMMY_SWEEP_R: f32 = 0.15;
 const SHIMMY_SWEEP_OUT: f32 = 0.75;
 const SHIMMY_SWEEP_UP: f32 = 0.2;
 const SHIMMY_REACH_FREE: f32 = 0.7;
+/// The sweep goes this far along (m); the lead hand reaches the free distance less `SHIMMY_REACH_WALL`, the hands at
+/// most `SHIMMY_SPAN` apart, and the trailing hand closes to `SHIMMY_CLOSE` of the lead (AC1's `ProbeLateral` 0xDD9640).
+const SHIMMY_SWEEP_LEN: f32 = 1.55;
+const SHIMMY_REACH_WALL: f32 = 0.4;
+const SHIMMY_SPAN: f32 = 1.0;
+const SHIMMY_CLOSE: f32 = 0.15;
 /// A climb start from the ground reaches a wall this far in front of the root (m), running; standing, a little further.
 const CLIMB_START_REACH: f32 = 1.0;
 /// The climb start takes a hold up to this far over the feet (m) with a foot hold under it (AC1's guard 0xB2E860).
@@ -1641,6 +1649,9 @@ pub struct WallClimb {
     free_wait: Option<f32>,
     /// The hold a free hang at rest settles under: found once as the rest begins, kept till the next move.
     rest_hold: Option<Vec3>,
+    /// The wall hang's hand goals along its hold after a shimmy step (left, right), and the root that step ends on: the
+    /// next step starts from them while the root is still there (AC1's `ProbeLateral` 0xDD9640 steps from the hands).
+    shimmy_hands: Option<([Vec3; 2], Vec3)>,
 }
 
 pub fn grip_target(ledge_point: Vec3, out: Vec3) -> Vec3 {
@@ -2371,6 +2382,38 @@ fn wall_under_hold(level: &Level, hold: Vec3, normal: Vec3) -> bool {
 /// (`Human__WallHangBodyBoxFree` 0xB2DC80 on the pose's forward and up, Banned445's afa4e0f) meets the wall: AC1 has no
 /// such hang (the entries test it), ours keeps the upright one (gauntlet G24's upper row put the root under the
 /// overhang).
+/// How far AC1's shimmy sweep goes before it meets something (`ProbeLateral` 0xDD9640's capsule, `sub_B18C30`, Banned445's
+/// port): a capsule `SHIMMY_SWEEP_R` round, from `SHIMMY_SWEEP_UP` over the hand `hand` (pulled its radius back) down to
+/// the hang's root `drop` under it, `SHIMMY_SWEEP_OUT` out from the wall facing out along `n`, swept along `dir`; its free
+/// distance less its radius (m, `SHIMMY_SWEEP_LEN` at most). [ours: the swept capsule as a box, found by halving.]
+fn shimmy_free(level: &Level, hand: Vec3, dir: Vec3, n: Vec3, drop: f32) -> f32 {
+    let top = hand - dir * SHIMMY_SWEEP_R + n * SHIMMY_SWEEP_OUT + Vec3::Y * SHIMMY_SWEEP_UP;
+    let tall = drop + SHIMMY_SWEEP_UP;
+    let axes = [dir, Vec3::Y, dir.cross(Vec3::Y)];
+    let free = |len: f32| {
+        level.box_free(top + dir * len * 0.5 - Vec3::Y * tall * 0.5, axes, Vec3::new(len * 0.5 + SHIMMY_SWEEP_R, tall * 0.5 + SHIMMY_SWEEP_R, SHIMMY_SWEEP_R))
+    };
+    if free(SHIMMY_SWEEP_LEN) {
+        return SHIMMY_SWEEP_LEN - SHIMMY_SWEEP_R;
+    }
+    let (mut lo, mut hi) = (0.0, SHIMMY_SWEEP_LEN);
+    for _ in 0..10 {
+        let mid = (lo + hi) * 0.5;
+        if free(mid) { lo = mid } else { hi = mid }
+    }
+    lo - SHIMMY_SWEEP_R
+}
+
+/// Where the wall hang on the hold `hold` (its wall facing out along `n`) rests: AC1's leaned root (`wall_hang_lean`), else
+/// the upright one, `HANG_ROOT_DOWN` under the hold and `HANG_WALL_OUT` from the wall's face at that height.
+fn wall_hang_rest(level: &Level, hold: Vec3, n: Vec3) -> Option<Vec3> {
+    let n = n.with_y(0.0).normalize_or_zero();
+    wall_hang_lean(level, hold, n).map(|(r, _)| r).or_else(|| {
+        let at = hold - Vec3::Y * HANG_ROOT_DOWN;
+        level.raycast(at + n * 1.0, -n, 1.0 + RECESS_MAX).filter(|h| h.normal.y.abs() < 0.5).map(|h| h.point + n * HANG_WALL_OUT)
+    })
+}
+
 fn wall_hang_lean(level: &Level, hold: Vec3, n: Vec3) -> Option<(Vec3, f32)> {
     let n = n.with_y(0.0).normalize_or_zero();
     let side = n.cross(Vec3::Y).normalize_or_zero();
@@ -4177,6 +4220,7 @@ impl WallClimb {
             wallfree: false,
             free_wait: None,
             rest_hold: None,
+            shimmy_hands: None,
         }
     }
 
@@ -5374,7 +5418,15 @@ impl WallClimb {
                             .to_string()
                         })
                         .collect();
-                    (err + hang_offset(to, normal), tos, (targets[0].y + targets[1].y) * 0.5 - root.translation.y)
+                    // (A wall run's catch into the wall hang ends on the hang's own root, as AC1's entries do
+                    // (`ComputeRootFromHandTargets` 0xDD6730 from the hand goals and the feet's supports, `wall_hang_rest`),
+                    // not where the clip's hands put it. Live comparison 2026-10-23, the bureau courtyard: the running
+                    // game's catch ended 0.42 m out from the hold, ours 0.58 m, and climbed on from there.)
+                    let fix = match carry {
+                        Some(_) if to.starts_with(HANGWALL) => wall_hang_rest(level, grip_hold(mid, normal), normal).map(|r| r - end.pos),
+                        _ => None,
+                    };
+                    (fix.unwrap_or(err + hang_offset(to, normal)), tos, (targets[0].y + targets[1].y) * 0.5 - root.translation.y)
                 }
             };
             let mut clips = clips;
@@ -10094,13 +10146,35 @@ impl WallClimb {
             // a flat wall) would put the body into a cornice over the hold.
             let keep = if !corner && !on_wall && is_free(&self.state) && !free_step { -normal * (end.pos - root.translation).dot(normal) } else { Vec3::ZERO };
             // The wall hang's shimmy steps AC1's length, not the clip's 0.5 m: 0.23 m for the first from a catch (the hands
-            // still apart), about 0.43 m after (`wall1_hang_left`: six steps 2.34 m, ours 2.99; audit LEDGE-1).
+            // still apart), about 0.43 m after on an open hold (`wall1_hang_left`: six steps 2.34 m, ours 2.99; audit LEDGE-1).
+            // AC1's steps go by its hand goals (`ProbeLateral` 0xDD9640, Banned445's port): the lead hand reaches as far as
+            // the sweep is free less `SHIMMY_REACH_WALL`, the hands at most `SHIMMY_SPAN` apart, and the trailing hand
+            // closes to `SHIMMY_CLOSE` of it; the root follows their middle. (Live comparison 2026-10-23, the bureau
+            // courtyard's far wall, an inside corner ahead: the running game's last two steps 0.36 m, the lead hand 0.73 m
+            // from a wall 1.28 m on; ours stepped 0.43 m and stopped 0.11 m further along.)
+            let mut shimmy_next = None;
             let step = if c.names[0].starts_with("xx_h_hangwall_strafe_") && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) {
                 let way = (end.pos - root.translation).with_y(0.0);
                 let along = way - normal * way.dot(normal);
-                let first = self.last_clip.as_deref().is_none_or(|n| !n.contains("_strafe_"));
-                let want = if first { SHIMMY_FIRST } else { SHIMMY_STEP };
-                along.normalize_or_zero() * (want - along.length())
+                let dir = along.normalize_or_zero();
+                let at = |p: Vec3| (p - root.translation).dot(dir);
+                let span = if self.state == HANGWALL_OPEN { SHIMMY_OPEN_SPAN } else { SHIMMY_CLOSE };
+                let (trail, lead) = match self.shimmy_hands.filter(|(_, r)| r.distance(root.translation) < 0.05) {
+                    Some((h, _)) => (at(h[0]).min(at(h[1])), at(h[0]).max(at(h[1]))),
+                    None => (-span * 0.5, span * 0.5),
+                };
+                let (trail, lead) = if c.names[0].ends_with("_close") {
+                    (trail.max(lead - SHIMMY_CLOSE), lead)
+                } else {
+                    let n = normal.with_y(0.0).normalize_or_zero();
+                    let hand = root.translation + dir * lead + Vec3::Y * HANG_ROOT_DOWN - n * HANG_WALL_OUT;
+                    let free = shimmy_free(level, hand, dir, n, HANG_ROOT_DOWN) - SHIMMY_REACH_WALL;
+                    (trail, lead + free.min(SHIMMY_SPAN - (lead - trail)).max(0.0))
+                };
+                let want = (trail + lead) * 0.5;
+                let left_first = dir.dot(Vec3::Y.cross(normal)) < 0.0;
+                shimmy_next = Some((trail, lead, left_first, want));
+                dir * (want - along.length())
             } else {
                 Vec3::ZERO
             };
@@ -10142,6 +10216,15 @@ impl WallClimb {
             let err = match &frame {
                 Some((f, _)) => err + normal * (f.root - (end.pos + err)).dot(normal).max(0.0),
                 None => err,
+            };
+            // (The wall hang's shimmy ends its step at the hang's own distance out, as AC1's steps do (the root from the hand
+            // goals and the feet's supports, `ComputeRootFromHandTargets` 0xDD6730; `wall_hang_rest`), not where the clip's
+            // hands meet the holds. Live comparison 2026-10-23, the bureau courtyard's far wall: the running game's three
+            // strafes kept the root 0.44 m out from the hold throughout, ours went 0.08 m further out and back in the wait.)
+            let err = match step != Vec3::ZERO && !corner {
+                true => wall_hang_rest(level, (grip_hold(targets[0], normal) + grip_hold(targets[1], normal)) * 0.5, normal)
+                    .map_or(err, |r| err + normal * (r - (end.pos + err)).dot(normal)),
+                false => err,
             };
             // Onto holds on a face at an angle to this one (an octagonal tower's next face, a round tower's ring): the body
             // turns about the hands to face them, as AC1 faces its climber along its holds' wall normals (`climb_pose`,
@@ -10263,6 +10346,13 @@ impl WallClimb {
             let tos = chain_states(clips.len(), &self.state, &c.to);
             let span: f32 = clips.iter().map(|c| c.anim.duration).sum();
             self.start_chain_turned(clips, tos, root, err, None, turn);
+            self.shimmy_hands = shimmy_next.map(|(trail, lead, left_first, mid)| {
+                let to = end.pos + err;
+                let dir = (end.pos - root.translation).with_y(0.0);
+                let dir = (dir - normal * dir.dot(normal)).normalize_or_zero();
+                let (t, l) = (to + dir * (trail - mid), to + dir * (lead - mid));
+                (if left_first { [l, t] } else { [t, l] }, to)
+            });
             if let Some((f, pose)) = frame {
                 let at = f.root;
                 debug!(

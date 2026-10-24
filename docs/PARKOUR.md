@@ -641,7 +641,8 @@ in this batch, by audit id:
 - **Third batch** (AIR-7, 8; HAY-2, 3, 5; LEDGE-1, 12; GUIDE-5 behind a flag): the knee catch
   (`xx_fall_tr_hangknee_*`); the edge landing (a fall coming down on a lip steps off it, `xx_fall_step_off_*`); the hay
   wait `xx_l_haystack_wait`, turned to the haystack's facing, its seat 0.21 m along that from the entity, 0.2 s settled
-  before hopping out; the wall hang's shimmy steps 0.23 m then 0.43 m; letting go cuts a shimmy at once.
+  before hopping out; the wall hang's shimmy steps 0.23 m then 0.43 m (since 2026-10-24 AC1's widths from its hand
+  goals, see "The shimmy's widths"); letting go cuts a shimmy at once.
   `AC1_PAIRED_BEAMS=1` builds beams and posts as AC1's runtime does, pairing facing hold edges (`beam_pairs.rs`, after
   Banned445's decode) in place of ours' mesh-name beams and single-hold tops; not the default yet (31 of 41 routes
   against 34: the jump query and beam walk were tuned on ours' beams, and the workspace's side planes cut a roof-edge
@@ -1518,9 +1519,16 @@ with the hook's `look` (+1 mouse unit = -0.00212 rad of yaw); the pad's right st
   `_c` (0x8CFB3CBC) is the way out to the wait. With the stick held AC1 strafed 0.68 s into the reception; ours played
   the connector through first. A move now cuts it (`reception_connector`); with no move it plays (the hard
   reception's `_b` ends swung out).
-- Left: ours steps once more along the far hold and turns its inside corner where AC1 stops 0.62 m from the hold's end
-  (the strafe's end by `ProbeLateral`), and ours' takeoff drifts 0.06 m sideways before the flight. Scenario
-  "the courtyard wall run, its catch at AC1's grab point, the climb right and the eject across".
+- **The hang's own root** (2026-10-24): the wall run's catch into the wall hang and each wall-hang shimmy step end on
+  the hang's root from the hand goals and the feet's supports (`ComputeRootFromHandTargets` 0xDD6730, ours'
+  `wall_hang_rest`), not where the clip leaves the hands on the holds: AC1's catch ended 0.42 m out from the hold, ours
+  0.58 m; along the far wall AC1's root kept 0.44 m out, ours swung 0.08 m further out and back.
+- **The shimmy's widths** (`ProbeLateral` 0xDD9640, Banned445's port): the lead hand reaches the sweep's free distance
+  less 0.4 m, the hands at most 1.0 m apart, and the trailing hand closes to 0.15 m of it; the root follows their middle
+  (`shimmy_free`, `WallClimb::shimmy_hands`). On an open hold that is 0.425 m a step (ours' old fixed 0.43); toward the
+  far wall's inside corner AC1's lead reached 0.73 m and its last two steps were 0.36 m, which ours now matches (the
+  replay's end 0.12 m off, now 0.01 m; mean 0.07 m). Left: ours' takeoff drifts 0.06 m sideways before the flight.
+  Scenario "the courtyard wall run, its catch at AC1's grab point, the climb right and the eject across".
 - **The drop's lip rays** (`drop_at_lip`) count a hit only short of their ends, as Havok's casts keep one under the
   fraction 1: ending on the plane of a top that goes on flush past the edge, rounding decided the drop (the test
   level's doorway lintel: the free jump off its stand-up came and went with the flight before it).

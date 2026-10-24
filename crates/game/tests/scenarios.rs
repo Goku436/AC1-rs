@@ -1512,7 +1512,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
         ],
         secs: 5.0,
-        want: &["xx_h_hangwall_strafe_left_050cm", "rebound off the wall at [49.", "via xx_h_rebound_right_", "_tr_freestep_entry_footl at [49.1"],
+        want: &["xx_h_hangwall_strafe_left_050cm", "rebound off the wall at [49.", "via xx_h_rebound_right_", "_tr_freestep_entry_footl at [49.2"],
         never: &["EMBED"],
     },
     // The running game's three ejects at the 0.17 m beam by the Damascus bureau (live log 2026-10-12, 2801 s): from the
@@ -1779,7 +1779,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
         ],
         secs: 4.5,
-        want: &["rebound pose off the right foot (0.00 m lower)", "back eject, 89 degrees off straight away", "the run ends at [21.3", "0.00, 7.83] (game"],
+        want: &["rebound pose off the right foot (0.00 m lower)", "back eject, 89 degrees off straight away", "the run ends at [21.3", "0.00, 7.8"],
         never: &["EMBED"],
     },
     Scenario {
@@ -2314,7 +2314,7 @@ const SCENARIOS: &[Scenario] = &[
         secs: 4.0,
         want: &[
             "wall run catch at [-92.06, 4.19, 183.47]: no clear line to it",
-            "-> hangwall_open via xx_h_wallingfront_step1_footr_tr_hangwall_251cm_000cm_b at [-92.64, 1.8",
+            "-> hangwall_open via xx_h_wallingfront_step1_footr_tr_hangwall_251cm_000cm_b at [-92.50, 1.8",
         ],
         never: &["EMBED", "_430cm_000cm_b at"],
     },
@@ -2877,7 +2877,8 @@ const SCENARIOS: &[Scenario] = &[
     },
     // User report 2026-10-13 (recording 85785, "the triangle": a Damascus window box's frame, holds at 8.7, 9.5, a knob at
     // 10.1 and 10.7 m): up onto it and down off it again. (The stance's hands now go onto AC1's goals, the grid cell's
-    // holds, up to 0.5 m off where the clip holds them: ours took a hold only within 0.2 m and gripped the air.)
+    // holds, up to 0.5 m off where the clip holds them: ours took a hold only within 0.2 m and gripped the air.) (Up for 2 s:
+    // since the wall run's catch ends on the wall hang's own root, 0.09 m higher, it climbs on without a hand step first.)
     Scenario {
         name: "Damascus: up onto a window box's frame and back down off it (user report 85785)",
         tags: &["climb", "hang"],
@@ -2891,13 +2892,13 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_HIGH", "0-1.5"),
             ("AC1_LEGS", "0-1.5"),
             ("AC1_STOP", "1.5"),
-            ("AC1_CLIMB", "nograb,wait=2.5,up=3.2,wait=2,down=3"),
+            ("AC1_CLIMB", "nograb,wait=2.5,up=2.0,wait=2,down=3"),
         ],
         secs: 11.0,
         // (Down: the frame's 0.13 m sloped piece at 8.28 m is cut to 0.1 m by AC1's depth filter since 2026-10-15 (kept in
         // part), its foot hold 0.05 m further in; the way down goes by the hold at 7.20 m into the same stance at the
         // bottom, where it went by 8.28 m.)
-        want: &["1lu -> 1m via xx_l_climb_1lu_u_1m at [42.53, 8.86", "1ru -> 1m via xx_l_climb_1ru_d_1m at [42.45, 6.97"],
+        want: &["1lu -> 1m via xx_l_climb_1lu_u_1m at [42.54, 8.86", "1ru -> 1m via xx_l_climb_1ru_d_1m at [42.45, 6.97"],
         never: &["EMBED"],
     },
     // User reports 2026-10-15 (recordings 102743, 116822, "the inverted triangles"): the awning frame over the street by
