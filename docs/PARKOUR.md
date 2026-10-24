@@ -67,7 +67,10 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   - bits 0-1 / 2-3: the feet before / after (1 left ahead, 2 right ahead, 3 parallel).
   These are how AC1 decides *when* a move may be interrupted: the smoothness comes from letting a clip run to a gate
   before the next starts, and from the item's own blend time (0.0-0.3 s, in the action data).
-- An item's duration is the weighted sum of its clips' lengths (0x507650 → 0x5B9480). **[B]**
+- An item's duration is the weighted sum of its clips' lengths (0x507650 → 0x5B9480). **[B]** **[V]** 2026-10-24: 0x5B9480 sums
+  weight × length (+0xC) over the clips, skipping one flagged +0x20 bit 0; a chain's (0x507650) adds its items', each blend
+  into the next taken off for kinds 1-2 (+0x28) and, for kinds 3-5, the step's +0x24 (capped at +0x28 when +0x34 bit 3 is
+  set) less +0x28 added.
 - Root motion: a clip's root track moves the character. Discrete moves (climb, ledge, hay entry) instead interpolate
   the root linearly from where it is to a computed target over the clip's length (`sub_711130`). Jumps add a linear
   correction to the clip's own displacement (section 5). **[B]**
@@ -76,7 +79,8 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
 - **Speed**: one parameter 0..1, bands Walk ≤ 0.25 < Jog ≤ 0.5 < Run ≤ 0.75 < Sprint (`GetSpeedBand` 0xD807B0).
   Target = base + 0.25·stick, base 0 low profile / 0.5 high / 0.75 sprint (free run). It rises at 1.0/s and falls
   along a response curve. A start from standing sets it to 0.25 (walk, low) or 0.5 (jog, high) at once
-  (`HumanGround__PlayStartMove` 0xD98990). **[B, ours: `gait.rs`]**
+  (`HumanGround__PlayStartMove` 0xD98990). **[B, ours: `gait.rs`]** **[V]** 2026-10-24: the bands (0xD807B0 on +0x5D4: 0 none,
+  ≤ 0.25, ≤ 0.5, ≤ 0.75, over) and the start's 0.25 / 0.5 by the profile (+0x5DC) into +0x5E8.
 - **Turn attenuation** in high profile: beyond 45° off the facing the speed scales down to 0 at 90°, floor 0.1,
   rising back at 5/s and falling at 10/s. **[B]**
 - **Heading** turns toward the stick at a capped rate and the character moves along the heading, not the stick: 4.0
@@ -309,6 +313,9 @@ The climbing is a grid, not free placement:
   moving side's cell (its column and row offsets from the pose table, 0x1A2CD80 + pose·0x60) in two cell arrays 16 apart
   (+0xC4 and +0xD4: two rows of 8, the foot cell and the hand cell over it); StartMove takes 0.5 s when the move has no
   action (id 0 or −1), else the action's item length (0x507650), and the pose's wait from the pose table (0x1A2CD70 + pose·0x60).
+  `sub_B1CC20` read the same day: the root 0.5 m back from the feet holds' middle along the pitched facing, onto the lower
+  foot's plane, and across half way from the feet's middle to the mean of the hands' and feet's middles, held within 0.1 m
+  outside the feet: ours' `climb_frame`, term for term.
 - No move found with the stick held → the look-around toward it (`OnNoMoveFound` 0xDF4410:
   `xx_l_climb_1m_lookaround_<up|down|left|right>`). **[B, ours]**
 - No move up → into a ledge hang (`TryTransitionToLedgeHang` 0xDF4BA0); legs → release; reaches onto other climb
