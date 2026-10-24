@@ -1193,7 +1193,9 @@ Not done: the climbing stance's hang round a corner (TrySideLedgeGrab 0xDF22C0, 
 on the side wall, the hang's boxes and the path round the corner, 0xB2A410): no test spot with a side wall's ledge and
 no climbing holds was found, and ours' corner hangs would need the lateral path test. The routes `roof2_run_east` (a
 ground turn's break into the ledge stop) and `hay70_free` (from the haystack rim the query takes the box's own far rim,
-0.9 m, where AC1 jumps 4.4 m; whether AC1's query leaves out the object stood on is not read). Pops: the post pull-down's
+0.9 m, where AC1 jumps 4.4 m; AC1's query does not leave out the object stood on, **[V]** 2026-10-24: the only entity
+its ray tests skip is the character's own, 0xB13260 handing 0xE18970 his entity as their one-element ignore list, so the
+difference there is in the edges taken or the scorer). Pops: the post pull-down's
 0.2 m (the root turning 180 degrees over the 0.47 s `front_orientation` clip, a turn the pop check, relative to the root's
 position only, reads as a jump), the swing back's hand (the clip's own 8 m/s swing), the landings' 0.15-0.18 m.
 
@@ -1274,7 +1276,11 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   and flew off facing it, then snapped round 190 degrees on the catch (scenario `test level alley: the free jump back`).
   Left: the drop edge right behind that stand-up is not one of ours' hold edges (only a ledge off to the side is, so the
   jump fires or not by centimetres), and the 8 m target there lies through the alley's other wall, which he scrapes down
-  (ours has a room check only off a swing bar, `free_jump_room`; whether AC1's narrow free jump has one is unchecked).
+  (ours has a room check only off a swing bar, `free_jump_room`). AC1's narrow free jump has none **[V]** 2026-10-24:
+  `BuildFreeJumpTarget` 0xB1E7F0 sets the point (1 m on for kind 1, 3 m for kind 2 or the beam, 4.5 m and 2.3 m down
+  from a post, else the action's own distance, 3 m down; over a drop edge its floor + 0.25 m, at most 3 m) and 0xB17D50
+  only turns the way to within 90 degrees of the edge's normal, pulls the point 0.5 m back and keeps it 0.7 m past the
+  edge's line: no cast. A blocked way only picks the beam set (0xB145B0).
 - **Posts [B]**: the body keeps its facing and the pilotis wait leans toward the stick (`_wait`, `_left`, `_right` by the
   stick's angle, 120 degrees full, at 3/s; 0xE51960); ours turned the body on the spot.
 - **Climbing onto a narrow top**: the lean's climb needs room for the body on the top (the capsule clear of walls), as the
