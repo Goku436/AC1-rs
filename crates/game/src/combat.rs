@@ -643,6 +643,26 @@ fn clip_root(anchor: &Transform, c: &Clip, t: f32) -> Transform {
     }
 }
 
+/// How far round (rad, about the vertical, positive left) a clip's root has turned by time `t`, followed key by key from
+/// its start: a turn round goes past half a turn (taken the shorter way, the 180 degree turn's root jumped 27 degrees
+/// back the other way in a frame as it passed it).
+fn clip_yaw(c: &Clip, t: f32) -> f32 {
+    let yaw = |f: f32| {
+        let q = model_to_bevy() * root_rotation_at(c, f) * model_to_bevy().inverse();
+        let d = q * Vec3::NEG_Z;
+        (-d.x).atan2(-d.z)
+    };
+    let end = t * FPS;
+    let (mut f, mut last, mut sum) = (0.0, yaw(0.0), 0.0);
+    while f < end {
+        f = (f + 1.0).min(end);
+        let y = yaw(f);
+        sum += (y - last + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        last = y;
+    }
+    sum
+}
+
 /// Where a clip puts the body at time `t`, against its root: the Reference bone's place (model space) and its yaw
 /// about the vertical.
 fn body_at(c: &Clip, t: f32) -> (Vec3, f32) {
@@ -1598,10 +1618,7 @@ fn tick(
             Root::Clip => clip_root(&act.anchor, &s.clip, t),
             Root::Turn(k) => {
                 let c = clip_root(&act.anchor, &s.clip, t);
-                let (axis, a) = (act.anchor.rotation.inverse() * c.rotation).to_axis_angle();
-                // (The shorter way round: a quaternion's angle comes 0..2 pi.)
-                let a = if a > std::f32::consts::PI { a - std::f32::consts::TAU } else { a };
-                Transform { rotation: (act.anchor.rotation * Quat::from_axis_angle(axis, a * k)).normalize(), ..c }
+                Transform { rotation: (act.anchor.rotation * Quat::from_rotation_y(clip_yaw(&s.clip, t) * k)).normalize(), ..c }
             }
             Root::Steer(to, rot) => {
                 let k = (act.t / s.len.max(1e-3)).clamp(0.0, 1.0);
@@ -2127,7 +2144,15 @@ fn show(_lib: &mut AnimLib, ch: &mut Character, f: &mut Fighter, dt: f32) {
     }
     // (A move started after the moves this frame, a reaction or a paired one: shown from the next frame, when its fade
     // starts.)
-    if !ch.fighting || f.dead && f.act.is_none() || f.act.as_ref().is_some_and(|a| a.fresh) {
+    if !ch.fighting || f.dead && f.act.is_none() {
+        return;
+    }
+    if f.act.as_ref().is_some_and(|a| a.fresh) {
+        // (Held on the frame shown meanwhile, the move's fade starting from it: run on, the stance's transition into the
+        // light wait went past its end and wrapped to its first frame, the sword hand 0.34 m off as a turn began.)
+        if let Some((_, t)) = ch.animator.as_mut().and_then(|a| a.forced.as_mut()) {
+            *t = (*t - back).max(0.0);
+        }
         return;
     }
     let shown = match &f.act {

@@ -255,6 +255,11 @@ struct Gait {
     duration: f32,
 }
 const IDLE: &str = "xx_l_wait_hipm_footl";
+/// A start from the stand has stepped onto the other foot this far through (its share of its length): stopped before,
+/// it stands on the foot it started from.
+const START_STEPPED: f32 = 0.5;
+/// The quickest the locomotion blend's speed value falls (per second): the gait model's (`gait::FALL`).
+const VALUE_FALL_MAX: f32 = 1.0;
 
 /// Locomotion: alternating left/right half-cycles of the gait closest to the current speed,
 /// played at a rate that matches the clip's root motion to the character's speed.
@@ -435,7 +440,13 @@ impl Animator {
             }
         }
         // AC1's slow-down and take-off timers (`GAIT_ALTS`).
-        let value = crate::gait::value_at(speed);
+        // (Falling no faster than AC1's speed value can (`gait`'s quickest fall, 1/s): the body slowed by what it ran into,
+        // 3.0 to 2.1 m/s in a frame past the Damascus horse barrier, cut the jog's stride to the walk's, the hands 0.26 m
+        // across in a frame.)
+        let mut value = crate::gait::value_at(speed);
+        if speed > 0.15 && self.was_moving {
+            value = value.max(self.last_value - dt * VALUE_FALL_MAX);
+        }
         let dv = value - self.last_value;
         self.slowdown = if dv.abs() <= 0.0005 * dt.max(1e-3) * 60.0 {
             (self.slowdown - dt * 4.0).max(0.0)
@@ -513,7 +524,11 @@ impl Animator {
         } else if !moving && self.was_moving {
             // (A start cut short is not dropped here: the gait at its first frame took its place for the stop's fade,
             // and the legs jumped 0.4 m from one stride to the other, at a low-profile edge halt.)
-            self.stand = self.side ^ 1;
+            // (Nor is the foot changed by a start stopped before its step: pushing into the bureau's wall, 0.2 m/s for four
+            // frames, the stand cut to the other foot's wait, the feet 0.24 m across in a frame.)
+            if self.start.is_none_or(|(.., t, len)| t / len >= START_STEPPED) {
+                self.stand = self.side ^ 1;
+            }
         }
         self.was_moving = moving;
         let idle_len = self.stand_clip().anim.duration.max(1e-3);
