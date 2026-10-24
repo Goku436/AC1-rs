@@ -455,13 +455,14 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - Hangs on two hand contacts on guidance edges. Wall hang: root 1.1 m below the hands, 0.5 m out; free hang: 2.4 m
   below (`ComputeRootFromHandTargets` 0xDD6730). Hang type: wall if a foot finds support (two 1.2 m rays toward the
   wall starting 1 m below the hands, 0.5 m back, 0.1 m to either side), re-evaluated after each step (0xDE1060).
-  **[B]**
+  **[B, V]** (2026-10-24: 0xDD6730's 1.1 / 0.5 / 2.4 m; the foot rays 1.2 m long, 0xDE0A60)
 - Moves are discrete (new hand targets, the root interpolated over the clip): shimmy with alternating hands (free
   space swept with a 0.15 m sphere over 1.55 m; step = min(d − 0.4, 1.0 − hand spacing), blocked under 0.7 m, at
-  least 0.15 m); up/down: into the climb when foot holds 1.2 m below exist, else a hand step to a ledge 0.6-1.2 m
+  least 0.15 m; **[V]** 0xDD9640, see "The shimmy's widths"); up/down: into the climb when foot holds 1.2 m below exist, else a hand step to a ledge 0.6-1.2 m
   away, else the swing back up to a ledge out from the wall (0xDD62A0, `hangwall_to_swingback_up_*`, ending in a free
   hang), else the pull-up if there is room (0xDE2270); corners
-  (0xDD3BB0), side jumps between ledges (0xDDD490); lost ledge (0xDD20D0) → InAir. **[B]**
+  (0xDD3BB0), side jumps between ledges (0xDDD490; its sweep 0.2625 m back and 0.15 m out, 1.8 / 1.0 / 2.0 m tall to
+  the climb, wall and free hang, **[V]** 2026-10-24); lost ledge (0xDD20D0) → InAir. **[B]**
 - Hang → climb: `xx_h_hang{wall,free}_{u,d}_climb_1m` and the sideways `{ul,l,dl,ur,r,dr}` variants (0xDD46A0,
   0xDD48B0). **[B]**
 
@@ -471,7 +472,8 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - On a beam the beam actions' root motion is projected onto the beam line (`ConstrainRootMotionToBeam` 0xF7C3A0):
   the walk **stops 0.3 m before an end**, and steps off an end with free space beyond (within 0.16 m of the end, a
   free capsule at end + 0.5·dir, `CanStepOffBeamEnd` 0xF77C00). Stick vs facing: within 75° forward, past 135° back
-  (turn). **[B]**
+  (turn). **[B]** The 0.3 m stop (0xF7C3A0, from the end along the beam) and the step-off's 0.16 m and end + 0.5·dir
+  (0xF77C00, the capsule from 1.2 m up) **[V]** 2026-10-24.
 - Sub-states: idle, walk, stop, the 90° wait (facing across), turn 180, the turns to and from the 90° wait; exits:
   the pull-down to a hang (event 9, the empty hand), the wall run (event 15, walking), the corner hop onto a beam
   beside (event 7). The edge stop (`xx_l_beam_edge_stop`) and NarrowObject → ladder are not used by v1.02. **[B]**
@@ -1530,7 +1532,8 @@ with the hook's `look` (+1 mouse unit = -0.00212 rad of yaw); the pad's right st
   the hang's root from the hand goals and the feet's supports (`ComputeRootFromHandTargets` 0xDD6730, ours'
   `wall_hang_rest`), not where the clip leaves the hands on the holds: AC1's catch ended 0.42 m out from the hold, ours
   0.58 m; along the far wall AC1's root kept 0.44 m out, ours swung 0.08 m further out and back.
-- **The shimmy's widths** (`ProbeLateral` 0xDD9640, Banned445's port): the lead hand reaches the sweep's free distance
+- **The shimmy's widths** (`ProbeLateral` 0xDD9640, Banned445's port, **[V]** 2026-10-24: the capsule r 0.15 from the hand
+  0.15 m back, 0.75 m out and 0.2 m up, down 1.1 / 2.4 m, swept 1.55 m; blocked under 0.7 m): the lead hand reaches the sweep's free distance
   less 0.4 m, the hands at most 1.0 m apart, and the trailing hand closes to 0.15 m of it; the root follows their middle
   (`shimmy_free`, `WallClimb::shimmy_hands`). On an open hold that is 0.425 m a step (ours' old fixed 0.43); toward the
   far wall's inside corner AC1's lead reached 0.73 m and its last two steps were 0.36 m, which ours now matches (the
