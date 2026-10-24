@@ -1238,12 +1238,13 @@ const HANG_DROP: f32 = 1.75;
 /// port `walling::wall_ahead`): a ray along the facing from `FREE_RUN_PROBE` over the feet, `FREE_RUN_REACH` long, meeting
 /// a wall whose flattened normal faces back within 45 degrees of it. Ours cast along the stick and took any upright face:
 /// running at the bureau's wall 49 degrees off it (live route `w1_climb_side`, 2026-10-14) the running game slid along it
-/// into the corner and ran up the cross wall there, ours ran up the first wall at once.
+/// into the corner and ran up the cross wall there, ours ran up the first wall at once. A fuzzy zone met first (a tent, a
+/// big tree: `Level::fuzzy_tris`) is no wall, the one behind it hidden (0xE18404's ray sees them, `sub_E1C1F0`).
 fn walling_wall(level: &Level, feet: Vec3, facing: Vec3) -> bool {
     let f = facing.with_y(0.0).normalize_or_zero();
     f != Vec3::ZERO
-        && level.raycast(feet + Vec3::Y * FREE_RUN_PROBE, f, FREE_RUN_REACH).is_some_and(|h| {
-            h.normal.y.abs() < crate::climb::WALL_RUN_MAX_UP && (-h.normal.with_y(0.0).normalize_or_zero()).dot(f) >= std::f32::consts::FRAC_1_SQRT_2
+        && level.raycast_fuzzy(feet + Vec3::Y * FREE_RUN_PROBE, f, FREE_RUN_REACH).is_some_and(|(h, fuzzy)| {
+            !fuzzy && h.normal.y.abs() < crate::climb::WALL_RUN_MAX_UP && (-h.normal.with_y(0.0).normalize_or_zero()).dot(f) >= std::f32::consts::FRAC_1_SQRT_2
         })
 }
 

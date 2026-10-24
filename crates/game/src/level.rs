@@ -416,6 +416,9 @@ pub struct Level {
     /// Per triangle of `tris` (cities): its surface's sound material (AC1's `CollisionMaterial`, see
     /// `sound_material_at`), `NO_SOUND` where not known; shorter than `tris` when the last ones have none.
     pub tri_sound: Vec<u8>,
+    /// The runs of `tris` (start, end; in order) on AC1's fuzzy-zone layers (`forge::shape::fuzzy`: tents, big trees,
+    /// out-of-bounds walls): they stop the body, but are no wall to run up and no support for a foot (`sub_E1C1F0`).
+    pub fuzzy_tris: Vec<(u32, u32)>,
 }
 
 /// `Level::tri_sound` of a triangle whose surface has no sound material.
@@ -504,16 +507,33 @@ impl Level {
     /// `raycast`, and whether the face hit was met from behind (its winding faces away from the ray: the ray
     /// started inside a solid).
     pub fn raycast_sided(&self, origin: Vec3, dir: Vec3, max: f32) -> Option<(Hit, bool)> {
+        self.raycast_at(origin, dir, max).map(|(h, behind, _)| (h, behind))
+    }
+
+    /// `raycast`, and whether what it hit is a fuzzy zone (`fuzzy_tris`).
+    pub fn raycast_fuzzy(&self, origin: Vec3, dir: Vec3, max: f32) -> Option<(Hit, bool)> {
+        self.raycast_at(origin, dir, max).map(|(h, _, i)| (h, self.is_fuzzy(i)))
+    }
+
+    /// Is triangle `i` of `tris` on a fuzzy-zone layer?
+    pub fn is_fuzzy(&self, i: u32) -> bool {
+        let k = self.fuzzy_tris.partition_point(|r| r.1 <= i);
+        self.fuzzy_tris.get(k).is_some_and(|r| r.0 <= i)
+    }
+
+    /// The nearest hit, whether met from behind, and the triangle's index.
+    fn raycast_at(&self, origin: Vec3, dir: Vec3, max: f32) -> Option<(Hit, bool, u32)> {
+        let at = |i: &u32| (*i, &self.tris[*i as usize]);
         if self.grid.is_empty() {
-            return self.raycast_tris(self.tris.iter(), origin, dir, max);
+            return self.raycast_tris((0..self.tris.len() as u32).map(|i| at(&i)), origin, dir, max);
         }
         let end = origin + dir * max;
         let (lo, hi) = (origin.min(end), origin.max(end));
-        let mut best = self.raycast_tris(self.big.iter().map(|&i| &self.tris[i as usize]), origin, dir, max);
+        let mut best = self.raycast_tris(self.big.iter().map(at), origin, dir, max);
         for x in cell(lo.x)..=cell(hi.x) {
             for z in cell(lo.z)..=cell(hi.z) {
                 let Some(list) = self.grid.get(&(x, z)) else { continue };
-                if let Some(h) = self.raycast_tris(list.iter().map(|&i| &self.tris[i as usize]), origin, dir, max)
+                if let Some(h) = self.raycast_tris(list.iter().map(at), origin, dir, max)
                     && best.is_none_or(|b| h.0.dist < b.0.dist)
                 {
                     best = Some(h);
@@ -523,9 +543,9 @@ impl Level {
         best
     }
 
-    fn raycast_tris<'t>(&self, tris: impl Iterator<Item = &'t Tri>, origin: Vec3, dir: Vec3, max: f32) -> Option<(Hit, bool)> {
-        let mut best: Option<(Hit, bool)> = None;
-        for t in tris {
+    fn raycast_tris<'t>(&self, tris: impl Iterator<Item = (u32, &'t Tri)>, origin: Vec3, dir: Vec3, max: f32) -> Option<(Hit, bool, u32)> {
+        let mut best: Option<(Hit, bool, u32)> = None;
+        for (i, t) in tris {
             let e1 = t.b - t.a;
             let e2 = t.c - t.a;
             let p = dir.cross(e2);
@@ -553,7 +573,7 @@ impl Level {
             if behind {
                 n = -n;
             }
-            best = Some((Hit { point: origin + dir * d, normal: n, dist: d }, behind));
+            best = Some((Hit { point: origin + dir * d, normal: n, dist: d }, behind, i));
         }
         best
     }
@@ -1250,7 +1270,7 @@ impl Level {
         let origin = p + Vec3::Y * 0.5;
         let mut best: Option<(f32, u32)> = None;
         for i in self.tris_near(p - Vec3::new(0.01, 1.0, 0.01), origin + Vec3::new(0.01, 0.0, 0.01)) {
-            if let Some((h, _)) = self.raycast_tris(std::iter::once(&self.tris[i as usize]), origin, Vec3::NEG_Y, 1.5)
+            if let Some((h, _, _)) = self.raycast_tris(std::iter::once((i, &self.tris[i as usize])), origin, Vec3::NEG_Y, 1.5)
                 && best.is_none_or(|b| h.dist < b.0)
             {
                 best = Some((h.dist, i));

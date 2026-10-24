@@ -397,20 +397,21 @@ const JUMP_HANG: [(&str, u32, &str, &str); 6] = [
 /// the feet meets it, `WALL_RUN_UP` over the feet (AC1's 0xE18390, its wall hit at 1.3·h).
 /// (Out along the wall's slope, `wall_slope`: on a wall leaning back the contact rises and comes in, audit WALL-21.)
 fn wall_run_contact(level: &Level, root: &Transform, fwd: Vec3) -> Option<Vec3> {
-    let hit = level.raycast(root.translation + Vec3::Y * WALL_RUN_PROBE, fwd, WALL_RUN_REACH + 0.5).filter(|h| h.normal.y.abs() < WALL_RUN_MAX_UP)?;
+    let (hit, fuzzy) = level.raycast_fuzzy(root.translation + Vec3::Y * WALL_RUN_PROBE, fwd, WALL_RUN_REACH + 0.5)?;
+    let hit = Some(hit).filter(|h| !fuzzy && h.normal.y.abs() < WALL_RUN_MAX_UP)?;
     let n = hit.normal.with_y(0.0).normalize_or_zero();
     let slope = wall_slope(level, hit.point, n)?;
     Some(hit.point + slope * WALL_RUN_OUT - Vec3::Y * (hit.point.y - root.translation.y - WALL_RUN_UP))
 }
 
 /// Whether a wall the wall run takes stands within its reach along `dir` from the feet: met at the wall run's probe
-/// height, within `WALL_RUN_ANGLE` of square, a wall by `wall_slope`.
+/// height, within `WALL_RUN_ANGLE` of square, a wall by `wall_slope`, not a fuzzy zone (`walling_wall`).
 fn wall_run_wall_ahead(level: &Level, feet: Vec3, dir: Vec3) -> bool {
     let run = dir.with_y(0.0).normalize_or_zero();
     run != Vec3::ZERO
-        && level.raycast(feet + Vec3::Y * WALL_RUN_PROBE, run, WALL_RUN_REACH).is_some_and(|h| {
+        && level.raycast_fuzzy(feet + Vec3::Y * WALL_RUN_PROBE, run, WALL_RUN_REACH).is_some_and(|(h, fuzzy)| {
             let n = h.normal.with_y(0.0).normalize_or_zero();
-            h.normal.y.abs() < WALL_RUN_MAX_UP && run.dot(-n) >= WALL_RUN_ANGLE.cos() && wall_slope(level, h.point, n).is_some()
+            !fuzzy && h.normal.y.abs() < WALL_RUN_MAX_UP && run.dot(-n) >= WALL_RUN_ANGLE.cos() && wall_slope(level, h.point, n).is_some()
         })
 }
 
@@ -2396,12 +2397,12 @@ fn wall_hang_lean(level: &Level, hold: Vec3, n: Vec3) -> Option<(Vec3, f32)> {
 
 /// AC1's foot supports for a hang with its hands at `hands` (`sub_DE0A60` from `TrySwitchHangType` 0xDE1060, as
 /// Banned445's port reads it): two rays 1.2 m in toward the wall, from 1 m under the hands, 0.5 m out and 0.1 m to
-/// either side. (Left, right) hit.
+/// either side. (Left, right) hit. A fuzzy zone met is no support (0xDE0B03 / 0xDE0CA0, `sub_E1C1F0`).
 fn feet_on_wall(level: &Level, hands: Vec3, normal: Vec3) -> (bool, bool) {
     let n = normal.with_y(0.0).normalize_or_zero();
     let along = Vec3::Y.cross(n).normalize_or_zero();
     let start = hands - Vec3::Y * 1.0 + n * 0.5;
-    let hit = |o: Vec3| level.raycast(o, -n, 1.2).is_some_and(|h| h.normal.y.abs() < 0.7);
+    let hit = |o: Vec3| level.raycast_fuzzy(o, -n, 1.2).is_some_and(|(h, fuzzy)| !fuzzy && h.normal.y.abs() < 0.7);
     (hit(start - along * 0.1), hit(start + along * 0.1))
 }
 
@@ -3428,9 +3429,9 @@ fn swing_hold_ahead(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -
 /// Whether the feet find the wall under the hold at `g` (its wall facing `out`): footholds, or a wall 1.2 m under it within
 /// 0.4-1.2 m in (as `jump_hangwall` tests). AC1's arrival at a hang target (0xE093CC, Banned445's port): feet on the wall
 /// (`sub_B15C30`) take the wall reception whatever the target's type, the swing (Ledge sub-state 8) only a free-hang
-/// target (0x80) with none.
+/// target (0x80) with none. A fuzzy zone is no wall for them (`Guidance__FindWallSupport` 0x11718B0, `sub_E1C1F0`).
 fn feet_find_wall(level: &Level, g: Vec3, out: Vec3) -> bool {
-    footholds(level, g, out) || level.raycast(g - Vec3::Y * 1.2 + out * 0.4, -out, 0.8).is_some_and(|h| h.normal.dot(out) > 0.7)
+    footholds(level, g, out) || level.raycast_fuzzy(g - Vec3::Y * 1.2 + out * 0.4, -out, 0.8).is_some_and(|(h, fuzzy)| !fuzzy && h.normal.dot(out) > 0.7)
 }
 
 /// Whether a top lies behind the grab point `g` (its wall facing `out`): ground at about the hold's height 0.4 m in. A
@@ -12402,6 +12403,27 @@ mod tests {
         assert!(!found(hay(0.0, 0.0, 2.0)));
         assert!(!found(hay(0.0, 3.5, -3.5)));
         assert!(!found(hay(0.0, 0.0, -14.0)));
+    }
+
+    #[test]
+    fn a_fuzzy_zone_is_no_wall_to_run_up_or_stand_on() {
+        // A wall face at z = 0 facing -Z, 6 m tall and 10 m wide; then the same wall on a fuzzy-zone layer (a tent's side,
+        // a big tree's), which AC1's wall ray sees but refuses, as its foot supports do (`sub_E1C1F0`).
+        let tri = |a, b, c| crate::level::Tri { a, b, c };
+        let (p0, p1, p2, p3) = (Vec3::new(-5.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 0.0), Vec3::new(5.0, 6.0, 0.0), Vec3::new(-5.0, 6.0, 0.0));
+        let wall = |fuzzy: bool| {
+            let mut level = Level { tris: vec![tri(p0, p1, p2), tri(p0, p2, p3)], ..default() };
+            if fuzzy {
+                level.fuzzy_tris = vec![(0, 2)];
+            }
+            level
+        };
+        let (feet, hands) = (Vec3::new(0.0, 0.0, -1.0), Vec3::new(0.0, 4.0, -0.3));
+        assert!(wall_run_wall_ahead(&wall(false), feet, Vec3::Z));
+        assert!(!wall_run_wall_ahead(&wall(true), feet, Vec3::Z));
+        assert_eq!(feet_on_wall(&wall(false), hands, Vec3::NEG_Z), (true, true));
+        assert_eq!(feet_on_wall(&wall(true), hands, Vec3::NEG_Z), (false, false));
+        assert!(wall(true).is_fuzzy(1) && !wall(true).is_fuzzy(2) && !wall(false).is_fuzzy(0));
     }
 
     #[test]

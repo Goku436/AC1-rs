@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 /// Bump whenever the code that builds a city's gameplay data changes what it builds (collision, holds, guidance, beams,
 /// perches, haystacks, ladders, bars, navigation, sound materials) in a file `SOURCES` does not list, or the payload's
 /// layout changes. (Changes in the listed sources invalidate the cache on their own.)
-pub const CACHE_VERSION: u32 = 1;
+pub const CACHE_VERSION: u32 = 2;
 
 /// The payload layout's version (in the header).
 const FORMAT: u32 = 1;
@@ -512,6 +512,7 @@ pub fn write_level(level: &Level) -> Vec<u8> {
         beam_tops,
         labels,
         tri_sound,
+        fuzzy_tris,
     } = level;
     let mut w = W(Vec::with_capacity(tris.len() * 36 + ledges.len() * 36 + authored.len() * 56 + (1 << 20)));
     w.opt(nav.as_ref(), |w, n| {
@@ -591,6 +592,10 @@ pub fn write_level(level: &Level) -> Vec<u8> {
         w.v3(*v);
     });
     w.vec(tri_sound, |w, s| w.u8(*s));
+    w.vec(fuzzy_tris, |w, (a, b)| {
+        w.u32(*a);
+        w.u32(*b);
+    });
     for v in views {
         w.vec(v, W::ledge);
     }
@@ -606,7 +611,7 @@ pub fn read_level(d: &[u8]) -> Result<Level> {
         ensure!(links.len() == tris.len(), "level cache: {} navigation triangles, links for {}", tris.len(), links.len());
         Ok(crate::nav::NavGraph::with_links(tris, links))
     })?;
-    let tris = r.tris()?.into_iter().map(|[a, b, c]| Tri { a, b, c }).collect();
+    let tris: Vec<Tri> = r.tris()?.into_iter().map(|[a, b, c]| Tri { a, b, c }).collect();
     let ledges = r.vec(36, R::ledge)?;
     let authored = r.vec(56, |r| {
         let at = r.p;
@@ -644,8 +649,13 @@ pub fn read_level(d: &[u8]) -> Result<Level> {
     let beam_tops = r.vec(24, R::line)?;
     let labels = r.vec(20, |r| Ok((r.str()?, r.v3()?)))?;
     let tri_sound = r.vec(1, R::u8)?;
+    let fuzzy_tris = r.vec(8, |r| Ok((r.u32()?, r.u32()?)))?;
     let views = [r.vec(36, R::ledge)?, r.vec(36, R::ledge)?, r.vec(36, R::ledge)?];
     ensure!(r.p == d.len(), "level cache has {} bytes past its end at {:#x}", d.len() - r.p, r.p);
+    ensure!(
+        fuzzy_tris.windows(2).all(|w| w[0].1 <= w[1].0) && fuzzy_tris.iter().all(|r| r.0 <= r.1 && r.1 as usize <= tris.len()),
+        "level cache: a fuzzy zone's triangles are out of order or past the list"
+    );
     ensure!(authored.iter().all(|e| (e.src as usize) < authored_src.len()), "level cache: an authored edge's source is past the list");
     let authored_src_at = authored_src.iter().enumerate().map(|(i, s)| (s.clone(), i as u32)).collect();
     let mut level = Level {
@@ -674,6 +684,7 @@ pub fn read_level(d: &[u8]) -> Result<Level> {
         beam_tops,
         labels,
         tri_sound,
+        fuzzy_tris,
         views,
         ..default()
     };
@@ -720,6 +731,7 @@ mod tests {
             city: true,
             labels: vec![("a label".into(), v(3.0))],
             tri_sound: vec![1, 2, crate::level::NO_SOUND],
+            fuzzy_tris: vec![(1, 2)],
             nav: Some(crate::nav::NavGraph::new(vec![[Vec3::ZERO, Vec3::X, Vec3::Z], [Vec3::X, Vec3::X + Vec3::Z, Vec3::Z]])),
             ..default()
         };

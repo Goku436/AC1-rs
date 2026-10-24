@@ -1134,7 +1134,9 @@ OcclusionHeightTest, CameraBarrierPlusLOS, ProjectileBarrier, ProjectileCameraBa
 HorseNoMainCharacterCollision, RaycastNoCharactersFuzzyZone, OnlyDynamic, OnlyFuzzy, RagdollPenetrationSolver (layer
 names as Banned445's AC1-Movement-Rewritten, MIT, reads them; the pairs checked in Ghidra). Damascus' rigid bodies
 (`bodies` tool) by layer: Static 13302, Dynamic 1924 (boxes, hulls: props), Interactive 333 (ladders, gardens), fuzzy
-zones 189 (out-of-bounds walls, the outskirts' `Damas_OS_Colmap`, tents, big olive trees: they stop the body),
+zones 189 (out-of-bounds walls, the outskirts' `Damas_OS_Colmap`, tents, big olive trees: they stop the body,
+but AC1's wall-run ray and foot supports refuse a hit on one, `sub_E1C1F0`; the 35 in the collision (palms, olives,
+tents, two colmaps) are `Level::fuzzy_tris`, 2026-10-24),
 StaticNoHorse 47, StaticNoCamera 21; passed through: ProjectileCameraBarrier 123 (every rooftop hiding place's box,
 `Hiding_Spot_CameraBarrier_01a`), CameraBarrier 55 (the haystacks' capsules, the river's `*_CAM` surfaces, the
 bureau's `BureauCamCol01`, a 0.5 m block on its floor), HorseBarrier 3, ProjectileBarrier 3.
@@ -1741,7 +1743,7 @@ Two changes (`level_cache.rs`, `level.rs`, `city.rs`):
   waves on all cores; the reference scans (shared props, levels of detail, each placement's references) run on all
   cores; Game Fix is read on a thread meanwhile. The same holds, beams and bars in the same order: the saved gameplay
   data of a build before these changes and after them are the same bytes (but for the navigation links, below).
-- The level cache: once a city is built, `Level` (collision triangles and their sound materials, holds, authored
+- The level cache: once a city is built, `Level` (collision triangles, their sound materials and fuzzy zones, holds, authored
   guidance, ladders, bars, kiosk pieces, perches, beam tops, haystacks, benches, viewpoints, the navigation mesh and its
   links, the start, the crowd's loop) is written to `ac1-cache/<city>-<variant>.level` beside the executable (git-ignored
   `target/`; `AC1_CACHE_DIR` elsewhere; Damascus 208 MB, Masyaf 118 MB) and read back on the next load (0.5 s for

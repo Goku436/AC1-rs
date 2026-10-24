@@ -1095,6 +1095,10 @@ fn spawn_world(
                 level.tri_sound.resize(level.tris.len(), crate::level::NO_SOUND);
                 level.tri_sound.extend(sound);
             }
+            if forge::shape::fuzzy(rb.layer) {
+                debug!("city: fuzzy zone {} ({} triangles) at {:.1}", so.name, tris.len(), world.w_axis.truncate());
+                level.fuzzy_tris.push((level.tris.len() as u32, (level.tris.len() + tris.len()) as u32));
+            }
             level.tris.extend(tris.iter().map(|t| {
                 let [a, b, c] = t.map(|v| world.transform_point3(v));
                 Tri { a, b, c }
