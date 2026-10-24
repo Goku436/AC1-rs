@@ -2117,7 +2117,14 @@ pub fn locomotion(
                         .is_some_and(|g| HIGH_HOP_RISE.contains(&(g.point.y - tf.translation.y)))
                 })
             };
-            let low = if ctl.free_run {
+            // (A kiosk's counter ahead: AC1's free-run target jump comes onto it by its own move, as the tap jump does; ours
+            // hopped onto it as onto any low top.)
+            let kiosk = (ctl.free_run || ctl.high)
+                .then(|| WallClimb::kiosk_hop(lib, &level, &tf, toward, v.length(), lead_left, ctl.free_run, Some(ch.anim_pose.clone())))
+                .flatten();
+            let low = if kiosk.is_some() {
+                kiosk
+            } else if ctl.free_run {
                 WallClimb::hay_dive_ahead(lib, &level, &tf, toward, Some(ch.anim_pose.clone()))
                     .or_else(|| WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.anim_pose.clone())))
             } else if ctl.high && hop(toward) {

@@ -115,7 +115,9 @@
 //! (`xx_l_ladder_wait_<l|r>_tr_falling`). From the air a ladder is caught (`xx_fall_tr_ladder_min_a/b`).
 //!
 //! Kiosks (market stalls, `HumanKiosk`): AC1's jump query takes a stall's counter (its `Kiosk` guidance pieces, 0.74 m
-//! up) as a target (type 0x400) in the jump's own reach zone. Jumped onto across its front, the entry
+//! up) as a target (type 0x400) in the jump's own reach zone, from the tap jump or, running in high profile with no
+//! press, from the free-run target jump once the counter is 1.3 m on (2 m with the legs held). Jumped onto across its
+//! front, the entry
 //! (`xx_h_kiosk_front_freestep_footr_tr_monkeybar_<left|right>_footr`, turning along the counter), one run along it
 //! (`xx_h_kiosk_front_monkeybar_<side>_footr`) and off its end (`..._tr_fall`) into the air; along the stall's axis,
 //! within 10 degrees (a side), `xx_h_kiosk_side_freestep_foot<l|r>` then a free-step jump on out of it (Banned445's
@@ -1233,6 +1235,8 @@ const KIOSK: &str = "kiosk";
 const KIOSK_LATERAL_COS: f32 = 0.984_807_7;
 /// A jump target this near a kiosk's piece is that kiosk (m).
 const KIOSK_AT: f32 = 0.05;
+/// A low top found this near a kiosk's piece is its counter (m: the top is taken up to 0.35 m past the face).
+const KIOSK_TOP_NEAR: f32 = 0.5;
 /// Off the end of a counter (`_tr_fall`): the way on it carries into the fall (m/s; the clip goes 0.9 m on in 0.53 s).
 const KIOSK_OFF_SPEED: f32 = 1.7;
 /// A side's free step is taken as off the counter once its root is this far under where it started (m).
@@ -4993,6 +4997,34 @@ impl WallClimb {
         Some(w)
     }
 
+    /// Running in high profile at a kiosk's counter, no press: AC1's free-run target jump (`From::FreeRun`, query kind 4
+    /// with the legs held, else 3) picks its piece (type 0x400) and jumps onto it as the tap jump does (`jump_kiosk`).
+    /// `None` when the query picks something else, which the hop onto a low top (`vault`) answers.
+    #[allow(clippy::too_many_arguments)]
+    pub fn kiosk_hop(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        dir: Vec3,
+        speed: f32,
+        left: bool,
+        legs: bool,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
+        use crate::jump_query::{From, Kind, query, select};
+        if level.kiosks.is_empty() {
+            return None;
+        }
+        let p = root.translation;
+        let cands = query(level, p, dir, From::FreeRun { legs }, None);
+        let (c, ty) = select(&cands, p, dir, dir, false)?;
+        if c.kind != Kind::Kiosk || ty != 0x400 {
+            return None;
+        }
+        let k = level.kiosk_at(c.pos, KIOSK_AT)?;
+        Self::jump_kiosk(lib, root, k.axis, c.pos, speed, left, false, from)
+    }
+
     /// A jump onto the kiosk counter at `to` (AC1's jump type 0x400; `axis` the stall's, along its front): the takeoff and
     /// flight of a running jump (`freestep`: from a post or beam, a free step's), the difference to the target spread over
     /// the flight, then the entry by the side it comes from (`kiosk_entry_side`), `HumanKiosk`'s first stage; `kiosk_next`
@@ -8045,6 +8077,14 @@ impl WallClimb {
             }
             return None;
         };
+        // (Not a kiosk's counter: its pieces allow AC1's kiosk jump alone (type 0x400), come onto by its move once in the
+        // free-run box (`kiosk_hop`); free running, ours hopped onto it from further off first, as onto any low top.)
+        if level.kiosk_at(top.point, KIOSK_TOP_NEAR).is_some() {
+            if why() {
+                debug!("climb: no jump onto the obstacle {:.2} m ahead: a kiosk's counter", hit.dist);
+            }
+            return None;
+        }
         let h = top.point.y - p.y;
         // (A haystack's rim: hopped onto with no room to stand, under its cover, as AC1 does before diving in.)
         let hay = level.haystacks.iter().any(|y| y.contains(top.point + fwd * 0.6, -0.3) && y.top() < top.point.y + 0.3);

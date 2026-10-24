@@ -25,7 +25,7 @@
 //! (Eagle Vision), C centres the camera, as AC1's default keys (`DefaultBindings.map` and the manual). Free
 //! running into a wall grabs or runs up it at any speed; running vaults low walls and sprinting jumps off edges
 //! on its own; on a post Space jumps to the next one, on a beam a direction walks along it; on a swing bar Space
-//! lets go at the next forward swing (S held drops); on a ladder W/S climb, Shift lets go; the tap jump at a
+//! lets go at the next forward swing (S held drops); on a ladder W/S climb, Shift lets go; running in high profile (or the tap jump) at a
 //! market stall's counter (a kiosk) jumps onto it and runs along it or across it (kiosk K, south of block L). Pulling up onto a post or at the end of a wall uses one hand (pillars P and Q behind block A).
 //! Ground moves: run stops, turning round, turns on the spot, ledge stops and looking down at big drops, the empty
 //! hand at an edge pulls down onto it, running into a tall wall leans on it, rolls off high landings (the camera shakes over 3 m, `shake`; dust and straw from AC1's effects, `particles`), walking into a

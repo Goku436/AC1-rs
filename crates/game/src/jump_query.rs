@@ -73,6 +73,12 @@ pub enum From {
     /// At an edge, walking or running off it, either profile (IHuman vt56, query kinds 1 / 2: reach zones 10-12, the
     /// primary only; Banned445's port, audit JUMP-2).
     Edge,
+    /// Running in high profile, no press (the free-run target jump, IHuman vt56 with query kind 4 with the legs held, 3
+    /// without: a box 0.45-1.3 m up and 0.5-2 m on, 1.3 m without the legs, reach zone 1 only; Banned445's port): the
+    /// hop onto a low obstacle ahead, a kiosk's counter by its own move.
+    FreeRun {
+        legs: bool,
+    },
 }
 
 struct Zones {
@@ -90,6 +96,14 @@ fn zones(from: From) -> Zones {
         From::Ground => Zones { primary: 1, secondary: 2, tertiary: 3, only_primary: false, min: Vec3::new(-1.0, 0.5, -5.0), max: Vec3::new(1.0, 9.0, 3.0) },
         From::Narrow => Zones { primary: 7, secondary: 8, tertiary: 9, only_primary: true, min: Vec3::new(-1.0, 0.5, -4.3), max: Vec3::new(1.0, 9.0, 3.7) },
         From::Edge => Zones { primary: 10, secondary: 11, tertiary: 12, only_primary: true, min: Vec3::new(-1.0, 0.5, -5.0), max: Vec3::new(1.0, 4.2, 2.7) },
+        From::FreeRun { legs } => Zones {
+            primary: 1,
+            secondary: 2,
+            tertiary: 3,
+            only_primary: true,
+            min: Vec3::new(-0.5, 0.5, 0.45),
+            max: Vec3::new(0.5, if legs { 2.0 } else { 1.3 }, 1.3),
+        },
     }
 }
 

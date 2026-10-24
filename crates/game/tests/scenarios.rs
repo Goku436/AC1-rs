@@ -842,6 +842,25 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "landing_death"],
     },
     Scenario {
+        // (AC1's free-run target jump, no press: its query takes the counter's piece in high profile once 1.3 m on, and
+        // comes onto it by the kiosk's move; ours bumped into it, or hopped onto it as onto any low top.)
+        name: "running at kiosk K in high profile, no press: onto its counter by the kiosk's move",
+        tags: &["jump", "misc"],
+        env: &[("AC1_START", "29.85,-14,180"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-5")],
+        secs: 4.0,
+        want: &["jump onto kiosk at", "along the kiosk's counter", "off the kiosk's counter"],
+        never: &["EMBED", "landing_death", "jump onto 0.74 m"],
+    },
+    Scenario {
+        // (Free running, the legs held: AC1's box reaches 2 m on; ours' own hop went for the counter from further off.)
+        name: "free running at kiosk K's side: onto it by the kiosk's move, not the hop onto a top",
+        tags: &["jump", "misc"],
+        env: &[("AC1_START", "24.5,-9.6,-90"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-5")],
+        secs: 4.0,
+        want: &["side Lateral", "off the kiosk's side"],
+        never: &["EMBED", "landing_death", "jump onto 0.74 m"],
+    },
+    Scenario {
         // (As the running AC1 does at a Damascus roof's edge: the ledge stop, then still pushing at the edge, down onto it.)
         name: "walking to block A's edge in high profile, still pushing: pull down and climb down to the ground",
         tags: &["hang", "climb"],
