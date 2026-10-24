@@ -1259,14 +1259,13 @@ const SCENARIOS: &[Scenario] = &[
         ],
         secs: 7.5,
         want: &[
-            // (The first eject's flight onto B's hold on the free hang's band since 2026-10-24, AC1's 0xB1EC40: caught 0.07 m
-            // further along than on the free step's.)
-            "-> 2m via xx_fall_tr_climb_min_b at [46.21, 9.51",
+            // (The first eject's flight onto B's hold on the free hang's band since 2026-10-24, AC1's 0xB1EC40, measured from
+            // the hold as AC1 does, not the hang root under it: caught 0.1 m further along.)
+            "-> 2m via xx_fall_tr_climb_min_b at [46.31, 9.52",
             "eject at the wall hang on the hold at [47.01, 12.0",
-            // (By AC1's surface flight and its reception, a wall under the hold, since live 2026-10-23; on the surface's band,
-            // 1.4 m up of its 2.5 m, since 2026-10-24, a front and up mix where the free step's band, topping out at 1.3 m,
-            // gave all up.)
-            "via xx_h_air_front_300cm_footl_to_surface",
+            // (By AC1's surface flight and its reception, a wall under the hold, since live 2026-10-23; on the surface's band
+            // since 2026-10-24, its height from the hold, 1.3 m over the root: the up flight leads the mix.)
+            "via xx_h_air_up_300cm_footl_to_surface",
             "-> drop via xx_h_air_surface_tr_hangwall_reception_front_straight_min",
             "-> hangwall_open via xx_hangwall_reception_front_straight_min_c at [46.57, 10.92",
         ],
@@ -1368,9 +1367,13 @@ const SCENARIOS: &[Scenario] = &[
             "wall run catch onto AC1's grab point [44.314, 8.025, -20.4",
             "1m -> 2m via xx_l_climb_1m_r_2m at [44.87, 6.78, -21.3",
             "eject at the wall hang on the hold at [49.70, 8.02, -22.0",
+            // (Caught where AC1 did, z -22.11: past the palm, which pushes the flight 0.2 m aside, the body steers back
+            // onto its path as the running game's did; ours caught 0.24 m along, strafed a step further than AC1 and
+            // turned the inside corner at the hold's end.)
+            "-> drop via xx_h_air_surface_tr_hangwall_reception_front_straight_min at [49.26, 6.92, -22.09]",
             "hangwall_open -> hangwall via xx_h_hangwall_strafe_left_050cm_close at [49.2",
         ],
-        never: &["EMBED", "-> fall via", "landing_"],
+        never: &["EMBED", "-> fall via", "landing_", "round the inside corner"],
     },
     // Live comparison beam_eject (2026-10-23): from the wall run's hang on the bureau's west wall, the stick up: the
     // running game pulled up onto the shallow ledge at 8.02 m (a step 0.7 m high just behind it), kneeling on its edge as

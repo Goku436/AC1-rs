@@ -903,6 +903,10 @@ const SIDE_JUMP_R: f32 = 0.35;
 /// to this share (Banned445's port: `JUMP_BLOCKED_LAG`, the 30 % has no game source).
 const JUMP_BLOCKED_LAG: f32 = 0.6;
 const JUMP_BLOCKED_KEEP: f32 = 0.3;
+/// How fast (1/s) a jump pushed off its path by what it brushed steers back onto it. (Live comparison 2026-10-23, the bureau
+/// courtyard's eject past a palm: the running game, pushed 0.21 m aside over four frames, was back on its line two frames
+/// after; ours flew on from where the push left it and caught the hold 0.22 m along.)
+const JUMP_LAG_CLOSE: f32 = 40.0;
 
 /// A running jump at a wall's ledge this fast or faster (m/s) is received hard (`_max`, swinging in), else softly.
 const JUMP_RECEPTION_HARD_SPEED: f32 = 5.0;
@@ -1489,6 +1493,8 @@ pub struct WallClimb {
     eject_retry: bool,
     /// How far (m) walls have held this jump's body back from its path (`update`, `JUMP_BLOCKED_LAG`).
     air_held: f32,
+    /// Where this jump's path is from the body (`update`): what walls pushed it off by, closed again at `JUMP_LAG_CLOSE`.
+    air_lag: Vec3,
     /// On a bar: a whole swing has played since the catch (the first upswing alone settles into the still hang).
     swung: bool,
     /// Going over a wall (a passover): the height of its top, which the fall after does not land on (with long frames
@@ -3571,6 +3577,31 @@ fn jump_hang_root(hold: Vec3, out: Vec3, free: bool) -> Vec3 {
     if free { hold + out * 0.1 - Vec3::Y * JUMP_HOLD_FREE_HANG } else { hold + out * 0.4 - Vec3::Y * JUMP_HOLD_HANG }
 }
 
+/// The hold a jump's hang root `h` hangs from (`jump_hang_root` the other way): the nearest edge point it is the wall or
+/// free hang root of, else the wall hang's place over it.
+fn hang_hold(level: &Level, h: Vec3) -> Vec3 {
+    level
+        .ledges
+        .iter()
+        .flat_map(|l| {
+            let q = l.closest(h);
+            [false, true].map(|free| (q, jump_hang_root(q, l.out, free).distance(h)))
+        })
+        .filter(|(_, d)| *d < 0.05)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map_or(h + Vec3::Y * JUMP_HOLD_HANG, |(q, _)| q)
+}
+
+/// The height and distance AC1 blends a jump's clips by (0xB1EC40): its target's point (a hold's grab point, not the
+/// hang's root under it) pulled back 0.5 m toward the start, flat, and its height over the start's (0xB1F480). For the
+/// hang types the aim is moved onto the hang afterwards (0xB1F60E), but the blend has its weights by then. (Live
+/// comparison 2026-10-23, the bureau courtyard's eject onto the facing wall's hold 1.28 m over the root: the running
+/// game's takeoff ran 0.35 s and its surface flight 0.28 s, as this gives; measured from the hang's root, 0.16 m up, ours'
+/// blend leant on the long flat clips, 0.38 and 0.33 s, and arrived 0.8 m behind.)
+fn ac1_jump_measure(from: Vec3, point: Vec3) -> (f32, f32) {
+    (point.y - from.y, ((point - from).with_y(0.0).length() - JUMP_RECEPTION_STEP).max(0.0))
+}
+
 /// Whether AC1's own jump query decides this level's jumps (it has authored holds; the test level's boxes have none) and
 /// the old targets are not asked for.
 fn ac1_targets(level: &Level) -> bool {
@@ -4074,6 +4105,7 @@ impl WallClimb {
             eject_wait: None,
             eject_retry: false,
             air_held: 0.0,
+            air_lag: Vec3::ZERO,
             swung: false,
             lean_t: 0.0,
             hay_over: None,
@@ -4439,13 +4471,8 @@ impl WallClimb {
         }
         // (At a hold: the planned arc, to catch it, with AC1's takeoff and flight for that height and distance.)
         // (A hold with no wall under it is AC1's free-hang target, 0x80, on its own band.)
-        let j = crate::jump::running_in(
-            crate::jump::HANG,
-            to.y - p.y,
-            ((to - p).with_y(0.0).length() - JUMP_RECEPTION_STEP).max(0.0),
-            left,
-            speed / JUMP_AC1_FAST_SPEED,
-        );
+        let (dz, dist) = ac1_jump_measure(p, hold.map_or(to, |(q, _)| q));
+        let j = crate::jump::running_in(crate::jump::HANG, dz, dist, left, speed / JUMP_AC1_FAST_SPEED);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -4658,7 +4685,8 @@ impl WallClimb {
         // (The wall's lean under the edge, positive overhanging: AC1's angled receptions. The hard one for a fast jump or
         // a long one, over 6 m, as 0xE02790 picks it.)
         let tilt = level.raycast(hold - Vec3::Y * 0.8 + out * 0.6, -out, 1.2).map_or(0.0, |h| (-h.normal.y).clamp(-1.0, 1.0).asin());
-        let j = crate::jump::surface(hang.y - p.y, way.length(), left, speed > JUMP_RECEPTION_HARD_SPEED || way.length() > 6.0, tilt);
+        let (dz, dist) = ac1_jump_measure(p, hold);
+        let j = crate::jump::surface(dz, dist, left, speed > JUMP_RECEPTION_HARD_SPEED || way.length() > 6.0, tilt);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -5530,8 +5558,9 @@ impl WallClimb {
         let angle = aim.dot(away.cross(Vec3::Y)).atan2(aim.dot(away));
         // (The takeoff's weights on the target type's band, AC1's 0xB1EC40: the wall hang's (0x40) for the surface flight,
         // the free hang's (0x80) else.)
+        let (dz, dist) = ac1_jump_measure(p, hang_hold(level, h));
         let mut takeoff_on = |band| {
-            let j = crate::jump::rebound_in(band, h.y - p.y, flat.length(), angle, left, 0.0);
+            let j = crate::jump::rebound_in(band, dz, dist, angle, left, 0.0);
             let parts: Vec<(&str, f32)> = j.takeoff.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
         };
@@ -5602,7 +5631,8 @@ impl WallClimb {
             return None;
         }
         let tilt = level.raycast(hold - Vec3::Y * 0.8 + out * 0.6, -out, 1.2).map_or(0.0, |w| (-w.normal.y).clamp(-1.0, 1.0).asin());
-        let j = crate::jump::surface(h.y - p.y, (h - p).with_y(0.0).length(), left, false, tilt);
+        let (dz, dist) = ac1_jump_measure(p, hold);
+        let j = crate::jump::surface(dz, dist, left, false, tilt);
         // AC1's flight by the target's type: a hold with the wall within `EJECT_SURFACE_WALL` under it (its query's wall
         // hang, 0x40) the surface flight (action 0x011E555B, `air_front_050cm_<foot>_to_surface`) and its way into the
         // reception (`air_surface_tr_hangwall_reception_*`); one further out (0x80, a free hang) the hang flight (action
@@ -8679,6 +8709,7 @@ impl WallClimb {
             self.tilt_rate = self.tilt.abs() / clip.anim.duration.max(TILT_MIN_SPAN);
         }
         self.air_held = 0.0;
+        self.air_lag = Vec3::ZERO;
         self.mv = Some(Move {
             clip,
             t: 0.0,
@@ -11420,17 +11451,20 @@ impl WallClimb {
             // what it touches; held back from the path more than `JUMP_BLOCKED_LAG` in all, it falls from there, the
             // path's speed along cut to 30 % (the port's anti-stuck, 0xE0B1E0 simplified). Ours flew the clips' path
             // through walls, the clear way tested only along one line before the jump.
+            // (The path stays where it was, the body steering back onto it once free, `JUMP_LAG_CLOSE`.)
             if in_air_clip(&m.clip.name) && !m.in_place {
                 let mut p = root.translation;
-                let pushed = sweep_capsule(level, &mut p, next - root.translation);
+                let want = next - self.air_lag * (1.0 - (dt * JUMP_LAG_CLOSE).min(1.0));
+                // (The path's own speed, not the steering back onto it.)
+                let v = (next - root.translation - self.air_lag) / dt.max(1e-4);
+                let pushed = sweep_capsule(level, &mut p, want - root.translation);
+                self.air_lag = next - p;
+                if self.catch_hold.is_some() {
+                    self.catch_push = -self.air_lag;
+                }
+                next = p;
                 if pushed.length() > 1e-4 {
-                    m.start += pushed;
-                    if self.catch_hold.is_some() {
-                        self.catch_push += pushed;
-                    }
-                    self.air_held += pushed.with_y(0.0).length();
-                    let v = (next - root.translation) / dt.max(1e-4);
-                    next = p;
+                    self.air_held = self.air_lag.with_y(0.0).length();
                     if self.air_held > JUMP_BLOCKED_LAG {
                         debug!("climb: the jump is held back by a wall at {next:.2} ({:.2} m): falling from there", self.air_held);
                         self.queue.clear();
@@ -11653,11 +11687,15 @@ impl WallClimb {
                     Quat::IDENTITY
                 };
                 let hold_b = self.fade.as_ref().is_some_and(Fade::holds_b);
+                // (A jump's path carries on where it was, the body still steering back onto it.)
+                if !in_air_clip(&next.clip.name) {
+                    self.air_lag = Vec3::ZERO;
+                }
                 self.mv = Some(Move {
                     clip: next.clip,
                     t: if hold_b { 0.0 } else { over * next.rate },
                     to: next.to,
-                    start: root.translation,
+                    start: root.translation + self.air_lag,
                     start_rot: left.inverse() * turned.inverse() * root.rotation,
                     correct: next.correct,
                     rate: next.rate,
@@ -12098,6 +12136,8 @@ impl WallClimb {
     /// still hung 0.44 m out; ours, pushed 0.29 m off by it, hung 0.73 m out.
     fn catch_reaim(&mut self, next: &mut Queued) {
         let Some(l) = self.catch_hold.filter(|_| self.catch_push != Vec3::ZERO) else { return };
+        // (Not steered back onto the flight's path as well: the reception goes from where the body came.)
+        self.air_lag = Vec3::ZERO;
         let out = l.out.with_y(0.0).normalize_or_zero();
         let fix = -out * self.catch_push.dot(out);
         self.catch_push = Vec3::ZERO;

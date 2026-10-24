@@ -355,6 +355,13 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   7.5 m; the rest (0x80 free hang, swing bars) 3.0 / 2.5 / 6 / 8 m; the jump off a swing bar (takeoff kind 3) lifts its
   band 0.7 m. Takeoff and flight weigh on the same band. **[V]** 2026-10-24 (ours had the free step's for every jump:
   `jump::Band`, `running_in`).
+- **What the bands measure** (0xB1EC40, 0xB1F0A0 / 0xB1F480): the target's own point (a hold's grab point, not the
+  hang's root under it; the free step's landing point) pulled back 0.5 m toward the start (times entity +0x7C, 1 for
+  the player), its flat distance from the start and its height over the start's root. The hang types' aim is moved
+  onto the hang afterwards (0x40: 0.5 m out along the target's vector, 1.1 m down; 0x80: 0.5 m down, 0xB1F60E), with
+  the weights already set. **[V]** 2026-10-24: the bureau courtyard's eject onto the facing wall's hold, 1.28 m over
+  the root, ran AC1's takeoff 0.35 s and surface flight 0.28 s as this gives (h 0.59); ours measured from the hang's
+  root (0.16 m up), leant on the long flat clips (0.38 / 0.33 s) and arrived 0.8 m behind (`ac1_jump_measure`).
 - **Over-drop**: a target more than 5 m below (3 m for the leap of faith) is aimed at 5 m down, then a free fall
   (g = 9.8, steering ≤ 15 m/s). Plain falls drift (decays 4 m/s², ≤ 5 m/s). **[B]**
 - **Arrival** (0xE07D00): free step → the reception `<flight>_tr_freestep_entry_foot?[_fast]` (0x010DE1FE /
@@ -1343,7 +1350,10 @@ area by area, written anew, each checked in Ghidra where it could be. **[B, V]**
 alley into the opposite wall (reports 1064093, 158904), and a leap off a Damascus window box ended inside a house (the
 replay scan, ~326 s). Now the capsule (0.4 m, as on the ground) is swept along every takeoff and flight frame and every
 falling step, pushed out of walls, the speed into them gone; a jump held back more than 0.6 m in all falls from there, 30 %
-of its speed along kept (Banned445's port's anti-stuck stand-in; 0xE0B1E0's own nudge is ours already). The hangs' side
+of its speed along kept (Banned445's port's anti-stuck stand-in; 0xE0B1E0's own nudge is ours already). A push leaves
+the path where it was: the body steers back onto it once free, in about two frames (`JUMP_LAG_CLOSE`), as the running
+game did past the courtyard's palm (pushed 0.21 m aside over four frames, back on its line two later); ours flew on
+from where the push left it and caught the far hold 0.24 m along. **[ours, measured]** The hangs' side
 leaps first sweep AC1's clearance capsule to the new hang (0xDDDF85: r 0.35, from 0.2625 m back and 0.15 m out, 1.8 / 1.0 /
 2.0 m tall to the climb / wall hang / free hang; Banned445's 3580692), as the vertical reach already did.
 
