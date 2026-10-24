@@ -2636,10 +2636,11 @@ const SCENARIOS: &[Scenario] = &[
         secs: 12.0,
         want: &[
             // (From the climb stance itself since 2026-10-23: the hang's move down-left onto the holds goes as far as AC1's
-            // lateral probe reaches, a grid step further than its clip, `side_reach`.)
-            "1m -> free_1m via xx_l_climb_1m_l_hangfree",
-            "free_1m -> hangwall_open via xx_h_hangfree_tr_hangwall",
-            "hangknee -> top via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [73.33, 11.5",
+            // lateral probe reaches, a grid step further than its clip, `side_reach`. Into the wall hang since 2026-10-24:
+            // the wall under the cap is 0.34-0.54 m behind the hold, inside AC1's ledge grab foot probe, 0xB16130; it was
+            // the free hang, then the switch onto the wall.)
+            "1m -> hangwall_open via xx_l_climb_1m_l_hangwall",
+            "hangknee -> top via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [73.4",
         ],
         never: &["-> fall via", "landing_damage", "EMBED"],
     },

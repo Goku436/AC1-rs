@@ -9672,8 +9672,11 @@ impl WallClimb {
             // for the feet, swing off into a free hang. Sideways, the next column's rows up, level and down in that order
             // (AC1's `TryLedgeGrab` 0xDF0980, rows 5, 4, 3: `xx_l_climb_1m_<ul|l|dl>_hang<wall|free>`, audit CLIMB-E11).
             let ways: Vec<String> = if vertical { vec![dir.to_string()] } else { ["u", "", "d"].iter().map(|v| format!("{v}{dir}")).collect() };
+            // (The wall hang when AC1's foot probe meets a wall (0xB16130: a 0.5 m wide box 1 m under the hold, swept from 0.5 m
+            // out to 0.75 m behind it, either of two), as the switch's foot rays judge it; ours wanted the clip's feet flush
+            // within 0.32 m, and a wall 0.39 m back left a free hang against it, the sweep's e13 `free-on-wall`.)
             for w in &ways {
-                out.push(Cand::new(format!("xx_l_climb_1m_{w}_hangwall"), HANGWALL_OPEN, Feet::Wall));
+                out.push(Cand::new(format!("xx_l_climb_1m_{w}_hangwall"), HANGWALL_OPEN, Feet::ToWall));
                 out.push(Cand::new(format!("xx_l_climb_1m_{w}_hangfree"), FREE, Feet::Free));
             }
         }

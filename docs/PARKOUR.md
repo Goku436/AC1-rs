@@ -1261,6 +1261,12 @@ no-grab 8 (two walls never reached from their starts, all four programs each), e
 - **`e5`**: round an inside corner in the wall hang, then into a free hang; back toward the corner the next face has a wall
   under the feet, and ours has no corner from the free hang into the wall hang (`xx_h_hangfree_corner_*` wants free feet
   on both faces) while the switch's slide runs into the corner's other wall. What AC1 does there wants a live look.
+- **`e13`, a free hang against a wall** [V]: the climbing stance's ledge grab (TryLedgeGrab 0xDF0980) takes the wall hang
+  when its foot probe (0xB16130 -> 0x11718B0) meets a wall: a box 0.5 m wide and 0.3 m high, 1 m under the hold, swept
+  from 0.5 m out to 0.75 m behind it, at the side and the middle; else (or with no room for the wall hang's box and
+  path) the free hang. Ours wanted the clip's feet flush within 0.32 m; a wall 0.39 m back gave a free hang against it.
+  The grab into the wall hang now takes the switch's foot rays (0xDE0A60, to 0.7 m behind). The window cap's scenario
+  (user report 2026-10-13) goes into the wall hang there now, not the free hang and the switch onto the wall.
 
 ### The routes again, and four new ones from the running game (2026-10-14)
 The 21 routes replayed on dev 98deb3d (before) and with this round's fixes (after); four new routes recorded in the
