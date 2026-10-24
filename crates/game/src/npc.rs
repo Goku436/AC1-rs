@@ -68,6 +68,21 @@ pub fn recipe(game_dir: &Path, forge_file: &str, datafile: &str, name: &str, see
     let files: HashSet<&str> = index.objects.values().map(|p| p.datafile.as_str()).collect();
     let file_of = |p: &forge::index::Place| if files.contains(p.name.as_str()) { p.name.clone() } else { p.datafile.clone() };
     let here = |n: &str| (forge_file.to_string(), datafile.to_string(), n.to_string());
+    // (A common LOD selector's full-detail mesh: its first slot's, found through the index; the selector read from its
+    // data file there. Not always named after the selector: the universal hands' `Universal_Hand_Male` draws
+    // `Universal_Arm_M_Average_Hand`, and the builders taking them had no hands.)
+    let common_forge = forge::Forge::open(game_dir.join(COMMON))?;
+    let mut read: std::collections::HashMap<String, Option<Vec<u8>>> = std::collections::HashMap::new();
+    let mut selector_mesh = |id: u32, p: &forge::index::Place| -> Option<forge::index::Place> {
+        let data = read
+            .entry(p.datafile.clone())
+            .or_insert_with(|| common_forge.entries.iter().find(|e| e.name == p.datafile).and_then(|e| common_forge.read(e).ok()))
+            .as_ref()?;
+        let objects = forge::parse_objects(data).ok()?;
+        let sel = forge::lod::parse_lod_selector(objects.iter().find(|o| o.id == id)?.body).ok()?;
+        let mesh = sel.slots.iter().find(|s| s.mesh != 0)?.mesh;
+        index.objects.get(&mesh).filter(|m| m.class == CLASS_MESH).cloned()
+    };
     let mut seen = HashSet::new();
     let mut add = |id: u32, r: &mut Recipe| {
         if !seen.insert(id) {
@@ -92,9 +107,13 @@ pub fn recipe(game_dir: &Path, forge_file: &str, datafile: &str, name: &str, see
         } else if let Some(p) = index.objects.get(&id) {
             // (A common LOD selector's full-detail mesh has its name, in its data file.)
             match p.class {
-                CLASS_LOD_SELECTOR | CLASS_MESH if !p.name.contains("_LOD") && !r.meshes.iter().any(|x| x.2 == p.name) => {
-                    r.meshes.push(common(&file_of(p), &p.name))
+                CLASS_LOD_SELECTOR if !p.name.contains("_LOD") => {
+                    let m = selector_mesh(id, p).unwrap_or_else(|| p.clone());
+                    if !r.meshes.iter().any(|x| x.2 == m.name) {
+                        r.meshes.push(common(&file_of(&m), &m.name));
+                    }
                 }
+                CLASS_MESH if !p.name.contains("_LOD") && !r.meshes.iter().any(|x| x.2 == p.name) => r.meshes.push(common(&file_of(p), &p.name)),
                 CLASS_SKELETON => r.skeletons.push(common(&p.datafile, &p.name)),
                 _ => {}
             }
