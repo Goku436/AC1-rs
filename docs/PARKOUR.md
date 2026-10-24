@@ -365,9 +365,12 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   the root, ran AC1's takeoff 0.35 s and surface flight 0.28 s as this gives (h 0.59); ours measured from the hang's
   root (0.16 m up), leant on the long flat clips (0.38 / 0.33 s) and arrived 0.8 m behind (`ac1_jump_measure`).
 - **Over-drop**: a target more than 5 m below (3 m for the leap of faith) is aimed at 5 m down, then a free fall
-  (g = 9.8, steering ≤ 15 m/s). Plain falls drift (decays 4 m/s², ≤ 5 m/s). **[B]** The thresholds (0xB1B8C0: −5 m, a
+  (g = 9.8, its steering's change ≤ 15 m/s²). Plain falls drift (decays 4 m/s², ≤ 5 m/s). **[B]** The thresholds (0xB1B8C0: −5 m, a
   haystack's −3 m, its pull-back min(d, 1.5)·k with k at most 2) and the drift's 4 / 5 (0x19BA434 / 438) **[V]**
-  2026-10-24; the 15 m/s not found yet.
+  2026-10-24; and the 15 **[V]** 2026-10-24: not a speed but the steering's change per step, the tail's flat
+  velocity turned toward the real target by at most 15 x the 1/30 s step (DAT_0192DDA8, 0.5 m/s) a step, its fall 0.326 m/s a step
+  (9.8 x 1/30; in 0xE0DEF0's over-drop tail, near 0xE0FB10). Ours flies the faith dive along its solved path, so nothing
+  of ours steers that tail.
 - **Arrival** (0xE07D00): free step → the reception `<flight>_tr_freestep_entry_foot?[_fast]` (0x010DE1FE /
   0x010DF150), into the run, walk, wait or the beam; wall hang → `xx_h_air_surface_tr_hangwall_reception_*` (action 0x011FF16A: **[V]** 0xE02790 weights its six clips by the wall's lean under the edge, measured about the body's side: leaning out → `straight` to `30_out` (full at 30°), sloping in → `straight` to `45_in` (full at 45°); the `max` set for a jump over 6 m or a second measure over 2.5, else `min`; the clips carry no yaw); free
   hang → the swing reception; post / beam → their mounts (0xE50190, 0xE52AD0). **[B, ours]**
