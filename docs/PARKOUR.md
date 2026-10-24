@@ -213,12 +213,12 @@ mixed front / left / right by the edge's side), the pull-down
   (or the other foot's) by (h − 0.2) / 1.1 over 0.2-1.3 m.
 - **Character proxy**: capsule radius 0.4 (0.35 + 0.05 keep distance), height 1.8, floating 0.37 m over the feet
   (step), stick-to-ground cast 0.58 m (0x57D240). **[B, ours]**
-  Checked 2026-10-24: `CharacterController`'s constructor (0x57B4F0, vtable 0x168C484) gives the defaults: keep distance
-  0.05 (+0xCC, as above), gravity −9.8 (+0x38), +0x50 70 (a slope limit in degrees, likely), +0x58 0.02, +0x5C 0.2, +0x60
-  1.0, +0x64 0.51, +0xD0 0.1, +0xD8 10. The stick-to-ground cast (0x57D240) runs +0x60 down, +0x64 more with the byte at
-  +0x80 set, both times the entity's scale (+0x7C), and keeps the hit within +0xCC: 1.0 / 1.51 m by these defaults, not
-  0.58. No serialized `CharacterController` (efe71078) is among the install's top-level objects; where the player's
-  values are set (code or an inline component) is open, so the radius, height and 0.37 float stay Banned445's.
+  **[V]** 2026-10-24: `CharacterController`'s constructor (0x57B4F0, vtable 0x168C484) gives defaults (keep distance 0.05
+  at +0xCC, gravity −9.8 at +0x38, +0x50 70, +0x60 1.0, +0x64 0.51); its fields are not serialized (2 of its 23
+  properties are, neither of these). Entering the ground (0xDAE6E0) sets them: +0x60 = 0.58 (0x5782C0) and +0x64 = 0.37
+  (0x578290), with the bytes +0x7F and +0x80 on. The stick-to-ground cast (0x57D240) runs +0x60 down, plus +0x64 with
+  +0x80 set, times the entity's scale (+0x7C), and keeps the hit within +0xCC: Banned445's 0.58 m cast and 0.37 m float.
+  The radius and height are still his.
 
 ### The edge events (69, 70, 119) **[V]**
 - Posted by three methods of `HumanGround` (its vtable 0x016FFEFC, slots 186 / 191 / 385: 0xDB6340, 0xDB63D0,
