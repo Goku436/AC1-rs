@@ -733,6 +733,22 @@ impl Level {
         (hay, ladders, benches, bars)
     }
 
+    /// The collision triangles whose bounds meet the box `lo`..`hi`, as `crate::beam_pairs` takes them.
+    pub fn tris_in(&self, lo: Vec3, hi: Vec3) -> Vec<[Vec3; 3]> {
+        let mut ids: Vec<u32> = (cell(lo.x)..=cell(hi.x))
+            .flat_map(|x| (cell(lo.z)..=cell(hi.z)).map(move |z| (x, z)))
+            .flat_map(|k| self.grid.get(&k).into_iter().flatten().copied())
+            .collect();
+        ids.extend(self.big.iter().copied());
+        ids.sort_unstable();
+        ids.dedup();
+        ids.iter()
+            .map(|&i| &self.tris[i as usize])
+            .filter(|t| t.a.min(t.b).min(t.c).cmple(hi).all() && t.a.max(t.b).max(t.c).cmpge(lo).all())
+            .map(crate::beam_pairs::tri)
+            .collect()
+    }
+
     /// AC1's beams and posts: the pairs of its authored hold edges facing each other across a narrow top, cut where
     /// geometry stands over them (`crate::beam_pairs`). Returns how many.
     pub fn pair_beams(&mut self) -> usize {
@@ -742,21 +758,7 @@ impl Level {
             .filter(|e| e.kind == forge::guidance::SubType::LedgeGrab && e.out != Vec3::ZERO)
             .map(|e| crate::beam_pairs::Edge { p0: e.a, p1: e.b, out: e.out })
             .collect();
-        let near = |lo: Vec3, hi: Vec3| -> Vec<[Vec3; 3]> {
-            let mut ids: Vec<u32> = (cell(lo.x)..=cell(hi.x))
-                .flat_map(|x| (cell(lo.z)..=cell(hi.z)).map(move |z| (x, z)))
-                .flat_map(|k| self.grid.get(&k).into_iter().flatten().copied())
-                .collect();
-            ids.extend(self.big.iter().copied());
-            ids.sort_unstable();
-            ids.dedup();
-            ids.iter()
-                .map(|&i| &self.tris[i as usize])
-                .filter(|t| t.a.min(t.b).min(t.c).cmple(hi).all() && t.a.max(t.b).max(t.c).cmpge(lo).all())
-                .map(crate::beam_pairs::tri)
-                .collect()
-        };
-        let beams = crate::beam_pairs::detect(&edges, near);
+        let beams = crate::beam_pairs::detect(&edges, |lo, hi| self.tris_in(lo, hi));
         let lines = crate::beam_pairs::lines(&beams);
         let n = lines.len();
         self.perches.extend(lines);
@@ -2297,6 +2299,37 @@ pub fn spawn_level(
         }
         let shut = level.hay_with_no_way_out();
         info!("{} haystacks and hiding places with no way out{}", shut.len(), if shut.is_empty() { String::new() } else { format!(": {shut:.1?}") });
+        // `AC1_JUMP_QUERY_AT="x,y,z,deg[,ground|narrow|edge]"`: AC1's jump query from the feet at a point toward a heading
+        // (game degrees, 0 = +x, 90 = -z), its candidates and the scorer's pick, logged (why a jump in a recording went where it did).
+        if let Ok(v) = std::env::var("AC1_JUMP_QUERY_AT") {
+            let f: Vec<&str> = v.split(',').map(str::trim).collect();
+            let n: Vec<f32> = f.iter().take(4).filter_map(|x| x.parse().ok()).collect();
+            if n.len() == 4 {
+                let (p, a) = (Vec3::new(n[0], n[1], n[2]), n[3].to_radians());
+                let dir = Vec3::new(a.cos(), 0.0, -a.sin());
+                let from = match f.get(4).copied() {
+                    Some("narrow") => crate::jump_query::From::Narrow,
+                    Some("edge") => crate::jump_query::From::Edge,
+                    _ => crate::jump_query::From::Ground,
+                };
+                let cands = crate::jump_query::query(&level, p, dir, from, None);
+                for c in &cands {
+                    info!(
+                        "jump query: {:?} at {:.2} ({:.2} m on, {:+.2} m up), wall {:.2}, ty {} sub {} flags {:#x}, perch {:?}",
+                        c.kind,
+                        c.pos,
+                        (c.pos - p).with_y(0.0).length(),
+                        c.pos.y - p.y,
+                        c.wall,
+                        c.ty,
+                        c.sub,
+                        c.flags,
+                        c.perch
+                    );
+                }
+                info!("jump query: {} candidates, the pick {:?}", cands.len(), crate::jump_query::select(&cands, p, dir, dir, false));
+            }
+        }
         // `AC1_HOLDS_AT="x,y,z,r"`: every hold within r of a point, logged (what a spot in a recording could grab).
         if let Some(v) =
             std::env::var("AC1_HOLDS_AT").ok().map(|s| s.split(',').filter_map(|v| v.trim().parse::<f32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 4)
@@ -2312,6 +2345,13 @@ pub fn spawn_level(
                 let d = l.closest(p).distance(p);
                 if d < v[3] {
                     info!("perch {i}: {:.2} to {:.2}, {d:.2} m away", l.a, l.b);
+                }
+            }
+            // (And the authored guidance pieces as the data has them, before ours' filters.)
+            for (i, g) in level.authored.iter().enumerate() {
+                let d = Line { a: g.a, b: g.b }.closest(p).distance(p);
+                if d < v[3] {
+                    info!("authored {i} ({:?}): {:.2} to {:.2}, out {:.2}, {d:.2} m away", g.kind, g.a, g.b, g.out);
                 }
             }
             for (i, k) in level.kiosks.iter().enumerate() {

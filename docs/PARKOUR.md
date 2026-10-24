@@ -1207,7 +1207,14 @@ no climbing holds was found, and ours' corner hangs would need the lateral path 
 ground turn's break into the ledge stop) and `hay70_free` (from the haystack rim the query takes the box's own far rim,
 0.9 m, where AC1 jumps 4.4 m; AC1's query does not leave out the object stood on, **[V]** 2026-10-24: the only entity
 its ray tests skip is the character's own, 0xB13260 handing 0xE18970 his entity as their one-element ignore list, so the
-difference there is in the edges taken or the scorer). Pops: the post pull-down's
+difference there is in the edges taken or the scorer; 2026-10-24: the running game took off from the rim as it stood up
+on it, the stick 4-22 degrees off the rim, and landed 5.8 m on at (59.67, 12.00, -34.81), in its beam mode, on the middle
+of a wall top 0.58 m wide (authored ledge grabs 47126 and 47123) running 40 degrees off the rim, 0.9 m short of a wall
+crossing it. Ours stood up and walked the rim. Not explained offline: AC1's per-query beam pairing (0xE19BE0 on the
+box-clipped ledge grabs, Banned445's port, tried) pairs the far face 47123 first, the longest, with a seam 0.04 m behind
+it (46809), which its workspace cuts, so no beam lies there; the jump query's depth filter drops 47126 in ours; no edge
+or far-edge candidate gives that point. Needs a live run with the query's candidates logged. `AC1_JUMP_QUERY_AT` logs
+ours' query and pick from a point, `AC1_HOLDS_AT` now the authored pieces there too). Pops: the post pull-down's
 0.2 m (the root turning 180 degrees over the 0.47 s `front_orientation` clip, a turn the pop check, relative to the root's
 position only, reads as a jump), the swing back's hand (the clip's own 8 m/s swing), the landings' 0.15-0.18 m.
 

@@ -70,7 +70,7 @@
 //! AC1_ANIM=<clip name> loops one clip, AC1_NO_ANIM=1 uses procedural locomotion only. AC1_CONTROL=<file> stays open and runs
 //! the scripts written to that file (`run <id> <secs> AC1_START=.. AC1_WALK=.. ...`, `quit`; see `control_runs`): the level
 //! loads once, each run takes seconds. AC1_GROUND_LINE, AC1_HOLDS_AT and AC1_MESHES_AT log the ground along a line, the
-//! holds and the city meshes near a point (AC1_PROP_STATS=1: every mesh a city places, by kind and what became of it); AC1_GRAB_AUDIT=file.tsv writes the authored guidance against ours' holds
+//! holds and the city meshes near a point (AC1_JUMP_QUERY_AT: AC1's jump query from a point toward a heading; AC1_PROP_STATS=1: every mesh a city places, by kind and what became of it); AC1_GRAB_AUDIT=file.tsv writes the authored guidance against ours' holds
 //! (`grab_audit`). Online: AC1_HOST=port / AC1_JOIN=ip:port (start a session, as the F10 menu
 //! does), AC1_RECORD_REPLAY=1 (record a replay from the start), AC1_REPLAY=<file> (play one back; AC1_REPLAY_VIEW,
 //! AC1_REPLAY_FRAMES=dir with AC1_REPLAY_FROM / _TO renders it, AC1_REPLAY_SCAN=1 logs the frames with a body in a wall, see `replay`). Settings: AC1_SETTINGS=<file> (read and
