@@ -1581,6 +1581,9 @@ pub struct WallClimb {
     /// An eject at a wall hang (`wall_hang_eject`): the hold it catches, each hand's goal on it over the hang flight and the
     /// reception (AC1's hand goals on the target's hold through the catch); dropped as the knob is.
     catch_hold: Option<Ledge>,
+    /// How far walls pushed that eject's body off its path in the air (`update`): made up over its reception, out from
+    /// the wall (`catch_reaim`).
+    catch_push: Vec3,
     /// Ground velocity to hand back to locomotion when finished (running landings).
     pub exit_velocity: Vec3,
     /// Wanted world direction of travel (set by the caller; length 0..1), and sprinting.
@@ -1750,6 +1753,96 @@ impl EndPose {
         let r = world_rot(rot);
         WorldEnd { pos, rot, hands: self.hands.map(|h| pos + r * h), feet: self.feet.map(|f| pos + r * f) }
     }
+}
+
+/// How far AC1's lateral probe reaches from a hang (`HumanLedge__ProbeLateral` 0xDD9640, Banned445's port): the room
+/// along the wall, swept from the leading hand pulled `LATERAL_BACK` back, `LATERAL_OUT` out from the wall and from
+/// `LATERAL_UP` over it down to the hang's depth under it, at most `LATERAL_SWEEP` (less the sweep's radius), less
+/// `LATERAL_MARGIN`; at most `LATERAL_MAX` less the hands' spacing.
+const LATERAL_BACK: f32 = 0.15;
+const LATERAL_OUT: f32 = 0.75;
+const LATERAL_UP: f32 = 0.2;
+const LATERAL_DOWN: f32 = 1.1;
+const LATERAL_SWEEP: f32 = 1.55;
+const LATERAL_RADIUS: f32 = 0.15;
+const LATERAL_MIN_FREE: f32 = 0.7;
+const LATERAL_MARGIN: f32 = 0.4;
+const LATERAL_MAX: f32 = 1.0;
+/// The probe's box starts this far past the leading hand, and its pieces are shortened this much at their ends.
+const LATERAL_START: f32 = 0.1;
+
+/// A hang's move sideways onto climbing holds aimed as AC1 aims it (`TrySideMoveToClimbHolds` 0xDD48B0 on
+/// `ProbeLateral`'s rows): the hands onto the hand row's hold nearest the far end of the reach, a box from
+/// `LATERAL_START` past the leading hand to the reach's width (`LATERAL_*`), not just where the clip puts them. Off the
+/// wall run's hang in the bureau courtyard (2026-10-23) the running game went 1.0 m right with
+/// `xx_h_hangwall_r_climb_1m`, whose own way is 0.75 m. `targets`: the holds the clip's hands found, moved along the
+/// wall so their middle is on that point. None without room for the reach (AC1 finds no rows then).
+#[allow(clippy::too_many_arguments)]
+fn side_reach(
+    level: &Level,
+    clip: &Clip,
+    rig: &Rig,
+    base: &Pose,
+    cr: ClimbRig,
+    root: &Transform,
+    end: &WorldEnd,
+    normal: Vec3,
+    targets: [Vec3; 2],
+) -> Option<[Vec3; 2]> {
+    let mut start = base.clone();
+    sample(clip, 0.0, &mut start, cr.reference);
+    let m = start.model(rig);
+    let r = world_rot(root.rotation);
+    let from = cr.hands.map(|b| root.translation + r * m[b].pos);
+    let n = normal.with_y(0.0).normalize_or_zero();
+    let along = Vec3::Y.cross(n).normalize_or_zero();
+    let way = ((end.hands[0] + end.hands[1]) - (from[0] + from[1])).dot(along);
+    let dv = along * way.signum();
+    let (mover, other) = if from[0].dot(dv) >= from[1].dot(dv) { (from[0], from[1]) } else { (from[1], from[0]) };
+    let spacing = (mover - other).with_y(0.0).length();
+    let swept = [LATERAL_UP, 0.0, -0.5, -LATERAL_DOWN]
+        .iter()
+        .map(|h| {
+            let o = mover - dv * LATERAL_BACK + n * LATERAL_OUT + Vec3::Y * *h;
+            level.raycast(o, dv, LATERAL_SWEEP).map_or(LATERAL_SWEEP, |hit| hit.dist)
+        })
+        .fold(LATERAL_SWEEP, f32::min)
+        - LATERAL_RADIUS;
+    if swept < LATERAL_MIN_FREE {
+        return None;
+    }
+    let width = (swept - LATERAL_MARGIN).min(LATERAL_MAX - spacing);
+    if width <= 0.0 {
+        return None;
+    }
+    let (lo, hi) = (mover.dot(dv) + LATERAL_START, mover.dot(dv) + LATERAL_START + width);
+    // (On the hand row of the move's band, AC1's rows 0.6 m apart: up, level or down, the row the clip's holds are on.)
+    let row = (targets[0].y + targets[1].y) * 0.5;
+    let reference = (mover + dv * (LATERAL_START + width) - n * 0.2).with_y(row);
+    let point = level
+        .holds_near(reference, width + 0.5)
+        .into_iter()
+        .filter(|l| l.out.dot(n) > std::f32::consts::FRAC_1_SQRT_2)
+        .filter_map(|l| {
+            // (The hold cut to the box, 0.3 m up or down of the row, shortened at both ends.)
+            let (ta, tb) = (l.a.dot(dv), l.b.dot(dv));
+            if (tb - ta).abs() < 1e-5 || ((l.a.y + l.b.y) * 0.5 - row).abs() > 0.3 {
+                return None;
+            }
+            let (t0, t1) = (((lo - ta) / (tb - ta)).clamp(0.0, 1.0), ((hi - ta) / (tb - ta)).clamp(0.0, 1.0));
+            let (a, b) = (l.a.lerp(l.b, t0.min(t1)), l.a.lerp(l.b, t0.max(t1)));
+            let len = a.distance(b);
+            (len > 1e-4).then(|| {
+                let d = (b - a) / len;
+                if len > 2.0 * LATERAL_START + 0.0005 { Line { a: a + d * LATERAL_START, b: b - d * LATERAL_START }.closest(reference) } else { (a + b) * 0.5 }
+            })
+        })
+        .min_by(|a, b| a.distance_squared(reference).total_cmp(&b.distance_squared(reference)))?;
+    let shift = along * (point - (targets[0] + targets[1]) * 0.5).dot(along);
+    if shift.length() > 0.01 {
+        debug!("climb: onto the climbing holds AC1's lateral probe reaches: {point:.3} ({width:.2} m wide, {:.2} m on)", shift.length());
+    }
+    Some(targets.map(|t| t + shift))
 }
 
 /// From a hang sideways onto climbing holds (`TrySideMoveToClimbHolds` 0xDD48B0, `xx_h_hang<wall|free>_<d|u>?<l|r>_climb_1m`):
@@ -2574,6 +2667,293 @@ fn blend_hang(lib: &mut AnimLib, level: &Level, root: &Transform, rig: &Rig, bas
     out
 }
 
+/// One of a wall run's ledge probes (`HumanWalling__FindLedge` 0xE36BD0's arguments as `UpdateWallingSubState` 0xE37590
+/// passes them, h = 1 m): its box from `WALL_PROBE_BACK` out from the walling root and `up` over it, `width` either
+/// side, `height` up and `depth` in toward the wall, and its depth detectors' reach down (`guide_depth::walling`).
+#[derive(Clone, Copy)]
+struct WallProbe {
+    up: f32,
+    width: f32,
+    height: f32,
+    depth: f32,
+    radius: f32,
+}
+
+/// Probe B (the entry's free catch, its box from 1.5 m over the root), C (the step's free catch, from 1 m over it) and D
+/// (the step's wall hang), each 0.6 m back out from the root.
+const WALL_PROBE_B: WallProbe = WallProbe { up: 1.5, width: 0.3, height: 1.05, depth: 0.35, radius: 1.2 };
+const WALL_PROBE_C: WallProbe = WallProbe { up: 1.0, width: 0.3, height: 1.8, depth: 0.8, radius: 1.2 };
+const WALL_PROBE_D: WallProbe = WallProbe { up: 0.0, width: 0.8, height: 2.8, depth: 1.5, radius: 1.2 };
+const WALL_PROBE_BACK: f32 = 0.6;
+/// The grab point's hand offsets and margin as FindLedge asks for them (0xE37190-0xE37280): the hands need 0.5 and 0.1
+/// m of the chain past the point, less the room past its ends, and the point keeps 0.3 m in from an end with none.
+const GRAB_OFFSETS: [f32; 2] = [0.5, 0.1];
+const GRAB_MARGIN: f32 = 0.3;
+/// Pieces whose ends are within this are one chain (`GuidanceChain__Build`, 0x019D6800).
+const CHAIN_LINK: f32 = 0.01;
+
+/// A piece of an authored edge a wall run's probe kept: its ends, its wall's normal and the room past its ends for each
+/// of the grab point's hand offsets (`guide_depth::FreeRun::room`, per detector: [at `a`, at `b`]).
+struct ProbePiece {
+    a: Vec3,
+    b: Vec3,
+    out: Vec3,
+    room: [[f32; 2]; 2],
+    /// A kind the hands' search takes too (mask 306: not a quadruped's edge).
+    hand: bool,
+}
+
+/// AC1's ledge search for a wall run's catch (`HumanWalling__FindLedge` 0xE36BD0, read in Ghidra as Banned445's
+/// AC1-Movement-Rewritten has it; MIT, written here anew): the authored ledge grabs, quadruped and kiosk edges in the
+/// probe's box (cut to it), the steep ones out, then its depth filter (`guide_depth::walling`); the pieces chained where
+/// they meet, facing the wall run within 45 degrees and running across it; on each chain the grab point straight
+/// along the run from the probe's root, kept clear of the chain's ends by the hands' offsets (`chain_grab`); kept
+/// when a ray from 0.5 m back out of the root reaches it. The pieces, and the grab points with their walls' normals.
+fn wall_probe_grabs(level: &Level, root: Vec3, fwd: Vec3, probe: WallProbe) -> (Vec<ProbePiece>, Vec<(Vec3, Vec3)>) {
+    use forge::guidance::SubType;
+    let f = fwd.with_y(0.0).normalize_or_zero();
+    if f == Vec3::ZERO || level.authored.is_empty() {
+        return (vec![], vec![]);
+    }
+    let right = f.cross(Vec3::Y);
+    let origin = root - f * WALL_PROBE_BACK + Vec3::Y * probe.up;
+    let lo = Vec3::new(-probe.width, 0.0, 0.0);
+    let hi = Vec3::new(probe.width, probe.depth, probe.height);
+    let local = |p: Vec3| {
+        let d = p - origin;
+        Vec3::new(d.dot(right), d.dot(f), d.y)
+    };
+    let reach = hi.length() + probe.width;
+    let detectors = crate::guide_depth::walling(probe.radius);
+    let mut pieces: Vec<ProbePiece> = vec![];
+    for e in &level.authored {
+        if !matches!(e.kind, SubType::LedgeGrab | SubType::Quadruped | SubType::Kiosk) || crate::level::authored_steep(e) {
+            continue;
+        }
+        if e.a.distance(origin) > reach + e.a.distance(e.b) {
+            continue;
+        }
+        // (Cut to the box, Liang-Barsky in its frame.)
+        let (la, lb) = (local(e.a), local(e.b));
+        let d = lb - la;
+        let (mut t0, mut t1) = (0.0f32, 1.0f32);
+        let mut inside = true;
+        for k in 0..3 {
+            for (p, q) in [(-d[k], la[k] - lo[k]), (d[k], hi[k] - la[k])] {
+                if p.abs() < 1e-9 {
+                    inside &= q >= 0.0;
+                } else if p < 0.0 {
+                    t0 = t0.max(q / p);
+                } else {
+                    t1 = t1.min(q / p);
+                }
+            }
+        }
+        if !inside || t1 - t0 < 1e-4 {
+            continue;
+        }
+        let (a, b) = (e.a.lerp(e.b, t0), e.a.lerp(e.b, t1));
+        let len = a.distance(b);
+        for run in crate::guide_depth::free_runs(level, a, b, e.out, &detectors) {
+            let r = |i: usize| run.room.get(i).copied().unwrap_or([0.0; 2]);
+            let hand = e.kind != SubType::Quadruped;
+            pieces.push(ProbePiece { a: a.lerp(b, run.from / len), b: a.lerp(b, run.to / len), out: e.out, room: [r(0), r(1)], hand });
+        }
+    }
+    // (Chained: walls turned within 45 degrees of the run's way back, edges within 45 degrees of across it.)
+    let cos45 = std::f32::consts::FRAC_1_SQRT_2;
+    let usable: Vec<usize> = (0..pieces.len())
+        .filter(|&i| {
+            let p = &pieces[i];
+            p.out.with_y(0.0).normalize_or_zero().dot(-f) >= cos45 && (p.b - p.a).with_y(0.0).normalize_or_zero().dot(right).abs() >= cos45
+        })
+        .collect();
+    let mut used = vec![false; pieces.len()];
+    let mut out = vec![];
+    for &seed in &usable {
+        if used[seed] {
+            continue;
+        }
+        used[seed] = true;
+        let mut links = std::collections::VecDeque::from([(seed, pieces[seed].a, pieces[seed].b)]);
+        loop {
+            let head = links.front().map_or(Vec3::ZERO, |l| l.1);
+            let Some(&j) = usable.iter().find(|&&j| !used[j] && (pieces[j].a.distance(head) < CHAIN_LINK || pieces[j].b.distance(head) < CHAIN_LINK)) else {
+                break;
+            };
+            used[j] = true;
+            let p = &pieces[j];
+            links.push_front(if p.b.distance(head) < CHAIN_LINK { (j, p.a, p.b) } else { (j, p.b, p.a) });
+        }
+        loop {
+            let tail = links.back().map_or(Vec3::ZERO, |l| l.2);
+            let Some(&j) = usable.iter().find(|&&j| !used[j] && (pieces[j].a.distance(tail) < CHAIN_LINK || pieces[j].b.distance(tail) < CHAIN_LINK)) else {
+                break;
+            };
+            used[j] = true;
+            let p = &pieces[j];
+            links.push_back(if p.a.distance(tail) < CHAIN_LINK { (j, p.a, p.b) } else { (j, p.b, p.a) });
+        }
+        let links: Vec<_> = links.into_iter().collect();
+        let Some((g, k)) = chain_grab(&pieces, &links, root, f) else { continue };
+        let n = pieces[k].out.with_y(0.0).normalize_or_zero();
+        let (from, to) = (root - f * 0.5, g + n * 0.05);
+        // (Short of the hold by 0.15 m, as the catch's own line test: ours' hold lines sit out in thin strips.)
+        let v = to - from;
+        if v.length() > 0.15 && level.raycast(from, v.normalize(), v.length() - 0.15).is_some() {
+            continue;
+        }
+        out.push((g, n));
+    }
+    (pieces, out)
+}
+
+/// Probe D's hands on its grab point `g` (`Guidance__ProbeBoxHandPair` 0xE38C4A, Banned445's port): the probe's pieces
+/// facing back along the run within 70 degrees, cut to a box at `g` (1 m either side, 0.3 m in and out and up and
+/// down), each shortened 0.4 m at both ends (its middle when no longer than 0.8 m); each hand on the point of them
+/// nearest its reference, 0.3 m to its side of `g` and 0.15 m back out. The middle of the two (a piece cut short by
+/// something in front has both hands on its middle: the running game's two goals on one point).
+fn wall_hang_hands(pieces: &[ProbePiece], g: Vec3, fwd: Vec3) -> Option<Vec3> {
+    const HALF: Vec3 = Vec3::new(1.0, 0.3, 0.3);
+    const STEP: f32 = 0.4;
+    let f = fwd.with_y(0.0).normalize_or_zero();
+    let right = f.cross(Vec3::Y);
+    let local = |p: Vec3| {
+        let d = p - g;
+        Vec3::new(d.dot(right), d.dot(f), d.y)
+    };
+    let world = |l: Vec3| g + right * l.x + f * l.y + Vec3::Y * l.z;
+    let near = |reference: Vec3| {
+        pieces
+            .iter()
+            .filter(|p| p.hand && p.out.with_y(0.0).normalize_or_zero().dot(-f) > 70f32.to_radians().cos())
+            .filter_map(|p| {
+                let (la, lb) = (local(p.a), local(p.b));
+                let d = lb - la;
+                let (mut t0, mut t1) = (0.0f32, 1.0f32);
+                for k in 0..3 {
+                    for (pp, q) in [(-d[k], la[k] + HALF[k]), (d[k], HALF[k] - la[k])] {
+                        if pp.abs() < 1e-9 {
+                            if q < 0.0 {
+                                return None;
+                            }
+                        } else if pp < 0.0 {
+                            t0 = t0.max(q / pp);
+                        } else {
+                            t1 = t1.min(q / pp);
+                        }
+                    }
+                }
+                (t0 <= t1).then(|| {
+                    let (a, b) = (world(la + d * t0), world(la + d * t1));
+                    let len = a.distance(b);
+                    if STEP * 2.0 + 0.0005 < len {
+                        let dir = (b - a) / len;
+                        Line { a: a + dir * STEP, b: b - dir * STEP }.closest(reference)
+                    } else {
+                        (a + b) * 0.5
+                    }
+                })
+            })
+            .min_by(|a, b| a.distance_squared(reference).total_cmp(&b.distance_squared(reference)))
+    };
+    let (l, r) = (near(g - right * 0.3 - f * 0.15)?, near(g + right * 0.3 - f * 0.15)?);
+    Some((l + r) * 0.5)
+}
+
+/// A wall run's hang catch at AC1's grab point (`wall_probe_grabs`, from the probe that catches it: B off the entry
+/// into the free hang, C off the vertical step into it, D off the step into the wall hang, each from the root out from
+/// the face `face` where AC1 warps it): the hands' holds `targets` moved along the wall so their middle is on the grab
+/// point of that edge. In the running game (the bureau courtyard, 2026-10-23) the catch slid 0.4 m along the edge away
+/// from a wall jutting out beside the run, the hands' goals on that point. Unchanged with no grab point there (the test
+/// level, which has no authored guidance).
+fn wall_run_grab(level: &Level, root: &Transform, face: Vec3, normal: Vec3, opt: &GrabOpt, targets: [Vec3; 2]) -> [Vec3; 2] {
+    let entry = opt.names.last().is_some_and(|n| n.contains("_entry_"));
+    let (probe, up) = match opt.end {
+        GrabEnd::Hang(FREE, _) if entry => (WALL_PROBE_B, WALL_RUN_UP),
+        GrabEnd::Hang(FREE, _) => (WALL_PROBE_C, WALL_RUN_STEP_TOP),
+        _ => (WALL_PROBE_D, WALL_RUN_STEP_TOP),
+    };
+    let probe_root = (face + normal * WALL_RUN_OUT).with_y(root.translation.y + up);
+    let mid = (targets[0] + targets[1]) * 0.5;
+    let along = Vec3::Y.cross(normal).normalize_or_zero();
+    let (pieces, grabs) = wall_probe_grabs(level, probe_root, -normal, probe);
+    let best = grabs
+        .into_iter()
+        .filter(|(g, n)| n.dot(normal) > 0.8 && (g.y - mid.y).abs() < 0.15 && (*g - mid).dot(normal).abs() < 0.3)
+        .min_by(|a, b| a.0.distance(mid).total_cmp(&b.0.distance(mid)));
+    let Some((g, _)) = best else { return targets };
+    // (Probe D's wall hang puts the hands by their own search on its pieces; the free hangs' hands are about the point.)
+    let g = if matches!(opt.end, GrabEnd::Hang(FREE, _)) { g } else { wall_hang_hands(&pieces, g, -normal).unwrap_or(g) };
+    let shift = along * (g - mid).dot(along);
+    if shift.length() > 0.01 {
+        debug!("climb: wall run catch onto AC1's grab point {g:.3} ({:.2} m along from {mid:.2})", shift.length());
+    }
+    targets.map(|t| t + shift)
+}
+
+/// AC1's grab point on a chain of probe pieces (`GuidanceChain__FindGrabPoint` 0x66E150, Banned445's port): the chain's
+/// line from its start to its end at the target's height, measured across `pref`; each hand offset less the room past
+/// that end must leave the chain room (else no grab), the line trimmed by the largest of them and then by the margin
+/// less that trim; the target carried onto the chain's vertical plane along `pref` and clamped onto what is left (its
+/// middle when nothing is), then onto the link it falls on. The point and its piece.
+fn chain_grab(pieces: &[ProbePiece], chain: &[(usize, Vec3, Vec3)], target: Vec3, pref: Vec3) -> Option<(Vec3, usize)> {
+    let room = |k: usize, at: Vec3, i: usize| {
+        let p = &pieces[k];
+        p.room[i.min(1)][if at.distance_squared(p.a) <= at.distance_squared(p.b) { 0 } else { 1 }]
+    };
+    let (first, last) = (*chain.first()?, *chain.last()?);
+    let s = first.1.with_y(target.y);
+    let mut e = last.2.with_y(target.y);
+    let p = pref.with_y(0.0).normalize_or_zero();
+    e -= p * (e - s).dot(p);
+    let d = e - s;
+    if d.with_y(0.0).length() <= 0.0005 {
+        return None;
+    }
+    let len = d.length();
+    let u = d / len;
+    let (mut ts, mut te) = (-1000.0f32, -1000.0f32);
+    for (i, &o) in GRAB_OFFSETS.iter().enumerate() {
+        let (si, ei) = (o - room(first.0, first.1, i), o - room(last.0, last.2, i));
+        if si + ei + 0.0005 >= len {
+            return None;
+        }
+        ts = ts.max(si);
+        te = te.max(ei);
+    }
+    let (a0, b0) = (s + u * ts, e - u * te);
+    let span = a0.distance(b0);
+    let v = (b0 - a0).normalize_or_zero();
+    let lo = a0 + v * (GRAB_MARGIN - ts.max(0.0)).min(span);
+    let hi = b0 - v * (GRAB_MARGIN - te.max(0.0)).min(span);
+    let n = Vec3::new(-u.z, 0.0, u.x).normalize_or_zero();
+    let t = target.with_y(s.y);
+    let proj = if p.dot(n).abs() > 1e-6 { t + p * (-(t - s).dot(n) / p.dot(n)) } else { t };
+    let q = if (b0 - a0).dot(hi - lo) > 0.0 { Line { a: lo, b: hi }.closest(proj) } else { (lo + hi) * 0.5 };
+    let along = u.with_y(0.0).normalize_or_zero();
+    let mut nearest: Option<(f32, Vec3, usize)> = None;
+    for (k, &(i, mut a, mut b)) in chain.iter().enumerate() {
+        let ld = (b - a).normalize_or_zero();
+        if k == 0 {
+            a += ld * ts.max(0.0);
+        }
+        if k + 1 == chain.len() {
+            b -= ld * te.max(0.0);
+        }
+        let (da, db) = ((a - q).dot(along), (b - q).dot(along));
+        if da * db <= 0.0 && (da - db).abs() > 1e-9 {
+            return Some((a + (b - a) * (da / (da - db)), i));
+        }
+        for (dist, at) in [(da.abs(), a), (db.abs(), b)] {
+            if nearest.is_none_or(|x| dist < x.0) {
+                nearest = Some((dist, at, i));
+            }
+        }
+    }
+    nearest.map(|(_, at, i)| (at, i))
+}
+
 fn blend_onto(opts: &[GrabOpt], height: f32) -> Vec<GrabOpt> {
     let mut out = vec![];
     for a in opts {
@@ -2929,7 +3309,17 @@ fn jump_hold_in(level: &Level, from: Vec3, dir: Vec3, zoned: bool) -> Option<(Ve
                 return ((l.a + l.b) * 0.5, l.out);
             }
             let inner = Line { a: l.a + along * JUMP_HOLD_INSET, b: l.b - along * JUMP_HOLD_INSET };
-            (inner.closest(from + dir * 2.5), l.out)
+            // (A far one where the jump's forward line crosses it, as AC1's grab point (`grab_point` in `jump_query`): off
+            // the bureau courtyard's wall the running game's eject 4 degrees off straight out went to the facing wall's hold
+            // 4.8 m on, 0.37 m along from straight across, past a palm; ours took the point nearest 2.5 m on, 0.2 m short of
+            // that, and the way there met the palm. The near ones as before: taken there, the test level alley's wall run
+            // ejected onto the other wall's top 26 degrees round, where the free eject was.)
+            let n = along.with_y(0.0).cross(Vec3::Y).normalize_or_zero();
+            let q = match dir.dot(n) {
+                d if zoned && d.abs() > 0.1 => inner.closest(from + dir * ((l.a - from).dot(n) / d).max(0.0)),
+                _ => inner.closest(from + dir * 2.5),
+            };
+            (q, l.out)
         })
         .filter(|(q, _)| {
             let flat = (*q - from).with_y(0.0);
@@ -3501,6 +3891,16 @@ fn eject_way(away: Vec3, input: Vec2) -> Option<Vec3> {
     Some(d)
 }
 
+/// The wall-hang reception's last clip, `xx_hangwall_reception_front_<a>_<min|max>_c` (mixed or not): not one of its
+/// action's items (0x011FF16A: the surface flight's `tr_`, `_a`, `_b`; the hang flight's 0x8E5444EE `_a`, `_b`) but the
+/// connector on their way out to the wait (0x8CFB3CBC), which a move cuts: off the bureau courtyard's wall (live
+/// 2026-10-23) the running game's wait started 0.68 s into the eject's reception and the strafe left at once, the stick
+/// held; ours played the connector's 0.53 s through first. (With no move it plays: the hard reception's `_b` ends swung
+/// out from the wall and the connector brings the body back in.)
+fn reception_connector(name: &str) -> bool {
+    name.contains("hangwall_reception_front_") && (name.ends_with("_min_c") || name.ends_with("_max_c") || name.contains("_min_c=") || name.contains("_max_c="))
+}
+
 /// The body's capsule moved by `step` from `p` (in place) in short steps, each pushed out of the walls it touches
 /// (`Level::capsule_push`, AC1's proxy sliding along them); returns the push, zero when nothing was touched.
 /// A jump's takeoff or flight (`*_to_air`, `xx_h_air_*`, `xx_h_beam_air_*`; in a mix too): in the air, the body's capsule
@@ -3717,6 +4117,7 @@ impl WallClimb {
             turn_path: None,
             knob: None,
             catch_hold: None,
+            catch_push: Vec3::ZERO,
             exit_velocity: Vec3::ZERO,
             move_dir: Vec3::ZERO,
             sprint: false,
@@ -4869,6 +5270,10 @@ impl WallClimb {
                         }
                         continue;
                     };
+                    let targets = match (carry, hit) {
+                        (Some(_), Some(h)) => wall_run_grab(level, root, h.point, normal, opt, targets),
+                        _ => targets,
+                    };
                     // (Not the wall just under the hold: the feet's footing is checked where they go, below. AC1's probe D
                     // only asks for the edge; on a Damascus street wall it caught one over a window, the feet on the wall
                     // under the sill.)
@@ -5257,6 +5662,7 @@ impl WallClimb {
         let mut w = WallClimb::new(VAULT, Quat::from_rotation_y(-yaw) * flight_turn.inverse() * out);
         w.start_chain_turned(clips, tos, &planned, correct, Some(1), flight_turn);
         w.catch_hold = Some(ledge);
+        w.catch_push = Vec3::ZERO;
         w.snap_turn = true;
         w.ease_in(from, root);
         debug!(
@@ -9351,6 +9757,10 @@ impl WallClimb {
                 Some((mixed, clips, end)) => (mixed, clips, end),
                 None => (c, clips, end),
             };
+            // (A hang's move sideways onto climbing holds goes as far as AC1's lateral probe reaches, `side_reach`.)
+            let side =
+                c.names.first().is_some_and(|n| n.starts_with("xx_h_hang") && n.ends_with("_climb_1m") && (n.contains("l_climb") || n.contains("r_climb")));
+            let targets = if side { side_reach(level, &clips[0], rig, base, cr, root, &end, normal, targets).unwrap_or(targets) } else { targets };
             let land = (targets[0] - end.hands[0] + targets[1] - end.hands[1]) * 0.5;
             // (That reach lands both feet on a climbing hold 1.2 m under the hands' (`FindVerticalReachHolds` 0xDE8400: the
             // foot hold in a box 0.2 m across (0.4 m to either side tried too), 0.5 deep, 0.4 up or down; the hand hold 1.2 m
@@ -10990,6 +11400,9 @@ impl WallClimb {
                 let pushed = sweep_capsule(level, &mut p, next - root.translation);
                 if pushed.length() > 1e-4 {
                     m.start += pushed;
+                    if self.catch_hold.is_some() {
+                        self.catch_push += pushed;
+                    }
                     self.air_held += pushed.with_y(0.0).length();
                     let v = (next - root.translation) / dt.max(1e-4);
                     next = p;
@@ -11050,6 +11463,13 @@ impl WallClimb {
                 _ => {}
             }
             let end = self.cut.as_ref().filter(|(n, _)| *n == m.clip.name).map_or(dur, |(_, t)| t.min(dur));
+            // (The wall-hang reception's way out to the wait, its connector, cut by a move: see `reception_connector`.)
+            let end = if reception_connector(&m.clip.name) && self.queue.is_empty() && input.length() > 0.3 && m.t < end {
+                debug!("climb: a move cuts the reception's way out to the wait, {:.2} of {:.2} s in", m.t, end);
+                m.t
+            } else {
+                end
+            };
             if m.t < end {
                 return;
             }
@@ -11132,6 +11552,9 @@ impl WallClimb {
                 // game ran on from it at once after topping out at the bureau.)
                 if on && (next.clip.name == STAND_UP || next.clip.name == STAND_UP_NARROW || next.clip.name == TOP_OUT_ONEHAND[2]) {
                     self.exit_velocity = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero() * if self.sprint { TOP_OUT_JOG } else { TOP_OUT_WALK };
+                }
+                if self.state == VAULT && next.to != VAULT {
+                    self.catch_reaim(&mut next);
                 }
                 // (A step AC1's move graph does not have: logged, to find chains built wrong.)
                 if !lib.graph.allows(&done.clip.name, &next.clip.name) {
@@ -11641,6 +12064,29 @@ impl WallClimb {
     fn catching(&self) -> bool {
         self.catch_hold.is_some()
             && self.mv.as_ref().is_some_and(|m| m.to == DROP || m.to == HANGWALL_OPEN || (m.to == VAULT && m.clip.name.contains("_to_swing")))
+    }
+
+    /// A wall-hang eject's reception starting (`next`, the rest of it queued): what walls pushed the flight off its path
+    /// out from the hold's wall made up over the reception, so the hang ends its distance out; along the hold it hangs
+    /// where it came. As AC1's catch takes the hold where the body arrives (0xE07D00: the grab at the hold from where the
+    /// flight got to): off the bureau courtyard's wall the running game's eject brushed the palm by the wall it leaves and
+    /// still hung 0.44 m out; ours, pushed 0.29 m off by it, hung 0.73 m out.
+    fn catch_reaim(&mut self, next: &mut Queued) {
+        let Some(l) = self.catch_hold.filter(|_| self.catch_push != Vec3::ZERO) else { return };
+        let out = l.out.with_y(0.0).normalize_or_zero();
+        let fix = -out * self.catch_push.dot(out);
+        self.catch_push = Vec3::ZERO;
+        // (Over its items, not the connector after them, which a move may cut.)
+        let share = |q: &Queued| if reception_connector(&q.clip.name) { 0.0 } else { q.clip.anim.duration };
+        let span = share(next) + self.queue.iter().map(share).sum::<f32>();
+        if fix.length() < 0.01 || span <= 0.0 {
+            return;
+        }
+        debug!("climb: the eject's flight was pushed {:.2} m off the hold's wall: made up over the reception", fix.length());
+        next.correct += fix * (share(next) / span);
+        for q in &mut self.queue {
+            q.correct += fix * (share(q) / span);
+        }
     }
 
     /// Over a wall-hang eject's catch (`catching`): the wrist target on the caught hold nearest the wrist `wrist`. (The

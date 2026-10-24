@@ -60,6 +60,12 @@ pub const CATCH_HANDS: [Detector; 2] = [Detector::lip(-std::f32::consts::FRAC_PI
 /// The jump query's (0xE19113-0xE1914F): 75 degrees down x 0.27 m and back up x 0.42 m.
 pub const JUMP: [Detector; 2] = [Detector::lip(-1.308_997, 0.27, 0.27), Detector::lip(BACK_UP, 0.42, 0.42)];
 
+/// The wall run's ledge probes' (`HumanWalling__FindLedge` 0xE36BD0 at 0xE36FDF / 0xE37008, Banned445's port): 75
+/// degrees down x `radius` (0.8 m for probe A, 1.2 m for the others) and back up x 0.42 m.
+pub const fn walling(radius: f32) -> [Detector; 2] {
+    [Detector::lip(-1.308_997, radius, radius), Detector::lip(BACK_UP, 0.42, 0.42)]
+}
+
 /// An edge's frame (`sub_675350`): along it, out (flat, across it, to the side of `out`), and up (across both, upward).
 fn frame(a: Vec3, b: Vec3, out: Vec3) -> Option<(Vec3, Vec3, Vec3, f32)> {
     let d = b - a;
@@ -174,6 +180,22 @@ fn samples(level: &Level, origin: Vec3, along: Vec3, dir: Vec3, span: f32, lengt
 /// The pieces of the edge `a`-`b` (its wall facing `out`) that every detector finds free (`sub_671740`, `sub_671910`):
 /// each as (from, to), metres from `a` along it.
 pub fn free_pieces(level: &Level, a: Vec3, b: Vec3, out: Vec3, detectors: &[Detector]) -> Vec<(f32, f32)> {
+    free_runs(level, a, b, out, detectors).into_iter().map(|r| (r.from, r.to)).collect()
+}
+
+/// A free piece of an edge (`free_pieces`) and the room each detector finds past its two ends: how far that detector's
+/// free samples go on past them (`GuidanceDepth__FreeLengthBeyondEnds` 0x66FFD0: what a grab point's hand offsets may
+/// reach past a chain's end, as Banned445's port reads it; see `free_runs`).
+#[derive(Clone, Debug)]
+pub struct FreeRun {
+    pub from: f32,
+    pub to: f32,
+    /// Per detector: [before `from`, after `to`].
+    pub room: Vec<[f32; 2]>,
+}
+
+/// `free_pieces` with the room past each piece's ends (`FreeRun`).
+pub fn free_runs(level: &Level, a: Vec3, b: Vec3, out: Vec3, detectors: &[Detector]) -> Vec<FreeRun> {
     let Some((t, s, z, len)) = frame(a, b, out) else { return vec![] };
     let span = len + 2.0 * REACH;
     let start = a - t * REACH;
@@ -187,6 +209,13 @@ pub fn free_pieces(level: &Level, a: Vec3, b: Vec3, out: Vec3, detectors: &[Dete
         .collect();
     let count = free.first().map_or(0, |f| f.len());
     let all = |k: usize| free.iter().all(|f| f[k]);
+    // (The room past a piece's ends, `a` and `b` along the samples (0x66FFD0, as Banned445's port matched it against the
+    // game's arrays): before it, its free samples from the one at its start down, after it, from the one after its end
+    // up, each until one is blocked; the whole way to the samples' end when none is. So a piece cut by something in
+    // front keeps 0.1 m at its start and none at its end.)
+    let index = |x: f32| ((x as f64 / SPACING as f64) as usize).min(count.saturating_sub(1));
+    let before = |f: &Vec<bool>, a: f32| (0..=index(a)).rev().position(|k| !f[k]).map_or(a, |n| n as f32 * SPACING);
+    let after = |f: &Vec<bool>, b: f32| ((index(b) + 1)..count).position(|k| !f[k]).map_or(span - b, |n| n as f32 * SPACING);
     let mut pieces = vec![];
     let mut k = 0;
     while k < count {
@@ -201,7 +230,8 @@ pub fn free_pieces(level: &Level, a: Vec3, b: Vec3, out: Vec3, detectors: &[Dete
         let p0 = (k as f32 * SPACING).clamp(REACH, REACH + len) - REACH;
         let p1 = (j as f32 * SPACING).clamp(REACH, REACH + len) - REACH;
         if p1 - p0 > 0.0005 {
-            pieces.push((p0, p1));
+            let room = free.iter().map(|f| [before(f, p0 + REACH), after(f, p1 + REACH)]).collect();
+            pieces.push(FreeRun { from: p0, to: p1, room });
         }
         k = j + 1;
     }

@@ -15,6 +15,10 @@
 //! writes the flight recorder's lines for every frame played (as a control run's `AC1_RECORD`), the ac1-rs side of
 //! `livelog compare`. `AC1_PADPLAY_QUIT=1` closes the game when the file is played out. `AC1_PADPLAY_MANUAL=1`: the
 //! camera counts as turned by the player at the start (its follow off), as the real one is after the script turns it.
+//! `AC1_PADPLAY_CAMLOG=<live log>`: ours' camera turned as the real one turned in that run (its `camdir=`, by game
+//! time), so the stick, which is the camera's, points the same way in both games: the real camera turns by itself where
+//! ours does not (on the courtyard wall's hang, 2026-10-23, 4 degrees by the eject, which then flew 4.6 degrees off
+//! straight out, past a palm ours' straight one met).
 
 use bevy::prelude::*;
 
@@ -60,6 +64,23 @@ pub fn parse(text: &str) -> Result<PadFile, String> {
     Ok(out)
 }
 
+/// The real camera's yaw (ours' convention, rad) by game time, from a live log's `camdir=` (Bevy space).
+pub fn camera_log(text: &str) -> Vec<(f32, f32)> {
+    text.lines()
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| {
+            let t = l.split_whitespace().next()?.parse::<f32>().ok()?;
+            let d: Vec<f32> = l.split_whitespace().find_map(|w| w.strip_prefix("camdir="))?.split(',').filter_map(|v| v.parse().ok()).collect();
+            (d.len() == 3 && d[0].abs() + d[2].abs() > 1e-3).then(|| (t, (-d[0]).atan2(-d[2])))
+        })
+        .collect()
+}
+
+/// The yaw `log` (`camera_log`) has at `t`: the last one logged by then.
+fn logged_yaw(log: &[(f32, f32)], t: f32) -> Option<f32> {
+    log.iter().take_while(|(at, _)| *at <= t).last().or(log.first()).map(|(_, y)| *y)
+}
+
 /// Game space (Z up, yaw from +X toward +Y) to ours: the place, and the body's turn about Y (it faces -Z unturned).
 pub fn from_game(p: Vec3, yaw_deg: f32) -> (Vec3, f32) {
     (Vec3::new(p.x, p.z, -p.y), (yaw_deg - 90.0).to_radians())
@@ -82,6 +103,8 @@ pub struct PadPlay {
     go: Option<std::path::PathBuf>,
     record: Option<String>,
     quit: bool,
+    /// The real camera's yaw by game time (`AC1_PADPLAY_CAMLOG`).
+    cam_log: Vec<(f32, f32)>,
     /// Game seconds since the start, the frame playing and the game time it began at, the buttons held.
     t: f32,
     at: usize,
@@ -112,6 +135,7 @@ impl PadPlay {
             go: std::env::var("AC1_PADPLAY_GO").ok().map(Into::into),
             record: std::env::var("AC1_PADPLAY_RECORD").ok(),
             quit: std::env::var("AC1_PADPLAY_QUIT").is_ok(),
+            cam_log: std::env::var("AC1_PADPLAY_CAMLOG").ok().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| camera_log(&t)).unwrap_or_default(),
             ..default()
         }
     }
@@ -210,6 +234,10 @@ pub fn play(
         return;
     };
     stick.0 = pad::shaped(f.left);
+    if let Some(y) = logged_yaw(&play.cam_log, play.t) {
+        cam.manual = 0.0;
+        cam.yaw = y;
+    }
     if let Some(turn) = pad::camera_turn(f.right, time.delta_secs()) {
         cam.manual = 0.0;
         cam.yaw -= turn.x;
@@ -228,6 +256,20 @@ mod tests {
         assert_eq!(f.frames.len(), 2);
         assert_eq!(f.frames[0].buttons, 0x1001);
         assert_eq!(f.frames[1].left, Vec2::new(-0.5, 0.25));
+    }
+
+    #[test]
+    fn reads_the_real_cameras_yaw() {
+        let log = camera_log(
+            "# header
+   0.000 root 1 2 3 | ac1 cam=0,0,0 camdir=-0.044,-0.207,0.977
+   0.500 root | camdir=0.030,-0.2,0.98
+",
+        );
+        assert_eq!(log.len(), 2);
+        assert!((log[0].1 - 3.0966).abs() < 1e-3, "{}", log[0].1);
+        assert_eq!(logged_yaw(&log, 0.2), Some(log[0].1));
+        assert_eq!(logged_yaw(&log, 0.6), Some(log[1].1));
         assert!(parse("nope\n").is_err());
         assert!(parse("ac1lab pad v1\n0.0167 zz 0 0 0 0\n").is_err());
     }

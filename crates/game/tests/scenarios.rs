@@ -1204,7 +1204,9 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_PROPS", "1"),
             ("AC1_START", "30.4,20.0,180"),
             ("AC1_WALK", "6.2"),
-            ("AC1_HEADINGS", "0,-90;0.3,-90;0.32,90;3.87,90;3.89,-63"),
+            // (Turned back 0.5 s sooner than at first: the climb's stick cuts the reception's way out to the wait, as AC1's
+            // does, and the top comes that much earlier.)
+            ("AC1_HEADINGS", "0,-90;0.3,-90;0.32,90;3.37,90;3.39,-63"),
             ("AC1_HIGH", "0-6"),
             ("AC1_LEGS", "0-6"),
             ("AC1_JUMP", "0.5"),
@@ -1320,6 +1322,33 @@ const SCENARIOS: &[Scenario] = &[
         want: &["free running head-on into a wall at", "via xx_h_sprintstop_foot"],
         never: &["EMBED", "via xx_h_wallingfront_entry_footl_a", "left for running"],
     },
+    // Live comparison back_eject (2026-10-23, the bureau courtyard, `courtyard_eject.pad` with the running game's camera,
+    // `courtyard_eject.cam`): the wall run up the west wall catches the 8.02 m hold at AC1's grab point, 0.4 m along from
+    // where the clip's hands are (the hand IK goals at z -20.41, a bracket 0.6 m along); the hang's move right onto the
+    // climbing holds goes 1.0 m, AC1's lateral reach; then the eject, the stick 4.6 degrees off straight out as the
+    // running game's camera had turned, flies the surface flight across the courtyard past a palm onto the facing wall's
+    // hold at z -22.11 and strafes left along it. Ours caught by the nearest point, went 0.75 m right, then flew the free
+    // eject straight out into the palm and fell 3.6 m.
+    Scenario {
+        name: "Damascus: pad file: the courtyard wall run, its catch at AC1's grab point, the climb right and the eject across",
+        tags: &["wallrun", "hang", "climb", "eject"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/courtyard_eject.pad")),
+            ("AC1_PADPLAY_CAM", "3.09659"),
+            ("AC1_PADPLAY_MANUAL", "1"),
+            ("AC1_PADPLAY_CAMLOG", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/courtyard_eject.cam")),
+        ],
+        secs: 7.0,
+        want: &[
+            "wall run catch onto AC1's grab point [44.314, 8.025, -20.4",
+            "1m -> 2m via xx_l_climb_1m_r_2m at [44.87, 6.78, -21.3",
+            "eject at the wall hang on the hold at [49.70, 8.02, -22.0",
+            "hangwall_open -> hangwall via xx_h_hangwall_strafe_left_050cm_close at [49.2",
+        ],
+        never: &["EMBED", "-> fall via", "landing_"],
+    },
     // Live comparison beam_eject (2026-10-23): from the wall run's hang on the bureau's west wall, the stick up: the
     // running game pulled up onto the shallow ledge at 8.02 m (a step 0.7 m high just behind it), kneeling on its edge as
     // on a narrow object (`hangwall_tr_hangknee_footl_a`, `hangknee_footl_tr_freestep_entry_footl`), and stood there,
@@ -1337,7 +1366,7 @@ const SCENARIOS: &[Scenario] = &[
         ],
         secs: 5.0,
         want: &[
-            "top-out onto a shallow ledge, standing at its edge [44.27, 8.03",
+            "top-out onto a shallow ledge, standing at its edge [44.26, 8.03",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
             "via xx_h_collide_full_hand_",
         ],
@@ -1724,7 +1753,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
         ],
         secs: 4.5,
-        want: &["rebound pose off the right foot (0.00 m lower)", "back eject, 89 degrees off straight away", "the run ends at [21.3", "0.00, 7.90] (game"],
+        want: &["rebound pose off the right foot (0.00 m lower)", "back eject, 89 degrees off straight away", "the run ends at [21.3", "0.00, 7.83] (game"],
         never: &["EMBED"],
     },
     Scenario {
@@ -1740,7 +1769,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,right=1.2"),
         ],
         secs: 4.5,
-        want: &["rebound pose off the left foot (0.30 m lower)", "back eject, -89 degrees off straight away", "the run ends at [21.3", "0.00, 22.54] (game"],
+        want: &["rebound pose off the left foot (0.30 m lower)", "back eject, -89 degrees off straight away", "the run ends at [21.3", "0.00, 22.61] (game"],
         never: &["EMBED"],
     },
     // User report #11 (Damascus, by a market stall): the running jump at a house's roof edge flew the surface flight into
@@ -2580,7 +2609,9 @@ const SCENARIOS: &[Scenario] = &[
         ],
         secs: 12.0,
         want: &[
-            "2m -> free_1m via xx_l_climb_1m_l_hangfree",
+            // (From the climb stance itself since 2026-10-23: the hang's move down-left onto the holds goes as far as AC1's
+            // lateral probe reaches, a grid step further than its clip, `side_reach`.)
+            "1m -> free_1m via xx_l_climb_1m_l_hangfree",
             "free_1m -> hangwall_open via xx_h_hangfree_tr_hangwall",
             "hangknee -> top via xx_h_hangknee_onehand_footl_to_freestep_entry_footl at [73.33, 11.5",
         ],
@@ -2827,7 +2858,9 @@ const SCENARIOS: &[Scenario] = &[
         env: &[
             ("AC1_LEVEL", "damascus"),
             ("AC1_NO_CROWD", "1"),
-            ("AC1_START", "42.6,-25.0,0,4.5"),
+            // (From 0.2 m further west since 2026-10-23: the wall run's catch takes AC1's grab point (`wall_run_grab`), its
+            // hands 0.5 m in from the 8.28 m hold's west end, where it caught 0.11 m from it.)
+            ("AC1_START", "42.4,-25.0,0,4.5"),
             ("AC1_WALK", "6.2"),
             ("AC1_HIGH", "0-1.5"),
             ("AC1_LEGS", "0-1.5"),
@@ -3141,7 +3174,8 @@ fn scenarios() {
     // SAFETY: set before any thread of this test starts a game.
     unsafe { std::env::set_var("AC1_GAME_DIR", &dir) };
     let exe = env!("CARGO_BIN_EXE_ac1");
-    // `AC1_SCENARIO_FILTER`: only the scenarios whose name contains it. `AC1_SCENARIO_JOBS`: how many games run at once
+    // `AC1_SCENARIO_FILTER`: only the scenarios whose name contains it (or any of its `|`-separated parts: a run's failures
+    // again). `AC1_SCENARIO_JOBS`: how many games run at once
     // (each its own process; default `HEADLESS_JOBS`, or `JOBS` windowed).
     let filter = std::env::var("AC1_SCENARIO_FILTER").unwrap_or_default();
     // `AC1_SCENARIO_TAGS=climb,hang`: only the scenarios through any of those systems (run what a change can affect).
@@ -3149,7 +3183,7 @@ fn scenarios() {
         std::env::var("AC1_SCENARIO_TAGS").map(|t| t.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
     let picked: Vec<&Scenario> = SCENARIOS
         .iter()
-        .filter(|s| s.name.contains(filter.as_str()))
+        .filter(|s| filter.split('|').any(|f| s.name.contains(f)))
         .filter(|s| tags.is_empty() || s.tags.iter().any(|t| tags.iter().any(|w| w == t)))
         .collect();
     let jobs = std::env::var("AC1_SCENARIO_JOBS").ok().and_then(|j| j.parse().ok()).unwrap_or(if windowed() { JOBS } else { HEADLESS_JOBS }).max(1);

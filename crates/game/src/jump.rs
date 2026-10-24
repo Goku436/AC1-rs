@@ -134,7 +134,8 @@ pub fn rebound(dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
 /// for the hang's place `dz` above and `dist` away, its flight onto a surface (`xx_h_air_<front|down|up>_<dist>_foot?_to_
 /// surface`: the flight's slots folded onto those: the down landings, deep or not, onto `down`, the front going down onto
 /// `front`), then AC1's reception on the wall (`xx_h_air_surface_tr_hangwall_reception_front_straight_<min|max>` and its
-/// `xx_hangwall_reception_..._a/b/c`), the hard one (`max`) when `fast`. `tilt` (radians) is the wall's lean under the
+/// `xx_hangwall_reception_..._a/b/c`), the hard one (`max`) when `fast`. (Action 0x011FF16A is the first three; the `_c`
+/// is the connector on its way out to the wait, `reception_connector`, which a move cuts.) `tilt` (radians) is the wall's lean under the
 /// edge, positive overhanging: AC1 mixes in the `30_out` receptions toward an overhang (full at 30 degrees) and the
 /// `45_in` ones toward a slope (full at 45) (0xE02790).
 pub fn surface(dz: f32, dist: f32, left: bool, fast: bool, tilt: f32) -> Jump {

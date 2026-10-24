@@ -1432,10 +1432,37 @@ with the hook's `look` (+1 mouse unit = -0.00212 rad of yaw); the pad's right st
   look). AC1 also took a hold out of the landing zone 1 but in the hanging zone (4.83 m on, 1.28 m up). Ours now does
   both (`wall_hang_eject`, `EJECT_SURFACE_WALL`; `jump_hold`'s far holds, taken only with no hold in its own reach).
   AC1 has no limb IK goals over the surface flight (they start at the reception), so `catching()` keeps to `_to_swing`.
-- **The catch onto a climb grid's hold point:** off the wall run AC1 caught at z -20.01 and slid onto the hold point
-  0.4 m along (hand goals at -20.406, the next at -21.406, 1 m on), then climbed in 1 m steps; ours catches where it
-  hits and climbs from there, so its eject started 0.6 m short and its flight met a wall at x 46.8 that AC1's missed
-  (it falls there). That is the open "real hold data for climbing".
+- **The catch onto AC1's grab point (fixed the same evening):** off the wall run AC1 caught at z -20.01 and slid 0.4 m
+  along (hand goals at -20.406): not a grid hold but `FindLedge`'s grab point (0xE36BD0). Its probe boxes from 0.6 m
+  back out of the root (B: the free hang off the entry, C: off the step, D: the wall hang; up / width / height / depth /
+  radius as `WALL_PROBE_*`), the edges cut to the box and by the depth detectors (`guide_depth::walling`), chained
+  (0.01 m), the point by `FindGrabPoint` (0x66E150: hand offsets 0.5 / 0.1, margin 0.3, the room past a piece's ends
+  by 0x66FFD0: its free samples from the one at its start down, from the one after its end up, so a piece cut by
+  something in front keeps 0.1 m at its start, none at its end), then for D the hands' own pair search (0xE38C4A: a
+  box 1 m either side at the point, each hand 0.3 m to its side and 0.15 m back, pieces shortened 0.4 m). Here a
+  lantern's bracket 0.6 m along cuts the edge, and the point lands on -20.400. Ours took the nearest point to where
+  the clip's hands are (`wall_run_grab`, `wall_probe_grabs`, `chain_grab`, `wall_hang_hands` in `climb.rs`).
+- **The hang's move sideways onto climbing holds** (`hangwall_r_climb_1m`, 0.75 m in the clip) went 1.0 m in AC1: its
+  hands onto the hold row's point nearest the far end of `ProbeLateral`'s reach (0xDD9640: the room swept from the
+  lead hand 0.15 m back, 0.75 m out, 0.2 m over to the hang's depth under it, at most 1.55 m less 0.15, less 0.4; at
+  most 1 m less the hands' spacing; the box from 0.1 m past the lead hand, the band's row 0.6 m up, level or down).
+  Ours took the holds where the clip's hands land (`side_reach`).
+- **The eject's way is the camera's stick:** AC1's camera turned 4.3 degrees by itself over the hang and the climb
+  (ours does not: an open camera item), so the same stick went 4.6 degrees off straight out. `AC1_PADPLAY_CAMLOG`
+  plays the real camera's yaw into ours for comparisons (`tests/pads/courtyard_eject.cam`). At that angle the target
+  is AC1's grab point where the forward line crosses the far wall's hold (z -22.09, AC1 -22.11), not the point
+  nearest 2.5 m on (`jump_hold_in`, far holds only), and the line from the chest misses a palm (`Veg_PalmTree_Broken`,
+  layer 33, a fuzzy zone: it stops the body and the rays) that blocked the straight one.
+- **The flight pushed off its way:** the palm's collision still brushes the flight (0.29 m out from the hold's wall);
+  AC1's catch takes the hold from where the body arrives, so the reception makes the push up out from the wall
+  (`catch_reaim`) and the hang sits 0.44 m out as AC1's.
+- **The reception's last clip is a connector:** action 0x011FF16A is `air_surface_tr_hangwall_reception_*`, `_a`, `_b`;
+  `_c` (0x8CFB3CBC) is the way out to the wait. With the stick held AC1 strafed 0.68 s into the reception; ours played
+  the connector through first. A move now cuts it (`reception_connector`); with no move it plays (the hard
+  reception's `_b` ends swung out).
+- Left: ours steps once more along the far hold and turns its inside corner where AC1 stops 0.62 m from the hold's end
+  (the strafe's end by `ProbeLateral`), and ours' takeoff drifts 0.06 m sideways before the flight. Scenario
+  "the courtyard wall run, its catch at AC1's grab point, the climb right and the eject across".
 - **The drop's lip rays** (`drop_at_lip`) count a hit only short of their ends, as Havok's casts keep one under the
   fraction 1: ending on the plane of a top that goes on flush past the edge, rounding decided the drop (the test
   level's doorway lintel: the free jump off its stand-up came and went with the flight before it).
