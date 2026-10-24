@@ -169,7 +169,31 @@ struct OrbitCam {
     centring: Option<(f32, f32, f32, f32, f32)>,
     /// The eye's distance from the focus after the collision (`CAMERA_SPHERE`), and how fast it is easing back out.
     coll: Option<(f32, f32)>,
+    /// The climb mode (`ClimbCam`).
+    climb: ClimbCam,
 }
+
+/// AC1's camera on the climbing grid and ladders (`LowHighProfileCamera`, Banned445's camera.rs; the lead's ±0.75 and
+/// rate read in 0xC5E370): no follow; a wall found over him (a sphere cast from 2.5 m over the follow point 1 m on
+/// toward the wall) lets the stick held sideways past 0.75 turn the view `CLIMB_LEAD` off behind him toward his way, and
+/// reaching the wall's top (the wall gone from over him and from in front of him lower down) brings it behind him; the
+/// eye `CLIMB_FARTHER` farther out (its distances 4.25 / 3.75 m for the ground's 3.5). The player's own turn stops the
+/// lead until he leaves the wall's face, and the follow waits `CLIMB_FOLLOW_DELAY` after the climb. Both turns are
+/// critically damped at 10/s. (Its pitch changes, the stick up or down and the top, are not in ours.)
+#[derive(Default)]
+struct ClimbCam {
+    on: bool,
+    wall_above: bool,
+    top: bool,
+    lead_off: bool,
+    yaw_vel: f32,
+    farther: f32,
+    follow_hold: f32,
+}
+
+const CLIMB_LEAD: f32 = 0.5;
+const CLIMB_FARTHER: f32 = 0.5;
+const CLIMB_FOLLOW_DELAY: f32 = 1.0;
 
 /// AC1's camera keeps its eye out of walls (`FreeRoamingCamera` 0x692930, the eye built for a yaw, pitch and
 /// distance): a sphere of this radius (m) cast from 0.2 m out from the point it looks at toward the eye, and again from 1 m
@@ -516,6 +540,7 @@ fn main() {
             default_pitch: cam.get(1).copied().unwrap_or(-12.0).to_radians(),
             centring: None,
             coll: None,
+            climb: ClimbCam::default(),
         })
         .insert_resource(GameDir(PathBuf::from(game_dir)))
         .insert_resource(Debug {
@@ -1900,14 +1925,14 @@ fn run_script(
 fn camera_follow(
     time: Res<Time>,
     mut cam: ResMut<OrbitCam>,
-    chars: Query<(&Transform, &Character), With<Player>>,
+    chars: Query<(&Transform, &Character, Option<&Controller>), With<Player>>,
     joints: Query<&GlobalTransform>,
     mut cams: Query<&mut Transform, (With<Camera3d>, Without<Player>)>,
     eagle: Res<Eagle>,
     level: Res<level::Level>,
     mut fall: Local<(u32, shake::FallShake)>,
 ) {
-    let (Ok((target, ch)), Ok(mut tf)) = (chars.single(), cams.single_mut()) else { return };
+    let (Ok((target, ch, ctl)), Ok(mut tf)) = (chars.single(), cams.single_mut()) else { return };
     // A heavy landing shakes the camera (AC1's `FX_Camera_Shake_Assassins_Fall`, `shake`).
     if std::mem::replace(&mut fall.0, ch.landings) != ch.landings
         && let Some((drop, _)) = ch.last_landing
@@ -1975,7 +2000,51 @@ fn camera_follow(
     }
     let on_ground = ch.fall_v == 0.0 && ch.wall.as_ref().is_none_or(|w| w.legs_on_ground());
     let moving = if on_ground { ch.velocity.with_y(0.0).length() > 0.3 } else { ch.wall.as_ref().is_some_and(|w| w.follows_camera()) || ch.fall_v != 0.0 };
-    if moving && cam.manual.is_infinite() && dt > 0.0 {
+    // (The player turned the camera this frame: the input systems zero `manual` before this one runs.)
+    let turned = cam.manual <= dt * 1.01;
+    let facing = target.rotation.to_euler(EulerRot::YXZ).0;
+    let climbing = ch.wall.as_ref().is_some_and(|w| w.camera_climb());
+    let c = &mut cam.climb;
+    if c.on && !climbing {
+        c.follow_hold = CLIMB_FOLLOW_DELAY;
+    }
+    c.on = climbing;
+    c.follow_hold = (c.follow_hold - dt).max(0.0);
+    c.farther += (if climbing { CLIMB_FARTHER } else { 0.0 } - c.farther) * dt / (0.3 + dt);
+    let mut turn_to = None;
+    if climbing && dt > 0.0 {
+        // (AC1's follow point is 1.6 m over the root; the wall is ahead of him.)
+        let point = target.translation + Vec3::Y * 1.6;
+        let fwd = Vec3::new(-facing.sin(), 0.0, -facing.cos());
+        let (up, ahead) = (point + Vec3::Y * 2.5, point + Vec3::Y * 2.5 + fwd);
+        c.wall_above = level.sphere_cast(up, ahead, CAMERA_SPHERE).is_some();
+        c.top |= c.wall_above;
+        c.top &= !turned;
+        if !c.wall_above && c.top {
+            // (Not while the wall is still there in front of him lower down: 0.8 m back and 1.3 m under the point.)
+            c.top = level.sphere_cast(point - fwd * 0.8 - Vec3::Y * 1.3, ahead, CAMERA_SPHERE).is_none();
+            if c.top {
+                turn_to = Some(facing);
+            }
+        }
+        c.lead_off = c.wall_above && (c.lead_off || turned);
+        let x = ctl.map_or(0.0, |k| k.climb_dir.x);
+        if c.wall_above && !c.lead_off && !turned && x.abs() > 0.75 {
+            // (Held right, the eye swings to his left and looks his way.)
+            turn_to = Some(facing - CLIMB_LEAD * x.signum());
+        }
+    } else {
+        (c.wall_above, c.top, c.lead_off) = (false, false, false);
+    }
+    match turn_to {
+        Some(to) => {
+            let mut y = to + (cam.yaw - to + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            smooth_cd(&mut y, to, &mut cam.climb.yaw_vel, 10.0, dt);
+            cam.yaw = y;
+        }
+        None => cam.climb.yaw_vel = 0.0,
+    }
+    if moving && cam.manual.is_infinite() && dt > 0.0 && cam.climb.follow_hold <= 0.0 {
         // (After the way he moves, not his facing: AC1's follow takes the average displacement's direction, the facing
         // only when he stands still (`FreeRoamingCamera` +344 = 0x691890, Banned445's camera.rs). Turning on the spot into
         // a run, ours turned the camera after the facing sweeping round and bent the run: the bureau's live run3, the real
@@ -1993,12 +2062,13 @@ fn camera_follow(
     let focus = at + Vec3::Y * cam.focus;
     let rot = Quat::from_euler(EulerRot::YXZ, cam.yaw, cam.pitch, 0.0);
     let back = rot * Vec3::Z;
-    let free = focus + back * cam.dist;
+    let reach = cam.dist + cam.climb.farther;
+    let free = focus + back * reach;
     let near = level
         .sphere_cast(focus + back * 0.2, free, CAMERA_SPHERE)
         // (AC1's second cast starts 1 m under its follow point, which is 1.6 m over the root.)
         .filter(|_| level.sphere_cast(at + Vec3::Y * 0.6 + back * 0.2, free, CAMERA_SPHERE).is_some())
-        .map_or(cam.dist, |hit| (hit - focus).dot(back));
+        .map_or(reach, |hit| (hit - focus).dot(back));
     let (mut d, mut v) = cam.coll.unwrap_or((near, 0.0));
     if near < d || dt <= 0.0 {
         (d, v) = (near, 0.0);

@@ -1530,7 +1530,7 @@ with the hook's `look` (+1 mouse unit = -0.00212 rad of yaw); the pad's right st
   he moved along the view line. The 5 degrees came in the walling's step to the hang (1.43-1.94 s, 3 of them while the
   root stood still) and eased back 0.9 over the climb's wait. On the climb AC1's camera has its own mode (Banned445's
   camera.rs, 0xC5E370 / 0xC5EE20: no lazy follow, farther out (4.25 / 3.75 m), the stick held sideways past 0.75 turning it
-  0.5 rad off behind, the top of the wall bringing it behind). Ours has none of that mode yet. What ours took from it: the
+  0.5 rad off behind, the top of the wall bringing it behind). Ours has that mode now (`ClimbCam`), apart from its pitch. Before it, ours took: the
   eye's collision (`CAMERA_SPHERE`, 0x692930). At the eject AC1's eye stopped on the courtyard wall's face (x 44.0)
   where ours' does now, and through the palm (a fuzzy zone) it stayed out, so ours' cast passes fuzzy zones.
 - **The flight pushed off its way:** the palm's collision still brushes the flight (0.29 m out from the hold's wall);

@@ -6438,6 +6438,12 @@ impl WallClimb {
         [JUMP, FALL, VAULT, LEAP, PERCH].contains(&self.state.as_str()) || self.beam_walk().is_some()
     }
 
+    /// On the climbing grid or a ladder: AC1's Climb and Ladder contexts, where its camera takes its climb mode
+    /// (`camera_follow`); not the hangs (its Ledge).
+    pub fn camera_climb(&self) -> bool {
+        self.ladder.is_some() || is_climb_stance(&self.state) || self.mv.as_ref().is_some_and(|m| is_climb_stance(&m.to))
+    }
+
     pub fn legs_on_ground(&self) -> bool {
         self.state == GROUND_ACT || self.state == LEAN || self.state == CROUCH
     }
