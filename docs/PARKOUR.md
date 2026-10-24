@@ -82,7 +82,10 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   (`HumanGround__PlayStartMove` 0xD98990). **[B, ours: `gait.rs`]** **[V]** 2026-10-24: the bands (0xD807B0 on +0x5D4: 0 none,
   ≤ 0.25, ≤ 0.5, ≤ 0.75, over) and the start's 0.25 / 0.5 by the profile (+0x5DC) into +0x5E8.
 - **Turn attenuation** in high profile: beyond 45° off the facing the speed scales down to 0 at 90°, floor 0.1,
-  rising back at 5/s and falling at 10/s. **[B]**
+  rising back at 5/s and falling at 10/s. **[B]** **[V]** 2026-10-24 (0xEE65A0: the stick's angle off the facing, +0x1264,
+  capped at 90°; the factor +0x10D0 rises while at or under 1 − its share past 45° and falls while over it, so at 30 Hz it
+  hunts round that value rather than stopping on it; held at 1 out of high profile, +0x112B). Ours (`gait.rs`) eases
+  onto the same value: the same mean. The stick before it: (|s| − 0.35) / 0.65, capped at 1.
 - **Heading** turns toward the stick at a capped rate and the character moves along the heading, not the stick: 4.0
   rad/s (2.6 free running), at that rate till the way wanted (no easing: live comparison run2, 3.8-4.3 rad/s to 2° off; the interpreter's RotateTowards,
   0xEE6D3F); a turn on the spot only past 90°. The running game turned 3.98 and 2.58 rad/s, its motion within 1-5° of
@@ -191,7 +194,11 @@ mixed front / left / right by the edge's side), the pull-down
   first. Off roof 2 a beam 4.4 m down 1.5 m on is behind, and the running game jumped over it to the roof 2.8 m on; off
   the seams roof one 2.3 m down 6.5 m on is in front and it jumped there; off roof 1 onto a roof 3.7 m below all is
   behind, and it landed 0.2 m short of that roof's far end 4.6 m on (ours now 0.05 m from each). A hurt landing rolls
-  only with the stick held (AC1 by the stick's speed): let go, it lands and stands. **[B, ours, measured]**
+  only with the stick held (AC1 by the stick's speed): let go, it lands and stands. **[B, ours, measured]** **[V]**
+  2026-10-24 (0xB25230): |vertical speed| ≤ 0.2, a contact within 45° (0x3F490FDB) whose height is at least 0.5 m over the
+  feet, on a component with bit 0x10000000 at +8; not a `CharacterComponent` when the caller asks so, and a
+  `RigidBodyComponent` only with +0xD4 ≥ 30 (its mass, likely: light props are pushed, not bumped). Ours bumps static
+  walls only, so the last two do not come up.
 - **Jump targets at roof edges** are where the way forward crosses the edge, as for beams (AC1's candidates): the edge's
   point nearest a spot 4 m ahead was its end when the way crossed the next piece, and the jump went 0.7 m off the way; a
   beam's own side edges are no roof edges. **[ours, measured]**

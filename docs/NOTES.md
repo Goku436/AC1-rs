@@ -1352,8 +1352,10 @@ byte, 0x5ACC10) is tested as each is gathered (0x5452F0). A prop that breaks tur
 `PDeBreakableStructure` (vtable 0x17098BC) answers a `CollidedRequestEvent` (0xEFF530): a body whose flags hold
 0x10000000 and whose kind (+0xA8 & 7) is not 1 hitting it calls the structure's `Break` (`BhvBreakableStructure` vtable
 0x16FB6D4, +0xD4 = 0xD1F7D0): intact (state 0) only, it keeps the hitter, goes to state 1 (0xD1F970: the second rigid
-body and its guidance on, the first off) and starts its break timers. Which bodies carry 0x10000000 (thrown or limp
-characters, by the game's breaks in fights) is not read yet. Every enabled edge then goes through its system's `EdgeFilter` on its two normals in the world (0x6B0E10,
+body and its guidance on, the first off) and starts its break timers. Which bodies carry 0x10000000 is not read
+from the data: it is no breaker's mark, as the ground's obstacle bump (0xB25230) asks the same bit of whatever it touches (a
+wall included), so the kind (+0xA8 & 7, not 1) is the test that matters; the code ORing the bit in (0xD32DD0, 0x9594A0,
+0x959530) is `AssassinAbilitySet`'s constructor and two array helpers, not a body's. Every enabled edge then goes through its system's `EdgeFilter` on its two normals in the world (0x6B0E10,
 `forge::guidance::EdgeFilter`, 2026-10-15): the cities' filters take floor/wall edges and slabs at 45 degrees, which
 turns down 8 of Damascus's ledge grabs (one of them steep anyway). Other open audit items closed: GUIDE-1 (AC1's steep
 rule is 40 degrees, `authored_steep`, as 0x66C350), GUIDE-8 (the air catch and the jump query take their grab points
