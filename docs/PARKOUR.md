@@ -390,7 +390,11 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   traced]**
 - The world also carries precomputed **jump links** in the navigation meshes (`NavMeshMetaLink`, types
   `MetaLinkTypeID_JumpLink`, `_JumpLinkUniDir_0_1 / _1_0`, `_ObjectJumpLink`, `_ObjectToObjectJumpLink`, ranges
-  `WorldArea::JumpLinkRange_Normal / _Extended`). **[V: the names are in the exe]**
+  `WorldArea::JumpLinkRange_Normal / _Extended`). **[V: the names are in the exe]** They are the path follower's
+  **[V]** 2026-10-24: `scimitar::JumpLinkSurrogate` (vtable 0x016FF394, built by 0xD70A70 for the AI's paths, 0xB38BC0 /
+  0xE5C760 / 0xE5C790) takes the jump at a link through the same candidate finder, its slot 6 (0xD73D30) calling
+  0xE18970 with the general volume (the "other callers" below). The player's jumps reach the finder only through
+  0xB13260 and never read the links.
 - **[V]** The player's candidates come from the guidance, not from those links: the ground interpreter (0xEE65A0)
   asks the character (`IHuman`, Human's vtable at 0x016D91B4 for that interface, slot 0x38 → 0xB13260) for them;
   0xB13260 queries from a point 0.15 m along the wanted direction, 8 m range, with a bound 9·(character scale), query
@@ -1529,4 +1533,3 @@ hangs AC1 has"; the free to wall switch up or down and the wall run's free catch
 actions no data file has; `hangfree_strafe_*_000cm_*` are weighed 0).
 
 ## Open questions
-- Whether the player's jumps ever use the navigation meshes' jump links (the candidates come from the guidance).
