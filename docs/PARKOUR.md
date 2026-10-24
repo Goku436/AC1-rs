@@ -295,7 +295,9 @@ The climbing is a grid, not free placement:
 - **Poses** (0x1A2CD70): 0 hands level ("1m"), 1 left higher, 2 right higher, 3 a column apart level ("2m"), 4 / 5
   apart with the left / right higher. Each pose has its wait action (0x012DA39F + pose). **[B]**
 - The stick is quantised into 10 directions (`QuantizeStickDirection` 0xDEB8D0: up and down split by which side
-  of straight they fall, the diagonals at 22.5-67.5° and 112.5-157.5°, sideways 67.5-112.5°). **[B]**
+  of straight they fall, the diagonals at 22.5-67.5° and 112.5-157.5°, sideways 67.5-112.5°). **[B, V]** (2026-10-24:
+  the signed angle off the climb's up, within ±22.5° directions 0 / 1 by its sign, then 6 / 7, 4 / 5, 8 / 9 by side, and
+  past 157.5° 2 / 3)
 - A move is looked up by (pose, direction) in the **short** table (0x1A2D070), or first in the **long** one
   (0x1A2D7F0: hand over hand 1.2 m, both sides shuffling a column) when the stick is past 0.5 (`ChooseMove`
   0xDFDE90). An entry is (next pose, which side moves, columns, rows) or a redirect to another direction; each has its
@@ -363,7 +365,9 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   the root, ran AC1's takeoff 0.35 s and surface flight 0.28 s as this gives (h 0.59); ours measured from the hang's
   root (0.16 m up), leant on the long flat clips (0.38 / 0.33 s) and arrived 0.8 m behind (`ac1_jump_measure`).
 - **Over-drop**: a target more than 5 m below (3 m for the leap of faith) is aimed at 5 m down, then a free fall
-  (g = 9.8, steering ≤ 15 m/s). Plain falls drift (decays 4 m/s², ≤ 5 m/s). **[B]**
+  (g = 9.8, steering ≤ 15 m/s). Plain falls drift (decays 4 m/s², ≤ 5 m/s). **[B]** The thresholds (0xB1B8C0: −5 m, a
+  haystack's −3 m, its pull-back min(d, 1.5)·k with k at most 2) and the drift's 4 / 5 (0x19BA434 / 438) **[V]**
+  2026-10-24; the 15 m/s not found yet.
 - **Arrival** (0xE07D00): free step → the reception `<flight>_tr_freestep_entry_foot?[_fast]` (0x010DE1FE /
   0x010DF150), into the run, walk, wait or the beam; wall hang → `xx_h_air_surface_tr_hangwall_reception_*` (action 0x011FF16A: **[V]** 0xE02790 weights its six clips by the wall's lean under the edge, measured about the body's side: leaning out → `straight` to `30_out` (full at 30°), sloping in → `straight` to `45_in` (full at 45°); the `max` set for a jump over 6 m or a second measure over 2.5, else `min`; the clips carry no yaw); free
   hang → the swing reception; post / beam → their mounts (0xE50190, 0xE52AD0). **[B, ours]**
