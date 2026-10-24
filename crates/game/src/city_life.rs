@@ -15,8 +15,9 @@
 //! 0.15 ms of CPU a frame with the pose rebuilt less often farther off, `AnimLod`, and feet IK only near), where they appear (on a flow
 //! `SPAWN_MIN`..`SPAWN_MAX` away, near the player only at the start) and go (parked beyond `DESPAWN`, reused for the
 //! next of their kind), how they walk (along a flow at their own pace, on its right half, at its end on to a flow
-//! linked there, sometimes stopping a while; stepping aside for each other and the player), the bumps (walking into
-//! someone: their soft stumble; running: the shove and the 50 cm stumble; sprinting: their strong stumble), and the
+//! linked there, sometimes stopping a while; stepping aside for each other and the player), the bumps (by AC1's mover
+//! classes: running in high profile, the shove and the 50 cm stumble; free running, their strong stumble; walking is no
+//! bump, `bump`), and the
 //! militia (AC1's militia fraction as `combat`'s guards, `GUARD_MAX` at once, patrolling the flows with the player's
 //! locomotion within `GUARD_NEAR`, where `combat` has them, along the lane beyond: a guard's probes cost a millisecond).
 //! The thugs' cliques are left out.
@@ -78,11 +79,9 @@ const PACE: (f32, f32) = (0.95, 1.35);
 /// A person stops at a flow's end this often, for this long (s).
 const STOP_CHANCE: f32 = 0.2;
 const STOP_TIME: (f32, f32) = (2.0, 7.0);
-/// Bumps: the player within this of someone (m), and the speeds (m/s) a bump is a walk's, a run's, a sprint's.
+/// Bumps: the player within this of someone (m), and the speed (m/s) he must be moving at.
 const BUMP_REACH: f32 = 0.6;
-const BUMP_WALK: f32 = 0.6;
-const BUMP_RUN: f32 = 2.5;
-const BUMP_SPRINT: f32 = 5.0;
+const BUMP_MOVING: f32 = 0.6;
 /// The militia nearer the player than this (m) walk by the player's locomotion (and `combat` has them).
 const GUARD_NEAR: f32 = 20.0;
 /// Beyond each of these from the player (m), a person's pose is rebuilt one frame less often (`AnimLod`).
@@ -984,15 +983,21 @@ fn patrol(
     }
 }
 
-type Bumper<'w, 's> = Query<'w, 's, (&'static Transform, &'static mut Character), (With<Player>, Without<Citizen>)>;
+type Bumper<'w, 's> = Query<'w, 's, (&'static Transform, &'static mut Character, &'static Controller), (With<Player>, Without<Citizen>)>;
 
-/// The player bumping into people: walking, their soft stumble; running, the shove and their 50 cm stumble;
-/// sprinting, their strong stumble (AC1's `HumanGround_Hurt` clips, see the module docs).
+/// The player bumping into people, by AC1's mover classes (`CollidedMvtState`, 0xF218A0, read 2026-10-23): only a
+/// run in high profile (`Fast`) or free running (`SuperFast`) bumps (`CollideActorInteraction` 0xF26AD0 sends the
+/// collision request for the classes from `Medium` up, `Medium` only in a fight); walking, in either profile (`Slow`),
+/// sends nothing and the person is only in the way. Running: the shove and their 50 cm stumble; free running, their
+/// strong stumble (AC1's `HumanGround_Hurt` clips, see the module docs; the victim's table 0xF222F0 is indexed by a
+/// hurt type, the direction and the bumper's class, the hurt type a bump gives not read).
 fn bump(mut lib: Option<ResMut<AnimLib>>, life: Res<Life>, mut player: Bumper, mut q: Walkers) {
-    let (Some(lib), Ok((ptf, mut pch))) = (lib.as_deref_mut(), player.single_mut()) else { return };
+    let (Some(lib), Ok((ptf, mut pch, ctl))) = (lib.as_deref_mut(), player.single_mut()) else { return };
     let v = pch.velocity.with_y(0.0);
     let speed = v.length();
-    if speed < BUMP_WALK || pch.wall.is_some() {
+    // (`SuperFast`: high profile, running, free running; `Fast`: high profile, running.)
+    let sprint = ctl.free_run;
+    if speed < BUMP_MOVING || pch.wall.is_some() || !ctl.high {
         return;
     }
     let fwd = v / speed;
@@ -1009,19 +1014,10 @@ fn bump(mut lib: Option<ResMut<AnimLib>>, life: Res<Life>, mut player: Bumper, m
         // (Hit from the front it goes back, from behind forward.)
         let from = if facing.dot(fwd) < 0.0 { "back" } else { "front" };
         let foot = if c.rng.f() < 0.5 { "footl" } else { "footr" };
-        let (how, clips, knock) = if speed >= BUMP_SPRINT {
+        let (how, clips, knock) = if sprint {
             ("sprint", vec![format!("xx_stumble_strong_{from}_to_unbalance_{from}"), format!("xx_stumble_unbalance_{from}_tr_h_wait_footl")], 1.4)
-        } else if speed >= BUMP_RUN {
-            ("run", vec![format!("xx_stumble_soft_50cm_{from}_{foot}")], 0.9)
         } else {
-            (
-                "walk",
-                vec![
-                    format!("xx_stumble_soft_20cm_{from}_{foot}"),
-                    format!("xx_stumble_soft_20cm_{from}_{foot}_tr_l_wait_{}", if (from == "back") == (foot == "footl") { "footl" } else { "footr" }),
-                ],
-                0.4,
-            )
+            ("run", vec![format!("xx_stumble_soft_50cm_{from}_{foot}")], 0.9)
         };
         let rig = ch.rig_id;
         let mut got: Vec<Arc<crate::animation::Clip>> = clips.iter().filter_map(|n| lib.get_for(rig, n)).collect();
@@ -1036,8 +1032,8 @@ fn bump(mut lib: Option<ResMut<AnimLib>>, life: Res<Life>, mut player: Bumper, m
         if let Some(a) = ch.animator.as_mut() {
             a.forced = Some((first.clone(), 0.0));
         }
-        // Running: Altaïr shoulders them aside (the charge's shove, over the run).
-        if speed >= BUMP_RUN {
+        // Altaïr shoulders them aside (the charge's shove, over the run).
+        {
             let right = fwd.cross(Vec3::Y).dot(d) > 0.0;
             let shove = if right { "xx_h_charge_run_shove_right_handr_b" } else { "xx_h_charge_run_shove_left_handl_b" };
             if let (Some(a), Some(clip)) = (pch.animator.as_mut(), lib.get(shove))

@@ -2894,31 +2894,44 @@ const SCENARIOS: &[Scenario] = &[
     // City life (`city_life`): Damascus peopled from AC1's crowd data, 12 at most (scripted runs load and build in step,
     // so each run is the same).
     Scenario {
-        name: "city life: a Damascus street peopled from AC1's crowd regions and flows; walking into a passer-by, their soft stumble",
+        // (Walking into someone is no bump in AC1: only its mover classes from a run in high profile up send the collision
+        // request, `city_life::bump`.)
+        name: "city life: a Damascus street peopled from AC1's crowd regions and flows; walking into passers-by bumps no one",
         tags: &["crowd"],
         env: &[("AC1_LEVEL", "damascus"), ("AC1_CITY_LIFE", "1"), ("AC1_CROWD_MAX", "12"), ("AC1_START", "44,-50,0,6"), ("AC1_WALK", "1.5")],
         secs: 10.0,
-        want: &[
-            "city life: 29 regions, 16303 region triangles, 451 flows",
-            "city life: 12 people near (12 wanted",
-            "bump (walk, 1.5 m/s) MCxx_Poor plays xx_stumble_soft_20cm_",
-        ],
-        never: &["city life: no crowd data"],
+        want: &["city life: 29 regions, 16303 region triangles, 451 flows", "city life: 12 people near (12 wanted"],
+        never: &["city life: no crowd data", "city life: bump ("],
     },
     Scenario {
         name: "city life: running into the crowd, Altaïr shoves through and they stumble 50 cm aside",
         tags: &["crowd"],
-        env: &[("AC1_LEVEL", "damascus"), ("AC1_CITY_LIFE", "1"), ("AC1_CROWD_MAX", "12"), ("AC1_START", "44,-50,0,6"), ("AC1_WALK", "3.5")],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_CITY_LIFE", "1"),
+            ("AC1_CROWD_MAX", "12"),
+            ("AC1_START", "44,-50,0,6"),
+            ("AC1_WALK", "3.5"),
+            ("AC1_HIGH", "0-10"),
+        ],
         secs: 10.0,
         want: &["bump (run, 3.5 m/s) MCxx_Poor plays xx_stumble_soft_50cm_"],
         never: &["city life: no crowd data"],
     },
     Scenario {
-        name: "city life: sprinting into the crowd, a passer-by's strong stumble",
+        name: "city life: free running into the crowd, a passer-by's strong stumble",
         tags: &["crowd"],
-        env: &[("AC1_LEVEL", "damascus"), ("AC1_CITY_LIFE", "1"), ("AC1_CROWD_MAX", "12"), ("AC1_START", "44,-50,0,6"), ("AC1_WALK", "6")],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_CITY_LIFE", "1"),
+            ("AC1_CROWD_MAX", "12"),
+            ("AC1_START", "44,-50,0,6"),
+            ("AC1_WALK", "6"),
+            ("AC1_HIGH", "0-10"),
+            ("AC1_LEGS", "0-10"),
+        ],
         secs: 10.0,
-        want: &["bump (sprint, 6.0 m/s) MCxx_Poor plays xx_stumble_strong_"],
+        want: &["bump (sprint, ", "m/s) MCxx_Poor plays xx_stumble_strong_"],
         never: &["city life: no crowd data"],
     },
     Scenario {
