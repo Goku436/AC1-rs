@@ -1,7 +1,7 @@
 //! The city's wind: AC1's `Wind` (read by `forge::cloth::wind`, blown by `ik::wind`), one per city, placed in a cell
 //! data block. It moves the robe (`robe`) and the bones the skeleton's hinges and springs swing (`character`).
-//! Damascus and Masyaf have theirs; the test level borrows Masyaf's (as Banned445's AC1-Movement-Rewritten does for
-//! its test map); the other cities have none yet (their wind's cell is not known). The data block is large and slow
+//! Every city has its own (class 0984415e, `findobj <game> wind_ 0984415e`); the test level borrows Masyaf's (as
+//! Banned445's AC1-Movement-Rewritten does for its test map). The data block is large and slow
 //! to read, so the wind is kept in the temp directory after the first time (`ac1-rs/<forge>-<size>-<time>-<name>.wind`).
 //! `AC1_WIND=0` turns it off.
 
@@ -9,9 +9,13 @@ use bevy::prelude::*;
 use std::path::{Path, PathBuf};
 
 /// Where each city's wind is: (forge, data block, entity).
-const WINDS: [(&str, &str, &str, &str); 2] = [
+const WINDS: [(&str, &str, &str, &str); 6] = [
     ("damascus", "DataPC_Damascus.forge", "Cell01364_DataBlock", "Wind_Damascus_001"),
     ("masyaf", "DataPC_Masyaf.forge", "Cell05460_DataBlock", "Wind_Masyaf_001"),
+    ("acre", "DataPC_Acre.forge", "Cell01364_DataBlock", "Wind_Acre_001"),
+    ("jerusalem", "DataPC_Jerusalem.forge", "Cell01364_DataBlock", "Wind_Jerusalem_001"),
+    ("kingdom", "DataPC_Kingdom.forge", "Cell05460_DataBlock", "Wind_Kingdom_001"),
+    ("arsuf", "DataPC_Arsuf.forge", "Cell21844_DataBlock", "Wind_Arsuf_001"),
 ];
 
 #[derive(Resource, Default)]

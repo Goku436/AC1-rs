@@ -1248,7 +1248,7 @@ A city has one `Wind` entity (`Wind_Damascus_001` in Damascus's `Cell01364_DataB
 blowing along its placement's X axis. Its force wanders by AC1's 1D gradient noise (tables from Knuth's subtractive
 generator, seeds 84 and 42), on game time since the map loaded; `ik::wind` reproduces a value Banned445 read from the
 running game. The data block takes seconds to read, so `wind.rs` keeps the wind in the temp directory after the first
-time. The test level uses Masyaf's; Acre, Jerusalem and Kingdom have none yet. `AC1_WIND=0` turns it off.
+time. The test level uses Masyaf's. Every city has one (class 0984415e): Acre's and Jerusalem's in `Cell01364_DataBlock`, the Kingdom's in `Cell05460_DataBlock`, Arsuf's in `Cell21844_DataBlock` (Acre's blows toward (-0.88, 0.48), the others' along +X; 10 m/s² each). `AC1_WIND=0` turns it off.
 
 ## The player's abilities (`AssassinAbilitySet`, 2026-10-23)
 What the ground's input interpreter may ask for (the jump, the pull-down, the look-down, the wall run's pass-over, the
