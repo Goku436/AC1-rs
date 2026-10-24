@@ -874,6 +874,36 @@ impl Level {
         })
     }
 
+    /// A sphere of radius `r` moved from `from` to `to`, through fuzzy zones (`fuzzy_tris`) as AC1's camera goes (its
+    /// eye stayed 3.5 m out through the bureau courtyard's palm, live 2026-10-23): its centre where it first touches a
+    /// face (found by halving the way, to about 1 mm on a 4 m cast), `from` when it starts touching one, None when the
+    /// way is clear.
+    pub fn sphere_cast(&self, from: Vec3, to: Vec3, r: f32) -> Option<Vec3> {
+        let free = |b: Vec3| {
+            let pad = Vec3::splat(r);
+            self.tris_near(from.min(b) - pad, from.max(b) + pad).into_iter().all(|i| {
+                let (p, q) = segment_triangle(from, b, &self.tris[i as usize]);
+                p.distance_squared(q) >= r * r || self.is_fuzzy(i)
+            })
+        };
+        if free(to) {
+            return None;
+        }
+        if !free(from) {
+            return Some(from);
+        }
+        let (mut lo, mut hi) = (0.0f32, 1.0f32);
+        for _ in 0..12 {
+            let mid = (lo + hi) * 0.5;
+            if free(from.lerp(to, mid)) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        Some(from.lerp(to, lo))
+    }
+
     /// Each ladder's top as the walkable top it leads onto (a probe down just in from its top), not its rails' top: the
     /// rails stood 0.33 m over ladder 68's roof and ours climbed a step too many (audit LADDER-3). Returns how many moved.
     pub fn settle_ladder_tops(&mut self) -> usize {
@@ -2965,6 +2995,18 @@ mod tests {
         assert!(h.contains(Vec3::new(1.5, 3.0, 2.5), 0.3));
         assert!(!h.contains(Vec3::new(1.8, 3.0, 2.0), 0.3));
         assert!((h.top() - 1.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sphere_cast_stops_short_of_a_wall() {
+        let mut b = Builder { tris: vec![] };
+        b.cuboid(Vec3::new(2.0, 0.0, -2.0), Vec3::new(3.0, 3.0, 2.0));
+        let mut level = Level { tris: b.tris, ..default() };
+        level.build_grid();
+        let hit = level.sphere_cast(Vec3::new(0.0, 1.0, 0.0), Vec3::new(4.0, 1.0, 0.0), 0.2).expect("the wall");
+        assert!((hit.x - 1.8).abs() < 0.01, "{hit}");
+        assert!(level.sphere_cast(Vec3::new(0.0, 1.0, 0.0), Vec3::new(0.0, 1.0, 4.0), 0.2).is_none());
+        assert_eq!(level.sphere_cast(Vec3::new(1.9, 1.0, 0.0), Vec3::ZERO, 0.2), Some(Vec3::new(1.9, 1.0, 0.0)));
     }
 
     #[test]

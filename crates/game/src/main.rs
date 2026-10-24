@@ -167,6 +167,31 @@ struct OrbitCam {
     default_pitch: f32,
     /// C's centring under way: its clock, and the yaw and pitch it started from and turns through (see `CENTRE_RATE`).
     centring: Option<(f32, f32, f32, f32, f32)>,
+    /// The eye's distance from the focus after the collision (`CAMERA_SPHERE`), and how fast it is easing back out.
+    coll: Option<(f32, f32)>,
+}
+
+/// AC1's camera keeps its eye out of walls (`FreeRoamingCamera` 0x692930, the eye built for a yaw, pitch and
+/// distance): a sphere of this radius (m) cast from 0.2 m out from the point it looks at toward the eye, and again from 1 m
+/// below that point; when both meet something the eye comes in to where the first did. It closes in at once and eases
+/// back out (critically damped, `CAMERA_EASE_OUT` /s, 0x690160 with +605 set). (Banned445's camera.rs ports it the same.)
+/// Ours' camera went through walls: on a wall hang beside a corner the view was inside the building.
+const CAMERA_SPHERE: f32 = 0.2;
+const CAMERA_EASE_OUT: f32 = 7.5;
+
+/// AC1's critically damped smoothing (`Math__SmoothCD`, as Banned445's camera.rs reads it): `x` toward `to` at `omega`
+/// (1/s), its speed kept in `vel`.
+fn smooth_cd(x: &mut f32, to: f32, vel: &mut f32, omega: f32, dt: f32) {
+    let d = *x - to;
+    if d.abs() < 0.001 {
+        (*x, *vel) = (to, 0.0);
+        return;
+    }
+    let w = dt * omega;
+    let k = 1.0 / (1.0 + w + 0.48 * w * w + 0.235 * w * w * w);
+    let t = (d * omega + *vel) * dt;
+    *vel = (*vel - t * omega) * k;
+    *x = (t + d) * k + to;
 }
 
 /// C's centring (AC1's camera reset, 0x692220 and its update 0x693336-0x6933D0, as Banned445's ca0e1ad reads it): the
@@ -490,6 +515,7 @@ fn main() {
             manual: f32::INFINITY,
             default_pitch: cam.get(1).copied().unwrap_or(-12.0).to_radians(),
             centring: None,
+            coll: None,
         })
         .insert_resource(GameDir(PathBuf::from(game_dir)))
         .insert_resource(Debug {
@@ -1870,6 +1896,7 @@ fn run_script(
 }
 
 /// Follow the player's body (its hips, at the root's height), smoothed a little.
+#[allow(clippy::too_many_arguments)]
 fn camera_follow(
     time: Res<Time>,
     mut cam: ResMut<OrbitCam>,
@@ -1877,6 +1904,7 @@ fn camera_follow(
     joints: Query<&GlobalTransform>,
     mut cams: Query<&mut Transform, (With<Camera3d>, Without<Player>)>,
     eagle: Res<Eagle>,
+    level: Res<level::Level>,
     mut fall: Local<(u32, shake::FallShake)>,
 ) {
     let (Ok((target, ch)), Ok(mut tf)) = (chars.single(), cams.single_mut()) else { return };
@@ -1964,7 +1992,21 @@ fn camera_follow(
     cam.at = Some(at);
     let focus = at + Vec3::Y * cam.focus;
     let rot = Quat::from_euler(EulerRot::YXZ, cam.yaw, cam.pitch, 0.0);
-    tf.translation = focus + rot * Vec3::Z * cam.dist;
+    let back = rot * Vec3::Z;
+    let free = focus + back * cam.dist;
+    let near = level
+        .sphere_cast(focus + back * 0.2, free, CAMERA_SPHERE)
+        // (AC1's second cast starts 1 m under its follow point, which is 1.6 m over the root.)
+        .filter(|_| level.sphere_cast(at + Vec3::Y * 0.6 + back * 0.2, free, CAMERA_SPHERE).is_some())
+        .map_or(cam.dist, |hit| (hit - focus).dot(back));
+    let (mut d, mut v) = cam.coll.unwrap_or((near, 0.0));
+    if near < d || dt <= 0.0 {
+        (d, v) = (near, 0.0);
+    } else {
+        smooth_cd(&mut d, near, &mut v, CAMERA_EASE_OUT, dt);
+    }
+    cam.coll = Some((d, v));
+    tf.translation = focus + back * d;
     tf.look_at(focus, Vec3::Y);
     // (About the camera's own right axis, a positive pitch tilting the view up.)
     tf.rotate_local_x(shake_pitch.to_radians());
