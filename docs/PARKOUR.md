@@ -305,7 +305,10 @@ The climbing is a grid, not free placement:
 - A move is valid when the destination foot cell and the hand cell two rows above both hold (`IsGridMoveValid`
   0xDECD70). It plays its action while the root is interpolated over the action's length (0.5 s without one) to
   the **root computed from the four holds** (`sub_B1CC20`: 0.5 m out from the feet holds along the climb facing, the
-  frame tilting with a leaning wall) (`StartMove` 0xDFA0C0). **[B]**
+  frame tilting with a leaning wall) (`StartMove` 0xDFA0C0). **[B]** **[V]** 2026-10-24: IsGridMoveValid tests each
+  moving side's cell (its column and row offsets from the pose table, 0x1A2CD80 + pose·0x60) in two cell arrays 16 apart
+  (+0xC4 and +0xD4: two rows of 8, the foot cell and the hand cell over it); StartMove takes 0.5 s when the move has no
+  action (id 0 or −1), else the action's item length (0x507650), and the pose's wait from the pose table (0x1A2CD70 + pose·0x60).
 - No move found with the stick held → the look-around toward it (`OnNoMoveFound` 0xDF4410:
   `xx_l_climb_1m_lookaround_<up|down|left|right>`). **[B, ours]**
 - No move up → into a ledge hang (`TryTransitionToLedgeHang` 0xDF4BA0); legs → release; reaches onto other climb
