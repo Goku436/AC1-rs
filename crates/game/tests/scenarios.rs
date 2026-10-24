@@ -212,6 +212,25 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        // (The takeoff turns the root away from the wall in one frame, the pose faded from turned with it; the pose shown
+        // the frame before, which the blend's Reference keeps nearest, was left in the old root's space, and the frame
+        // after the snap the body swung round, a hand and a foot 0.65 m across: the pop check fails it.)
+        name: "test level: the wall run's early eject onto the wall hang beside turns away without the body swinging round",
+        tags: &["wallrun", "eject"],
+        env: &[
+            ("AC1_START", "30.4,20.0,180"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HEADINGS", "0,-90;0.3,-90;0.32,90"),
+            ("AC1_HIGH", "0-14"),
+            ("AC1_LEGS", "0-14"),
+            ("AC1_JUMP", "0.45"),
+            ("AC1_CLIMB", "nograb,none=1.6,up=4"),
+        ],
+        secs: 2.5,
+        want: &["wall run eject (entryrebound)", "the takeoff turned away at once", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c"],
+        never: &["EMBED"],
+    },
+    Scenario {
         name: "wall W: the stick swung left along the wall (by the camera, not the body) rebounds left",
         tags: &["wallrun", "climb"],
         env: &[("AC1_START", "33,13,180,1"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0-1.6"), ("AC1_JUMP", "1.75"), ("AC1_VEER", "1.6,90")],

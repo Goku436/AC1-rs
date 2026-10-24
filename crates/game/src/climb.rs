@@ -8624,6 +8624,14 @@ impl WallClimb {
         let x = &mut from.local[r];
         x.pos = turn * x.pos + shift;
         x.rot = (turn * x.rot).normalize();
+        // (So is the pose shown last frame, which the blend's Reference keeps nearest (`pose`): left in the old root's
+        // space, 153 degrees off, it sent the Reference the long way round the frame after, the body swinging and the
+        // hands and feet 0.65 m across, a wall run's early eject.)
+        if let Some(l) = &mut self.last {
+            let x = &mut l.local[r];
+            x.pos = turn * x.pos + shift;
+            x.rot = (turn * x.rot).normalize();
+        }
         // (How far the hips turn over the fade: the poses' own difference.)
         let gap = from.model_of(rig, hips).rot.angle_between(first.model_of(rig, hips).rot).to_degrees();
         debug!("climb: the takeoff turned away at once, the root {across:.2} m across, the hips {gap:.0} degrees off the pose before");
