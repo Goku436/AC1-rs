@@ -263,11 +263,17 @@ pub fn swing_entry(dz: f32) -> &'static str {
 /// The ground's impulsion into a free-step takeoff (AC1's ground actions 0x04A943DE / 0x040C793D, by the takeoff foot:
 /// `xx_h_impultionstraight_<foot>_to_ground_to_air_<group>_<up|down>_<other>`): played before the free-step takeoff by a
 /// jump from a standstill or soon after the run starts or a reception lands (audit JUMP-3). Straight ahead, the front
-/// group. Every recorded one is `_down`, a jump 1.17 m up included, so the `_up` set is left out until one is seen.
-pub fn impulsion(left: bool) -> Vec<(String, f32)> {
+/// group, its `_down` and `_up` mixed by the target's height `dz` over the feet, all up from 1.3 m (0xD9BE90; the running
+/// game's events name only an action's first clip, `_down`).
+pub fn impulsion(dz: f32, left: bool) -> Vec<(String, f32)> {
     let (foot, other) = if left { ("footl", "footr") } else { ("footr", "footl") };
-    vec![(format!("xx_h_impultionstraight_{foot}_to_ground_to_air_front_down_{other}"), 1.0)]
+    let up = dz.clamp(0.0, IMPULSION_UP) / IMPULSION_UP;
+    let name = |v: &str| format!("xx_h_impultionstraight_{foot}_to_ground_to_air_front_{v}_{other}");
+    [(name("down"), 1.0 - up), (name("up"), up)].into_iter().filter(|(_, w)| *w > 0.0).collect()
 }
+
+/// The impulsion's height (m) where its `_up` set takes all the weight (0xD9BE90).
+const IMPULSION_UP: f32 = 1.3;
 
 /// A running jump onto a top `dz` above (negative: below) and `dist` away, taking off from the left foot or the right;
 /// `fast` (0..1, the run's speed against the sprint) blends the reception into its quick version (`_fast`).

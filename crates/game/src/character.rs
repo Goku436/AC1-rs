@@ -222,9 +222,10 @@ pub struct Character {
     pub wall_goal_off: [Vec3; 4],
     /// How long (s) he has stood still on the ground (AC1 looks down over an edge after `LOOK_DOWN_STILL`).
     pub still_t: f32,
-    /// How long (s) he has been moving on the ground since he stood still or came down from a move: a jump sooner than
-    /// `climb::IMPULSION_WITHIN` starts with AC1's impulsion (audit JUMP-3).
-    pub moving_t: f32,
+    /// How long (s) he has been on the ground since he came down from a move: a jump sooner than
+    /// `climb::IMPULSION_WITHIN` starts with AC1's impulsion (audit JUMP-3), as one from a standstill or early in the
+    /// start from it.
+    pub ground_t: f32,
     /// How long the low-profile edge halt has held the walk (s), and the look-down it latched (kept until the walk
     /// starts again).
     pub halt_t: f32,
@@ -675,7 +676,7 @@ pub fn spawn_character_shared(
         wall_hand_w: [0.0; 2],
         wall_foot_w: [0.0; 2],
         still_t: 0.0,
-        moving_t: 0.0,
+        ground_t: 0.0,
         halt_t: 0.0,
         looking_down: false,
         look_edge: None,
@@ -1268,9 +1269,12 @@ pub fn locomotion(
         // (A jump on short notice: from a standstill, or soon after the walk or run starts or a move hands back to the
         // ground, audit JUMP-3.)
         if ch.wall.is_some() {
-            ch.moving_t = 0.0;
+            ch.ground_t = 0.0;
         }
-        crate::climb::set_short_notice(ch.wall.is_none() && ch.moving_t < crate::climb::IMPULSION_WITHIN);
+        // (AC1's gate is the playing item, 0xD83830: the stand, or a start under three quarters through.)
+        let standing = ch.velocity.with_y(0.0).length() < 0.2;
+        let starting = ch.animator.as_ref().and_then(|a| a.start_phase()).is_some_and(|f| f < crate::climb::IMPULSION_PHASE);
+        crate::climb::set_short_notice(ch.wall.is_none() && (standing || starting || ch.ground_t < crate::climb::IMPULSION_WITHIN));
         if ch.health > 0.0 {
             ch.health = (ch.health + HEALTH_REGEN * dt).min(1.0);
         }
@@ -1836,7 +1840,7 @@ pub fn locomotion(
         // into the edge (AC1's interpreter 0xEE87DE, Banned445's port, audit EXTRA-2); kept with the stick let go, until
         // the walk starts again or high profile. (Ours looked down from any stand near an edge, high profile too.)
         ch.still_t = if ch.velocity.length() < 0.2 { ch.still_t + dt } else { 0.0 };
-        ch.moving_t = if ch.velocity.length() < 0.2 { 0.0 } else { ch.moving_t + dt };
+        ch.ground_t += dt;
         if ch.halt_t > LOOK_DOWN_STILL && !ctl.high {
             ch.looking_down = true;
         }

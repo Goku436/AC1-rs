@@ -661,9 +661,14 @@ in this batch, by audit id:
   for any pick, a free hang below too.
 - **Impulsion** (JUMP-3): a jump onto a top from a standstill, or within 0.45 s of the walk or run starting or a move
   handing back to the ground, starts with AC1's ground impulsion (`xx_h_impultionstraight_<foot>_to_ground_to_air_front_
-  down_<other>`, actions 0x04A943DE / 0x040C793D, played over 0.1 s) and the free-step takeoff, not the running one. The
-  gate is bracketed by the routes (0.30-0.32 s after a reception did, 0.59 s into a run did not), not read from the code;
-  only the front, `_down` set is used (every recorded one, a jump 1.17 m up included).
+  down_<other>`, actions 0x04A943DE / 0x040C793D, played over 0.1 s) and the free-step takeoff, not the running one.
+  **[V]** 2026-10-24: event 45's guard (0xD83830) takes the impulsion standing, or with a start or transition playing
+  under 0.75 of its normalised time (the jog's start, 0.67 s: until 0.50 s, which the routes bracket, 0.32 s did and
+  0.59 s did not), never in the locomotion blend 0x05923BDB, and never with the item locked (flag 0x20). It enters
+  0xD9BE90: the front `_down` and `_up` mixed by the target's height over the feet, (1 - h / 1.3, h / 1.3) (the events
+  name only the first clip, `_down`), a 0.2 s blend. The free run's own (0xDA27C0, from its guard 0xD85690) also turns
+  by the target's side, front to left / right by |a| / 90 degrees, beyond that to back-left / back-right. Ours: the
+  start's phase and the front mix by height; after a reception (no item left in ours) still 0.45 s.
 - **Air catches** (AIR-17, GUIDE-8): AC1's searches decide the catch: a hold round the feet + 1.4 m (0.3 m on along the
   reach, 0.4 m across, 0.3 m up or down, facing within 70 degrees) for the climbing or wall-hang catch, then one round the
   feet + 1.95 m for the free hang (0.25 / 0.5 m on after a fall of 3 m), with no wall ray first. The grab point is the

@@ -720,6 +720,11 @@ impl Animator {
     /// The one-shot clip's pose (a push: upper body only, layered over the walk by the caller) and its
     /// weight, faded in and out.
     /// The left foot leads the current walk half-cycle.
+    /// The start from standing playing, how far through it is (its normalised time).
+    pub fn start_phase(&self) -> Option<f32> {
+        self.start.map(|(.., t, len)| t / len)
+    }
+
     pub fn lead_left(&self) -> bool {
         self.side == 0
     }

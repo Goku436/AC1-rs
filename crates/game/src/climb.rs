@@ -1067,10 +1067,14 @@ const JUMP_AC1_SLACK: f32 = 0.5;
 /// A running jump turns its facing toward the target over its takeoff, at most this long (s; 0xE0EF30).
 const JUMP_TURN_MAX: f32 = 0.4;
 const JUMP_AC1_SHORT: f32 = 1.5;
-/// A jump from the ground this soon (s) after the walk or run starts, or a reception hands over to the ground, starts with
-/// AC1's impulsion and the free-step takeoff (audit JUMP-3). In the running game's routes: 0.0, 0.30, 0.31, 0.32 and
-/// 0.32 s did, 0.59 s and 0.9-1.1 s took the running takeoff; the exact gate is not read.
+/// A jump from the ground this soon (s) after a reception hands over to the ground starts with AC1's impulsion and the
+/// free-step takeoff (audit JUMP-3; the running game's routes: 0.30, 0.31, 0.32 s did). AC1's own gate (event 45's guard
+/// 0xD83830) is the playing item: standing, or a start or transition under `IMPULSION_PHASE` of its length, not the
+/// locomotion blend (0x05923BDB); ours' handover has no item left, so it keeps this time.
 pub const IMPULSION_WITHIN: f32 = 0.45;
+/// A start from standing this far through (its normalised time) still jumps with the impulsion (0xD83830): the jog's
+/// start, 0.67 s, until 0.50 s (the routes: 0.32 s did, 0.59 s took the running takeoff).
+pub const IMPULSION_PHASE: f32 = 0.75;
 /// The impulsion plays this long (s) before the takeoff: the running game cut it 0.03-0.13 s in.
 const IMPULSION_TIME: f32 = 0.1;
 /// Topping out into the walk or the jog hands over at their speeds (m/s).
@@ -3482,8 +3486,8 @@ thread_local! {
     static SHORT_NOTICE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Whether a jump from the ground now comes on short notice: from a standstill, or within `IMPULSION_WITHIN` of the
-/// walk or run starting or a reception handing over to the ground. AC1 then takes off with the impulsion and the free-step
+/// Whether a jump from the ground now comes on short notice: from a standstill, early in the start from it
+/// (`IMPULSION_PHASE`), or within `IMPULSION_WITHIN` of a reception handing over to the ground. AC1 then takes off with the impulsion and the free-step
 /// takeoff, not the running one (audit JUMP-3). Set by the ground each frame for the character it moves.
 pub fn set_short_notice(on: bool) {
     SHORT_NOTICE.with(|c| c.set(on));
@@ -4722,7 +4726,7 @@ impl WallClimb {
         };
         // (On short notice, the impulsion then the free-step takeoff, straight ahead along the aim, audit JUMP-3; else the
         // running takeoff.)
-        let impulsion = if SHORT_NOTICE.with(|c| c.get()) { mix(&crate::jump::impulsion(left)) } else { None };
+        let impulsion = if SHORT_NOTICE.with(|c| c.get()) { mix(&crate::jump::impulsion(dz, left)) } else { None };
         let j = match impulsion {
             Some(_) => crate::jump::freestep(dz, dist, 0.0, left, speed / JUMP_AC1_FAST_SPEED),
             None => crate::jump::running(dz, dist, left, speed / JUMP_AC1_FAST_SPEED),
