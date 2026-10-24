@@ -9223,7 +9223,11 @@ impl WallClimb {
         let pick = turned
             .as_ref()
             .and_then(|c| lands(c).filter(|(to, g)| edge_out(to.with_y(g.point.y))).map(|l| (c.clone(), l, true)))
-            .or_else(|| plain.as_ref().and_then(|c| lands(c).map(|l| (c.clone(), l, false))));
+            .or_else(|| plain.as_ref().and_then(|c| lands(c).map(|l| (c.clone(), l, false))))
+            // [ours] (The plain one with no room where it lands, the turned one where it does, whatever the edge: beside a
+            // Damascus block the plain step-off ended in the block over the step and he hung looking left, the sweep's
+            // w16-side.)
+            .or_else(|| turned.as_ref().and_then(|c| lands(c).map(|l| (c.clone(), l, true))));
         let Some((off, (to, ground), turn)) = pick else { return false };
         let end = root.translation + world_rot(root.rotation) * root_motion_at(&off, off.frames()).with_z(0.0);
         // (The turned step-off stands on the other foot.)

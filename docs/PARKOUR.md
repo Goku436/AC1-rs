@@ -1272,6 +1272,9 @@ no-grab 8 (two walls never reached from their starts, all four programs each), e
   further, was not tried, and he looked down 2 m over the ground. A grid move's hand now takes the nearest hold in the
   box with a foot cell under it, else the nearest; he climbs back down the rows he came up. How AC1's cells (0xDECD70)
   pick among holds in one cell is not read yet.
+- **`w16-side`** [ours]: at the bottom of a wall beside a block, sideways: the plain step-off (`xx_l_climb_1m_to_groundentry_left`)
+  ended inside the block over the step, and the turned one (`_90`) is AC1's only where the ground's edge faces out; he
+  hung looking left. The turned one now stands in when the plain one has no room.
 Acre and Jerusalem, first sweeps on dev 2026-10-24 (30 spots each): Acre 150 runs: no-grab 10, embed 4 (not seen again
 replayed alone), topout 4 (two low walls whose tops are enclosed by a solid: AC1's room boxes test faces only, ours' cramped
 test refuses them), stuck 3, pop 2, death 1 (a run off a roof 17 m up), no-hold 1. Jerusalem 144 runs: pop 6 (all under
