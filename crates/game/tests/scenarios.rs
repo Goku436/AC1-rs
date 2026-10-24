@@ -1240,12 +1240,16 @@ const SCENARIOS: &[Scenario] = &[
         ],
         secs: 7.5,
         want: &[
-            "-> 2m via xx_fall_tr_climb_min_b at [46.28, 9.52",
-            "eject at the wall hang on the hold at [47.01, 12.02",
-            // (By AC1's surface flight and its reception, a wall under the hold, since live 2026-10-23.)
-            "via xx_h_air_up_300cm_footl_to_surface",
+            // (The first eject's flight onto B's hold on the free hang's band since 2026-10-24, AC1's 0xB1EC40: caught 0.07 m
+            // further along than on the free step's.)
+            "-> 2m via xx_fall_tr_climb_min_b at [46.21, 9.51",
+            "eject at the wall hang on the hold at [47.01, 12.0",
+            // (By AC1's surface flight and its reception, a wall under the hold, since live 2026-10-23; on the surface's band,
+            // 1.4 m up of its 2.5 m, since 2026-10-24, a front and up mix where the free step's band, topping out at 1.3 m,
+            // gave all up.)
+            "via xx_h_air_front_300cm_footl_to_surface",
             "-> drop via xx_h_air_surface_tr_hangwall_reception_front_straight_min",
-            "-> hangwall_open via xx_hangwall_reception_front_straight_min_c at [46.56, 10.92",
+            "-> hangwall_open via xx_hangwall_reception_front_straight_min_c at [46.57, 10.92",
         ],
         never: &["EMBED", "squaring up to the wall", "xx_fall_tr_hangwall", "xx_h_jumpfalling01"],
     },

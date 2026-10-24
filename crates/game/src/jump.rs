@@ -13,14 +13,27 @@
 //! How the clips are weighted (bands of height and distance; the takeoff mirroring the flight's blend) is as
 //! Banned445's AC1-Movement-Rewritten reads it from the game (MIT, Copyright (c) 2026 Banned445), written here anew.
 
-/// Height and distance bands of a free-step target (m): the highest up and lowest down a jump blends to, where a
-/// jump starts to count as going down, and the near, middle and far distances.
-const UP_MAX: f32 = 1.3;
-const DOWN_MAX: f32 = -3.0;
+/// Height and distance bands of a jump's target (m): the highest up and lowest down a jump blends to, and the near,
+/// middle and far distances, by AC1's target type (0xB1EC40, read 2026-10-23; Banned445's `bands` agrees).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Band {
+    pub up: f32,
+    pub down: f32,
+    pub near: f32,
+    pub mid: f32,
+    pub far: f32,
+}
+
+/// A free step, a pass-over, the ground's targets (types 1, 2, 0x100, 0x200, 0x400, 0x8000, 0x10000).
+pub const FREE_STEP: Band = Band { up: 1.3, down: -3.0, near: 2.5, mid: 5.0, far: 7.0 };
+/// A surface: a wall hang, a ladder, the climbing holds (types 0x40, 0x1000, 0x2000, 0x4000).
+pub const SURFACE: Band = Band { up: 2.5, down: -3.0, near: 2.5, mid: 5.5, far: 7.5 };
+/// The rest: a free hang, a swing bar (0x80 and others).
+pub const HANG: Band = Band { up: 3.0, down: -3.0, near: 2.5, mid: 6.0, far: 8.0 };
+/// The jump off a swing bar (AC1's takeoff kind 3) onto a free step: the band lifted 0.7 m, its top and its bottom.
+pub const OFF_SWING: Band = Band { up: 1.3 + 0.7, down: -3.0 + 0.7, ..FREE_STEP };
+/// Where a jump starts to count as going down (m).
 const DOWN_FROM: f32 = -0.5;
-const NEAR: f32 = 2.5;
-const MID: f32 = 5.0;
-const FAR: f32 = 7.0;
 /// More than this far down (m), the flight blends into its deep variants, fully at `DEEP_FULL` further.
 const DEEP_FROM: f32 = 3.0;
 const DEEP_FULL: f32 = 5.0;
@@ -32,13 +45,13 @@ const UP: [&str; 2] = ["050cm", "300cm"];
 /// Which part of the band a jump falls in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Class {
-    /// Closer than `NEAR`.
+    /// Closer than the band's near distance.
     Near,
     /// Further, level or up.
     Up,
-    /// Further, going down, short of `MID`.
+    /// Further, going down, short of its middle one.
     Down,
-    /// Further, going down, past `MID`.
+    /// Further, going down, past its middle one.
     Far,
 }
 
@@ -90,7 +103,12 @@ fn freestep_names(group: &str, foot: &str) -> Vec<String> {
 /// the two around the angle blended (front, right, back right; front, left, back left). The side and back takeoffs turn
 /// the body toward the jump.
 pub fn freestep(dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
-    let mut j = running(dz, dist, left, fast);
+    freestep_in(FREE_STEP, dz, dist, angle, left, fast)
+}
+
+/// `freestep` on another target type's band.
+pub fn freestep_in(b: Band, dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
+    let mut j = running_in(b, dz, dist, left, fast);
     let foot = if left { "footl" } else { "footr" };
     // The running takeoff's weights, by slot, re-used in each group.
     let names = takeoff_names(foot);
@@ -115,7 +133,12 @@ pub fn freestep(dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
 /// groups turn the body a quarter round, toward the jump). Measured in the running game (Damascus, the bureau's wall):
 /// the stick back (or none) jumps away, the stick to a side jumps that way along the wall, each at the best place to land.
 pub fn rebound(dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
-    let mut j = running(dz, dist, left, fast);
+    rebound_in(FREE_STEP, dz, dist, angle, left, fast)
+}
+
+/// `rebound` on another target type's band.
+pub fn rebound_in(b: Band, dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
+    let mut j = running_in(b, dz, dist, left, fast);
     let foot = if left { "footl" } else { "footr" };
     let names = takeoff_names(foot);
     let slot_w: Vec<f32> = names.iter().map(|n| j.takeoff.iter().find(|(m, _)| m == n).map_or(0.0, |p| p.1)).collect();
@@ -139,7 +162,7 @@ pub fn rebound(dz: f32, dist: f32, angle: f32, left: bool, fast: f32) -> Jump {
 /// edge, positive overhanging: AC1 mixes in the `30_out` receptions toward an overhang (full at 30 degrees) and the
 /// `45_in` ones toward a slope (full at 45) (0xE02790).
 pub fn surface(dz: f32, dist: f32, left: bool, fast: bool, tilt: f32) -> Jump {
-    let j = running(dz, dist, left, 0.0);
+    let j = running_in(SURFACE, dz, dist, left, 0.0);
     let mut flight: Vec<(String, f32)> = vec![];
     for (n, w) in &j.flight {
         let n = n.replace("_to_freestep_down", "_to_surface").replace("_to_freestep_deep", "_to_surface").replace("_to_freestep", "_to_surface");
@@ -189,7 +212,7 @@ pub fn passover(dz: f32, dist: f32, left: bool) -> Jump {
 /// onto the bar (`xx_h_air_<front|down|up>_<dist>_foot?_to_swing`; AC1's far ones are front 650 and down 900 cm, the
 /// flight's 550 and 800 cm slots fold onto them).
 pub fn swing(dz: f32, dist: f32, left: bool) -> Jump {
-    let j = running(dz, dist, left, 0.0);
+    let j = running_in(HANG, dz, dist, left, 0.0);
     let mut flight: Vec<(String, f32)> = vec![];
     for (n, w) in &j.flight {
         let n = n
@@ -211,7 +234,7 @@ pub fn swing(dz: f32, dist: f32, left: bool) -> Jump {
 /// takeoff slots and weights (Banned445's reading of 0xB1EC40, audit NARROW-14).
 pub fn off_swing(dz: f32, dist: f32) -> Vec<(String, f32)> {
     const NAMES: [&str; 8] = ["front_050cm", "front_300cm", "front_550cm", "down_050cm", "down_300cm", "down_550cm", "up_100cm", "up_300cm"];
-    let run = running(dz, dist, true, 0.0);
+    let run = running_in(OFF_SWING, dz, dist, true, 0.0);
     let slots = takeoff_names("footl");
     run.takeoff.iter().filter_map(|(n, w)| slots.iter().position(|s| s == n).map(|i| (format!("xx_h_swing_cycle_{}_to_air", NAMES[i]), *w))).collect()
 }
@@ -219,7 +242,7 @@ pub fn off_swing(dz: f32, dist: f32) -> Vec<(String, f32)> {
 /// A free step's jump at a swing bar (or a free hang: AC1's target type 0x80) `dz` up and `dist` away: the free-step
 /// takeoff, `swing`'s flight (`_to_swing`).
 pub fn freestep_swing(dz: f32, dist: f32, angle: f32, left: bool) -> Jump {
-    let mut j = freestep(dz, dist, angle, left, 0.0);
+    let mut j = freestep_in(HANG, dz, dist, angle, left, 0.0);
     j.flight = swing(dz, dist, left).flight;
     j.reception = vec![];
     j
@@ -249,19 +272,24 @@ pub fn impulsion(left: bool) -> Vec<(String, f32)> {
 /// A running jump onto a top `dz` above (negative: below) and `dist` away, taking off from the left foot or the right;
 /// `fast` (0..1, the run's speed against the sprint) blends the reception into its quick version (`_fast`).
 pub fn running(dz: f32, dist: f32, left: bool, fast: f32) -> Jump {
+    running_in(FREE_STEP, dz, dist, left, fast)
+}
+
+/// `running` on another target type's band.
+pub fn running_in(b: Band, dz: f32, dist: f32, left: bool, fast: f32) -> Jump {
     let (foot, other) = if left { ("footl", "footr") } else { ("footr", "footl") };
-    let v = dz.max(DOWN_MAX);
+    let v = dz.max(b.down);
     let rising = v >= DOWN_FROM;
     let down = dz < DOWN_FROM;
-    let h = ((v - DOWN_FROM) / (if rising { UP_MAX } else { DOWN_MAX } - DOWN_FROM)).clamp(0.0, 1.0);
-    let (class, d) = if dist < NEAR {
-        (Class::Near, dist / NEAR)
+    let h = ((v - DOWN_FROM) / (if rising { b.up } else { b.down } - DOWN_FROM)).clamp(0.0, 1.0);
+    let (class, d) = if dist < b.near {
+        (Class::Near, dist / b.near)
     } else if rising {
-        (Class::Up, (dist - NEAR) / ((MID - NEAR) * (1.0 - h)))
-    } else if dist >= MID {
-        (Class::Far, (dist - MID) / ((FAR - MID) * h))
+        (Class::Up, (dist - b.near) / ((b.mid - b.near) * (1.0 - h)))
+    } else if dist >= b.mid {
+        (Class::Far, (dist - b.mid) / ((b.far - b.mid) * h))
     } else {
-        (Class::Down, (dist - NEAR) / (MID - NEAR))
+        (Class::Down, (dist - b.near) / (b.mid - b.near))
     };
     let d = if d.is_nan() { 1.0 } else { d.clamp(0.0, 1.0) };
 
@@ -437,5 +465,14 @@ mod tests {
         let j = running(1.3, 3.0, true, 0.5);
         assert!(j.flight.iter().all(|(n, _)| n.contains("_up_")), "{j:?}");
         assert!(j.takeoff.iter().all(|(n, _)| n.contains("_up_")));
+    }
+
+    #[test]
+    fn a_hang_two_metres_up_is_not_all_the_way_up_on_its_band() {
+        // (The free step's band tops out at 1.3 m, the surface's at 2.5 and the hang's at 3: AC1's 0xB1EC40.)
+        let up = |j: &Jump| j.flight.iter().filter(|(n, _)| n.contains("_up_")).map(|p| p.1).sum::<f32>();
+        assert!((up(&running(2.0, 4.0, true, 0.0)) - 1.0).abs() < 1e-4);
+        let (surface, hang) = (up(&running_in(SURFACE, 2.0, 4.0, true, 0.0)), up(&running_in(HANG, 2.0, 4.0, true, 0.0)));
+        assert!((surface - 2.5 / 3.0).abs() < 1e-4 && (hang - 2.5 / 3.5).abs() < 1e-4, "{surface} {hang}");
     }
 }

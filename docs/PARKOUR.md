@@ -134,7 +134,10 @@ So no hidden locomotion tuning lives in these blocks: the values are constants i
   fall type from 0xD8C380 (drop < 1 m, or < 8 m on probe type 1 → 0/1 split at 2 m into 2/3; else 4; the faster one
   of each at a horizontal speed ≥ 2.5 m/s), then the switch to InAir (`SwitchLocomotionContext(8, ...)`). So the walk-off
   is at the edge line. Ours: the ground under the root gone.
-- **Fall type** by height (1 / 2 / 8 m) and a horizontal speed of 2.5 m/s (0xD8C380). **[B]**
+- **Fall type** by height (1 / 2 / 8 m) and a horizontal speed of 2.5 m/s (0xD8C380). **[V]** (2026-10-23): the
+  drop report's height under 1 m, or under 8 m on a probe of type 1 (its slot 0x148): types 0 / 1 below 2 m, 2 / 3 from
+  2 m; else 4 / 6; the second of each at 2.5 m/s or more. (Banned445's port tests the 2 m inside the 1 m branch, so
+  its types 2 / 3 never come.)
 - **Obstacles** (event 42, guard 0xB25230: vertical speed ≤ 0.2 m/s, a contact within 45° of the facing at least
   0.5 m over the feet): at least 0.7·h high → the hand collide `collide_full_hand_{070,150}cm` then the two-hand lean;
   lower → the foot collide `collide_full_footl_{050,070}cm`, blended by height; the root moves 0.15 s to the contact
@@ -291,7 +294,8 @@ The climbing is a grid, not free placement:
   `xx_l_climb_1m_lookaround_<up|down|left|right>`). **[B, ours]**
 - No move up → into a ledge hang (`TryTransitionToLedgeHang` 0xDF4BA0); legs → release; reaches onto other climb
   holds or a ladder across a gap (0xDF0050, 0xDEF3A0); corner climbs (0xDF29E0); the jump up from the climb
-  (`TryBackEject` 0xDF2F50: search 2.25 m over the root, 0.8 m out). **[B]**
+  (`TryBackEject` 0xDF2F50: search 2.25 m over the root, 0.8 m out). **[B]**, the back eject's 2.25 m / 0.8 m
+  **[V]** 2026-10-23.
 - Climb → ground below: `xx_l_climb_{1m,2m}_tr_h_wait_hipm_footl_a/b` (0xDF1D20). **[B, ours]**
 - `ChooseMove`'s checks on a table move: the body's boxes at the pose it ends in (`Human__ClimbBodyBoxesFree`
   0xB2DF90, axes right / in / up from the root: half 0.375 × 0.25 × 0.5 at 0.5 m up, 0.15 × 0.15 × 0.4 at 1.4 m; a long
@@ -306,7 +310,9 @@ The climbing is a grid, not free placement:
   from 1 m out to 0.3 m in, 0.35-1.8 m over the edge; a 0.2 m column over the edge, 0.1-1.8 m; a 0.2 × 0.2 × 1 m slab
   tilted 30° in, centred 0.35 m out and 0.2 m up. No floor is tested. **[V]** Ours tests the same boxes
   (`climb_out_room`), the edge from the hold the wrists are at.
-- Lost grip (a hold's object gone, 0xE55A10) → InAir with action 0x1120E17B, blend 0.2. **[B]**
+- Lost grip (a hold's object gone, 0xE55A10) → InAir with action 0x1120E17B, blend 0.2. **[V]** 2026-10-23: 0xE55A10
+  checks the four limbs' hold handles; the climb's switch (0xDF3300) plays 0x1120E17B with a 0.2 s blend and sets the
+  fall's top 1.2 m over the root, its origin 1 (the climb).
 
 Ours: in the six climbing poses the move comes from AC1's tables (`climb_table.rs`, the entries and action ids
 from Banned445's port; each id names its clip in the action blocks, `forge` example `action_clips`): the stick's ten
@@ -329,8 +335,12 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - **Flight by target type**: free step (type 1, also hay) 0x010DDAFA / 0x010DF0D8; passover (2); assassinate
   (0x8000) 0x21B4DC3D; surface (0x40 wall hang, 0x1000 ladder, ...) 0x011E555B; swing (0x80 free hang, others).
   **[B, ours]**
-- **Bands** (0xB1EC40): ground-type targets up to 1.3 m up, near 2.5 / mid 5 / far 7 m, down to −3 m (deep variants
-  past 3 m down); ledge-type targets up to 3.0 m up, bands 2.5 / 6 / 8 m. **[B, ours]**
+- **Bands** (0xB1EC40) by the target's type, up / near / mid / far, down to −3 m (deep variants past 3 m down): the
+  free step's and the ground's (1, 2, 0x100, 0x200, 0x400, 0x8000, 0x10000) 1.3 / 2.5 / 5 / 7 m; hay (0x800) far 6 m
+  (and the leap of faith's own past 3 m down); a surface's (0x40 wall hang, 0x1000, 0x2000, 0x4000) 2.5 / 2.5 / 5.5 /
+  7.5 m; the rest (0x80 free hang, swing bars) 3.0 / 2.5 / 6 / 8 m; the jump off a swing bar (takeoff kind 3) lifts its
+  band 0.7 m. Takeoff and flight weigh on the same band. **[V]** 2026-10-24 (ours had the free step's for every jump:
+  `jump::Band`, `running_in`).
 - **Over-drop**: a target more than 5 m below (3 m for the leap of faith) is aimed at 5 m down, then a free fall
   (g = 9.8, steering ≤ 15 m/s). Plain falls drift (decays 4 m/s², ≤ 5 m/s). **[B]**
 - **Arrival** (0xE07D00): free step → the reception `<flight>_tr_freestep_entry_foot?[_fast]` (0x010DE1FE /

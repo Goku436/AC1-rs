@@ -4434,7 +4434,14 @@ impl WallClimb {
             return Some(w);
         }
         // (At a hold: the planned arc, to catch it, with AC1's takeoff and flight for that height and distance.)
-        let j = crate::jump::running(to.y - p.y, ((to - p).with_y(0.0).length() - JUMP_RECEPTION_STEP).max(0.0), left, speed / JUMP_AC1_FAST_SPEED);
+        // (A hold with no wall under it is AC1's free-hang target, 0x80, on its own band.)
+        let j = crate::jump::running_in(
+            crate::jump::HANG,
+            to.y - p.y,
+            ((to - p).with_y(0.0).length() - JUMP_RECEPTION_STEP).max(0.0),
+            left,
+            speed / JUMP_AC1_FAST_SPEED,
+        );
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -5517,13 +5524,19 @@ impl WallClimb {
         let flat = (h - p).with_y(0.0);
         let aim = flat.normalize_or_zero();
         let angle = aim.dot(away.cross(Vec3::Y)).atan2(aim.dot(away));
-        let j = crate::jump::rebound(h.y - p.y, flat.length(), angle, left, 0.0);
-        let parts: Vec<(&str, f32)> = j.takeoff.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+        // (The takeoff's weights on the target type's band, AC1's 0xB1EC40: the wall hang's (0x40) for the surface flight,
+        // the free hang's (0x80) else.)
+        let mut takeoff_on = |band| {
+            let j = crate::jump::rebound_in(band, h.y - p.y, flat.length(), angle, left, 0.0);
+            let parts: Vec<(&str, f32)> = j.takeoff.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (surface, takeoff) = (takeoff_on(crate::jump::SURFACE)?, takeoff_on(crate::jump::HANG)?);
         // (Flown as AC1's hang-target flight, `xx_h_air_front_050cm_<foot>_to_swing` (the right foot's off to the left), not
         // the free step's: the running game's three ejects at holds, audit WALL-10.)
         let flight = format!("xx_h_air_front_050cm_{}_to_swing", if left { "footl" } else { "footr" });
-        let (takeoff, air) = (lib.get(&mix_name(&parts))?, lib.get(&flight).or_else(|| lib.get(JUMP_AIR))?);
-        if let Some(w) = Self::wall_hang_eject(lib, level, root, h, away, &takeoff, &air, left, from.clone()) {
+        let air = lib.get(&flight).or_else(|| lib.get(JUMP_AIR))?;
+        if let Some(w) = Self::wall_hang_eject(lib, level, root, h, away, &surface, &air, left, from.clone()) {
             return Some(w);
         }
         let planned = Transform { rotation: facing(away), ..*root };
@@ -7852,7 +7865,7 @@ impl WallClimb {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
         };
-        let j = crate::jump::running(dz, dist, true, 0.0);
+        let j = crate::jump::running_in(crate::jump::OFF_SWING, dz, dist, true, 0.0);
         let (takeoff, flight, reception) = (mix(&crate::jump::off_swing(dz, dist))?, mix(&j.flight)?, mix(&j.reception)?);
         let rot = world_rot(root.rotation);
         let onto_beam = level.perch_at(to, 0.15).filter(|(i, _)| level.perches[*i].axis() != Vec3::ZERO);
