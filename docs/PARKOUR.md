@@ -468,7 +468,11 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   least 0.15 m; **[V]** 0xDD9640, see "The shimmy's widths"); up/down: into the climb when foot holds 1.2 m below exist, else a hand step to a ledge 0.6-1.2 m
   away, else the swing back up to a ledge out from the wall (0xDD62A0, `hangwall_to_swingback_up_*`, ending in a free
   hang), else the pull-up if there is room (0xDE2270); corners
-  (0xDD3BB0), side jumps between ledges (0xDDD490; its sweep 0.2625 m back and 0.15 m out, 1.8 / 1.0 / 2.0 m tall to
+  (0xDD3BB0; **[V]** 2026-10-24: one of eight actions, 0x1E67E881-884 from the free hang and 885-888 from the wall hang, by
+  side and inside / outside; both hands' targets go onto the corner's ledge, the root from them (the wall hang's leaning
+  0xB157B0, the free hang's 0xB15AD0), then the hang's body boxes there (0xB2DC80 / 0xB2DD50) and the way round
+  (0xB2A410, 1.1 m for the wall hang, 2.4 m for the free; ours tests points along the turned root's path), then the root
+  interpolator over the action, 0x711130), side jumps between ledges (0xDDD490; its sweep 0.2625 m back and 0.15 m out, 1.8 / 1.0 / 2.0 m tall to
   the climb, wall and free hang, **[V]** 2026-10-24); lost ledge (0xDD20D0) → InAir. **[B]**
 - Hang → climb: `xx_h_hang{wall,free}_{u,d}_climb_1m` and the sideways `{ul,l,dl,ur,r,dr}` variants (0xDD46A0,
   0xDD48B0). **[B]**
@@ -1318,7 +1322,9 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   only turns the way to within 90 degrees of the edge's normal, pulls the point 0.5 m back and keeps it 0.7 m past the
   edge's line: no cast. A blocked way only picks the beam set (0xB145B0).
 - **Posts [B]**: the body keeps its facing and the pilotis wait leans toward the stick (`_wait`, `_left`, `_right` by the
-  stick's angle, 120 degrees full, at 3/s; 0xE51960); ours turned the body on the spot.
+  stick's angle, 120 degrees full, at 3/s; 0xE51960); ours turned the body on the spot. **[V]** 2026-10-24: 0xE51960
+  clamps the stick's signed angle off the facing to ±2.0944, eases +0x174 toward angle / 2.0944 by 3 × the step, and weighs
+  the wait 1 − |lean| and one side |lean|, as ours.
 - **Climbing onto a narrow top**: the lean's climb needs room for the body on the top (the capsule clear of walls), as the
   plinth had none.
 - Measured on the live-log routes with a beam in them (`wall1_*`, `roof*`, `seams_free_west`, `hay70_free`): unchanged or
