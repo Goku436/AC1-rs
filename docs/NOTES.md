@@ -1348,8 +1348,12 @@ what was made, by where it comes from. Every `GuidanceSystem` in the data sits i
 animated city gates, left out, as AC1 does (GUIDE-9, 2026-10-15): the byte after a `GuidanceSystem`'s class id is its
 `Component`'s enabled flag (bit 0x4000000 at +4, set by `Component`'s reader 0x5271C0), and AC1's guidance queries
 (0x5AAE50, 0x5AAFF0) skip every component without it; each edge's own enabled bit (bit 0 of the `GuidanceObject`'s first
-byte, 0x5ACC10) is tested as each is gathered (0x5452F0). A prop that breaks turns its other state's on; ours breaks
-none. Every enabled edge then goes through its system's `EdgeFilter` on its two normals in the world (0x6B0E10,
+byte, 0x5ACC10) is tested as each is gathered (0x5452F0). A prop that breaks turns its other state's on; ours breaks none. What breaks one (2026-10-24, Ghidra): its
+`PDeBreakableStructure` (vtable 0x17098BC) answers a `CollidedRequestEvent` (0xEFF530): a body whose flags hold
+0x10000000 and whose kind (+0xA8 & 7) is not 1 hitting it calls the structure's `Break` (`BhvBreakableStructure` vtable
+0x16FB6D4, +0xD4 = 0xD1F7D0): intact (state 0) only, it keeps the hitter, goes to state 1 (0xD1F970: the second rigid
+body and its guidance on, the first off) and starts its break timers. Which bodies carry 0x10000000 (thrown or limp
+characters, by the game's breaks in fights) is not read yet. Every enabled edge then goes through its system's `EdgeFilter` on its two normals in the world (0x6B0E10,
 `forge::guidance::EdgeFilter`, 2026-10-15): the cities' filters take floor/wall edges and slabs at 45 degrees, which
 turns down 8 of Damascus's ledge grabs (one of them steep anyway). Other open audit items closed: GUIDE-1 (AC1's steep
 rule is 40 degrees, `authored_steep`, as 0x66C350), GUIDE-8 (the air catch and the jump query take their grab points
