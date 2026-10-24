@@ -241,6 +241,8 @@ pub struct Character {
     pub wall_hand_t: [Option<crate::level::Ledge>; 2],
     /// How much the climbing IK (hands on holds, feet on the wall) applies now (0..1, faded).
     pub wall_ik_w: f32,
+    /// How much the lean's palms on the wall apply now (0..1: at once in the lean, faded out after it).
+    pub lean_ik_w: f32,
     /// How much ground foot placement applies now (0..1, faded: see the IK).
     pub foot_ik_w: f32,
     pub limp: bool,
@@ -685,6 +687,7 @@ pub fn spawn_character_shared(
         wall_hand_t: [None; 2],
         foot_ik_w: 0.0,
         wall_ik_w: 0.0,
+        lean_ik_w: 0.0,
         mirror: ik::mirror::Mirror::new(&rig),
         rig,
         bones,
@@ -2658,8 +2661,12 @@ pub fn animate(
         let to_model = |p: Vec3| model_from_world.transform_point3(p);
         let dir_to_model = |d: Vec3| model_from_world.transform_vector3(d);
 
-        // --- Leaning on a wall: the palms on it, where the clip holds them.
-        if let Some(w) = ch.wall.as_ref().filter(|w| ik_on && w.state == "lean") {
+        // --- Leaning on a wall: the palms on it, where the clip holds them. (Let go over `IK_OUT_RATE` after: cut as the
+        // lean went into the wall run's lead-in, the hand jumped 0.26 m off the wall in a frame.)
+        let leaning = ch.wall.as_ref().is_some_and(|w| ik_on && w.state == "lean");
+        ch.lean_ik_w = if leaning { 1.0 } else { (ch.lean_ik_w - dt * IK_OUT_RATE).max(0.0) };
+        let lw = smooth(ch.lean_ik_w);
+        if let Some(w) = ch.wall.as_ref().filter(|_| ik_on && lw > 0.0) {
             let n = w.normal;
             for i in 0..2 {
                 let arm = b.arms[i];
@@ -2681,7 +2688,7 @@ pub fn animate(
                             to_model(target),
                             Some(elbow + Vec3::new(0.0, 0.0, -0.3)),
                             None,
-                            smooth(wgt),
+                            smooth(wgt) * lw,
                         );
                     }
                 }
