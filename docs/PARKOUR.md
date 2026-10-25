@@ -625,7 +625,10 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   has room. **[B]** **[V]** 2026-10-25: the top entry (0xE41D50) plays 0x23A9666C with a 0.3 s blend, sets collision
   layer 0x1C, and moves the root onto the haystack entity's origin through the root interpolator (0x711130, its
   progress dt / time, capped at 1, in 0x7113F0) over the 3-D distance over the speed (+0x4F0), clamped to 0.1-0.4 s;
-  its timer runs the action's length + 0.2 s. Ours spreads the move to the seat over the whole clip instead. The hop
+  its timer runs the action's length + 0.2 s. The side jump's (0xE42700: 0x7750D212, 0.1 s) is the same; the
+  interpolator's mode 0 (the 11th argument, +0xC8) leaves the clip's root motion out, the root on a straight line.
+  Ours since 2026-10-25 (`try_hay`; it spread the move to the seat over the whole clip). The ground and free-step
+  entries (0xE42420 / 0xE42190) pick `_01` or `_02` at random and move the root over the action's length. The hop
   out's guard (0xE434E0) tests the spot 0.5 m on along the way out past where it leaves the footprint and 1.25 m up,
   with a box 0.35 / 0.5 / 0.75 (0xB2D2A0), as ours (`level::HAY_HOP_*`).
 - **Swing bars**: a free hang reached by a jump (target type 0x80) enters the swing reception (Ledge sub-state 8).

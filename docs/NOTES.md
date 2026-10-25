@@ -572,7 +572,9 @@ no code):
   step; the legs with the stick pulled back rebound off it backwards (push-off, then `xx_h_rebound_foot<l|r>_tr_fall`
   as it comes down, still facing the wall, landing standing). All from `HumanLadderData`'s table.
 - Haystack: `EntityDescriptorObject_HayStack`, `BhvHayStack(Data)`, `HumanHayStackData`, actor state
-  `InHayStack`, entry types `Top`, `Ground`, `FreeStep`, `SideJump` (only Top is recreated).
+  `InHayStack`, entry types `Top`, `Ground`, `FreeStep`, `SideJump`, all recreated: Top the faith landing
+  (0x23A9666C), SideJump `xx_h_air_to_haystack` (0x7750D212), Ground and FreeStep one of
+  `xx_h_freestep_footr_to_haystack_01` / `_02` (0x244CD280 / 0x244CFACB).
 - Leap of faith: actor state `LeapOfFaith`, `LeapOfFaithClip` resolved on jump start/end.
 - Landing: `LandingType` Safe / SmallDamage / HeavyDamage / Fatal: the damage landing from 3 m; the player's damage is
   the flagged mode's fixed table (over 8 m 10, 10 m 20, 12 m 40, 14 m 80, 16 m 120, 18 m 160, fatal over 20 m, of 200);

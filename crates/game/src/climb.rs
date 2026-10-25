@@ -676,6 +676,8 @@ const FAITH_NEAR: f32 = 7.5;
 const FAITH_DOWN: f32 = 30.0;
 const FAITH_LAND: &str = "xx_h_faith_jump_landing";
 const AIR_TO_HAY: &str = "xx_h_air_to_haystack";
+/// The hay entry's root move into the hay takes the distance over the speed, within these (s; 0xE41D50, 0xE42700).
+const HAY_ENTRY_SPAN: (f32, f32) = (0.1, 0.4);
 const HAY_WAIT: &str = "xx_h_haystack_wait";
 const HAY_WAIT_LOW: &str = "xx_l_haystack_wait";
 /// In the hay, settled this long (s) before hopping out (the dive's 0.2 s blend into the wait, audit HAY-5).
@@ -1331,6 +1333,8 @@ struct Move {
     /// The clip's own root motion left out: the root goes on a straight line from `start` by `correct` over the move, as
     /// AC1's root interpolator takes it (0x711130 / 0x7113F0) where the code drives the root (`free_to_wall_row`).
     in_place: bool,
+    /// Seconds `correct` is spread over (0: the whole move), the root interpolator's own time where AC1 gives it one.
+    correct_span: f32,
 }
 
 impl Move {
@@ -8574,9 +8578,11 @@ impl WallClimb {
         Some(w)
     }
 
-    /// Coming down into a haystack: the hay entry clip, corrected to end in the middle of it at the
-    /// bottom. `step_y` is this frame's vertical step (to tell that the entry height was just crossed).
-    fn try_hay(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, step_y: f32) -> bool {
+    /// Coming down into a haystack: the hay entry clip, the root on a straight line into the middle of it at the bottom
+    /// over the distance over the speed `v`, 0.1-0.4 s (AC1's top and side-jump entries, 0xE41D50 / 0xE42700: the root
+    /// interpolator onto the stack's origin, the clip's own root motion left out). `step_y` is this frame's vertical
+    /// step (to tell that the entry height was just crossed).
+    fn try_hay(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, v: Vec3, step_y: f32) -> bool {
         // (Not a plain walk off an edge: AC1's plain falls do not enter haystacks, only jumps and the let-go it aims at one;
         // audit HAY-8.)
         if self.grab_on_legs {
@@ -8595,13 +8601,15 @@ impl WallClimb {
             return false;
         };
         let Some(clip) = lib.get(name) else { return false };
-        let motion = world_rot(root.rotation) * root_motion_at(&clip, clip.frames());
-        let correct = hay.seat() - (root.translation + motion);
+        let correct = hay.seat() - root.translation;
+        let span = if v.length() > 5e-4 { correct.length() / v.length() } else { 0.0 };
         self.fall_v = None;
         self.queue.clear();
         self.start(clip, HAY.into(), root);
         if let Some(m) = &mut self.mv {
             m.correct = correct;
+            m.in_place = true;
+            m.correct_span = span.clamp(HAY_ENTRY_SPAN.0, HAY_ENTRY_SPAN.1);
         }
         true
     }
@@ -8850,6 +8858,7 @@ impl WallClimb {
             turn_span: 0.0,
             turn_eased: false,
             in_place: false,
+            correct_span: 0.0,
         });
     }
 
@@ -11240,7 +11249,7 @@ impl WallClimb {
             self.start(fall_loop, FALL.into(), root);
             self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
         }
-        if v.y < 0.0 && self.try_hay(lib, level, root, step.y) {
+        if v.y < 0.0 && self.try_hay(lib, level, root, v, step.y) {
             return;
         }
         // Ground crossed this frame on the way down (searching from a little above where we were).
@@ -11666,7 +11675,7 @@ impl WallClimb {
             let dur = m.clip.anim.duration;
             let frame = m.t.min(dur) * FPS;
             let at = |m: &Move| {
-                let k = (m.t / dur.max(1e-3)).min(1.0);
+                let k = (m.t / if m.correct_span > 0.0 { m.correct_span } else { dur.max(1e-3) }).min(1.0);
                 let motion = if m.in_place { Vec3::ZERO } else { world_rot(m.start_rot) * root_motion_at(&m.clip, frame) };
                 m.start + motion + m.correct * k
             };
@@ -11943,6 +11952,7 @@ impl WallClimb {
                     turn_span: 0.0,
                     turn_eased: next.turn != Quat::IDENTITY,
                     in_place: false,
+                    correct_span: 0.0,
                 });
                 return;
             }
