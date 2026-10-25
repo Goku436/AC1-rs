@@ -212,7 +212,17 @@ mixed front / left / right by the edge's side), the pull-down
   the 0x516D52Dx set instead unless the playing action is 0x59 or 0x01099C96 (the static jump's); crouched, 0x6DA7646E
   (or the other foot's) by (h − 0.2) / 1.1 over 0.2-1.3 m.
 - **Character proxy**: capsule radius 0.4 (0.35 + 0.05 keep distance), height 1.8, floating 0.37 m over the feet
-  (step), stick-to-ground cast 0.58 m (0x57D240). **[B, ours]**
+  (step), stick-to-ground cast 0.58 m (0x57D240). **[V]** (radius and height 2026-10-25, below)
+  **[V]** 2026-10-25: the capsule's owner (vtable 0x168A58C, ctor 0x52E700: radius +0x470 0.5, height +0x474 2.1, base
+  +0x478 0 by default) rebuilds its shape in 0x52E9C0 whenever the radius (0x52ED40) or height (0x52ED20) is set: radius
+  r = +0x470 × scale (at least the keep distance + 0.001), the shape's own radius r − keep distance (0.35); the segment
+  from base + r up by height × scale − 2r, the height less the float (+0x64) when both bytes +0x7F and +0x80 are on (on
+  the ground). Entering the ground (0xDA7D20) sets 0.4 and 1.8: on the ground the segment runs 0.77 to 1.4 m over the
+  feet with the 0.37 float, the capsule 0.37 to 1.8, as ours (`level::BODY_*`). The height alone changes elsewhere:
+  1.0 crouched (0xD859D0, back to 1.8 in 0xD85BE0 / 0xD85A90 / 0xD85DD0), 1.0 in a hang (0xDD2CA0) and 0xDA2E20, 0.9 on a
+  kiosk with no float (0xE3B480, the height kept at +0xB4 and put back by 0xE3AC00), 1.8 again leaving the air
+  (0xE03DE0). 0xDA7D20 also sets three fields of the controller to the radius less 0.4, 0.4 and 0.15 (+0x54, +0x58, +0x5C:
+  0, 0, 0.25; ?).
   **[V]** 2026-10-24: `CharacterController`'s constructor (0x57B4F0, vtable 0x168C484) gives defaults (keep distance 0.05
   at +0xCC, gravity −9.8 at +0x38, +0x50 70, +0x60 1.0, +0x64 0.51); its fields are not serialized (2 of its 23
   properties are, neither of these). Entering the ground (0xDAE6E0) sets them: +0x60 = 0.58 (0x5782C0) and +0x64 = 0.37
@@ -612,7 +622,12 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - **Ladders** (context 5): actions from `HumanLadderData`'s table (+392 + 4·state + 2·foot + inclination). **[B]**
 - **Hay** (context 21): the faith landing (0x23A9666C, blend 0.3 s) or `xx_h_air_to_haystack` (0.1 s), the root
   moved to the hay over clamp(d/speed, 0.1, 0.4) s; hop out on the legs if the exit point (+0.5 m out, 1.25 m up)
-  has room. **[B]**
+  has room. **[B]** **[V]** 2026-10-25: the top entry (0xE41D50) plays 0x23A9666C with a 0.3 s blend, sets collision
+  layer 0x1C, and moves the root onto the haystack entity's origin through the root interpolator (0x711130, its
+  progress dt / time, capped at 1, in 0x7113F0) over the 3-D distance over the speed (+0x4F0), clamped to 0.1-0.4 s;
+  its timer runs the action's length + 0.2 s. Ours spreads the move to the seat over the whole clip instead. The hop
+  out's guard (0xE434E0) tests the spot 0.5 m on along the way out past where it leaves the footprint and 1.25 m up,
+  with a box 0.35 / 0.5 / 0.75 (0xB2D2A0), as ours (`level::HAY_HOP_*`).
 - **Swing bars**: a free hang reached by a jump (target type 0x80) enters the swing reception (Ledge sub-state 8).
   **[B]**
 
