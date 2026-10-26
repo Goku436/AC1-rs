@@ -121,8 +121,8 @@
 //! front, the entry
 //! (`xx_h_kiosk_front_freestep_footr_tr_monkeybar_<left|right>_footr`, turning along the counter), one run along it
 //! (`xx_h_kiosk_front_monkeybar_<side>_footr`) and off its end (`..._tr_fall`) into the air; along the stall's axis,
-//! within 10 degrees (a side), `xx_h_kiosk_side_freestep_foot<l|r>` then a free-step jump on out of it (Banned445's
-//! port, `kiosk.rs`). (Ours had them as overhead monkey bars jumped up to from the ground: AC1 has no such move.)
+//! within 10 degrees (a side), `xx_h_kiosk_side_freestep_foot<l|r>` held on what is under it, then past 0.73 of it the
+//! roll `xx_h_kiosk_side_freestep_to_roll` (0xE3E3F0; Banned445's port, `kiosk.rs`). (Ours had them as overhead monkey bars jumped up to from the ground: AC1 has no such move.)
 //!
 //! Clip seams inside a move crossfade over 0.05-0.25 s by how far the hands and feet jump: some AC1
 //! chains do not line up (the standing jump-up starts in the air, its crouch ends on the ground).
@@ -998,6 +998,8 @@ struct KioskRun {
     dir: Vec3,
     /// 0 the entry, 1 the run along it.
     stage: u8,
+    /// A side's free step comes down on what is under it (at this height): the roll at its cut, else the fall at its end.
+    rolls: Option<f32>,
 }
 /// Standing on a perch: within this of its top line.
 pub const PERCH_REACH: f32 = 0.3;
@@ -1029,9 +1031,6 @@ const BEAM_VARIANT_DROP: f32 = 0.4;
 const DROP_EDGE_ALONG: (f32, f32) = (-0.3, 1.1);
 const DROP_EDGE_UP: f32 = 0.3;
 const DROP_EDGE_MIN: f32 = 0.5;
-/// AC1's free step with no target: launched this fast on and up (m/s).
-const FREE_STEP_SPEED: f32 = 5.4;
-const FREE_STEP_UP: f32 = 1.0;
 /// An eject goes the stick's way past this length, at most `EJECT_MAX_TURN` off straight out, none past `EJECT_REFUSE`
 /// (rad).
 const EJECT_STICK_DEAD: f32 = 0.3;
@@ -1106,8 +1105,6 @@ const RECEPTION_STAY: f32 = 0.17;
 const CATCH_SIDE_COS: f32 = 0.94;
 const CATCH_BEHIND_COS: f32 = -0.5;
 const CATCH_SIDE_REACH: f32 = 1.2;
-/// A jump with no target is weighted for a level one this far ahead (m).
-const FREE_JUMP_DIST: f32 = 2.5;
 /// A jump with no target comes down at this (m/s²) until falling at `FREE_JUMP_FAST` (m/s), held there till its free
 /// target, then under gravity: the running game's, measured off Damascus roofs (20 m/s², about 8 m/s).
 const FREE_JUMP_GRAVITY: f32 = 20.0;
@@ -1246,12 +1243,17 @@ const KIOSK_AT: f32 = 0.05;
 const KIOSK_TOP_NEAR: f32 = 0.5;
 /// Off the end of a counter (`_tr_fall`): the way on it carries into the fall (m/s; the clip goes 0.9 m on in 0.53 s).
 const KIOSK_OFF_SPEED: f32 = 1.7;
-/// A side's free step is taken as off the counter once its root is this far under where it started (m).
-const KIOSK_OFF_DROP: f32 = 0.05;
 /// The free step's reception on a kiosk plays this share of its length before the entry (0xE3EAA0's 0.6).
 const KIOSK_RECEPTION_PHASE: f32 = 0.6;
-/// Off a kiosk side's free step, a body more than this behind the root (m, the hips) starts the jump on out under them.
+/// Off a kiosk side's free step, a body more than this behind the root (m, the hips) starts the roll or fall under them.
 const KIOSK_OFF_LAG: f32 = 0.3;
+/// A kiosk side's free step rolls once this share of it has played with the ground underfoot (0xE3D9A0's 0.73).
+const KIOSK_ROLL_PHASE: f32 = 0.73;
+/// What is under a kiosk side's free step is looked for from this above the counter, down to this under it (m).
+const KIOSK_ROLL_PROBE: f32 = 0.1;
+const KIOSK_ROLL_DEPTH: f32 = 3.5;
+/// The roll onto the ground off a kiosk's side (action 0x2288984C, 2.1 m on in 0.53 s).
+const KIOSK_SIDE_ROLL: &str = "xx_h_kiosk_side_freestep_to_roll";
 /// A low obstacle run onto (see `vault`): top height above the feet, and how far ahead it is spotted; tops
 /// up to `STEP_UP_MAX` are stepped onto from stopping against them (`collide`); the root ends this far in from the edge.
 /// (From 0.5 m: AC1's obstacle response starts there (event 42's guard 0xB25230, a contact at least 0.5 m over the
@@ -4432,30 +4434,6 @@ impl WallClimb {
         Some(w)
     }
 
-    /// A free step off a post or beam along `dir` with no target: AC1's free-step takeoff (the group by the way it goes off
-    /// the facing) and flight, launched `FREE_STEP_SPEED` on and `FREE_STEP_UP` up, then the fall.
-    fn free_step(lib: &mut AnimLib, root: &Transform, dir: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
-        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
-        let aim = dir.with_y(0.0).normalize_or_zero();
-        let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
-        let j = crate::jump::freestep(0.0, FREE_JUMP_DIST, angle, left, 0.0);
-        let mut mix = |parts: &[(String, f32)]| {
-            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
-            lib.get(&mix_name(&parts))
-        };
-        let (takeoff, air) = (mix(&j.takeoff)?, mix(&j.flight)?);
-        debug!("climb: free step off the perch with no target via {}", takeoff.name);
-        // (From the facing he has: the takeoff group turns the body toward the step itself, `narrow_free_jump`.)
-        let planned = *root;
-        let mut w = WallClimb::new(JUMP, -aim);
-        w.queue = vec![Queued::new(air, FALL)];
-        w.fall_with = Some(aim * FREE_STEP_SPEED + Vec3::Y * FREE_STEP_UP);
-        w.can_catch = true;
-        w.start(takeoff, JUMP.into(), &planned);
-        w.ease_in(from, root);
-        Some(w)
-    }
-
     /// A running jump aimed at the best place to land ahead (`jump_target`: a post, a beam, a top across a
     /// gap), flying an arc that comes down on it; with none, the plain running jump.
     #[allow(clippy::too_many_arguments)]
@@ -4503,7 +4481,7 @@ impl WallClimb {
         // At a kiosk: onto its counter (AC1's jump type 0x400, then `HumanKiosk`).
         if let Some(t) = top
             && let Some(k) = level.kiosk_at(t, KIOSK_AT)
-            && let Some(w) = Self::jump_kiosk(lib, root, k.axis, t, speed, left, false, from.clone())
+            && let Some(w) = Self::jump_kiosk(lib, level, root, k.axis, t, speed, left, false, from.clone())
         {
             return Some(w);
         }
@@ -5037,7 +5015,7 @@ impl WallClimb {
             return None;
         }
         let k = level.kiosk_at(c.pos, KIOSK_AT)?;
-        Self::jump_kiosk(lib, root, k.axis, c.pos, speed, left, false, from)
+        Self::jump_kiosk(lib, level, root, k.axis, c.pos, speed, left, false, from)
     }
 
     /// A jump onto the kiosk counter at `to` (AC1's jump type 0x400; `axis` the stall's, along its front): the takeoff and
@@ -5045,7 +5023,18 @@ impl WallClimb {
     /// the flight, then the entry by the side it comes from (`kiosk_entry_side`), `HumanKiosk`'s first stage; `kiosk_next`
     /// plays the rest. `None` when the clips are missing or land too far off.
     #[allow(clippy::too_many_arguments)]
-    fn jump_kiosk(lib: &mut AnimLib, root: &Transform, axis: Vec3, to: Vec3, speed: f32, left: bool, freestep: bool, from: Option<Pose>) -> Option<WallClimb> {
+    #[allow(clippy::too_many_arguments)]
+    fn jump_kiosk(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        axis: Vec3,
+        to: Vec3,
+        speed: f32,
+        left: bool,
+        freestep: bool,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
         let p = root.translation;
         let way = (to - p).with_y(0.0);
         let aim = way.normalize_or_zero();
@@ -5079,11 +5068,25 @@ impl WallClimb {
         }
         // (No test of the way over: a city stall's own shape stands in it (ours places it 0.9 m out in front of the counter,
         // and its intact front closes it up to the awning), and AC1 comes onto the counter all the same.)
-        // (A side's free step runs on along the counter and off it, 4 m on and 2.9 m down: AC1 jumps on out from it
-        // (0xE3BF90). Ours ends it where it leaves the counter's height, the jump on out taking over there.)
-        let off_counter =
-            side.lateral().then(|| (1..=entry.frames() as usize).map(|f| f as f32).find(|&f| root_motion_at(&entry, f).z < -KIOSK_OFF_DROP)).flatten();
-        let cut = off_counter.map(|f| (entry.name.clone(), f / FPS));
+        // (A side's free step runs on along the counter and off it, 4 m on and 2.9 m down, through AC1's controller: past
+        // 0.73 of it with the ground underfoot it rolls onto the ground (0xE3E3F0 -> 0xE3D9A0, 0xE3DA00), at its end with
+        // none it falls (0xE3DE20); there is no jump on out (0xE3BF90 is HumanRiding's, as Banned445's port found). Ours
+        // ends it at the first frame past 0.73 where its root is down on what is under it (the counter or the ground past
+        // it), and rolls from there, on that height. [ours] Ours' root follows the clip down into the counter before then,
+        // where AC1's controller holds the body on it.)
+        let landing = side
+            .lateral()
+            .then(|| {
+                let rot = world_rot(facing(aim));
+                let n = entry.frames();
+                ((n * KIOSK_ROLL_PHASE).ceil() as usize..=n as usize).find_map(|f| {
+                    let q = to + rot * root_motion_at(&entry, f as f32);
+                    let under = level.ground(q.with_y(to.y + KIOSK_ROLL_PROBE), 0.0, KIOSK_ROLL_DEPTH)?.point.y;
+                    (q.y <= under + 0.02).then_some((f as f32, under))
+                })
+            })
+            .flatten();
+        let cut = landing.map(|(f, _)| (entry.name.clone(), f / FPS));
         // (Arrived, AC1 plays the free step's reception on the counter, the root held on the target (0xE07D00: 0x010DF150 /
         // 0x010DE1FE, its own motion left out), and `HumanKiosk`'s wait starts the entry once it is 0.6 through (0xE3EAA0);
         // ours went from the flight straight into the entry.)
@@ -5100,7 +5103,7 @@ impl WallClimb {
             q.in_place = true;
         }
         w.cuts.extend(cut);
-        w.kiosk = Some(KioskRun { side, dir: aim, stage: 0 });
+        w.kiosk = Some(KioskRun { side, dir: aim, stage: 0, rolls: landing.map(|(_, y)| y) });
         w.ease_in(from, root);
         debug!("climb: jump onto kiosk at {to:.2}, side {side:?} ({} then {})", takeoff.name, flight.name);
         Some(w)
@@ -7557,7 +7560,7 @@ impl WallClimb {
         // At a kiosk: onto its counter, from the free step (AC1's jump type 0x400).
         if let Some(to) = to
             && let Some(k) = level.kiosk_at(to, KIOSK_AT)
-            && let Some(w) = Self::jump_kiosk(lib, root, k.axis, to, 0.0, self.freestep_left, true, self.last.clone())
+            && let Some(w) = Self::jump_kiosk(lib, level, root, k.axis, to, 0.0, self.freestep_left, true, self.last.clone())
         {
             *self = w;
             return true;
@@ -8459,14 +8462,14 @@ impl WallClimb {
     }
 
     /// A `HumanKiosk` stage ended: a front side's entry goes on into its run along the counter, the run off its end into
-    /// the air (`_tr_fall` posing the fall); a lateral side's free step jumps on out along the jump's way, at a target
-    /// there, else AC1's free step (Banned445's port: 0xE3E320, 0xE3E390, 0xE3BF90).
-    fn kiosk_next(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, rig: &Rig, cr: ClimbRig) -> bool {
+    /// the air (`_tr_fall` posing the fall); a lateral side's free step rolls onto what is under it, or falls with nothing
+    /// there (0xE3E320, 0xE3E390, 0xE3E3F0).
+    fn kiosk_next(&mut self, lib: &mut AnimLib, root: &mut Transform, rig: &Rig, cr: ClimbRig) -> bool {
         let Some(mut k) = self.kiosk else { return false };
         if k.side.lateral() {
             self.kiosk = None;
             // (Where ours cuts the side's free step, at the counter's end, its root has run 1.5 m ahead of the body (the
-            // clip's root leads to where it lands, 4 m on): the jump on out starts under the hips, the pose faded from
+            // clip's root leads to where it lands, 4 m on): the roll starts under the hips, the pose faded from
             // kept where it shows. From the root, the fade carried the body 1.5 m in 0.1 s, a pop of 0.3 m a frame.)
             let (mut from, mut at) = (self.last.clone(), *root);
             if let Some(pose) = &self.last {
@@ -8482,15 +8485,24 @@ impl WallClimb {
                     at.translation += lag;
                 }
             }
-            let w = jump_target(level, at.translation, k.dir, None)
-                .and_then(|to| Self::jump_freestep(lib, level, &at, to, true, from.clone()))
-                .or_else(|| Self::free_step(lib, &at, k.dir, true, from.clone()));
-            debug!("climb: off the kiosk's side, on along {:.2}", k.dir);
             // (The root moved there now, with the pose shown: a frame later, the body showed 1.9 m ahead for a frame.)
-            if w.is_some() {
-                *root = at;
+            *root = at;
+            self.last = from;
+            if let Some(y) = k.rolls
+                && let Some(c) = lib.get(KIOSK_SIDE_ROLL)
+            {
+                root.translation.y = y;
+                let speed = root_motion_at(&c, c.frames()).length() / c.anim.duration.max(1e-3);
+                self.queue.clear();
+                self.start(c, GROUND.into(), root);
+                self.exit_velocity = k.dir * speed.min(MAX_EXIT_SPEED);
+                debug!("climb: off the kiosk's side onto the ground, rolling on along {:.2}", k.dir);
+                return true;
             }
-            return w.map(|w| *self = w).is_some();
+            let Some(c) = lib.get(FALL_POSE) else { return false };
+            self.let_fall(c, root, k.dir * KIOSK_OFF_SPEED);
+            debug!("climb: off the kiosk's side into a fall");
+            return true;
         }
         let Some((run, off)) = k.side.run_and_off() else { return false };
         if k.stage == 0
@@ -11703,6 +11715,15 @@ impl WallClimb {
                 m.start + motion + m.correct * k
             };
             let mut next = at(m);
+            // (A kiosk side's free step, 2.9 m down by its root, held on what is under it, the counter or the ground past
+            // it, as AC1's controller holds the body: `HumanKiosk` plays it through the controller, 0xE3E3F0. Followed
+            // down, ours sank 1 m into the counter before its end.)
+            if m.to == KIOSK
+                && self.kiosk.is_some_and(|k| k.side.lateral())
+                && let Some(under) = level.ground(next.with_y(m.start.y + KIOSK_ROLL_PROBE), 0.0, KIOSK_ROLL_DEPTH)
+            {
+                next.y = next.y.max(under.point.y);
+            }
             if matches!(m.to.as_str(), JUMP | LAND | GROUND | GROUND_ACT | HAY_OUT) {
                 // Sliding along the ground (takeoff, landing): stop at walls, for the rest of the clip too; a
                 // ground move (a stop, a turn round, a landing) stops at an edge too rather than walk off it.
@@ -11999,7 +12020,7 @@ impl WallClimb {
             if self.state == SWING && self.swing_next(lib, level, root, &done.clip) {
                 return;
             }
-            if self.state == KIOSK && self.kiosk_next(lib, level, root, rig, cr) {
+            if self.state == KIOSK && self.kiosk_next(lib, root, rig, cr) {
                 return;
             }
             // (A fade into the move just done, still under way (a blend longer than its clip: the wall run's ladder entry),

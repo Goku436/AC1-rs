@@ -399,7 +399,7 @@ front and the two sides, in every `Kiosk_*` entity group: they had been missed, 
 top-level entities) is a jump target (type 0x400, its piece's middle, in the jump's own zone only). Across its front:
 `xx_h_kiosk_front_freestep_footr_tr_monkeybar_<left|right>_footr`, one `xx_h_kiosk_front_monkeybar_<side>_footr` along
 the counter and `_tr_fall` off its end; along the stall entity's +Y (within 10 degrees) onto a side,
-`xx_h_kiosk_side_freestep_foot<l|r>` and a free-step jump on out (Banned445's port). Kiosk K south of block L is one.
+`xx_h_kiosk_side_freestep_foot<l|r>` and past 0.73 of it the roll `xx_h_kiosk_side_freestep_to_roll` (Banned445's port). Kiosk K south of block L is one.
 (Ours had kiosks as overhead monkey bars jumped up to from the ground: removed.) On the ground the root's height follows the ground averaged 0.35 m
 behind and ahead along the way it moves (steps under 0.4 m count; an edge or a wall does not), so stairs become a
 steady climb with each foot set on its own step by the foot IK (which also drops the pelvis for the lower foot and

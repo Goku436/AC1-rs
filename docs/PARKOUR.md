@@ -815,8 +815,11 @@ in this batch, by audit id:
   - NARROW-16: kiosks are AC1's market-stall counters, read from the cities' `Kiosk_*` entity groups (Damascus: 112
     stalls), not overhead bars: a jump target (type 0x400, its piece's middle, in the jump's own zone only), the entry
     side taken against the stall entity's +Y (0x4C2F90's second matrix row). Across the front: the entry, one run along
-    the counter and `_tr_fall` off its end; along it, the side free step (ended where it leaves the counter) and a
-    free-step jump on out. [ours] The stall's own collision is left out of the kiosk's room and clear-way tests and the
+    the counter and `_tr_fall` off its end; along it, the side free step and, past 0.73 of it with something underfoot,
+    the roll `xx_h_kiosk_side_freestep_to_roll` (0x2288984C) into the ground, or at its end with nothing the fall
+    (0xE3E3F0, 0xE3D9A0, 0xE3DA00, 0xE3DE20). **[V]** 2026-10-25: there is no jump on out (0xE3BF90 is HumanRiding's,
+    as Banned445's port has it); ours jumped on out from where the step left the counter, and now holds the step on what
+    is under it (AC1's controller, the clip's root 2.9 m down) and rolls at the first frame past 0.73 on it. [ours] The stall's own collision is left out of the kiosk's room and clear-way tests and the
     way over: in Damascus it stands in the way (ours places it about 0.9 m out in front of the counter, a placement still
     to check) where AC1 comes onto the counter. The ground-entered overhead monkey bars are gone. **[V]** 2026-10-25:
     arrived on the counter (0xE07D00's type 0x400), AC1 plays the free step's reception (0x010DF150 with the left foot

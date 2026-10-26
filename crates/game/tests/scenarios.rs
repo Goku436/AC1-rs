@@ -833,12 +833,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "landing_death"],
     },
     Scenario {
-        // (Audit NARROW-16: along the stall's axis, onto a side: the side free step, then a free-step jump on out.)
-        name: "the tap jump at kiosk K along its axis: onto its side and a free step on out",
+        // (Audit NARROW-16: along the stall's axis, onto a side: the side free step, then past 0.73 of it on the counter's
+        // end AC1's roll (0xE3D9A0); no jump on out.)
+        name: "the tap jump at kiosk K along its axis: onto its side, its free step and the roll",
         tags: &["jump", "misc"],
         env: &[("AC1_START", "24.5,-9.6,-90"), ("AC1_WALK", "5.2"), ("AC1_HIGH", "0-5"), ("AC1_LEGS", "0.2-0.3")],
         secs: 4.0,
-        want: &["side Lateral", "off the kiosk's side"],
+        want: &["side Lateral", "off the kiosk's side onto the ground, rolling on"],
         never: &["EMBED", "landing_death"],
     },
     Scenario {
