@@ -1485,7 +1485,11 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   is kind 3 whatever is below (4 with the legs held unless a drop edge is ahead, then kind 0), in place of kind 2, its
   free jump kept for no target: ours searches the post's box every frame then (gauntlet G32: a block 1 m over a post,
   0.8 m ahead, jumped onto).
-- **Jumps with no target [B]**: AC1's free jump off a narrow object (the narrow interpreter's jump kinds, BeamState
+- **Jumps with no target [B]**, the target **[V]** 2026-10-26 (`BuildFreeJumpTarget` 0xB1E7F0 read: mode 1 → 1 m on,
+  mode 2 → 3 m, mode 0 → the character's tuning distance (8 m by Banned445's reading), each 3 m under the feet; with the
+  drop edge's report, the edge's height less min(drop + 0.25, 3), then 0xB17D50 (0.7, π/2). The character field +0x994
+  overrides it: 4 gives mode 2's 3 m, 3 gives 4.5 m on and 2.3 m down; Altaïr's is the general 0, as the ground's query
+  kind-7 shows): AC1's free jump off a narrow object (the narrow interpreter's jump kinds, BeamState
   0xEEAAA0 / NarrowObjectState 0xEE9564, `BuildFreeJumpTarget` 0xB1E7F0): free running, only over a drop edge ahead along
   the stick (`FindDropEdgeAhead` 0xB1C100: the hold edges crossing the stick's plane 0.3 m back to 1.1 m on, within 0.3 m
   in height, a drop of 0.5 m or more past them), 3 m on over a drop of 1 m or less from a beam, else 8 m on (the stick within
