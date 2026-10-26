@@ -5174,8 +5174,11 @@ impl WallClimb {
                 w.perch = Some(i);
                 debug!("climb: onto perch {i} at {q:.2} (landing on it)");
             }
-            // On at the run's speed once down (the reception's `_tr_freestep_entry` leads into the run in AC1's graph).
-            None => w.exit_velocity = aim * speed,
+            // On at the walk once down, which the run then speeds up, as the free-step jump's (`jump_freestep`): every
+            // running jump onto a top in the 41 traced routes handed over to HumanGround on `xx_l_walk_slow_hipm_footl`, at
+            // about 3 m/s, 4.5-5 over the next 0.2 s, 6-7 after; ours went on at the run's speed and led by 0.6 m (route
+            // `roof2_free_north`; 32 of 41 routes within 1 m at the end, 31 before).
+            None => w.exit_velocity = aim * PERCH_OFF_WALK,
         }
         // (The reception ends once its step is taken, not standing out the rest of it (played faster instead, its
         // front-loaded step lurched the root to 16 m/s); onto a beam too: the running game free-stepped on 0.09 s after

@@ -1418,7 +1418,16 @@ count restarts with the game) replayed in ours in headless control mode (`AC1_CO
 its cache, three games at once: the 41 in about three minutes; `AC1_TRACE=<file>` on a `run` line, the path with no
 spaces, as a control line splits on whitespace). Scripts and traces outside the repo (game data). Ending within 1 m of
 the running game: 29 of 41 on dev 9ce9dc2 (mean path gap 0.47 m), 31 with AC1's mount guard above (0.50 m: `roof2_free_nw`
-above). The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
+above), 32 (0.47 m) with a running jump's reception handing over to the ground at the walk, as the free-step jump's does:
+in all 15 running-jump receptions onto a top in the traces the running game went into HumanGround on `walk_slow` at
+about 3 m/s, 4.5-5 over the next 0.2 s and 6-7 after; ours went on at the run's speed (`roof2_free_north` led by 0.6 m,
+`seams_free_south` 1.37 m off at the end, now 0.39). Ours' reception is still faster than AC1's (about 5 m/s over its
+last 0.2 s against 3.1; the `_fast` share of the reception's blend comes from the human's weights at +0x1c4, copied in
+by 0xE07D00 through 0x502E30, whose writer is not found; the reception played without `_fast` changed no route).
+Tried and dropped: cutting the paired beams only by triangles reaching their top (AC1 cuts by the guidance object's own
+shape, which ours has not loaded; the roof-edge beam on roof2 north, its west side on the roof 4-12 cm under its top, is
+cut away whole and the running game jumped onto it): Damascus went from 5218 beams to 8022 and the routes from 31 to 28
+within 1 m (`roof1_free_east`, `seams_free_west` jumped onto the new ones). The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
 
