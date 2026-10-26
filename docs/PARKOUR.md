@@ -633,6 +633,12 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
 - **Ground landings, soft or hard**: one blend, its hard share drop / 2.5 m (0xE05940, as Banned445's port reads it; the
   trace's action names only the soft clip); ours blends the two by it (it was a switch at 7 m/s down). **[B, ours]**
 - **Ladders** (context 5): actions from `HumanLadderData`'s table (+392 + 4·state + 2·foot + inclination). **[B]**
+  **[V]** 2026-10-25 (its constructor 0xC7CAC0, slots 0x62-0xAD): states 0 / 1 the low / high wait, 2-5 the low and
+  high climbs up and down, 7 / 8 the low / high entries from the ground (`xx_<l|h>_wait_hipm_foot*_tr_<l|h>_ladder_climb_
+  up_*`), 9 / 10 the pull-downs from the top (the second slot of each foot `xx_l_ladder_wait_l`), 11 / 12 the low / high
+  exits down onto the ground, 13 / 14 off the top (low into the wait, high into a free step), 15 / 16 the low / high
+  let-go (`_tr_falling`), 17 and 18 both the rebound; state 6 left unset. Every one is a clip ours plays; the two slots
+  of each foot hold the same action except for states 9 and 10.
 - **Hay** (context 21): the faith landing (0x23A9666C, blend 0.3 s) or `xx_h_air_to_haystack` (0.1 s), the root
   moved to the hay over clamp(d/speed, 0.1, 0.4) s; hop out on the legs if the exit point (+0.5 m out, 1.25 m up)
   has room. **[B]** **[V]** 2026-10-25: the top entry (0xE41D50) plays 0x23A9666C with a 0.3 s blend, sets collision
