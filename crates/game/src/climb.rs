@@ -539,6 +539,11 @@ const HANG_ROOT_DOWN: f32 = 1.1;
 /// A free hang's root rests this far under its hold (m: AC1's 2.4 under the higher hand's target, `ComputeRootFromHandTargets`
 /// 0xDD6730; its wait clips hold the wrists 2.3 m over the root).
 const FREE_ROOT_DOWN: f32 = 2.4;
+/// The turn under a beam (`turn_under_beam`): the stick at least this far back (cos of 135 degrees off the facing), the
+/// far edge's box this far on from the hands (m), and its normal within 70 degrees of the facing (AC1's 0xDD30E0).
+const TURN_UNDER_BACK_COS: f32 = std::f32::consts::FRAC_1_SQRT_2;
+const TURN_UNDER_AHEAD: f32 = 0.45;
+const TURN_UNDER_COS: f32 = 0.342;
 const HANG_ROOT_HOLD_REACH: f32 = 0.4;
 const HANG_SETTLE_SPEED: f32 = 0.6;
 /// A wall hang at rest leans to AC1's body axis (`wall_hang_lean`) at this rate (rad/s).
@@ -6347,6 +6352,57 @@ impl WallClimb {
         true
     }
 
+    /// In a free hang, the stick more than 135 degrees off the facing: AC1's turn round under a beam onto its far side
+    /// (Ledge event 10, its guard 0xDD30E0, start 0xDD3490; Banned445's `try_turn_under_beam`, RE/28 section 7): a hold
+    /// edge facing away within 70 degrees in a box `TURN_UNDER_AHEAD` on from the hands (0.55 m either way along, 0.3 m
+    /// deep, 0.25 m up or down), the way under it clear (a box 1 m up from root to root, 0.2 m either side, 0.2 m past
+    /// each end, 0.8 m up or down) and the free hang's body boxes at the new root (0xB2DD50); then
+    /// `xx_h_hangfree_turn_beam_180` (action 0x2F3C2551) into the free hang on it, the root carried onto that hang's
+    /// over the action. Ours had no turn under a beam.
+    fn turn_under_beam(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        if !matches!(self.state.as_str(), FREE | FREE_OPEN) || self.mv.is_some() {
+            return false;
+        }
+        let n = self.normal.with_y(0.0).normalize_or_zero();
+        if n == Vec3::ZERO {
+            return false;
+        }
+        let fwd = -n;
+        let along = Vec3::Y.cross(n).normalize_or_zero();
+        // (The hands' middle at the free hang's rest, as the row steps measure it.)
+        let centre = root.translation + Vec3::Y * FREE_ROOT_DOWN - n * 0.05 + fwd * TURN_UNDER_AHEAD;
+        let Some((q, nn)) = level
+            .ledges
+            .iter()
+            .filter_map(|l| {
+                let out = l.out.with_y(0.0).normalize_or_zero();
+                let q = l.closest(centre);
+                let d = q - centre;
+                (out.dot(fwd) >= TURN_UNDER_COS && d.dot(along).abs() <= 0.55 && d.dot(fwd).abs() <= 0.3 && d.y.abs() <= 0.25).then_some((q, out))
+            })
+            .min_by(|a, b| a.0.distance(centre).total_cmp(&b.0.distance(centre)))
+        else {
+            return false;
+        };
+        let to = q + nn * 0.05 - Vec3::Y * FREE_ROOT_DOWN;
+        let d = (to - root.translation).with_y(0.0);
+        let way = d.normalize_or(fwd);
+        let way_free =
+            level.box_free((root.translation + to) * 0.5 + Vec3::Y * 1.0, [way.cross(Vec3::Y), way, Vec3::Y], Vec3::new(0.2, d.length() * 0.5 + 0.2, 0.8));
+        if !way_free || !free_hang_body_free(level, to, -nn) {
+            if why() {
+                debug!("climb: no turn under the beam onto {q:.2}: {}", if way_free { "no room for the free hang there" } else { "the way under is blocked" });
+            }
+            return false;
+        }
+        let Some(clip) = lib.get("xx_h_hangfree_turn_beam_180") else { return false };
+        let travel = world_rot(root.rotation) * root_motion_at(&clip, clip.frames());
+        debug!("climb: turned round under the beam onto its far side at {q:.2}");
+        // (The wall normal turns with the clip's own half turn at its end, onto the far edge's.)
+        self.start_chain(vec![clip], vec![FREE.into()], root, to - (root.translation + travel));
+        true
+    }
+
     /// In a free hang, up: into the wall hang in place where both feet find the wall under the hands (AC1's CanPullup
     /// 0xDE2270 for a free hang: `sub_DE0E30`'s two foot rays at the hands, as `feet_on_wall`, and the body's room; then
     /// Pullup_Start 0xDDBE80 -> 0xDD4160 plays `xx_h_hangfree_tr_hangwall` (action 0x01B702FD) into the wall hang's wait,
@@ -10926,6 +10982,11 @@ impl WallClimb {
         // moves; Banned445's port). In the running game (Damascus, live log 2026-10-12, the haystack route north-east of the
         // seams roofs) he hung from a roof's edge after the pull-down, W and the legs held, and pulled up onto it; ours
         // leapt to a hold 2.4 m higher.
+        // (The stick back from a free hang: the turn round under a beam onto its far side first, before the down moves the
+        // same stick asks for (Banned445's order).)
+        if dir == "d" && input.normalize_or_zero().y <= -TURN_UNDER_BACK_COS && self.turn_under_beam(lib, level, root) {
+            return true;
+        }
         // (CanPullup's first answer for a free hang over a wall: onto that wall, in place, `free_to_wall_hang`.)
         if dir == "u" && self.free_to_wall_hang(lib, level, root, rig, base, cr) {
             return true;

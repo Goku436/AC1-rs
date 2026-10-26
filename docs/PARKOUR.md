@@ -1239,6 +1239,13 @@ climbing stance round a corner straight into a hang on the side wall's ledge (`x
 turned onto that wall); ours goes into the hang along its own wall and then round the corner. AC1's free-hang shimmy uses
 the same sweep, 2.4 m down.
 
+The turn round under a beam (Ledge event 10) **[V, ours]** 2026-10-26: the interpreter sends it for the stick more than
+135 degrees off the facing (0xEECCCA); its guard (0xDD30E0) probes a hold pair 0.45 m on from the hands (a box facing
+back, 70 degrees), the free-hang root under that pair, a box 1 m up from root to root and the free hang's body boxes
+(0xB2DD50) there; 0xDD3490 plays `xx_h_hangfree_turn_beam_180` (0x2F3C2551), the root carried over the action onto the
+far side's free hang (Banned445's `try_turn_under_beam`, taken before the down moves). Ours (`turn_under_beam`) since
+2026-10-26; it had none. Gauntlet G28.
+
 ### Jumps to targets and their landings (2026-10-13)
 Three user reports in the test world, each a jump at a target ending somewhere AC1 would not put it:
 - **The swing jump onto a top, post or beam** (report 60396): AC1 jumps off a bar at its target as at any target
@@ -1491,8 +1498,7 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
 Left (Banned445's port has them; ours does not yet): the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
 jump kind on the legs held without a press; the beam ends
 extended to the drop edge past them and the support re-found every frame (one runtime report, chains walked through);
-the side entry's 30/90 blend checked live; the turn round under a beam from a free
-hang (a ledge move). The window-box side leap through a building's corner in the same replay is the in-air wall test's
+the side entry's 30/90 blend checked live. The window-box side leap through a building's corner in the same replay is the in-air wall test's
 (single rays at 0.3 / 1.0 m), passed on to the wall-kick work.
 
 ## Banned445's port, 2026-10-13 round

@@ -1990,6 +1990,15 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         level.ledges.push(Ledge { a: Vec3::new(-88.9, 1.2, z + 0.15 * s), b: Vec3::new(-84.1, 1.2, z + 0.15 * s), out });
     }
 
+    // G28: a beam 4 m up over open ground, its sides hold edges (AC1's ledge grabs): pulled down off it into a free hang,
+    // the stick back turns round under it onto the far side (AC1's Ledge event 10).
+    let z = 324.0;
+    beam(walls, level, -90.0, -84.0, z, 4.0);
+    for s in [-1.0, 1.0] {
+        let out = Vec3::Z * s;
+        level.ledges.push(Ledge { a: Vec3::new(-89.9, 4.0, z + 0.15 * s), b: Vec3::new(-84.1, 4.0, z + 0.15 * s), out });
+    }
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -2012,6 +2021,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G25: a beam into a step up", Vec3::new(-87.0, 3.0, 294.0)),
         ("G26: corner hops in a row", Vec3::new(-86.0, 3.5, 305.0)),
         ("G27: the hop off a beam's side", Vec3::new(-87.0, 2.5, 314.0)),
+        ("G28: the turn under a beam", Vec3::new(-87.0, 4.5, 324.0)),
     ]
 }
 

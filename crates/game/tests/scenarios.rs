@@ -1739,6 +1739,19 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "to_crouchwait_90"],
     },
     Scenario {
+        // (Ledge event 10, its guard 0xDD30E0: the beam's far edge facing away within 0.45 m of the hands.)
+        name: "gauntlet G28: pulled down off a beam 4 m up into a free hang, the stick back: the turn round under it onto its far side",
+        tags: &["hang", "beam"],
+        env: &[("AC1_START", "-87,324,-90,4.5"), ("AC1_CLIMB", "nograb,wait=1.5,drop=3,down=1")],
+        secs: 7.0,
+        want: &[
+            "-> free_1m via xx_l_ledge_pulldown_soft_front_to_hangfree_b",
+            "turned round under the beam onto its far side",
+            "via xx_h_hangfree_turn_beam_180",
+        ],
+        never: &["EMBED", "squaring up to the wall (180"],
+    },
+    Scenario {
         // (NarrowObject event 17, its guard 0xF7DB30: a top 0.3-1.4 m up in the way, its edge facing back; the standing
         // jump's autoclimb, then the free step's entry onto it.)
         name: "gauntlet G25: walking along a beam into a step 1 m up: AC1's beam autoclimb onto it",
