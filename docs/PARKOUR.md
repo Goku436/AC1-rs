@@ -1416,10 +1416,21 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   up to 0.5 m (all of it level with the top, none 0.53 m under it) of its line; then a box (0.5 m past either side,
   1 m up) along the piece. The stick's 0.35 is not in the guard (the event's sender).
 - **Speed [B]**: the crouch jog in high profile, the crouch walk in low (AC1's speed band by profile); ours jogged only
-  free running.
+  free running. **[V]** 2026-10-26: the band's speed (0xE53090) is a fixed table off narrow objects (bands 0-3:
+  1.039, 1.779, 2.873, 4.707 m/s) and NarrowObject's own on one (+0xA4, 0xF721E0), filled by 0xF7D3E0 from action
+  0x28A3A8E4 (`xx_l_beam_crouchwalk_<foot>` at weight 0, `xx_h_beam_crouchjog_<foot>` at 1): each clip's root motion over
+  its length, bands 0-1 the crouch walk's, 2-4 the crouch jog's. Ours plays them at that speed (`start_beam_walk`), jogging
+  from band 2 (high profile, free running).
 - **Ends [B]**: free running to a beam's end that runs into a wall holds there (no drop edge past it: AC1's
   `BeamRunsAlong` 0xF78F00 leaps only within 0.4 m of the drop edge at the end) and the legs held run up the wall (event 15
-  reads the legs held). Ours leapt straight up into a balcony's floor (report #9).
+  reads the legs held). Ours leapt straight up into a balcony's floor (report #9). **[V]** 2026-10-26: NarrowObject keeps two pieces (+0x260
+  and +0x2B0, each a start and an end; the second while +0x410 is 1, the piece being crossed onto) and a 0x80-byte end
+  record for each (+0x5B0 / +0x630) whose +0x10 is the point the walk ends at (its +0x38 set: the piece's own end).
+  `BeamRunsAlong` (its angle the argument): the velocity and the facing both within that angle of the piece's direction,
+  and the root, carried along the piece to the plane through the record's point, within 0.4 m of it (flat). The end stop
+  (0xF7C3A0) takes the same point: the facing more than 10 degrees (0.1736) across the plane, past it or within 0.31 m,
+  holds the root 0.3 m short (flag 1 at +0x8B0). The record's point is written through a pointer (no store at +0x5C0 in
+  NarrowObject's code); that it is the drop edge past the end (`sub_F72FD0`) is Banned445's reading. Ours as both.
 - **Jumps with no target [B]**: AC1's free jump off a narrow object (the narrow interpreter's jump kinds, BeamState
   0xEEAAA0 / NarrowObjectState 0xEE9564, `BuildFreeJumpTarget` 0xB1E7F0): free running, only over a drop edge ahead along
   the stick (`FindDropEdgeAhead` 0xB1C100: the hold edges crossing the stick's plane 0.3 m back to 1.1 m on, within 0.3 m
