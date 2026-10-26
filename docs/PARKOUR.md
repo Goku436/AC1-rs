@@ -1606,6 +1606,12 @@ body down by the float along its up and rebuilds the shape (vtable +0x11C, 0x52E
 the feet. Ours keeps the ground's 0.37 m lift in the air: tried with it at the feet (2026-10-25), ours' push, flat only,
 held back a jump off a Damascus roof's lip at its takeoff and slid a fall off rooftop B5's corner where AC1 comes down
 on the edge; AC1's proxy resolves a contact along its normal (up a lip, onto an edge), which ours does not yet.
+Tried again 2026-10-26 with the capsule from the feet and each wall contact resolved along its own normal (vertical too,
+lips under the feet left to the landing): the full suite kept everything but rooftop B5's corner (report 46392). There
+the feet are 0.28 m under B5's top as the fall passes its corner, the contact's normal only 0.3 up, so the body is pushed
+0.06 m out and the edge leaves ours' "came down on an edge" window; with the 0.37 m lift nothing touches. Any resolution
+pushes that contact out, so AC1 reaches that edge some other way (its path higher there, or its shape): needs the fall's
+root logged live at B5 before the float can go.
 
 | Commit(s) | What | Here |
 |---|---|---|
