@@ -7177,6 +7177,12 @@ impl WallClimb {
             return;
         }
         self.beam_wall = None;
+        // High profile, not free running, the stick across the beam toward a low drop beside it: AC1's hop off (the jump
+        // kind 2, picked each frame before BeamState's turns, Banned445's `beam_jump_kind`), its side takeoff turning the
+        // body itself. Ours made the quarter turn first and hopped from it.
+        if axis != Vec3::ZERO && !self.sprint && self.high && dir.dot(axis).abs() <= BEAM_WALK_COS && self.low_hop(lib, level, root, dir) {
+            return;
+        }
         // On a beam, crouched: turn round on it, or to face across it and back (AC1's beam turns), before walking or
         // jumping that way.
         if axis != Vec3::ZERO && self.beam_turn(lib, root, dir, axis) {

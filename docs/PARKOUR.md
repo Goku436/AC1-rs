@@ -1450,7 +1450,10 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   (0xB145B0). No drop edge: no free jump. Ours crouched and leapt 3.5 m on and 3 m up anywhere: on route `roof1_free_south`,
   on a beam across the way, it went straight up where the running game free-stepped on (end gap 2.14 -> 0.49 m). Not free
   running, the stick toward a drop edge under 2 m (within 45 degrees of the facing, or any way in high profile; along a beam
-  only within 0.4 m of its end): the hop off, 1 m on in low profile, 3 m in high (kinds 1 / 2).
+  only within 0.4 m of its end): the hop off, 1 m on in low profile, 3 m in high (kinds 1 / 2). The kind is picked every frame
+  before BeamState's turns, so in high profile the stick across a beam toward a low drop hops off that way at once, the
+  side takeoff (`freestep_<left|right>_*`) turning the body; ours made the quarter turn first and jumped from it, ahead
+  (2026-10-26, gauntlet G27: a beam whose sides are hold edges, as AC1's).
   The free-step takeoff groups turn the body themselves (side 90 degrees, back 180, the back ones moving the root 2.5 m back
   off the start facing), so every free-step takeoff (`narrow_free_jump`, `free_step`, `jump_at_bar`, as `jump_freestep`)
   plays from the facing he has. Ours had planned these three already facing the jump: off a top's stand-up with the
@@ -1486,8 +1489,7 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   the post's lean.
 
 Left (Banned445's port has them; ours does not yet): the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
-jump kind on the legs held without a press; the hop off sideways in high profile before the quarter turn (ours turns
-first); the beam ends
+jump kind on the legs held without a press; the beam ends
 extended to the drop edge past them and the support re-found every frame (one runtime report, chains walked through);
 the side entry's 30/90 blend checked live; the turn round under a beam from a free
 hang (a ledge move). The window-box side leap through a building's corner in the same replay is the in-air wall test's

@@ -1730,6 +1730,15 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        // (The jump kind 2 is picked each frame before BeamState's turns; its side takeoff turns the body.)
+        name: "gauntlet G27: stopped at a beam's end 1.2 m up, high profile, the stick to the side: the hop off that way, no quarter turn first",
+        tags: &["beam", "jump"],
+        env: &[("AC1_START", "-90.5,314,-90,2"), ("AC1_WALK", "2"), ("AC1_HIGH", "0-10"), ("AC1_STOP", "3.5-4.5"), ("AC1_HEADINGS", "0,0;4.4,0;4.41,-90")],
+        secs: 6.0,
+        want: &["stopped short of the beam's end", "free jump off the narrow object", "via xx_h_freestep_right_front_300cm_"],
+        never: &["EMBED", "to_crouchwait_90"],
+    },
+    Scenario {
         // (NarrowObject event 17, its guard 0xF7DB30: a top 0.3-1.4 m up in the way, its edge facing back; the standing
         // jump's autoclimb, then the free step's entry onto it.)
         name: "gauntlet G25: walking along a beam into a step 1 m up: AC1's beam autoclimb onto it",
