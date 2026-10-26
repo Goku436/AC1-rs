@@ -1752,6 +1752,19 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "squaring up to the wall (180"],
     },
     Scenario {
+        // (NarrowObject's side entry, 0xF7AAA0: its clips' root faces along the beam, the body turned off it by the angle.)
+        name: "gauntlet G29: a running jump onto a beam across the way, the stick turned along it in the flight: AC1's side entry into the jog",
+        tags: &["beam", "jump"],
+        env: &[("AC1_START", "-100,334,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-10"), ("AC1_LEGS", "0-10"), ("AC1_HEADINGS", "0,0;1.9,0;1.91,-90")],
+        secs: 5.0,
+        want: &[
+            "side entry onto the beam via xx_h_freestep_entry_footl_tr_crouchjog_footl_right_90 after the arrival",
+            "along the beam at the crouch jog",
+            "stopped short of the beam's end at [-86.50, 2.00, 338.7",
+        ],
+        never: &["EMBED", "turning on the beam"],
+    },
+    Scenario {
         // (NarrowObject event 17, its guard 0xF7DB30: a top 0.3-1.4 m up in the way, its edge facing back; the standing
         // jump's autoclimb, then the free step's entry onto it.)
         name: "gauntlet G25: walking along a beam into a step 1 m up: AC1's beam autoclimb onto it",

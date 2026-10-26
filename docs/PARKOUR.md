@@ -549,7 +549,13 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   unchecked. Before, he turned to face it and stayed (user recording 142770, a Damascus T; scenario `Damascus beam T`).
 - **Side entry** (0xF7AAA0, actions 0xE6E0E9B8..BB): met across a beam (30-100° off the way the stick points along it)
   → `xx_h_freestep_entry_<foot>_tr_crouch<walk|jog>_<foot after>_<left|right>_<30|90>`, the 30° and 90° clips blended
-  by the angle; a left turn goes on on the right foot, a right turn on the left. **[B, ours: not yet seen in play]**
+  by the angle; a left turn goes on on the right foot, a right turn on the left. The clips' root faces along the beam
+  (no root turn in them) while the body starts turned off it by the angle (their Reference bone at the first frame 30° /
+  90° off the straight entry's, all ending alike), so they play with the root along the beam: from the facing he met it
+  with, the 1.7-2.7 m they move went across the beam and off it. Ours plays it on getting onto a beam with the stick
+  across (`WallClimb::perch`) and after a jump's arrival onto one (`..._tr_freestep_entry_<foot>_fast`) with the stick
+  turned along it in the flight, then the crouch jog/walk along it with no quarter turn (G29). The fade into it starts
+  from the pose before turned back under the root's turn, the Reference bone's place too. **[B, ours: G29]**
 - Where beams come from: `GuidanceBeamDetectorAccurate` (vtable 0x0169A1CC, constructor 0x678F80) is never loaded
   from data (no objects of the class in any forge); it is built on the stack with fixed values (1.0, 0.15, 5° =
   0.0873 rad, 0.5, 0.2) by 0xC7E810, which runs lazily when a query box overlaps a guidance object's bounds
@@ -1498,7 +1504,7 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
 Left (Banned445's port has them; ours does not yet): the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
 jump kind on the legs held without a press; the beam ends
 extended to the drop edge past them and the support re-found every frame (one runtime report, chains walked through);
-the side entry's 30/90 blend checked live. The window-box side leap through a building's corner in the same replay is the in-air wall test's
+the side entry's 30/90 blend checked live (ours plays it, G29). The window-box side leap through a building's corner in the same replay is the in-air wall test's
 (single rays at 0.3 / 1.0 m), passed on to the wall-kick work.
 
 ## Banned445's port, 2026-10-13 round

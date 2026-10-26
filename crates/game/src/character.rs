@@ -1729,9 +1729,17 @@ pub fn locomotion(
                     {
                         let lead_left = ch.freestep_left;
                         let from = w.last_pose().cloned().or(Some(ch.anim_pose.clone()));
-                        if let Some(mut p) =
-                            crate::climb::WallClimb::perch(lib, &level, &tf, ctl.move_dir, ctl.speed > SPRINT_SPEED || ctl.free_run, lead_left, from)
-                        {
+                        if let Some(mut p) = crate::climb::WallClimb::perch(
+                            lib,
+                            &level,
+                            &tf,
+                            &ch.rig,
+                            ch.climb_rig,
+                            ctl.move_dir,
+                            ctl.speed > SPRINT_SPEED || ctl.free_run,
+                            lead_left,
+                            from,
+                        ) {
                             p.freestep_left = ch.freestep_left;
                             ch.wall = Some(p);
                             ch.exit_fade = None;
@@ -2139,7 +2147,7 @@ pub fn locomotion(
                 let (_, at) = step_on?;
                 let r = Transform { translation: at, ..*tf };
                 let sprint = ctl.speed > SPRINT_SPEED || ctl.free_run;
-                WallClimb::perch(lib, &level, &r, ctl.move_dir, sprint, lead_left, Some(ch.anim_pose.clone()))
+                WallClimb::perch(lib, &level, &r, &ch.rig, ch.climb_rig, ctl.move_dir, sprint, lead_left, Some(ch.anim_pose.clone()))
             });
             // (Then, with no jump target ahead, a leap of faith or a haystack below the edge: AC1 searches those only when its
             // candidates found nothing, audit HAY-10.)
@@ -2359,6 +2367,8 @@ pub fn locomotion(
                     lib,
                     &level,
                     &tf,
+                    &ch.rig,
+                    ch.climb_rig,
                     ctl.move_dir,
                     ctl.speed > SPRINT_SPEED || ctl.free_run,
                     lead_left,

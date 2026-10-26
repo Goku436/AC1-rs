@@ -1999,6 +1999,14 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         level.ledges.push(Ledge { a: Vec3::new(-89.9, 4.0, z + 0.15 * s), b: Vec3::new(-84.1, 4.0, z + 0.15 * s), out });
     }
 
+    // G29: a platform and 2.5 m past its edge a beam across the way (along Z), level with its top: jumped onto with the
+    // stick turned along the beam in the flight, AC1's side entry turning onto it.
+    let z = 334.0;
+    ramp(walls, -96.0, -92.0, z, 2.0);
+    platform(walls, -92.0, -89.0, z, 2.0);
+    walls.cuboid(Vec3::new(-86.65, 1.8, z - 3.0), Vec3::new(-86.35, 2.0, z + 5.0));
+    level.perches.push(Line { a: Vec3::new(-86.5, 2.0, z - 3.0), b: Vec3::new(-86.5, 2.0, z + 5.0) });
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -2022,6 +2030,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G26: corner hops in a row", Vec3::new(-86.0, 3.5, 305.0)),
         ("G27: the hop off a beam's side", Vec3::new(-87.0, 2.5, 314.0)),
         ("G28: the turn under a beam", Vec3::new(-87.0, 4.5, 324.0)),
+        ("G29: the side entry onto a beam", Vec3::new(-86.5, 2.5, 334.0)),
     ]
 }
 

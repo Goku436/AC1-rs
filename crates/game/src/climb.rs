@@ -1936,8 +1936,10 @@ fn side_to_climb(hang: &str, dir: &str) -> Vec<Cand> {
 /// AC1's side entry onto a beam (0xF7AAA0, actions 0xE6E0E9B8..BB; Banned445's port): met at 30-100 degrees off the way
 /// the stick points along it, a free-step entry turning onto it into the walk or jog,
 /// `xx_h_freestep_entry_<foot>_tr_crouch<walk|jog>_<foot after>_<left|right>_<30|90>`, the 30 and 90 degree clips
-/// blended by the angle.
-fn beam_side_entry(lib: &mut AnimLib, line: &Line, root: &Transform, stick: Vec3, sprint: bool, lead_left: bool) -> Option<Arc<Clip>> {
+/// blended by the angle. Returns the clip and the way along the beam: the clips' root faces that way and the body in
+/// them starts turned off it by their angle (their Reference bone 30 / 90 degrees off the straight entry's at the first
+/// frame, all ending alike), so they play with the root facing it.
+fn beam_side_entry(lib: &mut AnimLib, line: &Line, root: &Transform, stick: Vec3, sprint: bool, lead_left: bool) -> Option<(Arc<Clip>, Vec3)> {
     let axis = line.axis();
     let stick = stick.with_y(0.0).normalize_or_zero();
     if axis == Vec3::ZERO || stick == Vec3::ZERO || stick.dot(axis).abs() < std::f32::consts::FRAC_1_SQRT_2 {
@@ -1956,7 +1958,20 @@ fn beam_side_entry(lib: &mut AnimLib, line: &Line, root: &Transform, stick: Vec3
     let w90 = ((ang - 30.0) / 60.0).clamp(0.0, 1.0);
     let name = |deg: u32| format!("xx_h_freestep_entry_{foot}_tr_{gait}_{after}_{side}_{deg}");
     let (a, b) = (name(30), name(90));
-    lib.get(&mix_name(&[(a.as_str(), 1.0 - w90), (b.as_str(), w90)]))
+    lib.get(&mix_name(&[(a.as_str(), 1.0 - w90), (b.as_str(), w90)])).map(|c| (c, way))
+}
+
+/// A pose shown under a root facing `from`, as it looks under one facing `to` (the root turned under it, the body kept
+/// where it was: a fade from it shows no jump).
+fn turned_back(mut p: Pose, rig: &Rig, cr: ClimbRig, from: Quat, to: Quat) -> Pose {
+    if let Some(r) = cr.reference {
+        // (Its place turned too: a Reference bone 0.2 m off the root, only its rotation turned, swung 0.28 m with the root.)
+        let q = model_to_bevy().inverse() * to.inverse() * from * model_to_bevy();
+        let at = p.model_of(rig, r).pos;
+        p.rotate_model(rig, r, q);
+        p.translate_model(rig, r, q * at - at);
+    }
+    p
 }
 
 /// Weighted clip names, to mix (`mix_name`).
@@ -7151,7 +7166,18 @@ impl WallClimb {
     /// direction), `sprint` and `lead_left` (the foot it came down on): on a beam met across with the stick along it, AC1's
     /// side entry turns him onto it, walking or jogging (see `beam_side_entry`).
     #[allow(clippy::too_many_arguments)]
-    pub fn perch(lib: &mut AnimLib, level: &Level, root: &Transform, stick: Vec3, sprint: bool, lead_left: bool, from: Option<Pose>) -> Option<WallClimb> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn perch(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        rig: &Rig,
+        cr: ClimbRig,
+        stick: Vec3,
+        sprint: bool,
+        lead_left: bool,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
         let (i, _) = level.perch_at(root.translation, PERCH_REACH)?;
         let line = level.perches[i];
         let wait = lib.get(PERCH_WAIT)?;
@@ -7162,10 +7188,14 @@ impl WallClimb {
         let arrive_from = from.clone();
         w.fade = from.map(|p| Fade::new(p, ENTER_FADE));
         debug!("climb: onto perch {i} at {:.2}", root.translation);
-        if let Some(clip) = beam_side_entry(lib, &line, root, stick, sprint, lead_left) {
+        if let Some((clip, way)) = beam_side_entry(lib, &line, root, stick, sprint, lead_left) {
             debug!("climb: side entry onto the beam via {}", clip.name);
             w.beam_stance = None;
-            let r = Transform { translation: line.closest(root.translation), ..*root };
+            // (The root along the beam, the clip's frame: from the facing he met it with, its 1.7-2.7 m on went across the
+            // beam and off it.)
+            let r = Transform { translation: line.closest(root.translation), rotation: facing(way), ..*root };
+            // (The pose faded from turned back by the root's turn, so it shows where it was.)
+            w.fade = arrive_from.clone().map(|p| Fade::new(turned_back(p, rig, cr, root.rotation, r.rotation), ENTER_FADE));
             // (Ending on the beam: the clip's own way, played from wherever it met it, walked him 1.4 m off a Damascus
             // parapet into the air, and the perch pulled him back onto it when it ended: user report, 2026-10-12.)
             let end = r.translation + world_rot(r.rotation) * root_motion_at(&clip, clip.frames());
@@ -7299,7 +7329,9 @@ impl WallClimb {
             let end = if along.dot(axis) > 0.0 { line.b } else { line.a };
             // (Not from where the walk stops short of an end, `BEAM_END_STOP`: held on, it would start and stop again.)
             let beyond = level.ground(end + along * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8);
-            if (end - root.translation).with_y(0.0).length() > if beyond || self.sprint { 0.15 } else { BEAM_END_STOP + 0.05 } {
+            // (Free running too: from the stop 0.3 m short of an end with nothing past it, held on, it started and stopped
+            // again every few frames, creeping 5 cm on each time; the jump on is tried from the stop.)
+            if (end - root.translation).with_y(0.0).length() > if beyond { 0.15 } else { BEAM_END_STOP + 0.05 } {
                 self.start_beam_walk(lib, along);
                 return;
             }
@@ -12110,6 +12142,30 @@ impl WallClimb {
             let turn = done.start_rot * root_delta(root_rotation_at(&done.clip, done.clip.frames())) * done.start_rot.inverse();
             self.normal = done.turn * turn * self.normal;
             self.state = done.to;
+            // A free-step reception ending on a beam with the stick along it, 30-100 degrees off the facing: AC1's side entry
+            // on from it (0xF7AAA0, NarrowObject's entry after the arrival 0xE07D00), as `perch` takes it from the ground's
+            // hand-over. Ours, after a jump aimed at the beam, crouched across it and turned.
+            if self.queue.is_empty()
+                && self.state == PERCH
+                && done.clip.name.contains("_tr_freestep_entry_")
+                && let Some(line) = self.perch.and_then(|i| level.perches.get(i).copied())
+                && let Some((clip, way)) = beam_side_entry(lib, &line, root, self.move_dir, self.sprint, done.clip.name.contains("_entry_footl"))
+            {
+                debug!("climb: side entry onto the beam via {} after the arrival", clip.name);
+                // (From where the entry left the root, carried onto the line by the clip's correction: snapped onto it, the
+                // whole body jumped 0.28 m.)
+                let r = Transform { rotation: facing(way), ..*root };
+                let end = r.translation + world_rot(r.rotation) * root_motion_at(&clip, clip.frames());
+                let correct = line.closest(end) - end;
+                self.beam_stance = None;
+                self.start_chain(vec![clip], vec![PERCH.to_string()], &r, correct);
+                // (The pose faded from turned back by the root's turn onto the beam: kept as it was, the hands and feet
+                // jumped 0.9 m on its first frame.)
+                self.fade = self.last.clone().map(|p| Fade::new(turned_back(p, rig, cr, root.rotation, r.rotation), ENTER_FADE));
+                // (The root onto the beam this frame: left for the next, the turned pose showed a frame under the old one.)
+                *root = r;
+                return;
+            }
             // The ledge stop's start played with the stick still at the edge (within 70 degrees): back on the ground at
             // once, where the pull-down takes it (AC1 went from `xx_h_ledge_stop_start` straight into
             // `xx_l_ledge_stop_start_footl_pulldown_front_orientation`, 0.27 s after stopping; ours played the stop's end
