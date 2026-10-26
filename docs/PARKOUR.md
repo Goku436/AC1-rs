@@ -1464,6 +1464,13 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   the step off and `BeamRunsAlong` all take the run's ends; past the piece the root stands on the ground under it
   (gauntlet G30: a beam onto a 0.8 m block level with it, walked to 0.3 m short of the block's far edge, free running the
   jump on from there). The connected piece's extra reach is ours' beam chaining.
+- **The jump kinds 3 / 4 on a beam [B]**: BeamState (0xEEAAA0) picks a jump kind every frame from the stick, the
+  profile, the legs held and the drop edge ahead, and any kind runs the candidate search, no press needed (Banned445's
+  `beam_jump_kind`): in high profile with the stick and no drop edge under 2 m, kind 3 (4 with the legs held), whose
+  query box is 0.45-1.3 m up and 0.5-1.3 m on (2 m with the legs), ±0.5 m across (0xE18970's volumes above). Ours
+  (`beam_box_hop`, while walking or jogging the beam, after the autoclimb): a top found there is jumped onto by the free
+  step, a kiosk's counter by its own jump. So in high profile the step 1 m up at a beam's end is hopped onto from 1.26 m
+  before it (gauntlet G25 in high profile), where low profile walks into it and autoclimbs (event 17).
 - **Jumps with no target [B]**: AC1's free jump off a narrow object (the narrow interpreter's jump kinds, BeamState
   0xEEAAA0 / NarrowObjectState 0xEE9564, `BuildFreeJumpTarget` 0xB1E7F0): free running, only over a drop edge ahead along
   the stick (`FindDropEdgeAhead` 0xB1C100: the hold edges crossing the stick's plane 0.3 m back to 1.1 m on, within 0.3 m
@@ -1511,8 +1518,8 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   the plinth; `roof2_run_south` runs on over the roof's end as ground (AC1's, ours had a beam there); the high profile jog;
   the post's lean.
 
-Left (Banned445's port has them; ours does not yet): the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
-jump kind on the legs held without a press; the beam ends
+Left (Banned445's port has them; ours does not yet): the jump kinds 3 / 4 from the waits and posts (ours: on the beam's
+walk, since 2026-10-26) and the kind 0 with the legs held toward a drop edge mid-beam (ours: at the end); the beam ends
 extended to the drop edge past them (ours since 2026-10-26, G30) and the support re-found every frame (one runtime
 report, chains walked through);
 the side entry's 30/90 blend checked live (ours plays it, G29). The window-box side leap through a building's corner in the same replay is the in-air wall test's

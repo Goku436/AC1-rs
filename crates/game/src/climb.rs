@@ -3712,7 +3712,7 @@ fn ac1_jump_target(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) ->
 
 /// The jump AC1's scorer picks from `from` along `dir` (see `ac1_jump_target`), with the point it goes for.
 fn ac1_jump_choice(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) -> Option<Ac1Jump> {
-    use crate::jump_query::{From, Kind, query, select};
+    use crate::jump_query::From;
     let edge = EDGE_QUERY.with(|e| e.get());
     let mode = if skip.is_some() {
         From::Narrow
@@ -3721,6 +3721,13 @@ fn ac1_jump_choice(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) ->
     } else {
         From::Ground
     };
+    ac1_jump_choice_as(level, from, dir, skip, mode)
+}
+
+/// `ac1_jump_choice` with the query's zones given.
+fn ac1_jump_choice_as(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>, mode: crate::jump_query::From) -> Option<Ac1Jump> {
+    use crate::jump_query::{Kind, query, select};
+    let edge = EDGE_QUERY.with(|e| e.get());
     let cands = query(level, from, dir, mode, skip);
     let pick = select(&cands, from, dir, dir, edge);
     if std::env::var("AC1_JUMP_CANDS").is_ok() {
@@ -7589,6 +7596,13 @@ impl WallClimb {
             *self = w;
             return;
         }
+        // (In high profile, AC1's jump kinds 3 / 4: a top in the box ahead jumped onto, no press.)
+        if let Some(cy) = &self.cycle
+            && stick.dot(cy.dir) >= BEAM_WALK_COS
+            && self.beam_box_hop(lib, level, root, stick)
+        {
+            return;
+        }
         let jog_now = self.beam_jog();
         let run = self.run_of(level).unwrap_or(BeamRun { line, drop: [false; 2] });
         let Some(cy) = &mut self.cycle else { return };
@@ -7830,6 +7844,35 @@ impl WallClimb {
 
     /// Jump from a perch along `dir`: onto the nearest perch that way in reach, else onto the first
     /// walkable top at about this height, else just off it.
+    /// High profile on a beam with the stick and no drop edge under 2 m ahead: AC1's narrow interpreter picks the jump
+    /// kind 3 (4 with the legs held) every frame, no press needed (BeamState 0xEEAAA0, Banned445's `beam_jump_kind`), and
+    /// runs its candidate search with it: the free-run box ahead (`From::FreeRun`: 0.45-1.3 m up, 0.5-1.3 m on, 2 m with
+    /// the legs). A top there is jumped onto by the free step. (After event 17, the beam autoclimb, which needs the
+    /// contact: from 0.5 m off this one comes first.)
+    fn beam_box_hop(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3) -> bool {
+        if !self.high || dir == Vec3::ZERO || drop_edge_ahead(level, root.translation, dir).is_some_and(|d| d < LOW_HOP_DROP) {
+            return false;
+        }
+        let legs = self.sprint;
+        let Some(Ac1Jump::Land(to)) = ac1_jump_choice_as(level, root.translation, dir, self.perch, crate::jump_query::From::FreeRun { legs }) else {
+            return false;
+        };
+        if let Some(k) = level.kiosk_at(to, KIOSK_AT)
+            && let Some(w) = Self::jump_kiosk(lib, level, root, k.axis, to, 0.0, self.freestep_left, true, self.last.clone())
+        {
+            *self = w;
+            return true;
+        }
+        match Self::jump_freestep(lib, level, root, to, self.freestep_left, self.last.clone()) {
+            Some(w) => {
+                debug!("climb: the beam's box hop (jump kind {}) onto {to:.2}", if legs { 4 } else { 3 });
+                *self = w;
+                true
+            }
+            None => false,
+        }
+    }
+
     fn perch_jump(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3) -> bool {
         let from = root.translation;
         // (Any reach the narrow-object zone allows: ours cut it to 0.8-4.5 m, audit JUMP-7.)

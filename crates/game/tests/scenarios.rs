@@ -1782,6 +1782,15 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "off the beam's end onto the ground"],
     },
     Scenario {
+        // (BeamState's jump kind 3 every frame in high profile, no press: its box 0.45-1.3 m up, 0.5-1.3 m on.)
+        name: "gauntlet G25 in high profile: along the beam toward the step 1 m up, AC1's jump kind 3 hops onto it before reaching it",
+        tags: &["beam", "jump"],
+        env: &[("AC1_START", "-90.5,294,-90"), ("AC1_WALK", "1.9"), ("AC1_STICK", "1"), ("AC1_HIGH", "0-10")],
+        secs: 4.0,
+        want: &["the beam's box hop (jump kind 3) onto [-84.95, 3.00, 294.00]", "xx_h_freestep_front_up_050cm_"],
+        never: &["EMBED", "beam autoclimb", "stopped short of the beam's end"],
+    },
+    Scenario {
         // (NarrowObject event 17, its guard 0xF7DB30: a top 0.3-1.4 m up in the way, its edge facing back; the standing
         // jump's autoclimb, then the free step's entry onto it.)
         name: "gauntlet G25: walking along a beam into a step 1 m up: AC1's beam autoclimb onto it",
