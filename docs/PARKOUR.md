@@ -1464,7 +1464,12 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   the step off and `BeamRunsAlong` all take the run's ends; past the piece the root stands on the ground under it
   (gauntlet G30: a beam onto a 0.8 m block level with it, walked to 0.3 m short of the block's far edge, free running the
   jump on from there). The connected piece's extra reach is ours' beam chaining.
-- **The jump kinds 3 / 4 on a beam [B]**: BeamState (0xEEAAA0) picks a jump kind every frame from the stick, the
+- **The jump kinds 3 / 4 on a beam [V]** 2026-10-26 (0xEEAAA0-0xEEAC0A, Banned445's `beam_jump_kind` branch for branch:
+  the stick past 0.35 (0x17085D4), the drop under 2.0 (0x1683380) for kinds 1 / 2 with high profile (+0x112B) or the
+  forward sector; high profile with the legs held (0x6D0F50(0)) at that edge kind 0, free mode 2 at a drop of 1.0 or
+  less (0x1680F90), else 0 in the forward sector, else 2 when vt +0xA4 says so, else none; no kind yet: 4 with the legs,
+  else 3; the stored stick past 0.35 with the press (+0x1126) and the legs let go: kind 0, free mode 0). BeamState
+  (0xEEAAA0) picks a jump kind every frame from the stick, the
   profile, the legs held and the drop edge ahead, and any kind runs the candidate search, no press needed (Banned445's
   `beam_jump_kind`): in high profile with the stick and no drop edge under 2 m, kind 3 (4 with the legs held), whose
   query box is 0.45-1.3 m up and 0.5-1.3 m on (2 m with the legs), ±0.5 m across (0xE18970's volumes above). Ours
