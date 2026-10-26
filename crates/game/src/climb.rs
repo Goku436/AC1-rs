@@ -3726,8 +3726,8 @@ fn ac1_jump_choice(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) ->
 
 /// `ac1_jump_choice` with the query's zones given.
 fn ac1_jump_choice_as(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>, mode: crate::jump_query::From) -> Option<Ac1Jump> {
-    use crate::jump_query::{Kind, query, select};
-    let edge = EDGE_QUERY.with(|e| e.get());
+    use crate::jump_query::{From, Kind, query, select};
+    let edge = EDGE_QUERY.with(|e| e.get()) || mode == From::Edge;
     let cands = query(level, from, dir, mode, skip);
     let pick = select(&cands, from, dir, dir, edge);
     if std::env::var("AC1_JUMP_CANDS").is_ok() {
@@ -7338,6 +7338,10 @@ impl WallClimb {
         if axis != Vec3::ZERO && !self.sprint && self.high && dir.dot(axis).abs() <= BEAM_WALK_COS && self.low_hop(lib, level, root, dir) {
             return;
         }
+        // (And the kinds 3 / 4 the same way, from the waits: a top in their box beside it hopped onto, no press.)
+        if axis != Vec3::ZERO && dir.dot(axis).abs() <= BEAM_WALK_COS && self.beam_box_hop(lib, level, root, dir) {
+            return;
+        }
         // On a beam, crouched: turn round on it, or to face across it and back (AC1's beam turns), before walking or
         // jumping that way.
         if axis != Vec3::ZERO && self.beam_turn(lib, root, dir, axis) {
@@ -7854,7 +7858,14 @@ impl WallClimb {
             return false;
         }
         let legs = self.sprint;
-        let Some(Ac1Jump::Land(to)) = ac1_jump_choice_as(level, root.translation, dir, self.perch, crate::jump_query::From::FreeRun { legs }) else {
+        self.narrow_target_hop(lib, level, root, dir, crate::jump_query::From::FreeRun { legs }, if legs { 4 } else { 3 })
+    }
+
+    /// The narrow interpreter's jump of kind `kind` at a target its query (`mode`'s zones) finds: a top, a beam or a
+    /// kiosk's counter jumped onto by the free step (`Human__SetupJumpToTarget`). False when it finds none.
+    #[allow(clippy::too_many_arguments)]
+    fn narrow_target_hop(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, mode: crate::jump_query::From, kind: u32) -> bool {
+        let Some(Ac1Jump::Land(to)) = ac1_jump_choice_as(level, root.translation, dir, self.perch, mode) else {
             return false;
         };
         if let Some(k) = level.kiosk_at(to, KIOSK_AT)
@@ -7865,7 +7876,7 @@ impl WallClimb {
         }
         match Self::jump_freestep(lib, level, root, to, self.freestep_left, self.last.clone()) {
             Some(w) => {
-                debug!("climb: the beam's box hop (jump kind {}) onto {to:.2}", if legs { 4 } else { 3 });
+                debug!("climb: the narrow object's target jump (kind {kind}) onto {to:.2}");
                 *self = w;
                 true
             }
@@ -7985,6 +7996,11 @@ impl WallClimb {
                     return false;
                 }
             }
+        }
+        // (Its kind's candidate search first, the free jump only with no target: Banned445's `narrow_jump`. Ours went
+        // straight to the free jump, over a top beside the beam.)
+        if self.narrow_target_hop(lib, level, root, dir, crate::jump_query::From::Edge, if self.high { 2 } else { 1 }) {
+            return true;
         }
         let ahead = if self.high { FREE_JUMP_NEAR } else { LOW_HOP_AHEAD };
         match Self::narrow_free_jump(lib, level, root, dir, ahead, (d + FREE_JUMP_UNDER).min(EJECT_FREE_DOWN), self.freestep_left, self.last.clone()) {

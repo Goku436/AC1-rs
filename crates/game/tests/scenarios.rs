@@ -1730,6 +1730,19 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        // (The kind's candidate search before its free jump, Banned445's `narrow_jump`; zone 10 reaches down only.)
+        name: "gauntlet G31: stopped at a beam's end, high profile, the stick toward a block 0.6 m lower beside it: AC1's jump kind 2 onto it, not the free jump",
+        tags: &["beam", "jump"],
+        env: &[("AC1_START", "-90.5,364,-90,2"), ("AC1_WALK", "2"), ("AC1_HIGH", "0-10"), ("AC1_STOP", "3.5-4.5"), ("AC1_HEADINGS", "0,0;4.4,0;4.41,-90")],
+        secs: 6.0,
+        want: &[
+            "stopped short of the beam's end",
+            "the narrow object's target jump (kind 2) onto [-84.24, 0.60, 364.8",
+            "via xx_h_freestep_right_front_050cm_",
+        ],
+        never: &["EMBED", "to_crouchwait_90", "free jump off the narrow object"],
+    },
+    Scenario {
         // (The jump kind 2 is picked each frame before BeamState's turns; its side takeoff turns the body.)
         name: "gauntlet G27: stopped at a beam's end 1.2 m up, high profile, the stick to the side: the hop off that way, no quarter turn first",
         tags: &["beam", "jump"],
@@ -1787,7 +1800,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["beam", "jump"],
         env: &[("AC1_START", "-90.5,294,-90"), ("AC1_WALK", "1.9"), ("AC1_STICK", "1"), ("AC1_HIGH", "0-10")],
         secs: 4.0,
-        want: &["the beam's box hop (jump kind 3) onto [-84.95, 3.00, 294.00]", "xx_h_freestep_front_up_050cm_"],
+        want: &["the narrow object's target jump (kind 3) onto [-84.95, 3.00, 294.00]", "xx_h_freestep_front_up_050cm_"],
         never: &["EMBED", "beam autoclimb", "stopped short of the beam's end"],
     },
     Scenario {
