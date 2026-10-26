@@ -1485,6 +1485,12 @@ game did past the courtyard's palm (pushed 0.21 m aside over four frames, back o
 from where the push left it and caught the far hold 0.24 m along. **[ours, measured]** The hangs' side
 leaps first sweep AC1's clearance capsule to the new hang (0xDDDF85: r 0.35, from 0.2625 m back and 0.15 m out, 1.8 / 1.0 /
 2.0 m tall to the climb / wall hang / free hang; Banned445's 3580692), as the vertical reach already did.
+**[V]** 2026-10-25: in the air AC1's capsule reaches the feet. The jumps' starts (0xB20200, the standing jump 0xB21DA0,
+0xE01C00, the climb's release 0xDE97B0) turn the float's byte +0x7F off (0x57AB70(0)); the change (0x579500) moves the
+body down by the float along its up and rebuilds the shape (vtable +0x11C, 0x52EB60 → 0x52E9C0) to the full 1.8 m from
+the feet. Ours keeps the ground's 0.37 m lift in the air: tried with it at the feet (2026-10-25), ours' push, flat only,
+held back a jump off a Damascus roof's lip at its takeoff and slid a fall off rooftop B5's corner where AC1 comes down
+on the edge; AC1's proxy resolves a contact along its normal (up a lip, onto an edge), which ours does not yet.
 
 | Commit(s) | What | Here |
 |---|---|---|
