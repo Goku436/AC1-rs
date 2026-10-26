@@ -1305,7 +1305,8 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_WALK", "3"),
             ("AC1_HIGH", "0-2.5"),
             ("AC1_STOP", "2.5-2.8"),
-            ("AC1_HEADINGS", "0,0;2.79,0;2.8,180;4.59,180;4.6,-90"),
+            // (The turn left 0.45 s later since 2026-10-26: let go at the jog, the jog stop carries him 0.3 m on first, as AC1's.)
+            ("AC1_HEADINGS", "0,0;2.79,0;2.8,180;5.05,180;5.06,-90"),
         ],
         secs: 8.0,
         want: &[

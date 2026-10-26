@@ -7444,7 +7444,9 @@ impl WallClimb {
             let foot = cy.foot;
             let feet = ["footl", "footr"];
             let names = [format!("xx_h_beam_crouchjog_stop_{}", feet[foot]), format!("xx_h_beam_crouchjog_stop_{0}_tr_crouchwait_{0}", feet[foot])];
-            let clips = if (self.high || self.sprint) && cy.intro.is_none() { names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() } else { None };
+            // (By the speed: over the walk's band, the jog stop (AC1's walk -> jog stop 0xF749D0, Banned445's NARROW-1); ours
+            // took it by the profile, so a beam walked at a jog and let go in low profile crouched at once.)
+            let clips = if cy.v > cy.speed[0] + 1e-3 && cy.intro.is_none() { names.iter().map(|n| lib.get(n)).collect::<Option<Vec<_>>>() } else { None };
             stop(self, lib);
             if let Some(clips) = clips {
                 let r = Transform { translation: line.closest(root.translation), ..*root };

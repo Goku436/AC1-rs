@@ -1425,7 +1425,8 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   the speed walked. Ours (2026-10-26): the speed goes to the profile's band (the jog's from band 2: high profile, free
   running) at +2 m/s² up and -3 down (Banned445's NARROW-1), the two steps mixed by it at one phase, the phase run at
   the speed over the mixed step's length. It played the jog alone slowed to 0.57 at its 2.1 m/s start, and kept the
-  gait it started in through a change of profile.
+  gait it started in through a change of profile. Let go, the jog stop plays over the walk's speed (0xF749D0), else the
+  crouch (ours took it by the profile).
 - **Ends [B]**: free running to a beam's end that runs into a wall holds there (no drop edge past it: AC1's
   `BeamRunsAlong` 0xF78F00 leaps only within 0.4 m of the drop edge at the end) and the legs held run up the wall (event 15
   reads the legs held). Ours leapt straight up into a balcony's floor (report #9). **[V]** 2026-10-26: NarrowObject keeps two pieces (+0x260
@@ -1480,7 +1481,7 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   the plinth; `roof2_run_south` runs on over the roof's end as ground (AC1's, ours had a beam there); the high profile jog;
   the post's lean.
 
-Left (Banned445's port has them; ours does not yet): the jog stop chosen by the speed (ours by the profile); the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
+Left (Banned445's port has them; ours does not yet): the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
 jump kind on the legs held without a press; the hop off sideways in high profile before the quarter turn (ours turns
 first); the beam ends
 extended to the drop edge past them and the support re-found every frame (one runtime report, chains walked through);
