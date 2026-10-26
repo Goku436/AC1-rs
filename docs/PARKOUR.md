@@ -651,7 +651,11 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   out's guard (0xE434E0) tests the spot 0.5 m on along the way out past where it leaves the footprint and 1.25 m up,
   with a box 0.35 / 0.5 / 0.75 (0xB2D2A0), as ours (`level::HAY_HOP_*`).
 - **Swing bars**: a free hang reached by a jump (target type 0x80) enters the swing reception (Ledge sub-state 8).
-  **[B]**
+  **[B]** **[V]** 2026-10-25 (the arrival 0xE07D00): with the feet finding the wall under the hold (0xB15C30) a 0x40
+  target plays 0x011FF16A (`xx_h_air_surface_tr_hangwall_reception_*`) and a 0x80 one 0x8E5444EE
+  (`xx_hangwall_reception_front_*_min_a`), both weighed by the wall's lean (0xE02790), into Ledge sub-state 6; else a
+  0x80 target plays 0x23E0C60, the swing cycle itself (`xx_h_swing_cycle_front_up`, ...), the root interpolated onto the
+  free hang's (0xB15AD0) over the action's length, into sub-state 8 with the free flag (+0x68) on.
 
 ## 10. Limb IK
 - Limb weights rise at 4/s with a contact (0.25 s fade in) and fall at 5/s when released (0.2 s) (`LimbIK` 0xE57570, **[V]** 2026-10-24); ours reads the contacts from the clips' hash 2 track (`forge::anim::contact`, `WallClimb::contacts`).
