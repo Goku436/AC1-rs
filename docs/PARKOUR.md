@@ -1546,7 +1546,11 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
 
 Left (Banned445's port has them; ours does not yet): the kind 0 with the legs held toward a drop edge mid-beam (ours: at
 the end); the support re-found every frame (one runtime report, chains walked through); the side entry's 30/90 blend
-checked live (ours plays it, G29). Done 2026-10-26: the beam ends extended to the drop edge (G30), the jump kinds 3 / 4
+checked live (ours plays it, G29); two of BeamState's own branches, read but not placed (2026-10-26): event 22
+(INarrow vt +0x144 / +0x148, 0xE542D0 / 0xE555E0: with the stick stored, every beam sub-state's guard 0xF767C0 takes it
+when the way to a point the actor gives is over 150 degrees off the stick, dot < -0.866) and event 20 (vt +0x13C / +0x140:
+pad button 1 pressed within 0.2 s, 0x93F370, with the flag at the frame's +0x11; maybe the attack from above, combat's).
+Done 2026-10-26: the beam ends extended to the drop edge (G30), the jump kinds 3 / 4
 on beams and posts (G25 high, G32). The window-box side leap through a building's corner in the same replay is the in-air wall test's
 (single rays at 0.3 / 1.0 m), passed on to the wall-kick work.
 
