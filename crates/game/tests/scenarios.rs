@@ -1309,12 +1309,8 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_HEADINGS", "0,0;2.79,0;2.8,180;5.05,180;5.06,-90"),
         ],
         secs: 8.0,
-        want: &[
-            "onto perch 261",
-            "via xx_l_beam_crouchwait_footl_turn_left_to_crouchwait_90 at [84.5",
-            "on along the crossing beam 262",
-            "along the beam at the crouch walk",
-        ],
+        // (On at the beam's end since 2026-10-26, AC1's mount guard: the turns come off whichever foot the walk is on.)
+        want: &["onto perch 261", "_turn_left_to_crouchwait_90 at [84.", "on along the crossing beam 262", "along the beam at the crouch walk"],
         never: &["EMBED"],
     },
     // (The empty hand pressed in the flight unaimed it: the swing reception was never taken and he fell 2.8 m past the

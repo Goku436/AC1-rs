@@ -2357,6 +2357,34 @@ pub fn locomotion(
                 ch.velocity = Vec3::ZERO;
                 continue;
             }
+            // (In a city, AC1's mount guard first: a beam taken by its end ahead, `ac1_beam_mount`; a floor going on beside it
+            // does not matter.)
+            let mount = (level.authored_holds && ch.fall_v == 0.0 && !still && ctl.move_dir.with_y(0.0).length() >= 0.35)
+                .then(|| crate::climb::ac1_beam_mount(&level, tf.translation, ctl.move_dir))
+                .flatten();
+            if let Some(i) = mount
+                && let (Some(lib), true) = (lib.as_deref_mut(), ch.animator.is_some())
+            {
+                let lead_left = ch.animator.as_ref().is_none_or(|a| a.lead_left());
+                debug!("ground: AC1's mount onto beam {i} by its end at {:.2}", tf.translation);
+                ch.wall = crate::climb::WallClimb::perch_on(
+                    lib,
+                    &level,
+                    &tf,
+                    &ch.rig,
+                    ch.climb_rig,
+                    i,
+                    ctl.move_dir,
+                    ctl.speed > SPRINT_SPEED || ctl.free_run,
+                    lead_left,
+                    Some(ch.anim_pose.clone()),
+                );
+                if let Some(w) = &mut ch.wall {
+                    w.freestep_left = ch.freestep_left;
+                    ch.velocity = Vec3::ZERO;
+                    continue;
+                }
+            }
             if ch.fall_v == 0.0
                 && !floor_on
                 && level.perch_inside(tf.translation, crate::climb::PERCH_REACH).is_some_and(|(i, _)| along(i))

@@ -1411,6 +1411,17 @@ corner), free-on-wall 3 / 3, pop 5 / 5 (four at one spawn), death 1 / 1 (the dro
 e12's one-hand pull-up from a free hang onto a post grazes the post with the chest for 4 frames (the clip itself, the
 correction is not it); e3's corner out of the climbing stance into the hang.
 
+### The 41 traced routes, headless (2026-10-26)
+The 41 Damascus routes recorded in the running game as frame traces (ac1-hook's `trace into`: seconds, position, yaw,
+context, actions; the keys from the hook log's frames, matched to each trace by its first frame, as the hook's frame
+count restarts with the game) replayed in ours in headless control mode (`AC1_CONTROL` + `AC1_HEADLESS`, the city from
+its cache, three games at once: the 41 in about three minutes; `AC1_TRACE=<file>` on a `run` line, the path with no
+spaces, as a control line splits on whitespace). Scripts and traces outside the repo (game data). Ending within 1 m of
+the running game: 29 of 41 on dev 9ce9dc2 (mean path gap 0.47 m), 31 with AC1's mount guard above (0.50 m: `roof2_free_nw`
+above). The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
+jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
+game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
+
 ## Beams as AC1 does them (2026-10-14)
 The online friend "went into walls, specially from beams" (replay 1791930058, user report 2026-10-13). `AC1_REPLAY_SCAN=1`
 (with `AC1_REPLAY`) checks every frame's two roots against the city's collision (the capsule pushed out, the chest through
@@ -1434,6 +1445,17 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   (radius 0.25 m) swept from the feet to 1.1 m over the entry must be clear; the feet within the piece's half-width plus
   up to 0.5 m (all of it level with the top, none 0.53 m under it) of its line; then a box (0.5 m past either side,
   1 m up) along the piece. The stick's 0.35 is not in the guard (the event's sender).
+  Read again **[V]** 2026-10-26, and ours now does it in the cities (`climb::ac1_beam_mount`, before ours' own rule): the
+  query box is in the stick's frame, 0.75 m to either side, **0 to 1 m ahead**, 0.53 m up and down (min (-0.75, 0, -0.53),
+  max (0.75, 1, 0.53)), the angle compared with `<` against the π/2 argument (a 90 degree half-angle); the feet within
+  `(1 - clamp(rise / 0.53)) x 0.5 + half-width` of the piece's end (3D, `rise` the end over the feet), inside a box about it
+  (half-width + 0.5 m to either side, 0.5 m back to 1 m on, 0.5 m up and down); then the capsule. Ours had taken a beam
+  only once the feet were over it, 0.3 m in from its ends: off the seams roof north the running game, the stick straight
+  on, got on a beam starting 0.34 m ahead and 0.57 m to the side and curved onto its line (route `seams_free_north`, 3.46
+  m off at the end before, 0.15 m now). Not settled: which end of a piece counts (ours: the nearer; AC1's clip of the
+  piece to the box may keep the data's a-to-b order, which would make the cone one-way), and the edge jump's race with it
+  (route `roof2_free_nw`: at a roof's west rim the running game made its free-run jump where ours now mounts the beam
+  sticking out under the rim, 0.17 m below the roof, 0.49 m before its end; 2.67 m off at the end before, 5.32 now).
 - **Speed [B]**: the crouch jog in high profile, the crouch walk in low (AC1's speed band by profile); ours jogged only
   free running. **[V]** 2026-10-26: the band's speed (0xE53090) is a fixed table off narrow objects (bands 0-3:
   1.039, 1.779, 2.873, 4.707 m/s) and NarrowObject's own on one (+0xA4, 0xF721E0), filled by 0xF7D3E0 from action

@@ -2496,6 +2496,54 @@ fn beam_support(level: &Level, feet: Vec3, fwd: Vec3, own: Option<usize>) -> Opt
     None
 }
 
+/// AC1's mount guard from the ground (event 72, sent while the stick is past 0.35; `HumanGround`'s guard 0xD9F4C0): the
+/// beam query (0x116E1A0) over a box in the stick's frame, 0.75 m to either side, 0 to 1 m ahead, 0.53 m up and down, for a
+/// piece running from its nearer end within 90 degrees of the stick; the feet within the piece's half-width and 0.5 m of
+/// that end along it (the 0.5 gone as the end rises 0.53 m over the feet), inside a box about the end (the half-width and
+/// 0.5 m to either side, 0.5 m back to 1 m on, 0.5 m up and down); a capsule (0.25 m) from the feet to 1.1 m over the entry,
+/// half a metre on from the end, clear. The piece, nearest end first. (Off the seams roof north the running game, the
+/// stick straight on, got on a beam starting 0.34 m ahead and 0.57 m to the side and walked onto its line, route
+/// `seams_free_north`; ours took a beam only once the feet were on it, away from its ends.)
+pub fn ac1_beam_mount(level: &Level, feet: Vec3, stick: Vec3) -> Option<usize> {
+    let f = stick.with_y(0.0).normalize_or_zero();
+    if f == Vec3::ZERO {
+        return None;
+    }
+    let right = f.cross(Vec3::Y);
+    let flat = |p: Vec3| (p - feet).with_y(0.0).length();
+    level
+        .perches
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.axis() != Vec3::ZERO)
+        .filter(|(_, l)| segment_in_box(l.a, l.b, feet + f * 0.5, [right, f, Vec3::Y], [0.75, 0.5, 0.53]).is_some())
+        .filter_map(|(k, l)| {
+            let (near, far) = if flat(l.a) <= flat(l.b) { (l.a, l.b) } else { (l.b, l.a) };
+            let dir = (far - near).with_y(0.0).normalize_or_zero();
+            if dir.dot(f) <= 0.0 {
+                return None;
+            }
+            let entry = l.closest(near + dir * 0.5);
+            let hw = level.beam_half_width(entry, dir);
+            let d = feet - near;
+            let along = d.dot(dir);
+            let rise = ((near.y - feet.y) / 0.53).clamp(0.0, 1.0);
+            if (along * along + d.y * d.y).sqrt() >= (1.0 - rise) * 0.5 + hw
+                || d.dot(dir.cross(Vec3::Y)).abs() > hw + 0.5
+                || !(-0.5..=1.0).contains(&along)
+                || d.y.abs() > 0.5
+            {
+                return None;
+            }
+            let delta = (entry - feet).with_y(0.0);
+            let (way, half) = if delta.length() > 0.0005 { (delta.normalize(), delta.length() * 0.5) } else { (f, 0.1) };
+            let centre = (feet + delta * 0.5).with_y(entry.y + 1.1);
+            level.box_free(centre, [way.cross(Vec3::Y), Vec3::Y, way], Vec3::new(0.25, 0.5, half)).then_some((k, flat(near)))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(k, _)| k)
+}
+
 /// The part of the segment `a`-`b` inside the box about `c` (axes `e`, half sizes `h`): its point nearest `c`.
 fn segment_in_box(a: Vec3, b: Vec3, c: Vec3, e: [Vec3; 3], h: [f32; 3]) -> Option<Vec3> {
     let d = b - a;
@@ -7300,7 +7348,25 @@ impl WallClimb {
         from: Option<Pose>,
     ) -> Option<WallClimb> {
         let (i, _) = level.perch_at(root.translation, PERCH_REACH)?;
-        let line = level.perches[i];
+        Self::perch_on(lib, level, root, rig, cr, i, stick, sprint, lead_left, from)
+    }
+
+    /// `perch` onto the perch `i`, wherever the root is (AC1's mount from the ground takes a beam by its end, the feet
+    /// up to 0.6 m off it: the walk steers onto its line).
+    #[allow(clippy::too_many_arguments)]
+    pub fn perch_on(
+        lib: &mut AnimLib,
+        level: &Level,
+        root: &Transform,
+        rig: &Rig,
+        cr: ClimbRig,
+        i: usize,
+        stick: Vec3,
+        sprint: bool,
+        lead_left: bool,
+        from: Option<Pose>,
+    ) -> Option<WallClimb> {
+        let line = *level.perches.get(i)?;
         let wait = lib.get(PERCH_WAIT)?;
         let mut w = WallClimb::new(PERCH, root.rotation * Vec3::Z);
         w.perch = Some(i);
