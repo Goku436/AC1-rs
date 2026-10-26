@@ -1453,7 +1453,8 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   and the root, carried along the piece to the plane through the record's point, within 0.4 m of it (flat). The end stop
   (0xF7C3A0) takes the same point: the facing more than 10 degrees (0.1736) across the plane, past it or within 0.31 m,
   holds the root 0.3 m short (flag 1 at +0x8B0). The record's point is written through a pointer (no store at +0x5C0 in
-  NarrowObject's code); that it is the drop edge past the end (`sub_F72FD0`) is Banned445's reading. Ours as both.
+  NarrowObject's code): by `sub_F72FD0`, read 2026-10-26 (its +0x10 the drop edge's point past the end and +0x38 cleared,
+  else the piece's own end and +0x38 set: the beam's run, below), as Banned445 read it. Ours as both.
 - **The beam's run [V]** 2026-10-26: `sub_F72FD0` (0xF72FD0) moves each end of the piece on along it to the drop edge
   past it: the drop edge search (IHuman vt +0x90, `Human__FindDropEdgeAhead` 0xB1C100) from the end, −0.1 to 1.25 m on
   (plus `sub_1174260`'s distance past a connected piece), ±0.5 m up and down, a drop of 0.3 m or more, steps of 0.02 m.
