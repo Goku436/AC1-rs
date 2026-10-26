@@ -2,8 +2,9 @@
 //! directions (`QuantizeStickDirection` 0xDEB8D0) and, per pose and direction, the move in the short table (0x1A2D070)
 //! or the long one (0x1A2D7F0, hand over hand and both sides shuffling, tried first with the stick past half,
 //! `ChooseMove` 0xDFDE90). The entries and their action ids are from Banned445's AC1-Movement-Rewritten (MIT; read
-//! there by emulating `HumanClimb__StaticInitTables`); every action id names a clip in the game's action blocks
-//! (`forge` example `action_clips`), which is how the moves play here.
+//! there by emulating `HumanClimb__StaticInitTables`; checked 2026-10-25 against the exe's own initialiser, 0xDE4F80
+//! over the defaults of 0x163AC90: all 120 entries and their actions); every action id names a clip in the game's action
+//! blocks (`forge` example `action_clips`), which is how the moves play here.
 
 /// The poses, by our climbing state names: hands level ("1m"), the left or right one a row higher, and the same a
 /// column apart ("2m" ...).

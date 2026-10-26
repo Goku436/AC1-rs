@@ -320,7 +320,10 @@ The climbing is a grid, not free placement:
   (column·0.75 + 0.375, row·0.6 − 1.5 + 0.3) with a depth of 1.0, the grid 5.25 × 4.8 m (7 × 8 cells); a hold found
   is snapped to its cell (rounded) and kept only within 0.3 m along and 0.15 m up or down of the cell's centre.
 - **Poses** (0x1A2CD70): 0 hands level ("1m"), 1 left higher, 2 right higher, 3 a column apart level ("2m"), 4 / 5
-  apart with the left / right higher. Each pose has its wait action (0x012DA39F + pose). **[B]**
+  apart with the left / right higher. Each pose has its wait action (0x012DA39F + pose). **[B]** **[V]** 2026-10-25
+  (0xDE4F80): a pose's 0x60 bytes start with its wait action, three flags (a hand raised, a column apart, which hand is
+  up: 1 left, 2 right) and the hands' cells (column, row): the left's (3, 2), or (3, 3) raised; the right's (3, 2),
+  (3, 3) raised, a column on at 4 in poses 3-5.
 - The stick is quantised into 10 directions (`QuantizeStickDirection` 0xDEB8D0: up and down split by which side
   of straight they fall, the diagonals at 22.5-67.5° and 112.5-157.5°, sideways 67.5-112.5°). **[B, V]** (2026-10-24:
   the signed angle off the climb's up, within ±22.5° directions 0 / 1 by its sign, then 6 / 7, 4 / 5, 8 / 9 by side, and
@@ -328,7 +331,10 @@ The climbing is a grid, not free placement:
 - A move is looked up by (pose, direction) in the **short** table (0x1A2D070), or first in the **long** one
   (0x1A2D7F0: hand over hand 1.2 m, both sides shuffling a column) when the stick is past 0.5 (`ChooseMove`
   0xDFDE90). An entry is (next pose, which side moves, columns, rows) or a redirect to another direction; each has its
-  action (`xx_l_climb_*`). **[B]**
+  action (`xx_l_climb_*`). **[B]** **[V]** 2026-10-25: the tables are written by a static initialiser (0xDE4F80, over
+  defaults from 0x163AC90: kind 0xF "none", action −1); an entry is 24 bytes (kind: the next pose, or 9-14 a redirect
+  to direction 4, 5, 0, 1, 2, 3; the left hand's columns and rows; the right's; the action), indexed pose·10 + direction.
+  All 120 entries and actions match ours (`climb_table`). ChooseMove follows one redirect.
 - A move is valid when the destination foot cell and the hand cell two rows above both hold (`IsGridMoveValid`
   0xDECD70). It plays its action while the root is interpolated over the action's length (0.5 s without one) to
   the **root computed from the four holds** (`sub_B1CC20`: 0.5 m out from the feet holds along the climb facing, the
