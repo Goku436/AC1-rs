@@ -2591,7 +2591,7 @@ pub fn animate(
         let rig = &ch.rig;
         let b = &ch.bones;
         let mut pose = match (&mut ch.wall, &ch.animator) {
-            (Some(w), _) => w.pose(&ch.base, ch.climb_rig, &ch.rig, &ch.mirror),
+            (Some(w), _) => w.pose(&ch.base, ch.climb_rig, &ch.rig, &ch.mirror, dt),
             (None, Some(a)) => a.pose(&ch.base),
             (None, None) => ch.idle.clone(),
         };

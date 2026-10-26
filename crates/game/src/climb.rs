@@ -1503,16 +1503,21 @@ struct Fade {
     blend: Option<Blend>,
     /// A playing on under the blend (AROLLB*), sampled each frame instead of `from`.
     roll: Option<Shown>,
+    /// Not yet run down by a frame (`update`): started after that point of the frame, so shown one frame on (`weight`).
+    fresh: bool,
 }
 
 impl Fade {
     fn new(from: Pose, len: f32) -> Self {
-        Fade { from, t: len, len, blend: None, roll: None }
+        Fade { from, t: len, len, blend: None, roll: None, fresh: true }
     }
 
-    /// B's weight now.
-    fn weight(&self) -> f32 {
-        let k = 1.0 - self.t / self.len.max(1e-4);
+    /// B's weight now, shown after a frame of `dt`: a fade started after `update` ran its time down is a frame on when
+    /// first shown, as AC1's blend advances in the frame it starts. (Shown at 0, the body held the last pose a frame and
+    /// caught up the next: the beam autoclimb's hand 0.28 m in a frame, gauntlet G25.)
+    fn weight(&self, dt: f32) -> f32 {
+        let t = if self.fresh { self.t - dt } else { self.t };
+        let k = (1.0 - t / self.len.max(1e-4)).clamp(0.0, 1.0);
         self.blend.map_or_else(|| smoothstep(k), |b| b.weight(k))
     }
 
@@ -2692,7 +2697,7 @@ fn graph_fade(from: Pose, b: Blend, a: Option<Shown>, gap: impl FnOnce(&Pose) ->
     {
         len = len.min((a.clip.anim.duration - a.t).max(0.0) / a.rate.max(1e-3));
     }
-    (len > 0.01).then(|| Fade { from, t: len, len, blend: Some(b), roll: a.filter(|a| b.rolls_a() && !a.fading) })
+    (len > 0.01).then(|| Fade { from, t: len, len, blend: Some(b), roll: a.filter(|a| b.rolls_a() && !a.fading), fresh: true })
 }
 
 fn smoothstep(t: f32) -> f32 {
@@ -12253,6 +12258,7 @@ impl WallClimb {
         }
         if let Some(f) = &mut self.fade {
             f.t -= dt;
+            f.fresh = false;
             if let Some(r) = &mut f.roll {
                 let dur = r.clip.anim.duration.max(1e-3);
                 r.t += dt * r.rate;
@@ -12542,7 +12548,7 @@ impl WallClimb {
                     match &self.fade {
                         Some(f) => {
                             let mut faded = f.from.clone();
-                            faded.blend(&p, f.weight());
+                            faded.blend(&p, f.weight(dt));
                             faded
                         }
                         None => p,
@@ -12893,7 +12899,7 @@ impl WallClimb {
     }
 
     /// Body pose for this frame (before IK).
-    pub fn pose(&mut self, base: &Pose, cr: ClimbRig, rig: &Rig, mirror: &ik::mirror::Mirror) -> Pose {
+    pub fn pose(&mut self, base: &Pose, cr: ClimbRig, rig: &Rig, mirror: &ik::mirror::Mirror, dt: f32) -> Pose {
         let mut pose = base.clone();
         let fading = self.fade.is_some();
         let shown = if let Some(cy) = &self.cycle {
@@ -12932,7 +12938,7 @@ impl WallClimb {
         self.shown = shown;
         self.tilted(&mut pose, cr, rig);
         if let Some(f) = &self.fade {
-            let w = f.weight();
+            let w = f.weight(dt);
             let from = match &f.roll {
                 Some(r) => &{
                     let mut p = r.pose(base, cr, rig, mirror);
