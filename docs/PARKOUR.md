@@ -818,7 +818,11 @@ in this batch, by audit id:
     the counter and `_tr_fall` off its end; along it, the side free step (ended where it leaves the counter) and a
     free-step jump on out. [ours] The stall's own collision is left out of the kiosk's room and clear-way tests and the
     way over: in Damascus it stands in the way (ours places it about 0.9 m out in front of the counter, a placement still
-    to check) where AC1 comes onto the counter. The ground-entered overhead monkey bars are gone.
+    to check) where AC1 comes onto the counter. The ground-entered overhead monkey bars are gone. **[V]** 2026-10-25:
+    arrived on the counter (0xE07D00's type 0x400), AC1 plays the free step's reception (0x010DF150 with the left foot
+    leading, else 0x010DE1FE), the root interpolated onto the target over 0.067 s with the clip's motion left out, and
+    `HumanKiosk`'s wait (0xE3EAA0) starts the entry once the reception is 0.6 through. Ours now does the same (the
+    reception held in place on the target, cut at 0.6); it went from the flight straight into the entry.
   - NARROW-11: on a beam, the empty hand with nothing to pull down onto climbs onto a wall ahead, else to its right or
     left (event 16 after the pull-down, holds probed 0.95 m ahead or 0.8 m to a side; ours: the ground's climb start
     turned that way). Gauntlet G17.

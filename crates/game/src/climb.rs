@@ -1248,6 +1248,8 @@ const KIOSK_TOP_NEAR: f32 = 0.5;
 const KIOSK_OFF_SPEED: f32 = 1.7;
 /// A side's free step is taken as off the counter once its root is this far under where it started (m).
 const KIOSK_OFF_DROP: f32 = 0.05;
+/// The free step's reception on a kiosk plays this share of its length before the entry (0xE3EAA0's 0.6).
+const KIOSK_RECEPTION_PHASE: f32 = 0.6;
 /// Off a kiosk side's free step, a body more than this behind the root (m, the hips) starts the jump on out under them.
 const KIOSK_OFF_LAG: f32 = 0.3;
 /// A low obstacle run onto (see `vault`): top height above the feet, and how far ahead it is spotted; tops
@@ -1364,11 +1366,13 @@ struct Queued {
     turn: Quat,
     /// The blend into it (s), where AC1's code gives its own; else the graph's or ours.
     fade: Option<f32>,
+    /// Its root motion left out (`Move::in_place`).
+    in_place: bool,
 }
 
 impl Queued {
     fn new(clip: Arc<Clip>, to: impl Into<String>) -> Self {
-        Self { clip, to: to.into(), correct: Vec3::ZERO, rate: 1.0, turn: Quat::IDENTITY, fade: None }
+        Self { clip, to: to.into(), correct: Vec3::ZERO, rate: 1.0, turn: Quat::IDENTITY, fade: None, in_place: false }
     }
 }
 
@@ -1542,8 +1546,8 @@ pub struct WallClimb {
     pub hand_held: bool,
     /// The grasp on the upper body while the manual catch is armed (`grasp_pose`).
     grasp: Grasp,
-    /// A clip (by name) ended early, at this time into it: a reception whose step is over, running on.
-    cut: Option<(String, f32)>,
+    /// Clips (by name) ended early, at these times into them: a reception whose step is over, running on.
+    cuts: Vec<(String, f32)>,
     /// Pose clip to switch to once the jump starts coming down.
     descend: Option<Arc<Clip>>,
     /// Velocity to start the next fall with, instead of the previous clip's (rebound, leap of faith).
@@ -4202,7 +4206,7 @@ impl WallClimb {
             legs_held: false,
             hand_held: false,
             grasp: Grasp::default(),
-            cut: None,
+            cuts: vec![],
             descend: None,
             fall_with: None,
             faith: false,
@@ -4938,7 +4942,7 @@ impl WallClimb {
         // over: `RECEPTION_STAY`, the running game's last arrival on route `roof2_free_east`.)
         let stay = if onto_beam.is_none() { RECEPTION_STAY } else { 0.0 };
         if let (Some(f), Some(r)) = (cut, w.queue.last()) {
-            w.cut = Some((r.clip.name.clone(), f / FPS + stay));
+            w.cuts.push((r.clip.name.clone(), f / FPS + stay));
         }
         w.ease_in(from, root);
         debug!(
@@ -4994,7 +4998,7 @@ impl WallClimb {
             debug!("climb: onto perch {i} at {q:.2} (landing on it)");
         }
         if let (Some(f), Some(r)) = (cut, w.queue.last()) {
-            w.cut = Some((r.clip.name.clone(), f / FPS));
+            w.cuts.push((r.clip.name.clone(), f / FPS));
         }
         // (Down on a top, on the way it jumped: the reception hands over to the ground at the walk, which the free run
         // then speeds up (the running game's last arrival on route `roof2_free_east` went into HumanGround on
@@ -5059,7 +5063,7 @@ impl WallClimb {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
         };
-        let (takeoff, flight) = (mix(&j.takeoff)?, mix(&j.flight)?);
+        let (takeoff, flight, reception) = (mix(&j.takeoff)?, mix(&j.flight)?, mix(&j.reception)?);
         // (The facing on arrival: the jump's way, the takeoff having turned to it.)
         let side = kiosk_entry_side(axis, aim, aim);
         let entry = lib.get(side.entry())?;
@@ -5080,9 +5084,22 @@ impl WallClimb {
         let off_counter =
             side.lateral().then(|| (1..=entry.frames() as usize).map(|f| f as f32).find(|&f| root_motion_at(&entry, f).z < -KIOSK_OFF_DROP)).flatten();
         let cut = off_counter.map(|f| (entry.name.clone(), f / FPS));
+        // (Arrived, AC1 plays the free step's reception on the counter, the root held on the target (0xE07D00: 0x010DF150 /
+        // 0x010DE1FE, its own motion left out), and `HumanKiosk`'s wait starts the entry once it is 0.6 through (0xE3EAA0);
+        // ours went from the flight straight into the entry.)
         let mut w = WallClimb::new(VAULT, -aim);
-        w.start_chain_carry(vec![takeoff.clone(), flight.clone(), entry], vec![VAULT.into(), VAULT.into(), KIOSK.into()], &planned, correct, Some(1));
-        w.cut = cut;
+        w.cuts.push((reception.name.clone(), reception.anim.duration * KIOSK_RECEPTION_PHASE));
+        w.start_chain_carry(
+            vec![takeoff.clone(), flight.clone(), reception, entry],
+            vec![VAULT.into(), VAULT.into(), VAULT.into(), KIOSK.into()],
+            &planned,
+            correct,
+            Some(1),
+        );
+        if let Some(q) = w.queue.get_mut(1) {
+            q.in_place = true;
+        }
+        w.cuts.extend(cut);
         w.kiosk = Some(KioskRun { side, dir: aim, stage: 0 });
         w.ease_in(from, root);
         debug!("climb: jump onto kiosk at {to:.2}, side {side:?} ({} then {})", takeoff.name, flight.name);
@@ -5657,7 +5674,7 @@ impl WallClimb {
             debug!("climb: onto perch {i} at {q:.2} (landing on it)");
         }
         if let (Some(f), Some(r)) = (cut, w.queue.last()) {
-            w.cut = Some((r.clip.name.clone(), f / FPS));
+            w.cuts.push((r.clip.name.clone(), f / FPS));
         }
         // (Turned from facing the wall to facing away as the takeoff starts, in one frame: `snap_takeoff`.)
         w.snap_turn = true;
@@ -8042,7 +8059,7 @@ impl WallClimb {
             debug!("climb: onto perch {i} at {q:.2} (landing on it)");
         }
         if let (Some(f), Some(r)) = (cut, w.queue.last()) {
-            w.cut = Some((r.clip.name.clone(), f / FPS));
+            w.cuts.push((r.clip.name.clone(), f / FPS));
         }
         if level.perch_inside(to, PERCH_REACH).is_none() {
             w.exit_velocity = aim * PERCH_OFF_RUN;
@@ -11775,7 +11792,7 @@ impl WallClimb {
                 }
                 _ => {}
             }
-            let end = self.cut.as_ref().filter(|(n, _)| *n == m.clip.name).map_or(dur, |(_, t)| t.min(dur));
+            let end = self.cuts.iter().find(|(n, _)| *n == m.clip.name).map_or(dur, |(_, t)| t.min(dur));
             // (The wall-hang reception's way out to the wait, its connector, cut by a move: see `reception_connector`.)
             let end = if reception_connector(&m.clip.name) && self.queue.is_empty() && input.length() > 0.3 && m.t < end {
                 debug!("climb: a move cuts the reception's way out to the wait, {:.2} of {:.2} s in", m.t, end);
@@ -11960,7 +11977,7 @@ impl WallClimb {
                     turn: if next.turn != Quat::IDENTITY { next.turn } else { turned },
                     turn_span: 0.0,
                     turn_eased: next.turn != Quat::IDENTITY,
-                    in_place: false,
+                    in_place: next.in_place,
                     correct_span: 0.0,
                 });
                 return;
