@@ -24,7 +24,7 @@ install**. No game files, textures, meshes or code from the original are stored 
 | Havok packfiles (`HavokChunk`), ragdolls (`RagdollNew`) | done: 72/72 ragdolls read; the dead go limp (Verlet ragdoll with AC1's bodies and limits) |
 | Cloth (`ClothComponent`, Altaïr's robe tails) | done on AC1's data (`forge::cloth`, `ik::cloth`): the soft mesh's 146 vertices (44 pinned) and 253 edges, per-vertex pull and collision radius, the entity's `Cloth` settings, the 6 `humanragdoll_forcloth` capsules (thighs, shins, feet) mapped onto bones, the 20 `ClothActionSettings`, AC1's 0.033333 s step, the city's `Wind` |
 | Bone modifiers (secondary motion: hinges, look-ats, compressions, rotation copies, roll bones, spring box) | done (`forge::modifier`, `ik::secondary`): all 56 of Altaïr's (main 31, skirt 20, hood 3, sword tag 2) parse and run every frame after the IK |
-| Wind (`Wind`, a city's `Wind_<City>_001`) | done for Damascus and Masyaf (the test level borrows Masyaf's); AC1's noise tables, checked against a value read from the running game |
+| Wind (`Wind`, a city's `Wind_<City>_001`) | done for Damascus, Masyaf, Acre, Jerusalem, the Kingdom and Arsuf (the test level borrows Masyaf's); AC1's noise tables, checked against a value read from the running game |
 | Viewpoints (`ReachHighPoint_*` groups, entities named `*ReachHighPoint*`) | done: Damascus 12, each with a leap of faith into its hay; Masyaf 1, not a viewpoint in AC1's data (no `ReachHighPointComponent` in Masyaf): the tutorial's "reach a high point" trigger (`M05_T40_Scene_TUT_ReachHighPoint`) on the tower over the village, its hay (`Hay_Bale_01 Group_009`) 13 m north of its top's edge, 13.4 m down, reached by the leap of faith; and the siege's leap off the fortress tower's scaffold into `Group_001` 44 m down (docs/PARKOUR.md HAY-9) |
 | City parkour objects by mesh name (hay carts, `Ladder_*`, `Banc_*`, `Pole_*`) | done: Damascus 46 haystacks, 301 ladders, 320 benches, 159 swing bars; Masyaf 14, 40, 28, 2; climbing probe 8/20 spots over the top |
 | Navigation meshes (`NavMeshManager`) | done: 1432/1432 parse (67836 pieces, 1.13 M triangles); city routes (A*) |
@@ -347,7 +347,7 @@ back, left and right kick-offs, the one heading nearest the stick; pushing into 
 the wall) (`xx_h_wallingfront_<entry|step1>rebound_<back|left|right>`; from the
 step until 60% into its fall back off the wall, as AC1 also rebounds from there), catching holds behind, and at
 the edge of a high roof over a haystack it does the leap of faith (`xx_h_freestep_footr_to_faith_jump_*`, the
-`xx_h_faith_jump_*` dive stretched over the real fall, `xx_h_faith_jump_landing` into the hay, `xx_h_haystack_wait`,
+`xx_h_faith_jump_*` dive, `xx_h_faith_jump_fall` looped for the rest of the fall, `xx_h_faith_jump_landing` into the hay, `xx_h_haystack_wait`,
 `xx_l_haystack_hop_out`); any fall into a haystack lands in it (`xx_h_air_to_haystack`), and walking off a ledge is an
 animated fall. Tower T (15 m) has a haystack off its back edge.
 Sprinting along a wall, Space runs along it: AC1 ships no clips for that (only the unused `WallingType_Horizontal`),

@@ -68,8 +68,9 @@
 //!
 //! Leap of faith (Space at the edge of a high roof with a haystack below and ahead):
 //! `xx_h_freestep_footr_to_faith_jump_100cm_long_<300cm_down|3000cm_down_footr>` takes off, the matching
-//! `xx_h_faith_jump_100cm_long_<..>_down` dive is stretched over the actual fall while gravity carries the
-//! root (aimed at the haystack), and `xx_h_faith_jump_landing` (1.6 m down) ends in the hay.
+//! `xx_h_faith_jump_<100|800>cm_long_<..>_down` dive plays, then `xx_h_faith_jump_fall` loops (AC1's action 0x23A949B5)
+//! while gravity carries the root (aimed at the haystack), and `xx_h_faith_jump_landing` (1.6 m down) ends in the hay
+//! (the root straight into it in 0.1-0.4 s).
 //! Any other fall that comes down into a haystack lands with `xx_h_air_to_haystack` (1.2 m down). In the
 //! hay `xx_h_haystack_wait` loops until any input, then `xx_l_haystack_hop_out` (+2 m) and
 //! `_tr_l_wait`. (The game has `ActorStateID_LeapOfFaith`, `ActorStateID_InHayStack` and haystack entry
@@ -675,6 +676,10 @@ const FAITH_DIVES: [&str; 4] = [
 const FAITH_NEAR: f32 = 7.5;
 const FAITH_DOWN: f32 = 30.0;
 const FAITH_LAND: &str = "xx_h_faith_jump_landing";
+/// The leap of faith's fall after its dive, looped till the hay (action 0x23A949B5).
+const FAITH_FALL: &str = "xx_h_faith_jump_fall";
+/// The let-go's dive blends into `FAITH_FALL` over this share of the time left to the hay (0xE0DEF0's 0.6).
+const LET_GO_FAITH_FADE: f32 = 0.6;
 const AIR_TO_HAY: &str = "xx_h_air_to_haystack";
 /// The hay entry's root move into the hay takes the distance over the speed, within these (s; 0xE41D50, 0xE42700).
 const HAY_ENTRY_SPAN: (f32, f32) = (0.1, 0.4);
@@ -1357,11 +1362,13 @@ struct Queued {
     correct: Vec3,
     rate: f32,
     turn: Quat,
+    /// The blend into it (s), where AC1's code gives its own; else the graph's or ours.
+    fade: Option<f32>,
 }
 
 impl Queued {
     fn new(clip: Arc<Clip>, to: impl Into<String>) -> Self {
-        Self { clip, to: to.into(), correct: Vec3::ZERO, rate: 1.0, turn: Quat::IDENTITY }
+        Self { clip, to: to.into(), correct: Vec3::ZERO, rate: 1.0, turn: Quat::IDENTITY, fade: None }
     }
 }
 
@@ -8559,8 +8566,9 @@ impl WallClimb {
         let (takeoff, dive) = (mix(&FAITH_TAKEOFFS)?, mix(&FAITH_DIVES)?);
         lib.get(FAITH_LAND)?;
         let planned = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, toward), ..*root };
-        // Where the takeoff leaves us and how fast it is going down; then the time to fall onto the hay,
-        // the sideways speed that lands in its middle, and the dive stretched over that time.
+        // Where the takeoff leaves us and how fast it is going down; then the time to fall onto the hay and the sideways
+        // speed that lands in its middle. The dive plays at its own pace, then `xx_h_faith_jump_fall` till the hay (AC1's
+        // jump blend gives the leap of faith action 0x23A949B5 for its fall, 0xB1EC40; ours stretched the dive over it).
         let r = world_rot(planned.rotation);
         let end = takeoff.frames();
         let k = end.min(3.0);
@@ -8570,7 +8578,7 @@ impl WallClimb {
         let t = (v0 + (v0 * v0 + 2.0 * GRAVITY * h).sqrt()) / GRAVITY;
         let flat = (hay.seat() - leave).with_y(0.0) / t;
         let mut w = WallClimb::new(FAITH, -toward);
-        w.queue = vec![Queued { rate: dive.anim.duration / t, ..Queued::new(dive, FALL) }];
+        w.queue = vec![Queued::new(dive, FALL)];
         w.fall_with = Some(flat.with_y(v0));
         w.faith = true;
         w.start(takeoff, FAITH.into(), &planned);
@@ -9312,8 +9320,9 @@ impl WallClimb {
     /// Let go of the wall now: push off (or release from a free hang) and fall.
     /// Letting go of a hang over a haystack: AC1's let-go dives into it (the interpreter's ledge state 0xEEC558: the vt84
     /// search away from the wall, `LET_GO_SEARCH`, then the let-go record knows the hay, 0xDD7810; Banned445's port
-    /// c8e6b69): the release's first item, then the faith dive (`xx_h_faith_jump_*`, by the way and the drop to the hay)
-    /// steered into it, and the faith landing in the hay.
+    /// c8e6b69): the release's first item (0xDD7810, the hay handed on as the jump's target), then, the release played
+    /// out, `xx_h_faith_jump_fall` blended in over 0.6 of the time left to the hay (the in-air update 0xE0DEF0; no dive
+    /// clip, which ours played stretched over the fall), steered into it, and the faith landing in the hay.
     fn let_go_dive(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
         if !matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN | FREE | FREE_OPEN) {
             return false;
@@ -9322,21 +9331,19 @@ impl WallClimb {
         let p = root.translation;
         let Some(hay) = support_search(level, p, away, away, &LET_GO_SEARCH) else { return false };
         let release = if is_free(&self.state) { "xx_h_hangfree_tr_fall_a" } else { "xx_h_hangwall_tr_fall_a" };
-        let w = faith_weights((hay.seat() - p).with_y(0.0).length(), hay.centre.y + HAY_SEARCH_TOP - p.y);
-        let dive = lib.get(&mix_name(&FAITH_DIVES.iter().zip(w).map(|(n, w)| (*n, w)).collect::<Vec<_>>()));
-        let (Some(release), Some(dive)) = (lib.get(release), dive) else { return false };
+        let (Some(release), Some(dive)) = (lib.get(release), lib.get(FAITH_FALL)) else { return false };
         if lib.get(FAITH_LAND).is_none() {
             return false;
         }
-        // (The fall from where the release leaves the root onto the hay's seat: its time under gravity, the speed across
-        // that lands there, the dive stretched over it.)
+        // (The fall from where the release leaves the root onto the hay's seat: its time under gravity and the speed
+        // across that lands there.)
         let leave = p + world_rot(root.rotation) * root_motion_at(&release, release.frames());
         let h = (leave.y - hay.top()).max(0.1);
         let t = (2.0 * h / GRAVITY).sqrt();
         let flat = (hay.seat() - leave).with_y(0.0) / t;
         debug!("climb: let go over the haystack at {:.2}: the faith dive into it", hay.centre);
         self.fall_top = p.y;
-        self.queue = vec![Queued { rate: dive.anim.duration / t, ..Queued::new(dive, FALL) }];
+        self.queue = vec![Queued { fade: Some(LET_GO_FAITH_FADE * t), ..Queued::new(dive, FALL) }];
         self.fall_with = Some(flat);
         self.faith = true;
         self.let_go_dive = true;
@@ -11231,7 +11238,7 @@ impl WallClimb {
         }
         if let Some(m) = &mut self.mv {
             let dur = m.clip.anim.duration;
-            m.t = if m.clip.name == FALL_LOOP { (m.t + dt) % dur.max(1e-3) } else { (m.t + dt * m.rate).min(dur) };
+            m.t = if m.clip.name == FALL_LOOP || m.clip.name == FAITH_FALL { (m.t + dt) % dur.max(1e-3) } else { (m.t + dt * m.rate).min(dur) };
             // Clips that turn in the air (rebounds) turn the root.
             root.rotation = m.start_rot * root_delta(root_rotation_at(&m.clip, m.t * FPS));
             // (A turn still easing in from the takeoff carries on into the fall: dropped there, the root snapped by the
@@ -11240,11 +11247,10 @@ impl WallClimb {
                 root.rotation = m.ease_rot.slerp(Quat::IDENTITY, smoothstep(m.t / EASE_TURN)) * root.rotation;
             }
         }
-        // A fall that outlasts its clip goes on in the falling loop (not the leap of faith's dive).
-        if !self.faith
-            && self.descend.is_none()
-            && self.mv.as_ref().is_some_and(|m| m.clip.name != FALL_LOOP && m.rate > 0.0 && m.t >= m.clip.anim.duration)
-            && let Some(fall_loop) = lib.get(FALL_LOOP)
+        // A fall that outlasts its clip goes on in the falling loop (the leap of faith's dive in its own).
+        if self.descend.is_none()
+            && self.mv.as_ref().is_some_and(|m| m.clip.name != FALL_LOOP && m.clip.name != FAITH_FALL && m.rate > 0.0 && m.t >= m.clip.anim.duration)
+            && let Some(fall_loop) = lib.get(if self.faith { FAITH_FALL } else { FALL_LOOP })
         {
             self.start(fall_loop, FALL.into(), root);
             self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
@@ -11918,6 +11924,9 @@ impl WallClimb {
                         Some(b) => graph_fade(last.clone(), b, None, gap, ours),
                         None => Some(Fade::new(last.clone(), ours(gap(last)))),
                     };
+                    if let (Some(len), Some(f)) = (next.fade, &mut self.fade) {
+                        *f = Fade::new(f.from.clone(), len);
+                    }
                     debug!("climb: seam blend {} -> {}: {:?}", done.clip.name, next.clip.name, self.fade.as_ref().map(|f| (f.len, f.blend.map(|b| b.kind))));
                 }
                 if let Some(f) = &mut self.fade

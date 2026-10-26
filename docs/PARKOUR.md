@@ -390,6 +390,13 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   7.5 m; the rest (0x80 free hang, swing bars) 3.0 / 2.5 / 6 / 8 m; the jump off a swing bar (takeoff kind 3) lifts its
   band 0.7 m. Takeoff and flight weigh on the same band. **[V]** 2026-10-24 (ours had the free step's for every jump:
   `jump::Band`, `running_in`).
+- **The leap of faith's actions** (0xB1EC40, type 0x800 from the ground or a narrow object with the target 3 m or more
+  below): the takeoff 0x23A949B7 (0x23A949B1 off the other foot), the dive 0x23A949B2 (`xx_h_faith_jump_<100|800>cm_long_
+  <300|3000>cm_down`), and for its fall 0x23A949B5 `xx_h_faith_jump_fall` where every other jump has request 33's
+  `xx_h_jumpfalling01`; bands −3 to −30 m down, 0 to 7.5 m on. The hang's let-go over a haystack (0xDD7810: the release,
+  0x1120E17B / 0x1120E179, the hay its target) goes, once the release is played out, straight into 0x23A949B5 with a blend
+  0.6 of the time left to the hay (0xE0DEF0), no dive. **[V]** 2026-10-25; ours since (it stretched the dive over the fall,
+  the let-go's too).
 - **What the bands measure** (0xB1EC40, 0xB1F0A0 / 0xB1F480): the target's own point (a hold's grab point, not the
   hang's root under it; the free step's landing point) pulled back 0.5 m toward the start (times entity +0x7C, 1 for
   the player), its flat distance from the start and its height over the start's root. The hang types' aim is moved
@@ -1661,8 +1668,7 @@ their action items, landings by AC1's stick / speed rule), beams and posts (star
 impulse jumps), jumps (takeoff / flight / reception tables, the edge classification of 0xE18970) and the edge events (as
 the input interpreter sends them). Checked by mapping every action id Banned445's port lists for each context to its
 clips (`forge` example `action_clips`) against the clips our code plays: left unplayed are combat's (hurt
-falls, stumbles), other characters' (`cmaa_*`), the leap of faith's code-driven fall (`xx_h_faith_jump_fall`; ours
-stretches the dive over the whole fall), and in `HumanLedge` (audit LEDGE-15, 2026-10-12, see the audit section's "the
+falls, stumbles), other characters' (`cmaa_*`), and in `HumanLedge` (audit LEDGE-15, 2026-10-12, see the audit section's "the
 hangs AC1 has"; the free to wall switch up or down and the wall run's free catches' `max` share and wait were added
 2026-10-13): the clips AC1's code never asks for (`hangwall_tr_hangfree` in place, `_up_right`, `_down_right`,
 `hangwallfree_tr_fall`, `step1_footr_tr_hangwallfree_*`; `hangwallfree_tr_hangwall` only for a hang type set with walling
