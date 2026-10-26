@@ -1545,13 +1545,15 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   the plinth; `roof2_run_south` runs on over the roof's end as ground (AC1's, ours had a beam there); the high profile jog;
   the post's lean.
 
-Left (Banned445's port has them; ours does not yet): the kind 0 with the legs held toward a drop edge mid-beam (ours: at
-the end); the support re-found every frame (one runtime report, chains walked through); the side entry's 30/90 blend
+Left (Banned445's port has them; ours does not yet): the support re-found every frame (one runtime report, chains walked through); the side entry's 30/90 blend
 checked live (ours plays it, G29); BeamState's event 20, read but not placed (vt +0x13C / +0x140: pad button 1 pressed
 within 0.2 s, 0x93F370, with the flag at the frame's +0x11; maybe the attack from above, combat's); whether a viewpoint's
 beam end dives into its hay on the stick alone (event 22 below says it does, by the code; not seen live).
 Done 2026-10-26: the beam ends extended to the drop edge (G30), the jump kinds 3 / 4
-on beams and posts (G25 high, G32), event 22's dive into a haystack (G33).
+on beams and posts (G25 high, G32), event 22's dive into a haystack (G33). The kind 0 mid-beam, read: its free mode
+off the forward sector over a drop of more than 1 m comes from INarrow vt +0xA4 (0xE52FC0), true on a post (+0x164 is 2)
+or with +0x881 set and NarrowObject's mode (+0x140) 10; so on a beam, free running with the stick turned to the side over
+G27's 1.2 m drop, AC1 takes no free jump (kind 4's box only), as ours (it had been listed as ours' gap).
 - **The stick toward a haystack off a beam [V, ours]** 2026-10-26: event 22 (INarrow vt +0x144 / +0x148, 0xE542D0 /
   0xE555E0) is sent by the beam interpreter every frame the stick is past 0.35 (0xEE9F13, the pad's +0x5C0; no button,
   no free-run gate, before the jump events). BeamState's Idle, Walk and 90 degree wait take it (0xF7A4F0 / 0xF7F150 /
