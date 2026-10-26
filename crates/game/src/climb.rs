@@ -828,6 +828,8 @@ const BEAM_JOG: [&str; 2] = ["xx_h_beam_crouchjog_footl", "xx_h_beam_crouchjog_f
 /// Free running along a beam: the speed it starts at (m/s) and how fast it rises to the crouch jog's own (m/s²).
 const BEAM_SPRINT_START: f32 = 2.1;
 const BEAM_ACCEL: f32 = 2.0;
+/// And how fast it falls to a lower profile's (m/s²: AC1's beam speed model, Banned445's reanalysis NARROW-1).
+const BEAM_DECEL: f32 = 3.0;
 /// Walking a beam off its line, the heading turns toward the line this far on (m), at this rate (1/s, AC1's lerp).
 const BEAM_STEER_AHEAD: f32 = 0.6;
 const BEAM_STEER_RATE: f32 = 4.0;
@@ -1423,17 +1425,32 @@ impl Cand {
 
 /// Walking along a beam: a two-step cycle played by phase while the root follows the beam.
 struct Cycle {
+    /// The crouch walk's two steps and the crouch jog's, mixed by the speed walked (AC1's action 0x28A3A8E4: the walk
+    /// at weight 0, the jog at 1), played by the same phase.
     clips: [Arc<Clip>; 2],
+    jog: [Arc<Clip>; 2],
     foot: usize,
     phase: f32,
     dir: Vec3,
-    /// The clips' own speed (m/s), and the speed walked now: free running, AC1's beam speed rises at `BEAM_ACCEL` from
-    /// `BEAM_SPRINT_START` to the crouch jog's own (the clips played at that rate).
-    speed: f32,
+    /// The walk's and the jog's own speeds (m/s, AC1's speed bands on a narrow object, 0xF7D3E0), and the speed walked
+    /// now: it goes to the profile's at `BEAM_ACCEL` up and `BEAM_DECEL` down (free running from `BEAM_SPRINT_START`).
+    speed: [f32; 2],
     v: f32,
     /// A start played first (AC1's `xx_<l|h>_beam_crouchwait_<foot>_tr_crouch<walk|jog>_<other foot>`), the time into
     /// it and its own speed; the cycle goes on from its end on the other foot.
     intro: Option<(Arc<Clip>, f32, f32)>,
+}
+
+impl Cycle {
+    /// The jog's share of the mix at the speed walked.
+    fn jog_w(&self) -> f32 {
+        ((self.v - self.speed[0]) / (self.speed[1] - self.speed[0]).max(1e-3)).clamp(0.0, 1.0)
+    }
+
+    /// The step shown (the larger share of the mix).
+    fn step(&self) -> &Arc<Clip> {
+        if self.jog_w() >= 0.5 { &self.jog[self.foot] } else { &self.clips[self.foot] }
+    }
 }
 
 /// A clip as shown: where it was, how fast it ran, whether it loops or played mirrored, and whether a fade was
@@ -6538,7 +6555,7 @@ impl WallClimb {
             return Some(match &cy.intro {
                 Some((c, t, _)) => Playing { slot: 0, clip: c.clone(), t: *t, looping: false, synced: false },
                 None => {
-                    let c = &cy.clips[cy.foot];
+                    let c = cy.step();
                     Playing { slot: 0, clip: c.clone(), t: cy.phase * c.anim.duration, looping: true, synced: true }
                 }
             });
@@ -6551,7 +6568,7 @@ impl WallClimb {
     }
 
     pub fn clip_name(&self) -> Option<&str> {
-        let cycle = self.cycle.as_ref().map(|c| c.intro.as_ref().map_or(c.clips[c.foot].name.as_str(), |i| i.0.name.as_str()));
+        let cycle = self.cycle.as_ref().map(|c| c.intro.as_ref().map_or(c.step().name.as_str(), |i| i.0.name.as_str()));
         cycle.or(self.mv.as_ref().map(|m| m.clip.name.as_str())).or(self.wait.as_ref().map(|w| w.name.as_str()))
     }
 
@@ -7345,10 +7362,13 @@ impl WallClimb {
         // (The crouch jog in high profile, the crouch walk in low: AC1's speed band by profile, band 2 in high, 1 in low
         // (`GetSpeedBand` 0xE53090, Banned445's port fa7114b); ours jogged free running only.)
         let jog = self.beam_jog();
-        let names: [String; 2] = if jog { BEAM_JOG.map(String::from) } else { BEAM_WALK.map(String::from) };
-        let (Some(a), Some(b)) = (lib.get(&names[0]), lib.get(&names[1])) else { return };
+        let (Some(a), Some(b), Some(ja), Some(jb)) = (lib.get(BEAM_WALK[0]), lib.get(BEAM_WALK[1]), lib.get(BEAM_JOG[0]), lib.get(BEAM_JOG[1])) else {
+            return;
+        };
         debug!("climb: along the beam at the {}", if jog { "crouch jog" } else { "crouch walk" });
-        let speed = root_motion_at(&a, a.frames()).length() / a.anim.duration.max(1e-3);
+        let own = |c: &Clip| root_motion_at(c, c.frames()).length() / c.anim.duration.max(1e-3);
+        let speeds = [own(&a), own(&ja)];
+        let speed = speeds[jog as usize];
         // From the crouch on a foot facing along the beam: AC1's start (0x34662CB4 / B5) on into the other foot's step.
         let feet = ["footl", "footr"];
         let intro = match self.beam_stance {
@@ -7366,7 +7386,7 @@ impl WallClimb {
         // a Damascus beam from 2.1 to 3.7 m/s at about 2.4 m/s² (roof1_free_sw), then held the crouch jog's 3.7 m/s
         // (AC1's beam speed model: up at 2 m/s², down at 3, Banned445's reanalysis NARROW-1).)
         let v = if jog { BEAM_SPRINT_START.min(speed) } else { speed };
-        self.cycle = Some(Cycle { clips: [a, b], foot, phase: 0.0, dir, speed, v, intro: intro.map(|(_, c, v)| (c, 0.0, v)) });
+        self.cycle = Some(Cycle { clips: [a, b], jog: [ja, jb], foot, phase: 0.0, dir, speed: speeds, v, intro: intro.map(|(_, c, v)| (c, 0.0, v)) });
         self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
     }
 
@@ -7408,6 +7428,7 @@ impl WallClimb {
             *self = w;
             return;
         }
+        let jog_now = self.beam_jog();
         let Some(cy) = &mut self.cycle else { return };
         // (Stopped: crouched on the foot it was on.)
         let stop = |w: &mut Self, lib: &mut AnimLib| {
@@ -7431,7 +7452,10 @@ impl WallClimb {
             }
             return;
         }
-        cy.v = (cy.v + BEAM_ACCEL * dt).min(cy.speed);
+        // (Toward the profile's speed, up at 2 m/s² and down at 3 (Banned445's reanalysis NARROW-1): a change of profile
+        // mid-beam eases between the gaits through AC1's mix. Ours kept the gait it started in.)
+        let target = cy.speed[jog_now as usize];
+        cy.v = if cy.v < target { (cy.v + BEAM_ACCEL * dt).min(target) } else { (cy.v - BEAM_DECEL * dt).max(target) };
         let speed = cy.intro.as_ref().map_or(cy.v, |i| i.2.max(0.3));
         // Steered onto the line, as AC1's beam walk (0xF79B30, Banned445's port, audit NARROW-5): the heading turned
         // toward the line `BEAM_STEER_AHEAD` on, at min(4 dt, 1), the body moving along its heading, the way off the line
@@ -7525,7 +7549,11 @@ impl WallClimb {
             }
             return;
         }
-        cy.phase += dt * (cy.v / cy.speed.max(1e-3)) / cy.clips[cy.foot].anim.duration.max(1e-3);
+        // (The phase at the speed walked over the mixed step's length, so the feet keep to the beam.)
+        let w = cy.jog_w();
+        let stride = |c: &Clip| root_motion_at(c, c.frames()).length();
+        let len = stride(&cy.clips[cy.foot]) * (1.0 - w) + stride(&cy.jog[cy.foot]) * w;
+        cy.phase += dt * cy.v / len.max(1e-3);
         if cy.phase >= 1.0 {
             cy.phase -= 1.0;
             cy.foot ^= 1;
@@ -12460,7 +12488,15 @@ impl WallClimb {
         let shown = if let Some(cy) = &self.cycle {
             match &cy.intro {
                 Some((c, t, _)) => sample(c, t * FPS, &mut pose, cr.reference),
-                None => sample(&cy.clips[cy.foot], cy.phase * cy.clips[cy.foot].frames(), &mut pose, cr.reference),
+                None => {
+                    sample(&cy.clips[cy.foot], cy.phase * cy.clips[cy.foot].frames(), &mut pose, cr.reference);
+                    let w = cy.jog_w();
+                    if w > 0.0 {
+                        let mut jog = base.clone();
+                        sample(&cy.jog[cy.foot], cy.phase * cy.jog[cy.foot].frames(), &mut jog, cr.reference);
+                        pose.blend(&jog, w);
+                    }
+                }
             }
             None
         } else {
