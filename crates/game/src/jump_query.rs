@@ -121,6 +121,8 @@ pub enum Kind {
     /// A kiosk: a market stall's counter (AC1's `Kiosk` guidance pieces), jumped onto at its middle (jump type 0x400,
     /// then `HumanKiosk`).
     Kiosk,
+    /// A ladder (`level.ladders`' index), caught from the air (jump type 0x1000, then `HumanLadder`).
+    Ladder(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -128,12 +130,13 @@ pub struct Candidate {
     pub pos: Vec3,
     /// The wall's normal, flat, out of the solid (toward the jumper for an edge facing it).
     pub wall: Vec3,
-    /// Room on top: 2 (1 m or more), 8 (0.3-1 m), 16 (under 0.3 m), 32 a pole, 4 a beam.
+    /// Room on top: 2 (1 m or more), 8 (0.3-1 m), 16 (under 0.3 m), 32 a pole, 4 a beam, 1 a ladder.
     pub ty: u32,
-    /// Below: 2 a floor within 0.5 m, 4 within 2 m, 8 a deep drop with a wall under it, 16 without; 1 beams, far edges.
+    /// Below: 2 a floor within 0.5 m, 4 within 2 m, 8 a deep drop with a wall under it, 16 without; 1 beams, far edges,
+    /// ladders.
     pub sub: u32,
-    /// The jumps it allows: 1 onto it, 2 over it, 0x40 a wall hang, 0x80 a free hang, 0x400 onto a kiosk, 0x10000 a
-    /// beam or far edge.
+    /// The jumps it allows: 1 onto it, 2 over it, 0x40 a wall hang, 0x80 a free hang, 0x400 onto a kiosk, 0x1000 onto a
+    /// ladder, 0x10000 a beam or far edge.
     pub flags: u32,
     pub kind: Kind,
     /// The perch it lies on (beams), to leave out the one stood on.
@@ -141,7 +144,7 @@ pub struct Candidate {
 }
 
 /// The jump chosen: the candidate and the jump type (1 onto a top, 2 over it, 0x40 / 0x80 to hang, 0x400 onto a
-/// kiosk, 0x10000 onto a beam or far edge).
+/// kiosk, 0x1000 onto a ladder, 0x10000 onto a beam or far edge).
 pub type Choice = (Candidate, u32);
 
 fn ray_distance(level: &Level, from: Vec3, dir: Vec3, max: f32) -> f32 {
@@ -532,12 +535,37 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
         }
         out.push(Candidate { pos: top, wall: w, ty: 2, sub: 1, flags: 0x10000, kind: Kind::FarEdge, perch: None });
     }
+
+    // Ladders (type 1, sub-type 1, 0x1000), not for the free run's target jump (its query leaves ladders out, mask 8): at
+    // least 2 m of it, the point nearest 1.5 m over the feet on the part 1 m over its foot to 0.5 m under its top, kept
+    // 1.5 m in from those ends; in the tertiary zone, in view from the chest 0.2 m out from it.
+    if !matches!(from, From::FreeRun { .. }) {
+        for (i, l) in level.ladders.iter().enumerate() {
+            let (bottom, top) = (l.at(l.base.y), l.at(l.top));
+            if top.distance(bottom) < 2.0 || clip_segment(local(bottom), local(top), half).is_none() {
+                continue;
+            }
+            let along = (top - bottom).normalize_or_zero();
+            let p = nearest_on_shortened(pos + up * 1.5, bottom + along, top - along * 0.5, 1.5);
+            if !in_zone(z.tertiary, pos, p) {
+                continue;
+            }
+            let mut n = l.out.with_y(0.0).normalize_or_zero();
+            if (p - pos).with_y(0.0).dot(n) > 0.0 {
+                n = -n;
+            }
+            if !clear(level, eye, p + n * 0.2) {
+                continue;
+            }
+            out.push(Candidate { pos: p, wall: n, ty: 1, sub: 1, flags: 0x1000, kind: Kind::Ladder(i), perch: None });
+        }
+    }
     out
 }
 
 /// The jump type of a candidate's flags, by priority.
 fn first_type(flags: u32) -> u32 {
-    for t in [0x400, 0x10000, 1, 2, 4, 8, 0x40, 0x80] {
+    for t in [0x1000, 0x400, 0x10000, 1, 2, 4, 8, 0x40, 0x80] {
         if flags & t != 0 {
             return t;
         }

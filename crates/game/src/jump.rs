@@ -185,6 +185,26 @@ pub fn surface(dz: f32, dist: f32, left: bool, fast: bool, tilt: f32) -> Jump {
     Jump { takeoff: j.takeoff, flight, reception }
 }
 
+/// A running jump onto a ladder, its target `dz` above and `dist` away: the surface flight (`surface`'s takeoff and
+/// flight), then AC1's arrival on the ladder (action 0x029258AA, `xx_h_air_surface_tr_ladder_verti_<up|down|long>_a`
+/// then `_b`; 0xE07D00), weighted by the target's place in the surface band (0xB1EAA0, as Banned445's `arrival_weights`
+/// reads it): v = (up - dz) / (up - down), l = dist / (v * far), both kept to 0..1, the weights 1 - v up, (1 - l) v down
+/// and l v long.
+pub fn ladder(dz: f32, dist: f32, left: bool) -> Jump {
+    let j = surface(dz, dist, left, false, 0.0);
+    let b = SURFACE;
+    let v0 = (b.up - dz) / (b.up - b.down);
+    let l = dist / (v0 * b.far);
+    let l = if l.is_nan() { 1.0 } else { l.clamp(0.0, 1.0) };
+    let v = v0.clamp(0.0, 1.0);
+    let step = |k: &str| -> (String, f32) {
+        let name = |m: &str| format!("xx_h_air_surface_tr_ladder_verti_{m}_{k}");
+        let (up, down, long) = (name("up"), name("down"), name("long"));
+        (crate::animation::mix_name(&[(up.as_str(), 1.0 - v), (down.as_str(), (1.0 - l) * v), (long.as_str(), l * v)]), 1.0)
+    };
+    Jump { takeoff: j.takeoff, flight: j.flight, reception: vec![step("a"), step("b")] }
+}
+
 /// A running jump over a thin wall, the hand on its top (AC1's passover), the root at the touch `dz` above and `dist`
 /// away: the running jump's takeoff and its flight onto the edge (`xx_h_air_<front|up>_<dist>_foot?_to_passover`: front
 /// 050/300/550 and up 300; the flight's down slots fold onto the front ones of their distance, the short up one onto
@@ -388,6 +408,18 @@ mod tests {
 
     fn total(parts: &[(String, f32)]) -> f32 {
         parts.iter().map(|p| p.1).sum()
+    }
+
+    #[test]
+    fn a_jump_onto_a_ladder_arrives_up_down_or_long_by_the_band() {
+        // (At the band's top all `up`; at its bottom and near all `down`; at its bottom and far all `long`.)
+        let j = ladder(2.5, 3.0, true);
+        assert_eq!(j.reception.len(), 2);
+        assert_eq!(j.reception[0].0, "xx_h_air_surface_tr_ladder_verti_up_a");
+        assert_eq!(j.reception[1].0, "xx_h_air_surface_tr_ladder_verti_up_b");
+        assert_eq!(ladder(-3.0, 0.0, true).reception[0].0, "xx_h_air_surface_tr_ladder_verti_down_a");
+        assert_eq!(ladder(-3.0, 8.0, true).reception[0].0, "xx_h_air_surface_tr_ladder_verti_long_a");
+        assert!(j.flight.iter().all(|(n, _)| n.ends_with("_to_surface")));
     }
 
     #[test]

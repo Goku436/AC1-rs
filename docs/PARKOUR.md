@@ -639,6 +639,18 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   exits down onto the ground, 13 / 14 off the top (low into the wait, high into a free step), 15 / 16 the low / high
   let-go (`_tr_falling`), 17 and 18 both the rebound; state 6 left unset. Every one is a clip ours plays; the two slots
   of each foot hold the same action except for states 9 and 10.
+- **Jumping onto a ladder** (target type 0x1000) **[B, V, ours]** 2026-10-26: the jump query lists ladders (type 1,
+  sub-type 1, flags 0x1000; not for the free run's target jump, which leaves them out): at least 2 m of it, the point
+  nearest 1.5 m over the feet on the part from 1 m over its foot to 0.5 m under its top, kept 1.5 m in from those ends
+  (so never under 2.5 m over its foot), in reach zone 3 and in view from the chest (Banned445's `jump_candidates.rs`).
+  The scorer takes it among the "other" targets, the highest in the 45 degree cone, and its type first (0x1000 heads
+  the order). The flight is the surface one (as a wall hang's, band up 2.5 / down -3 / far 7.5); arrived (0xE07D00),
+  AC1 plays 0x029258AA, `xx_h_air_surface_tr_ladder_verti_<up|down|long>_a` then `_b` (no root motion), weighed by the
+  target in the band (0xB1EAA0: v = (2.5 - dz) / 5.5, l = dist / (7.5 v), up 1 - v, down (1 - l) v, long l v), brings
+  the root onto the ladder over 0.2 s (0x711130) and enters `HumanLadder` (0xD8DE80). Ours (2026-10-26) does this, the
+  root flown straight onto the rung under the target, the feet 1.5 m under it; it caught ladders only by the fall's
+  catch (`xx_fall_tr_ladder_min_a/b`), the jump aimed at them only when the scorer had nothing else. From ladder 68's
+  foot in Damascus, 4.6 m back, its lowest target (2.5 m up) is outside zone 3: no ladder jump from there.
 - **Hay** (context 21): the faith landing (0x23A9666C, blend 0.3 s) or `xx_h_air_to_haystack` (0.1 s), the root
   moved to the hay over clamp(d/speed, 0.1, 0.4) s; hop out on the legs if the exit point (+0.5 m out, 1.25 m up)
   has room. **[B]** **[V]** 2026-10-25: the top entry (0xE41D50) plays 0x23A9666C with a 0.3 s blend, sets collision

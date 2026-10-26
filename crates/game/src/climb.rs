@@ -113,7 +113,8 @@
 //! of the actions AC1's code asks for (docs/NOTES.md "What the executable's code asks for").
 //! From the top, walking out over it turns and climbs down onto it (`xx_<l|h>_wait_hipm_<foot>_tr_ladder_pulldown`,
 //! `xx_ladder_pulldown_tr_<l|h>_ladder_wait_r_a/b`). The empty hand on the ladder lets go
-//! (`xx_l_ladder_wait_<l|r>_tr_falling`). From the air a ladder is caught (`xx_fall_tr_ladder_min_a/b`).
+//! (`xx_l_ladder_wait_<l|r>_tr_falling`). From the air a ladder is caught (`xx_fall_tr_ladder_min_a/b`); a jump AC1's
+//! scorer aims at one (type 0x1000) flies the surface flight onto it, `xx_h_air_surface_tr_ladder_verti_*_a/b`.
 //!
 //! Kiosks (market stalls, `HumanKiosk`): AC1's jump query takes a stall's counter (its `Kiosk` guidance pieces, 0.74 m
 //! up) as a target (type 0x400) in the jump's own reach zone, from the tap jump or, running in high profile with no
@@ -1279,6 +1280,12 @@ const STUCK_PUSH: f32 = 3.0;
 /// The climb's jump up looks for an edge round the point this far over the root and out from the hands (m).
 const CLIMB_JUMP_UP: f32 = 2.25;
 const CLIMB_JUMP_OUT: f32 = 0.8;
+/// A jump onto a ladder takes the rung `LADDER_JUMP_HANDS` under its target (m: the target about 1.5 m over the
+/// jumper's feet, AC1's aim point), at least `LADDER_JUMP_LOWEST` up and `LADDER_JUMP_TOP_ROOM` under its top, as the
+/// fall's catch takes them.
+const LADDER_JUMP_HANDS: f32 = 1.5;
+const LADDER_JUMP_LOWEST: f32 = 0.5;
+const LADDER_JUMP_TOP_ROOM: f32 = 2.0;
 /// A ladder jumped at has at least this much of it (m).
 const LADDER_TARGET_MIN: f32 = 2.0;
 /// ...the root flown to this far over the feet (m: the hands then about 1.5 m over them, AC1's aim point).
@@ -3600,6 +3607,8 @@ enum Ac1Jump {
     Pass { edge: Vec3, out: Vec3 },
     /// A swing bar (0x80 on a pole).
     Pole,
+    /// Onto a ladder (0x1000): `level.ladders`' index and the query's point on it.
+    Ladder { ladder: usize, at: Vec3 },
 }
 
 impl Ac1Jump {
@@ -3652,6 +3661,7 @@ fn ac1_jump_choice(level: &Level, from: Vec3, dir: Vec3, skip: Option<usize>) ->
         (Kind::Edge, 2) => return Some(Ac1Jump::Pass { edge: c.pos, out: c.wall }),
         (Kind::Edge, 0x40 | 0x80) => return Some(Ac1Jump::Hang { hold: c.pos, out: c.wall, free: ty == 0x80 }),
         (Kind::Pole, _) => return Some(Ac1Jump::Pole),
+        (Kind::Ladder(i), 0x1000) => return Some(Ac1Jump::Ladder { ladder: i, at: c.pos }),
         // (A kiosk's counter: its piece's middle, where `jump_kiosk` comes down; inside the stall's own shape in a city,
         // which AC1's move goes through.)
         (Kind::Kiosk, 0x400) => return Some(Ac1Jump::Land(c.pos)),
@@ -4461,6 +4471,12 @@ impl WallClimb {
         if matches!(choice, Some(Ac1Jump::Pole)) {
             return Self::jump(lib, level, root, dir, left, from);
         }
+        // (A ladder: AC1's surface flight onto it and its arrival there, type 0x1000.)
+        if let Some(Ac1Jump::Ladder { ladder, at }) = choice
+            && let Some(w) = Self::jump_ladder(lib, level, root, ladder, at, left, from.clone())
+        {
+            return Some(w);
+        }
         // (A free hang (0x80) on a hold edge: AC1's swing reception on it, flown at as at a bar.)
         if let Some((hold, out, true)) = hang
             && !feet_find_wall(level, hold, out)
@@ -4509,6 +4525,16 @@ impl WallClimb {
             None if !ac1 => jump_hold_target(level, p, dir, false),
             None => None,
         };
+        // (On a level without authored holds, where AC1's scorer does not decide, a ladder its query lists when nothing
+        // else is in reach.)
+        if !ac1
+            && top.is_none()
+            && hang_root.is_none()
+            && let Some(Ac1Jump::Ladder { ladder, at }) = ac1_jump_choice(level, p, dir, None)
+            && let Some(w) = Self::jump_ladder(lib, level, root, ladder, at, left, from.clone())
+        {
+            return Some(w);
+        }
         let Some(mut to) = top.or(hang_root).or_else(|| ladder_target(level, p, dir)) else {
             // (No target: AC1's free jump flies the direction the candidates were searched in, the stick's (IHuman vt68
             // gets the query's own direction, 0xEE81CE / 0xEE842D; Banned445's port 1753486, live).)
@@ -4805,6 +4831,56 @@ impl WallClimb {
         if knob {
             debug!("climb: both hands onto the knob over the reception");
         }
+        Some(w)
+    }
+
+    /// A running jump onto ladder `i` at AC1's target `at` on it (jump type 0x1000): the surface flight, then the arrival
+    /// on the ladder (`crate::jump::ladder`, 0xE07D00: action 0x029258AA, its clips without root motion) into the ladder's
+    /// wait. AC1 flies at the target and then brings the root onto the ladder over 0.2 s (0x711130); ours flies the root
+    /// straight onto the rung under it, the feet `LADDER_JUMP_HANDS` under the target, as the fall's catch takes a rung.
+    #[allow(clippy::too_many_arguments)]
+    fn jump_ladder(lib: &mut AnimLib, level: &Level, root: &Transform, i: usize, at: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
+        let l = *level.ladders.get(i)?;
+        let p = root.translation;
+        let out = l.out.with_y(0.0).normalize_or_zero();
+        // (From its front only: the rungs face out.)
+        if (p - at).with_y(0.0).dot(out) <= 0.0 {
+            return None;
+        }
+        let len = l.top - l.base.y;
+        let highest = ((len - LADDER_JUMP_TOP_ROOM) / LADDER_STEP).floor() * LADDER_STEP;
+        let rung = (((at.y - LADDER_JUMP_HANDS - l.base.y) / LADDER_STEP).floor() * LADDER_STEP).min(highest);
+        if rung < LADDER_JUMP_LOWEST {
+            return None;
+        }
+        let slot = l.at(l.base.y + rung) + l.out * LADDER_OFF;
+        let (dz, dist) = ac1_jump_measure(p, at);
+        let j = crate::jump::ladder(dz, dist, left);
+        let mut mix = |parts: &[(String, f32)]| {
+            let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+            lib.get(&mix_name(&parts))
+        };
+        let (takeoff, flight) = (mix(&j.takeoff)?, mix(&j.flight)?);
+        let reception = j.reception.iter().map(|(n, _)| lib.get(n)).collect::<Option<Vec<_>>>()?;
+        // (Square to the ladder, as onto a wall.)
+        let planned = Transform { rotation: facing(-out), ..*root };
+        let rot = world_rot(planned.rotation);
+        let turned = world_rot(planned.rotation * root_delta(root_rotation_at(&takeoff, takeoff.frames())));
+        let landed = p + rot * root_motion_at(&takeoff, takeoff.frames()) + turned * root_motion_at(&flight, flight.frames());
+        let correct = slot - landed;
+        if correct.with_y(0.0).length() > JUMP_AC1_SLACK * (slot - p).with_y(0.0).length().max(JUMP_AC1_SHORT) {
+            debug!("climb: the jump clips land {:.2} m off the ladder", correct.length());
+            return None;
+        }
+        let names = reception.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
+        let clips: Vec<Arc<Clip>> = [takeoff, flight].into_iter().chain(reception).collect();
+        let tos = (0..clips.len()).map(|k| if k < 2 { VAULT } else { LADDER_R }.to_string()).collect();
+        let mut w = WallClimb::new(VAULT, out);
+        w.ladder = Some(i);
+        w.normal = l.out;
+        w.start_chain_carry(clips, tos, &planned, correct, Some(1));
+        w.ease_in(from, root);
+        debug!("climb: jump onto ladder {i} at {:.2}, rung {rung:.1} ({})", slot, names.join(" then "));
         Some(w)
     }
 

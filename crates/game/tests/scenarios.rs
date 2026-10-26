@@ -333,11 +333,13 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
-        name: "a tap jump at block L's ladder from 4 m: flown at it and caught (AC1's ladder jump target)",
+        // (AC1's jump query lists the ladder (type 0x1000): the surface flight onto it and its arrival on the ladder,
+        // 0xE07D00's action 0x029258AA.)
+        name: "a tap jump at block L's ladder from 4 m: flown at it and onto it (AC1's ladder jump target)",
         tags: &["ladder", "jump"],
         env: &[("AC1_START", "23.5,-1.4,0"), ("AC1_WALK", "3.5"), ("AC1_STOP", "0.5"), ("AC1_HIGH", "0-3"), ("AC1_JUMP", "0.4")],
         secs: 3.0,
-        want: &["caught ladder"],
+        want: &["jump onto ladder 1", "_to_surface", "-> ladder_r via xx_h_air_surface_tr_ladder_verti_"],
         never: &["EMBED"],
     },
     Scenario {
@@ -1710,6 +1712,24 @@ const SCENARIOS: &[Scenario] = &[
         secs: 4.0,
         want: &["via xx_l_wait_hipm_footl_tr_l_ladder_climb_up_r", "onto ladder 68"],
         never: &["EMBED", "tr_h_ladder_climb_up"],
+    },
+    Scenario {
+        // (From 3.2 m: the ladder's lowest target is 2.5 m over its foot, out of reach zone 3 from 4.6 m away.)
+        name: "Damascus: a tap jump at ladder 68 from 3 m back: AC1's scorer picks the ladder (0x1000), onto it",
+        tags: &["ladder", "jump"],
+        env: &[
+            ("AC1_LEVEL", "damascus"),
+            ("AC1_NO_CROWD", "1"),
+            ("AC1_START", "33.3,-16.82,-90,5.5"),
+            ("AC1_WALK", "3.5"),
+            ("AC1_STICK", "1"),
+            ("AC1_STOP", "0.5"),
+            ("AC1_HIGH", "0-3"),
+            ("AC1_JUMP", "0.4"),
+        ],
+        secs: 3.0,
+        want: &["jump onto ladder 68"],
+        never: &["EMBED"],
     },
     // Audit ANIM-4 to 6: blends as AC1's move graph gives them. The running jump's takeoff is started by the code: it
     // blends in over its action's in-transition (AROLLBROLL 0.1 s); the swing cycle's items follow one another by cuts
