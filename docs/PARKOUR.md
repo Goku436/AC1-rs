@@ -1427,7 +1427,12 @@ by 0xE07D00 through 0x502E30, whose writer is not found; the reception played wi
 Tried and dropped: cutting the paired beams only by triangles reaching their top (AC1 cuts by the guidance object's own
 shape, which ours has not loaded; the roof-edge beam on roof2 north, its west side on the roof 4-12 cm under its top, is
 cut away whole and the running game jumped onto it): Damascus went from 5218 beams to 8022 and the routes from 31 to 28
-within 1 m (`roof1_free_east`, `seams_free_west` jumped onto the new ones). The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
+within 1 m (`roof1_free_east`, `seams_free_west` jumped onto the new ones).
+33 (0.42 m) with the free run's edge jump first at a roof's rim: AC1's mount guard is skipped where the edge jump goes
+from where he stands, and ours' own `beam_step_on` (a beam's end just ahead at an edge, walked onto) is off in the cities;
+at roof2's north-west and west rims the running game jumped where ours walked onto a beam sticking out under the rim
+(`roof2_free_nw` 5.3 m off at the end, 2.4 now; `roof2_free_west` 2.8, 0.4 now). The traces hold no poses (path, yaw,
+context and actions only); the hook's live log has the bones and IK goals, so a pose comparison is the next step. The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
 

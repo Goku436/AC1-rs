@@ -2141,8 +2141,11 @@ pub fn locomotion(
             } else {
                 WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.anim_pose.clone()))
             };
-            // (At the edge, a beam's end just ahead about level: onto it, walked, not jumped.)
-            let step_on = if low.is_none() && edge { WallClimb::beam_step_on(&level, tf.translation, dir) } else { None };
+            // (At the edge, a beam's end just ahead about level: onto it, walked, not jumped. Not in a city, where AC1's mount
+            // guard takes a beam by its end (`ac1_beam_mount`) and the free run's edge jump goes first: at roof2's west rim
+            // the running game jumped where this walked onto the beam under the rim, route `roof2_free_west` 2.8 m off at
+            // the end, 0.4 now.)
+            let step_on = if low.is_none() && edge && !level.authored_holds { WallClimb::beam_step_on(&level, tf.translation, dir) } else { None };
             let low = low.or_else(|| {
                 let (_, at) = step_on?;
                 let r = Transform { translation: at, ..*tf };
@@ -2358,8 +2361,16 @@ pub fn locomotion(
                 continue;
             }
             // (In a city, AC1's mount guard first: a beam taken by its end ahead, `ac1_beam_mount`; a floor going on beside it
-            // does not matter.)
-            let mount = (level.authored_holds && ch.fall_v == 0.0 && !still && ctl.move_dir.with_y(0.0).length() >= 0.35)
+            // does not matter. Not where the free run's edge jump goes now, from where the move put him: AC1 jumps first (ours
+            // tests the edge before the move). At two roof edges with a beam starting under the rim, routes `roof2_free_nw` and
+            // `roof2_free_west`, the running game jumped where ours mounted the beam.)
+            let stick = ctl.move_dir.with_y(0.0).normalize_or_zero();
+            let edge_jump = level.guided()
+                && (ctl.free_run || ch.velocity.with_y(0.0).length() > SPRINT_SPEED)
+                && level
+                    .pick_report(tf.translation, heading, crate::edge_report::REPORT_RADIUS, std::f32::consts::PI)
+                    .is_some_and(|r| r.drop > FREE_RUN_EDGE_DROP && r.sq() < FREE_RUN_EDGE_SQ && r.normal.dot(stick) > FREE_RUN_EDGE_COS);
+            let mount = (level.authored_holds && ch.fall_v == 0.0 && !still && !edge_jump && ctl.move_dir.with_y(0.0).length() >= 0.35)
                 .then(|| crate::climb::ac1_beam_mount(&level, tf.translation, ctl.move_dir))
                 .flatten();
             if let Some(i) = mount
