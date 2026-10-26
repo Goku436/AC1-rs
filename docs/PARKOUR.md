@@ -1480,7 +1480,8 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   `narrow_jump`): ours' hop off toward a drop edge (kinds 1 / 2, `low_hop`) queries the edge zones 10-12 first (the
   primary only, which reaches down from the feet, none up) and jumps onto a top there (gauntlet G31: a block 0.6 m under
   a beam's end beside it, kind 2's side free step onto it; 1 m over it, out of zone 10, it is the free jump and the catch
-  on its edge). On a post (NarrowObjectState 0xEE9564, Banned445's `free_step::jump_kind`) high profile with the stick
+  on its edge). On a post (NarrowObjectState 0xEE9564-0xEE969C, read 2026-10-26 **[V]**, as Banned445's
+  `free_step::jump_kind`: the beam ahead from vt +0x94, the same 0.35 / 2.0 limits) high profile with the stick
   is kind 3 whatever is below (4 with the legs held unless a drop edge is ahead, then kind 0), in place of kind 2, its
   free jump kept for no target: ours searches the post's box every frame then (gauntlet G32: a block 1 m over a post,
   0.8 m ahead, jumped onto).
