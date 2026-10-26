@@ -1715,6 +1715,21 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "tr_h_ladder_climb_up"],
     },
     Scenario {
+        // (The hop's landing takes event 7 again past half of it, its guard 0xF6FA50.)
+        name: "gauntlet G26: jogging three beams in a zigzag, the stick right then left: a corner hop, and from its landing the next",
+        tags: &["combo", "beam"],
+        env: &[
+            ("AC1_START", "-100,304,-90"),
+            ("AC1_WALK", "6.2"),
+            ("AC1_HIGH", "0-10"),
+            ("AC1_LEGS", "0-10"),
+            ("AC1_HEADINGS", "0,0;2.6,0;2.61,-90;3.1,-90;3.11,0"),
+        ],
+        secs: 4.5,
+        want: &["along [0.00, 0.00, 1.00]", "the next corner hop from the hop's end", "along [1.00, 0.00, 0.00]"],
+        never: &["EMBED"],
+    },
+    Scenario {
         // (NarrowObject event 17, its guard 0xF7DB30: a top 0.3-1.4 m up in the way, its edge facing back; the standing
         // jump's autoclimb, then the free step's entry onto it.)
         name: "gauntlet G25: walking along a beam into a step 1 m up: AC1's beam autoclimb onto it",

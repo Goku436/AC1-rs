@@ -1968,6 +1968,18 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     walls.cuboid(Vec3::new(-85.0, 0.0, z - 2.0), Vec3::new(-82.0, 3.0, z + 2.0));
     level.ledges.push(Ledge { a: Vec3::new(-85.0, 3.0, z - 1.9), b: Vec3::new(-85.0, 3.0, z + 1.9), out: Vec3::NEG_X });
 
+    // G26: three beams in a zigzag, each starting 0.5 m beside the last: along X, along Z, along X again to a
+    // platform; jogging, the stick right then left: a corner hop onto the second and from its landing the next onto the
+    // third (AC1's hop end takes another hop past half of it).
+    let z = 304.0;
+    ramp(walls, -96.0, -92.0, z, 2.0);
+    platform(walls, -92.0, -89.0, z, 2.0);
+    beam(walls, level, -89.0, -86.0, z, 2.0);
+    walls.cuboid(Vec3::new(-85.65, 1.8, z + 0.5), Vec3::new(-85.35, 2.0, z + 3.0));
+    level.perches.push(Line { a: Vec3::new(-85.5, 2.0, z + 0.5), b: Vec3::new(-85.5, 2.0, z + 3.0) });
+    beam(walls, level, -85.0, -80.0, z + 2.0, 2.0);
+    platform(walls, -80.0, -77.0, z + 2.0, 2.0);
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -1988,6 +2000,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G24: the wall-free hang, the swing back", Vec3::new(-95.0, 4.0, 264.0)),
         ("G24: the free hang onto the wall a row up", Vec3::new(-95.0, 4.0, 284.0)),
         ("G25: a beam into a step up", Vec3::new(-87.0, 3.0, 294.0)),
+        ("G26: corner hops in a row", Vec3::new(-86.0, 3.5, 305.0)),
     ]
 }
 

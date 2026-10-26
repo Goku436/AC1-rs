@@ -1276,6 +1276,8 @@ const STEP_UP_MAX: f32 = 0.85;
 /// component toward the landing over `CORNER_HOP_TOWARD` (m: AC1's 0.766 against the un-normalised offset).
 const CORNER_HOP_COS: f32 = 0.766;
 const CORNER_HOP_TOWARD: f32 = 0.766;
+/// The corner hop's landing takes the next hop from this far (fraction) into it (AC1: half, 0xF6FA50).
+const CORNER_HOP_CHAIN: f32 = 0.5;
 /// A free-step arrival may dive into a haystack once this far (fraction) through (AC1: 0.6).
 const HAY_ARRIVAL_DIVE: f32 = 0.6;
 /// The free-step stay takes the jump on from this far into its reception (AC1's `StateMovement_GuardJump` 0xE4C700:
@@ -7413,9 +7415,9 @@ impl WallClimb {
             return;
         }
         // Jogging, the stick 40-140 degrees off the way: hop across onto a beam beside (AC1's corner hop, its event taken
-        // before the walk's stick test).
+        // before the walk's stick test; event 7's guard 0xF7F150: the speed over the walk's band, as the jog stop).
         if let Some(cy) = &self.cycle {
-            let (dir, jog) = (cy.dir, self.beam_jog() && cy.intro.is_none());
+            let (dir, jog) = (cy.dir, cy.v > cy.speed[0] + 1e-3 && cy.intro.is_none());
             if jog && stick != Vec3::ZERO && (-CORNER_HOP_COS..CORNER_HOP_COS).contains(&stick.dot(dir)) && self.corner_hop(lib, level, root, dir, stick) {
                 return;
             }
@@ -11682,6 +11684,25 @@ impl WallClimb {
             debug!("climb: into the hay from the free-step arrival");
             *self = w;
             return;
+        }
+        // From the corner hop's landing into the jog past `CORNER_HOP_CHAIN` of it, the stick 40-140 degrees off: the next
+        // corner hop (AC1's hop end takes event 7 again, its guard 0xF6FA50, Banned445's NARROW-12). Ours hopped again
+        // only from the jog after the landing.
+        if let Some(m) = &self.mv
+            && m.clip.name.contains("_cornerhop_")
+            && m.clip.name.contains("_tr_jog_")
+            && m.t >= CORNER_HOP_CHAIN * m.clip.anim.duration
+        {
+            let f = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+            let stick = self.move_dir.with_y(0.0).normalize_or_zero();
+            if f != Vec3::ZERO
+                && stick != Vec3::ZERO
+                && (-CORNER_HOP_COS..CORNER_HOP_COS).contains(&stick.dot(f))
+                && self.corner_hop(lib, level, root, f, stick)
+            {
+                debug!("climb: the next corner hop from the hop's end");
+                return;
+            }
         }
         // AC1's free-step stay (every free-step arrival and climb-up onto a top plays its reception in HumanNarrowObject,
         // whose interpreter takes the jump on, event 4, from half of it, `StateMovement_GuardJump` 0xE4C700): free

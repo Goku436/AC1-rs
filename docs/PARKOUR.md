@@ -538,7 +538,11 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   beside (event 7). The edge stop (`xx_l_beam_edge_stop`) and NarrowObject → ladder are not used by v1.02. **[B]**
   (Ours stopped playing the edge stop: AC1 just stops 0.3 m short.) Starting along a beam from the crouch plays AC1's
   start (`crouchwait_<foot>_tr_crouch<walk|jog>_<other>`, 0x34662CB4/B5) and letting go while jogging its stop
-  (`crouchjog_stop_<foot>` + `_tr_crouchwait_<foot>`, 0x3466339D/9E). **[ours]**
+  (`crouchjog_stop_<foot>` + `_tr_crouchwait_<foot>`, 0x3466339D/9E). **[ours]** The corner hop (event 7) **[V, ours]** 2026-10-26: taken by
+  NarrowObject's walk (0xF7F150) only while the speed (+0x6B4) is over band 1's (the crouch walk's), as the jog stop; the
+  hop's landing (`_tr_jog_<foot>`) takes it again past half of it (guard 0xF6FA50: the playing action's phase over
+  0.5). Ours from 2026-10-26 (both: it took the hop by the profile, and only from the jog after the landing). Gauntlet
+  G26 (three beams in a zigzag).
 - **At a crossing, stopped** **[ours]**: crouched across his beam (the 90° wait) with another beam within 0.5 m running
   his way, the stick forward walks on along that one (`crossing_beam`), the walk's start faded from the 90° wait. AC1's
   corner hop is from the jog only and the 90° wait has no clip onto a crossing beam; how AC1 gets on one from a stop is
@@ -1485,7 +1489,7 @@ Left (Banned445's port has them; ours does not yet): the jump kinds 3 / 4 (high 
 jump kind on the legs held without a press; the hop off sideways in high profile before the quarter turn (ours turns
 first); the beam ends
 extended to the drop edge past them and the support re-found every frame (one runtime report, chains walked through);
-the side entry's 30/90 blend checked live; the corner hop chain from the hop's end; the turn round under a beam from a free
+the side entry's 30/90 blend checked live; the turn round under a beam from a free
 hang (a ledge move). The window-box side leap through a building's corner in the same replay is the in-air wall test's
 (single rays at 0.3 / 1.0 m), passed on to the wall-kick work.
 
