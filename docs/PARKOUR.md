@@ -1454,6 +1454,16 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   (0xF7C3A0) takes the same point: the facing more than 10 degrees (0.1736) across the plane, past it or within 0.31 m,
   holds the root 0.3 m short (flag 1 at +0x8B0). The record's point is written through a pointer (no store at +0x5C0 in
   NarrowObject's code); that it is the drop edge past the end (`sub_F72FD0`) is Banned445's reading. Ours as both.
+- **The beam's run [V]** 2026-10-26: `sub_F72FD0` (0xF72FD0) moves each end of the piece on along it to the drop edge
+  past it: the drop edge search (IHuman vt +0x90, `Human__FindDropEdgeAhead` 0xB1C100) from the end, −0.1 to 1.25 m on
+  (plus `sub_1174260`'s distance past a connected piece), ±0.5 m up and down, a drop of 0.3 m or more, steps of 0.02 m.
+  Found: the end record's point is the edge's (its height the end's) and its +0x38 (+56) byte cleared; none: the
+  piece's own end, +0x38 set (`CanStepOffBeamEnd` reads it: only an end with no drop edge is stepped off). So a beam's
+  walk runs on over what it rests on to the drop past it (Banned445's live note: the Bureau courtyard beam over its cross
+  plank). Ours (`beam_run`, once per perch from the hold edges): the walk, the 0.3 m stop, the wait's hold on the line,
+  the step off and `BeamRunsAlong` all take the run's ends; past the piece the root stands on the ground under it
+  (gauntlet G30: a beam onto a 0.8 m block level with it, walked to 0.3 m short of the block's far edge, free running the
+  jump on from there). The connected piece's extra reach is ours' beam chaining.
 - **Jumps with no target [B]**: AC1's free jump off a narrow object (the narrow interpreter's jump kinds, BeamState
   0xEEAAA0 / NarrowObjectState 0xEE9564, `BuildFreeJumpTarget` 0xB1E7F0): free running, only over a drop edge ahead along
   the stick (`FindDropEdgeAhead` 0xB1C100: the hold edges crossing the stick's plane 0.3 m back to 1.1 m on, within 0.3 m
@@ -1503,7 +1513,8 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
 
 Left (Banned445's port has them; ours does not yet): the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
 jump kind on the legs held without a press; the beam ends
-extended to the drop edge past them and the support re-found every frame (one runtime report, chains walked through);
+extended to the drop edge past them (ours since 2026-10-26, G30) and the support re-found every frame (one runtime
+report, chains walked through);
 the side entry's 30/90 blend checked live (ours plays it, G29). The window-box side leap through a building's corner in the same replay is the in-air wall test's
 (single rays at 0.3 / 1.0 m), passed on to the wall-kick work.
 

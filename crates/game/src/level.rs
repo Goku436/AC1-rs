@@ -2007,6 +2007,16 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     walls.cuboid(Vec3::new(-86.65, 1.8, z - 3.0), Vec3::new(-86.35, 2.0, z + 5.0));
     level.perches.push(Line { a: Vec3::new(-86.5, 2.0, z - 3.0), b: Vec3::new(-86.5, 2.0, z + 5.0) });
 
+    // G30: a beam from a platform resting at its end on a block level with it, 0.8 m long, a drop past it: AC1's beam
+    // run goes on over the block to the drop edge (`sub_F72FD0`), no stepping off onto it. (10 m past G29: at 5 m its
+    // free run jumped on onto this beam.)
+    let z = 354.0;
+    ramp(walls, -96.0, -92.0, z, 2.0);
+    platform(walls, -92.0, -89.0, z, 2.0);
+    beam(walls, level, -89.0, -85.0, z, 2.0);
+    walls.cuboid(Vec3::new(-85.0, 0.0, z - 0.5), Vec3::new(-84.2, 2.0, z + 0.5));
+    level.ledges.push(Ledge { a: Vec3::new(-84.2, 2.0, z - 0.5), b: Vec3::new(-84.2, 2.0, z + 0.5), out: Vec3::X });
+
     vec![
         ("G1: box L, side beams, swing bar, side beam", Vec3::new(-90.0, 3.5, 35.0)),
         ("G2: ladder, beam bridge, leap of faith", Vec3::new(-85.0, 6.0, 44.0)),
@@ -2031,6 +2041,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G27: the hop off a beam's side", Vec3::new(-87.0, 2.5, 314.0)),
         ("G28: the turn under a beam", Vec3::new(-87.0, 4.5, 324.0)),
         ("G29: the side entry onto a beam", Vec3::new(-86.5, 2.5, 334.0)),
+        ("G30: a beam's run over the block it rests on", Vec3::new(-86.0, 2.5, 354.0)),
     ]
 }
 

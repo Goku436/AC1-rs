@@ -1765,6 +1765,23 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "turning on the beam"],
     },
     Scenario {
+        // (`sub_F72FD0`: the piece's end moved on to the drop edge past it, the block's far side; no step off onto it.)
+        name: "gauntlet G30: walking a beam onto the block it rests on, a drop past it: AC1's beam run goes on over it, stopped 0.3 m short of the drop",
+        tags: &["beam"],
+        env: &[("AC1_START", "-90.5,354,-90"), ("AC1_WALK", "1.9"), ("AC1_STICK", "1")],
+        secs: 6.0,
+        want: &["along the beam at the crouch walk", "stopped short of the beam's end at [-84.4"],
+        never: &["EMBED", "off the beam's end onto the ground", "stepped off the perch onto the ground"],
+    },
+    Scenario {
+        name: "gauntlet G30: free running a beam onto the block it rests on: the jump off from the run's end, past the block",
+        tags: &["beam", "jump"],
+        env: &[("AC1_START", "-91.5,354,-90"), ("AC1_WALK", "6"), ("AC1_HIGH", "0.3-10"), ("AC1_LEGS", "0.3-10")],
+        secs: 4.0,
+        want: &["along the beam at the crouch jog", "jump off the narrow object at", "-> jump via xx_h_freestep_front_front_550cm_footl_to_air at [-84.4"],
+        never: &["EMBED", "off the beam's end onto the ground"],
+    },
+    Scenario {
         // (NarrowObject event 17, its guard 0xF7DB30: a top 0.3-1.4 m up in the way, its edge facing back; the standing
         // jump's autoclimb, then the free step's entry onto it.)
         name: "gauntlet G25: walking along a beam into a step 1 m up: AC1's beam autoclimb onto it",

@@ -1036,6 +1036,11 @@ const AUTOCLIMB_ROOM: f32 = 0.3;
 const AUTOCLIMB_SLACK: f32 = 1.0;
 /// Along a beam the drop edge at its end counts within this of it (m: `BeamRunsAlong` 0xF78F00).
 const BEAM_RUNS_ALONG: f32 = 0.4;
+/// A beam's ends move on to the drop edge past them (`sub_F72FD0`'s search, `Human__FindDropEdgeAhead` 0xB1C100): from
+/// this far back to this far on (m), within `BEAM_RUN_UP` m of the end's height, with at least `BEAM_RUN_DROP` m of drop.
+const BEAM_RUN_ALONG: (f32, f32) = (-0.1, 1.25);
+const BEAM_RUN_UP: f32 = 0.5;
+const BEAM_RUN_DROP: f32 = 0.3;
 /// A free-step target this far under the start (m), the way to it blocked: AC1's beam set of takeoffs and flights
 /// (`Human__UseBeamFreestepJumpVariants` 0xB145B0).
 const BEAM_VARIANT_DROP: f32 = 0.4;
@@ -1680,6 +1685,8 @@ pub struct WallClimb {
     /// Stopped by a wall at a beam's end free running (the way and the speed): AC1's walk holds on there, and the legs
     /// held run up the wall (the narrow object's event 15).
     beam_wall: Option<(Vec3, f32)>,
+    /// The perch's walkable run (`beam_run`), for the perch it was measured on.
+    beam_run: Option<(usize, BeamRun)>,
     /// On a post, the lean of its wait toward the stick (-1 left .. 1 right; AC1's `NarrowObject+372`).
     post_lean: f32,
     /// Ladder being climbed.
@@ -3288,13 +3295,44 @@ fn beam_ahead(level: &Level, pos: Vec3, dir: Vec3) -> bool {
 /// `DROP_EDGE_UP`, facing along it, not steep, with at least `DROP_EDGE_MIN` of drop past them (measured down from 0.25 m
 /// out); the nearest to the zone's rear. Its drop (m).
 fn drop_edge_ahead(level: &Level, pos: Vec3, dir: Vec3) -> Option<f32> {
+    drop_edge_at(level, pos, dir, DROP_EDGE_ALONG, DROP_EDGE_UP, DROP_EDGE_MIN).map(|(_, d)| d)
+}
+
+/// A beam's walkable run (AC1's `sub_F72FD0`, the segment ends `DetectBeamSegments` hands on): each end of the piece moved
+/// on along it to the drop edge past it (`BEAM_RUN_ALONG`), so the run reaches over what the beam rests on (Banned445's
+/// port, live: the Bureau courtyard beam runs on over its cross plank to the plank's far edge); and whether each end
+/// found one (the report's +56 cleared, read by `CanStepOffBeamEnd` 0xF77C00: an end at a drop is not stepped off).
+/// (The search reach past a connected piece, `sub_1174260`'s distance added to the 1.25 m, is ours' beam chaining.)
+#[derive(Clone, Copy, Debug)]
+struct BeamRun {
+    line: Line,
+    drop: [bool; 2],
+}
+
+fn beam_run(level: &Level, line: &Line) -> BeamRun {
+    let d = (line.b - line.a).with_y(0.0).normalize_or_zero();
+    if d == Vec3::ZERO {
+        return BeamRun { line: *line, drop: [false; 2] };
+    }
+    let end = |p: Vec3, dir: Vec3| match drop_edge_at(level, p, dir, BEAM_RUN_ALONG, BEAM_RUN_UP, BEAM_RUN_DROP) {
+        // (Kept at the end's height, on the piece's line.)
+        Some((x, _)) => (p + dir * (x - p).dot(dir).max(0.0), true),
+        None => (p, false),
+    };
+    let ((a, da), (b, db)) = (end(line.a, -d), end(line.b, d));
+    BeamRun { line: Line { a, b }, drop: [da, db] }
+}
+
+/// `drop_edge_ahead` with the search's own zone (`along` m ahead, `up` m of the height, at least `min` m of drop): the
+/// edge's point on the plane and its drop.
+fn drop_edge_at(level: &Level, pos: Vec3, dir: Vec3, along_zone: (f32, f32), up: f32, min: f32) -> Option<(Vec3, f32)> {
     let f = dir.with_y(0.0).normalize_or_zero();
     if f == Vec3::ZERO {
         return None;
     }
     let side = f.cross(Vec3::Y);
-    let rear = pos + f * DROP_EDGE_ALONG.0 - Vec3::Y * DROP_EDGE_UP;
-    let near = pos + f * (DROP_EDGE_ALONG.0 + DROP_EDGE_ALONG.1) * 0.5;
+    let rear = pos + f * along_zone.0 - Vec3::Y * up;
+    let near = pos + f * (along_zone.0 + along_zone.1) * 0.5;
     level
         .ledges
         .iter()
@@ -3307,15 +3345,15 @@ fn drop_edge_ahead(level: &Level, pos: Vec3, dir: Vec3) -> Option<f32> {
             }
             let x = l.a.lerp(l.b, s0 / (s0 - s1));
             let along = (x - pos).dot(f);
-            if !(DROP_EDGE_ALONG.0..=DROP_EDGE_ALONG.1).contains(&along) || (x.y - pos.y).abs() > DROP_EDGE_UP {
+            if !(along_zone.0..=along_zone.1).contains(&along) || (x.y - pos.y).abs() > up {
                 return None;
             }
             let drop = drop_at_lip(level, pos, x, l.out)
                 .unwrap_or_else(|| level.ground(x + l.out * 0.25 + Vec3::Y * 0.05, 0.0, 10.0).map_or(10.0, |g| x.y - g.point.y));
-            (drop >= DROP_EDGE_MIN).then_some(((x - rear).length_squared(), drop))
+            (drop >= min).then_some(((x - rear).length_squared(), (x, drop)))
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, d)| d)
+        .map(|(_, e)| e)
 }
 
 /// `Human__MeasureDropBeyondEdge` 0xB19620's two checks before its sweep, with the actor's feet `feet` (0xB19741-0xB19A13,
@@ -4308,6 +4346,7 @@ impl WallClimb {
             freestep_left: true,
             cycle: None,
             beam_wall: None,
+            beam_run: None,
             post_lean: 0.0,
             ladder: None,
             kiosk: None,
@@ -7242,11 +7281,34 @@ impl WallClimb {
         Some(w)
     }
 
+    /// The perch's walkable run (`beam_run`), measured once per perch.
+    fn run_of(&mut self, level: &Level) -> Option<BeamRun> {
+        let i = self.perch?;
+        if self.beam_run.is_none_or(|(k, _)| k != i) {
+            self.beam_run = Some((i, beam_run(level, level.perches.get(i)?)));
+        }
+        self.beam_run.map(|(_, r)| r)
+    }
+
+    /// Where the root stands at `q` on a run: on the piece, its line's height; past its ends, the ground under it (the root
+    /// following the support, as AC1's), else the end's height.
+    fn run_height(level: &Level, line: &Line, q: Vec3) -> f32 {
+        let on = line.closest(q);
+        if (q - on).with_y(0.0).length() < 1e-3 {
+            return on.y;
+        }
+        level.ground(Vec3::new(q.x, on.y, q.z), BEAM_RUN_UP, BEAM_RUN_UP).filter(|g| g.normal.y > 0.8).map_or(on.y, |g| g.point.y)
+    }
+
     /// On a perch: stay on its top, turn toward the wanted direction, walk along a beam, or (sprinting)
     /// jump on.
     fn perch_step(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, dt: f32) {
         let Some(line) = self.perch.and_then(|i| level.perches.get(i).copied()) else { return };
-        let q = line.closest(root.translation);
+        // (Held on the run, `beam_run`: on the piece's line, stopped over what it rests on, the root was pulled back to
+        // the piece's end and the walk started again.)
+        let run = self.run_of(level).map_or(line, |r| r.line);
+        let q = run.closest(root.translation);
+        let q = q.with_y(Self::run_height(level, &line, q));
         root.translation = root.translation.lerp(q, 1.0 - (-10.0 * dt).exp());
         let dir = self.move_dir.with_y(0.0);
         if line.axis() == Vec3::ZERO {
@@ -7325,10 +7387,13 @@ impl WallClimb {
         // across it.)
         if axis != Vec3::ZERO && dir.dot(axis).abs() > BEAM_WALK_COS && self.beam_stance != Some(BeamStance::Across) {
             let along = axis * dir.dot(axis).signum();
-            // Walk unless already at that end.
-            let end = if along.dot(axis) > 0.0 { line.b } else { line.a };
+            // Walk unless already at that end (of the run, `beam_run`).
+            let run = self.run_of(level).unwrap_or(BeamRun { line, drop: [false; 2] });
+            let line = run.line;
+            let at_b = along.dot(axis) > 0.0;
+            let end = if at_b { line.b } else { line.a };
             // (Not from where the walk stops short of an end, `BEAM_END_STOP`: held on, it would start and stop again.)
-            let beyond = level.ground(end + along * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8);
+            let beyond = !run.drop[at_b as usize] && level.ground(end + along * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8);
             // (Free running too: from the stop 0.3 m short of an end with nothing past it, held on, it started and stopped
             // again every few frames, creeping 5 cm on each time; the jump on is tried from the stop.)
             if (end - root.translation).with_y(0.0).length() > if beyond { 0.15 } else { BEAM_END_STOP + 0.05 } {
@@ -7525,6 +7590,7 @@ impl WallClimb {
             return;
         }
         let jog_now = self.beam_jog();
+        let run = self.run_of(level).unwrap_or(BeamRun { line, drop: [false; 2] });
         let Some(cy) = &mut self.cycle else { return };
         // (Stopped: crouched on the foot it was on.)
         let stop = |w: &mut Self, lib: &mut AnimLib| {
@@ -7560,7 +7626,7 @@ impl WallClimb {
         // never growing (0xF7C3A0). (Ours slid sideways onto it at 1.5 m/s, facing along the beam: off a top beside a
         // beam's line the running game turned 20 degrees onto it and walked on.)
         let here = root.translation;
-        let q0 = line.closest(here);
+        let q0 = run.line.closest(here);
         let aim = (q0 + cy.dir * BEAM_STEER_AHEAD - here).with_y(0.0).normalize_or(cy.dir);
         let cur = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(cy.dir);
         let head = cur.lerp(aim, (BEAM_STEER_RATE * dt).min(1.0)).normalize_or(aim);
@@ -7568,16 +7634,20 @@ impl WallClimb {
         let mut next = here + head * speed * dt;
         // (The way off the line across it only: past an end, the closest point is the end itself.)
         let across = line.axis().cross(Vec3::Y).normalize_or_zero();
-        let (off_was, off) = ((here - q0).dot(across), (next - line.closest(next)).dot(across));
+        let (off_was, off) = ((here - q0).dot(across), (next - run.line.closest(next)).dot(across));
         if off.abs() > off_was.abs() {
             next -= across * (off - off_was.abs() * off.signum());
         }
-        let q = line.closest(next);
+        // (Along the run: past the piece's ends to the drop edges past them, the root on what is there.)
+        let q = run.line.closest(next);
+        let q = q.with_y(Self::run_height(level, &line, q));
         let next = Vec3::new(next.x, q.y, next.z);
         // Walking to an end with nothing past it to step onto: AC1 stops `BEAM_END_STOP` short of it
         // (`ConstrainRootMotionToBeam`), crouched there; free running goes on to jump from the end.
-        let end = if cy.dir.dot(line.axis()) > 0.0 { line.b } else { line.a };
-        let beyond = level.ground(end + cy.dir * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8);
+        let at_b = cy.dir.dot(line.axis()) > 0.0;
+        let end = if at_b { run.line.b } else { run.line.a };
+        // (An end at a drop edge is not stepped off, `CanStepOffBeamEnd` 0xF77C00.)
+        let beyond = !run.drop[at_b as usize] && level.ground(end + cy.dir * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8);
         // (In every profile: AC1's `ConstrainRootMotionToBeam` holds the root 0.3 m short of a free end; free running, the
         // jump on takes off from there, audit NARROW-19. Ours ran to the very end first.)
         if !beyond && (end - q).with_y(0.0).dot(cy.dir) < BEAM_END_STOP {
@@ -7863,7 +7933,8 @@ impl WallClimb {
             return false;
         }
         let Some(d) = drop_edge_ahead(level, p, dir).filter(|d| *d < LOW_HOP_DROP) else { return false };
-        if let Some(line) = self.perch.and_then(|i| level.perches.get(i).copied()) {
+        // (The end report's point: the run's end, `beam_run`.)
+        if let Some(line) = self.run_of(level).map(|r| r.line) {
             let axis = line.axis();
             if forward && axis != Vec3::ZERO && fwd.dot(axis).abs() > std::f32::consts::FRAC_1_SQRT_2 {
                 let end = if dir.dot(axis) > 0.0 { line.b } else { line.a };
