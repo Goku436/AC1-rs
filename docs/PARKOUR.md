@@ -610,7 +610,12 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   its line over 1.5 m (route seams_free_north); off the open roof north, a beam carrying on in line from the edge, it
   jumped along it (roof2_free_north). Ours steps on when a beam's near end is within 1.2 m ahead, 0.3-0.6 m to the side
   and within 0.35 m in height; walking a beam, the root comes onto its line at most 1.5 m/s across (it snapped before).
-- **Swing bars** **[V, B, exe, ours]**: the catch (action 0x02926510, nine `xx_h_air_<way>_to_swing_tr_swing_front_a`,
+- **Swing bars** **[V, B, exe, ours]**: the jump at one (ours, 2026-10-26): AC1 flies only at a target in its reach zones,
+  and at it; ours flies a running jump at a bar plainly (the run's speed, 3 m/s up, a plain fall's drift) and takes the bar
+  as its target only when that flight brings it into the catch (`plain_flight_catches`), else the free jump: a bar 6.1 m
+  on and 3.4 m up off the test level's block played the reach (`_to_swing`) and fell short (user recording 210302). (The
+  test level's bars stand 3.4 m over that block, above AC1's zones 1-3 (3.0 m at most): AC1 would not take them from it.)
+  The catch (action 0x02926510, nine `xx_h_air_<way>_to_swing_tr_swing_front_a`,
   blended as the flight it ends, Banned445's `swing::enter`), then the cycle (0x023E0C60: `front_up`, `front_down`,
   `back_up`, `back_down`). The interpreter drives it with what is held each frame: high profile and the legs (+4397), and
   the swing jump (event 7) with the stick within 75 degrees of the facing too; no press. The jump's guard (0xDCD000) takes

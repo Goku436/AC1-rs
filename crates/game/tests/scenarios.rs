@@ -1872,6 +1872,25 @@ const SCENARIOS: &[Scenario] = &[
         ],
         never: &["EMBED"],
     },
+    // A running jump off the block east of the swing bars that the plain flight cannot bring to the bar 6.1 m on and
+    // 3.4 m up: the free jump, not the reach for the bar (`_to_swing`) then a fall short of it (user recording 210302).
+    // From 2.9 m nearer it catches the bar.
+    Scenario {
+        name: "a running jump short of the swing bar is the free jump, not a reach for it",
+        tags: &["bars", "jump"],
+        env: &[("AC1_START", "64.9,0,90,1.5"), ("AC1_WALK", "6"), ("AC1_HIGH", "0-3"), ("AC1_JUMP", "0.15")],
+        secs: 2.0,
+        want: &["the swing bar at [58.40, 4.40, 0.00] is out of the jump's reach"],
+        never: &["_to_swing at [", "caught bar", "EMBED"],
+    },
+    Scenario {
+        name: "a running jump off the block near enough to the swing bar catches it",
+        tags: &["bars", "jump"],
+        env: &[("AC1_START", "62.0,0,90,1.5"), ("AC1_WALK", "6"), ("AC1_HIGH", "0-3"), ("AC1_JUMP", "0.1")],
+        secs: 2.0,
+        want: &["caught bar 1 at [58.40, 4.40, 0.00]"],
+        never: &["out of the jump's reach", "EMBED"],
+    },
     // AC1's swing jump (event 7, guard 0xDCD000) is taken at the end of the catch or of `back_down`, when high profile,
     // the legs and the stick within 75 degrees of the facing are held then: the stick let go over the catch, the legs
     // held, it swings the whole cycle and jumps at the end of `back_down`, two swings; the next bar, everything held as

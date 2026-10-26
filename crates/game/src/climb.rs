@@ -3669,6 +3669,34 @@ fn bar_ahead(level: &Level, from: Vec3, dir: Vec3) -> Option<Vec3> {
     bar_ahead_within(level, from, dir, BAR_JUMP_RISE)
 }
 
+/// Whether a running jump's plain flight (the takeoff's own speed at its end, at most `MAX_JUMP_SPEED` flat, and
+/// `JUMP_UP_SPEED` up, as the fall starts it, the drift easing off as a plain fall's, `fall`) brings the bar point `q`
+/// into `try_bar`'s catch: within `BAR_REACH` across and `BAR_HEIGHT` over the root.
+fn plain_flight_catches(takeoff: &Clip, planned: &Transform, q: Vec3) -> bool {
+    let end = takeoff.frames();
+    let k = end.min(3.0);
+    let rot = world_rot(planned.rotation);
+    let mut p = planned.translation + rot * root_motion_at(takeoff, end);
+    let v = if k > 0.0 { rot * (root_motion_at(takeoff, end) - root_motion_at(takeoff, end - k)) * (FPS / k) } else { Vec3::ZERO };
+    let mut v = v.with_y(0.0).clamp_length_max(MAX_JUMP_SPEED).with_y(v.y.min(0.0) + JUMP_UP_SPEED);
+    let dt = 1.0 / 60.0;
+    for _ in 0..180 {
+        if (q - p).with_y(0.0).length() < BAR_REACH && BAR_HEIGHT.contains(&(q.y - p.y)) {
+            return true;
+        }
+        if v.y < 0.0 && q.y - p.y > BAR_HEIGHT.end {
+            return false;
+        }
+        v.y -= GRAVITY * dt;
+        let h = v.with_y(0.0).length();
+        let k = (h.min(FALL_DRIFT_MAX) - FALL_DRIFT_DECAY * dt).max(0.0) / h.max(1e-4);
+        v.x *= k;
+        v.z *= k;
+        p += v * dt;
+    }
+    false
+}
+
 /// `WallClimb::bar` while swinging from a free-hang hold (`swing_hold`), not one of the level's bars.
 const HOLD_BAR: usize = usize::MAX;
 
@@ -4570,6 +4598,15 @@ impl WallClimb {
             None => (lib.get(JUMP_TAKEOFF)?, lib.get(JUMP_AIR)?),
         };
         let planned = Transform { rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir.with_y(0.0).normalize_or(Vec3::NEG_Z)), ..*root };
+        // (A bar the plain flight never brings into the catch is no target: the free jump, as AC1 flies only at targets in
+        // its reach. Ours reached for the test level's bar 6.1 m on and 3.4 m up from the block beside it, then fell short,
+        // user recording 210302.)
+        if let (Some(q), None) = (bar, hold)
+            && !plain_flight_catches(&takeoff, &planned, q)
+        {
+            debug!("climb: the swing bar at {q:.2} is out of the jump's reach");
+            return Self::jump_at(lib, root, dir, left, from, None, None);
+        }
         let mut w = WallClimb::new(JUMP, planned.rotation * Vec3::Z);
         // The air clip runs from the takeoff tuck to reaching for the ground over the flight.
         match (bar, hold.is_some()) {
