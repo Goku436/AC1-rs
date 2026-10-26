@@ -1475,7 +1475,10 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   `narrow_jump`): ours' hop off toward a drop edge (kinds 1 / 2, `low_hop`) queries the edge zones 10-12 first (the
   primary only, which reaches down from the feet, none up) and jumps onto a top there (gauntlet G31: a block 0.6 m under
   a beam's end beside it, kind 2's side free step onto it; 1 m over it, out of zone 10, it is the free jump and the catch
-  on its edge).
+  on its edge). On a post (NarrowObjectState 0xEE9564, Banned445's `free_step::jump_kind`) high profile with the stick
+  is kind 3 whatever is below (4 with the legs held unless a drop edge is ahead, then kind 0), in place of kind 2, its
+  free jump kept for no target: ours searches the post's box every frame then (gauntlet G32: a block 1 m over a post,
+  0.8 m ahead, jumped onto).
 - **Jumps with no target [B]**: AC1's free jump off a narrow object (the narrow interpreter's jump kinds, BeamState
   0xEEAAA0 / NarrowObjectState 0xEE9564, `BuildFreeJumpTarget` 0xB1E7F0): free running, only over a drop edge ahead along
   the stick (`FindDropEdgeAhead` 0xB1C100: the hold edges crossing the stick's plane 0.3 m back to 1.1 m on, within 0.3 m
@@ -1523,10 +1526,10 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   the plinth; `roof2_run_south` runs on over the roof's end as ground (AC1's, ours had a beam there); the high profile jog;
   the post's lean.
 
-Left (Banned445's port has them; ours does not yet): the jump kinds 3 / 4 from posts (ours: on beams, since 2026-10-26) and the kind 0 with the legs held toward a drop edge mid-beam (ours: at the end); the beam ends
-extended to the drop edge past them (ours since 2026-10-26, G30) and the support re-found every frame (one runtime
-report, chains walked through);
-the side entry's 30/90 blend checked live (ours plays it, G29). The window-box side leap through a building's corner in the same replay is the in-air wall test's
+Left (Banned445's port has them; ours does not yet): the kind 0 with the legs held toward a drop edge mid-beam (ours: at
+the end); the support re-found every frame (one runtime report, chains walked through); the side entry's 30/90 blend
+checked live (ours plays it, G29). Done 2026-10-26: the beam ends extended to the drop edge (G30), the jump kinds 3 / 4
+on beams and posts (G25 high, G32). The window-box side leap through a building's corner in the same replay is the in-air wall test's
 (single rays at 0.3 / 1.0 m), passed on to the wall-kick work.
 
 ## Banned445's port, 2026-10-13 round

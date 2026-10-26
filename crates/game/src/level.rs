@@ -2019,6 +2019,13 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     walls.cuboid(Vec3::new(-85.5, 0.0, z + 0.8), Vec3::new(-83.5, 0.6, z + 2.5));
     level.ledges.push(Ledge { a: Vec3::new(-85.5, 0.6, z + 0.8), b: Vec3::new(-83.5, 0.6, z + 0.8), out: Vec3::NEG_Z });
 
+    // G32: a post 1.5 m up and 0.8 m ahead of it a block 1 m higher: in high profile on the post, the stick toward the
+    // block: AC1's jump kind 3 (a post's, in place of 2) finds it in its box and jumps onto it.
+    let z = 374.0;
+    post(walls, level, -88.0, z, 1.5);
+    walls.cuboid(Vec3::new(-87.0, 0.0, z - 1.0), Vec3::new(-85.0, 2.5, z + 1.0));
+    level.ledges.push(Ledge { a: Vec3::new(-87.0, 2.5, z - 1.0), b: Vec3::new(-87.0, 2.5, z + 1.0), out: Vec3::NEG_X });
+
     // G30: a beam from a platform resting at its end on a block level with it, 0.8 m long, a drop past it: AC1's beam
     // run goes on over the block to the drop edge (`sub_F72FD0`), no stepping off onto it. (10 m past G29: at 5 m its
     // free run jumped on onto this beam.)
@@ -2055,6 +2062,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G29: the side entry onto a beam", Vec3::new(-86.5, 2.5, 334.0)),
         ("G30: a beam's run over the block it rests on", Vec3::new(-86.0, 2.5, 354.0)),
         ("G31: a block beside a beam's end, 0.6 m under it", Vec3::new(-86.0, 2.0, 364.0)),
+        ("G32: a post and a block 1 m higher ahead", Vec3::new(-88.0, 2.0, 374.0)),
     ]
 }
 

@@ -7423,6 +7423,15 @@ impl WallClimb {
             self.finished = true;
             return;
         }
+        // (On a post in high profile with the stick: AC1's jump kind 3, 4 with the legs held unless a drop edge is ahead
+        // (then kind 0, the jump on), whatever is below: its box ahead searched every frame, a top there jumped onto.)
+        if axis == Vec3::ZERO
+            && self.high
+            && (!self.sprint || drop_edge_ahead(level, root.translation, dir).is_none())
+            && self.narrow_target_hop(lib, level, root, dir, crate::jump_query::From::FreeRun { legs: self.sprint }, if self.sprint { 4 } else { 3 })
+        {
+            return;
+        }
         // (Not free running, toward a low drop: AC1's hop off, see `low_hop`.)
         if !self.sprint && self.low_hop(lib, level, root, dir) {
             return;
@@ -7998,8 +8007,15 @@ impl WallClimb {
             }
         }
         // (Its kind's candidate search first, the free jump only with no target: Banned445's `narrow_jump`. Ours went
-        // straight to the free jump, over a top beside the beam.)
-        if self.narrow_target_hop(lib, level, root, dir, crate::jump_query::From::Edge, if self.high { 2 } else { 1 }) {
+        // straight to the free jump, over a top beside the beam. On a post in high profile the kind is 3, the box ahead,
+        // in place of 2 (NarrowObjectState 0xEE9564, Banned445's `free_step::jump_kind`), its free jump kept.)
+        let post = self.perch.and_then(|i| level.perches.get(i)).is_some_and(|l| l.axis() == Vec3::ZERO);
+        let (mode, kind) = match (post && self.high, self.high) {
+            (true, _) => (crate::jump_query::From::FreeRun { legs: false }, 3),
+            (false, true) => (crate::jump_query::From::Edge, 2),
+            (false, false) => (crate::jump_query::From::Edge, 1),
+        };
+        if self.narrow_target_hop(lib, level, root, dir, mode, kind) {
             return true;
         }
         let ahead = if self.high { FREE_JUMP_NEAR } else { LOW_HOP_AHEAD };

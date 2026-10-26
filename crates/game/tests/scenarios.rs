@@ -1730,6 +1730,15 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED"],
     },
     Scenario {
+        // (NarrowObjectState 0xEE9564: on a post in high profile with the stick, kind 3 whatever is below.)
+        name: "gauntlet G32: on a post in high profile, the stick toward a block 1 m higher ahead: AC1's jump kind 3 onto it",
+        tags: &["beam", "jump"],
+        env: &[("AC1_START", "-88,374,-90,2"), ("AC1_WALK", "1"), ("AC1_STOP", "0-1.5"), ("AC1_HIGH", "0-10")],
+        secs: 4.0,
+        want: &["onto perch 36", "the narrow object's target jump (kind 3) onto [-86.95, 2.50, 374.00]", "xx_h_freestep_front_up_050cm_"],
+        never: &["EMBED", "free jump off the narrow object"],
+    },
+    Scenario {
         // (The kind's candidate search before its free jump, Banned445's `narrow_jump`; zone 10 reaches down only.)
         name: "gauntlet G31: stopped at a beam's end, high profile, the stick toward a block 0.6 m lower beside it: AC1's jump kind 2 onto it, not the free jump",
         tags: &["beam", "jump"],
