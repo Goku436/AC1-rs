@@ -1322,6 +1322,10 @@ const RECEPTION_HANG_DOWN: f32 = 1.1;
 /// Audit NARROW-6.
 const BEAM_WALK_COS: f32 = 0.259;
 const BEAM_BACK_COS: f32 = -0.707;
+/// On a beam, the stick past this sends event 22 every frame (the beam interpreter, 0xEE9F13), whose guard (0xF767C0)
+/// dives into a haystack the let-go's search finds along the stick within this of it (cos 30 degrees): `narrow_hay_dive`.
+const NARROW_HAY_STICK: f32 = 0.35;
+const NARROW_HAY_COS: f32 = 0.866;
 /// Free running onto a beam with less than this of it left the stick's way along it (m), a target off its side is jumped
 /// at rather than walking on.
 const BEAM_JUMP_ON_LEFT: f32 = 2.0;
@@ -6641,14 +6645,7 @@ impl WallClimb {
             let up = p.y - h.top();
             (h.centre - p).with_y(0.0).length() < h.half + HAY_DIVE_REACH && (-0.3..FAITH_MIN_DROP).contains(&up)
         }) {
-            let dir = (hay.centre - p).with_y(0.0).normalize_or(root.rotation * Vec3::NEG_Z);
-            let at = Transform { rotation: facing(dir), ..*root };
-            let n = HAY_DIVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 2 + 1;
-            let dive = lib.get(&format!("xx_h_freestep_footr_to_haystack_0{n}"))?;
-            let travel = world_rot(at.rotation) * root_motion_at(&dive, dive.frames());
-            let mut w = WallClimb::new(HAY, -dir);
-            w.start_chain(vec![dive], vec![HAY.into()], &at, hay.seat() - (p + travel));
-            w.ease_in(from, root);
+            let w = Self::dive_into_hay(lib, root, hay, from)?;
             debug!("climb: dive into the haystack at {:.2} from a top {:.2} m above it", hay.centre, p.y - hay.top());
             return Some(w);
         }
@@ -6656,6 +6653,16 @@ impl WallClimb {
         // dive, turned to face the haystack (`xx_h_air_to_haystack` is its side hit from the air).
         let _ = high;
         let hay = level.haystacks.iter().find(|h| (h.centre - p).with_y(0.0).length() < h.half + HAY_REACH && (p.y - h.centre.y).abs() < 0.5)?;
+        let w = Self::dive_into_hay(lib, root, hay, from)?;
+        debug!("climb: into the haystack at {:.2}", hay.seat());
+        Some(w)
+    }
+
+    /// `HumanHayStack`'s entry (0xE42420, from the ground and the narrow objects alike): `xx_h_freestep_footr_to_haystack_
+    /// 01` or `_02` (actions 0x244CD280 / 0x244CFACB, AC1 picks at random, ours in turn), turned to face the haystack, the
+    /// root carried onto its seat over the dive (AC1's interpolator, 0x711130, over the dive's length and 0.2 s).
+    fn dive_into_hay(lib: &mut AnimLib, root: &Transform, hay: &crate::level::HayStack, from: Option<Pose>) -> Option<WallClimb> {
+        let p = root.translation;
         let dir = (hay.centre - p).with_y(0.0).normalize_or(root.rotation * Vec3::NEG_Z);
         let at = Transform { rotation: facing(dir), ..*root };
         let n = HAY_DIVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 2 + 1;
@@ -6664,8 +6671,31 @@ impl WallClimb {
         let mut w = WallClimb::new(HAY, -dir);
         w.start_chain(vec![dive], vec![HAY.into()], &at, hay.seat() - (p + travel));
         w.ease_in(from, root);
-        debug!("climb: into the haystack at {:.2}", hay.seat());
         Some(w)
+    }
+
+    /// On a beam, the stick toward a haystack below: AC1's dive into it (event 22, sent every frame the stick is past
+    /// `NARROW_HAY_STICK`, the beam interpreter 0xEE9F13; taken by BeamState's Idle, Walk and 90 degree wait, 0xF7A4F0 /
+    /// 0xF7F150 / 0xF7A650, each with the guard 0xF767C0; not the post's wait nor the free-step arrival): the let-go's
+    /// haystack search (IHuman's +0xFC face vt +0x50, 0xB10AB0 -> 0xE17DA0, `LET_GO_SEARCH`) along the stick from the
+    /// facing, the haystack within 30 degrees of the stick (flat), then `HumanHayStack` (state 0x15) and its entry's dive
+    /// (`dive_into_hay`). Banned445's port has no such event.
+    fn narrow_hay_dive(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform) -> bool {
+        let stick = self.move_dir.with_y(0.0);
+        if stick.length() <= NARROW_HAY_STICK {
+            return false;
+        }
+        let d = stick.normalize();
+        let p = root.translation;
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(d);
+        let Some(hay) = support_search(level, p, d, fwd, &LET_GO_SEARCH) else { return false };
+        if (hay.centre - p).with_y(0.0).normalize_or_zero().dot(d) < NARROW_HAY_COS {
+            return false;
+        }
+        let Some(w) = Self::dive_into_hay(lib, root, hay, self.last.clone()) else { return false };
+        debug!("climb: the stick toward the haystack at {:.2} off the narrow object: into it", hay.centre);
+        *self = w;
+        true
     }
 
     /// The clip playing now: a walk along a beam (its start, then its steps), a move, or the hang loop.
@@ -7327,6 +7357,10 @@ impl WallClimb {
             self.beam_wall = None;
             return;
         }
+        // (The stick toward a haystack below: AC1's event 22, taken before the rest; on a beam, not a post.)
+        if line.axis() != Vec3::ZERO && self.narrow_hay_dive(lib, level, root) {
+            return;
+        }
         let dir = dir.normalize();
         let axis = line.axis();
         // (Held at a wall a beam runs into, free running on into it: waiting on the legs' wall run, nothing else.)
@@ -7584,6 +7618,9 @@ impl WallClimb {
             self.cycle = None;
             return;
         };
+        if self.cycle.is_some() && self.narrow_hay_dive(lib, level, root) {
+            return;
+        }
         // (Walking it with the stick over 30 degrees off, a roof beside it that way: off onto it, as `perch_step`.)
         let stick = self.move_dir.with_y(0.0).normalize_or_zero();
         let beside = root.translation + stick * 0.5;

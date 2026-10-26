@@ -1811,7 +1811,9 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     beam(walls, level, -87.0, -83.0, z, 5.0);
     walls.cuboid(Vec3::new(-83.0, 0.0, z - 1.5), Vec3::new(-79.0, 5.0, z + 1.5));
     beam(walls, level, -79.0, -77.6, z, 5.0);
-    level.haystacks.push(HayStack { centre: Vec3::new(-76.2, 0.0, z), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None });
+    // (3.6 m past the beam's end: out of the let-go search's box from the beam, so the free run leaps; at 1.4 m the stick
+    // toward it dived in from the walk, AC1's event 22, `narrow_hay_dive`.)
+    level.haystacks.push(HayStack { centre: Vec3::new(-74.0, 0.0, z), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None });
 
     // G3: a wall with holds to run up (its west face) and climb over, across its roof, a 2 m gap to the next roof, off
     // its far end to the ground.
@@ -2026,6 +2028,13 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
     walls.cuboid(Vec3::new(-87.0, 0.0, z - 1.0), Vec3::new(-85.0, 2.5, z + 1.0));
     level.ledges.push(Ledge { a: Vec3::new(-87.0, 2.5, z - 1.0), b: Vec3::new(-87.0, 2.5, z + 1.0), out: Vec3::NEG_X });
 
+    // G33: a beam 3 m up and beside it, 1.6 m off its line, a haystack: walking it, the stick turned toward the hay: AC1's
+    // event 22 (BeamState's walk), the let-go's haystack search along the stick, the dive into it.
+    let z = 384.0;
+    platform(walls, -92.0, -89.0, z, 3.0);
+    beam(walls, level, -89.0, -83.0, z, 3.0);
+    level.haystacks.push(HayStack { centre: Vec3::new(-86.5, 0.0, z + 1.6), half: 1.3, height: 1.7, facing: Vec3::ZERO, own: None });
+
     // G30: a beam from a platform resting at its end on a block level with it, 0.8 m long, a drop past it: AC1's beam
     // run goes on over the block to the drop edge (`sub_F72FD0`), no stepping off onto it. (10 m past G29: at 5 m its
     // free run jumped on onto this beam.)
@@ -2063,6 +2072,7 @@ fn gauntlet(walls: &mut Builder, strips: &mut Builder, level: &mut Level) -> Vec
         ("G30: a beam's run over the block it rests on", Vec3::new(-86.0, 2.5, 354.0)),
         ("G31: a block beside a beam's end, 0.6 m under it", Vec3::new(-86.0, 2.0, 364.0)),
         ("G32: a post and a block 1 m higher ahead", Vec3::new(-88.0, 2.0, 374.0)),
+        ("G33: a haystack beside a beam", Vec3::new(-87.0, 3.5, 384.0)),
     ]
 }
 

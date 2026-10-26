@@ -1739,6 +1739,16 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "free jump off the narrow object"],
     },
     Scenario {
+        // (BeamState's Idle, Walk and 90 degree wait take event 22, sent every frame the stick is past 0.35: the let-go's
+        // haystack search along the stick, the hay within 30 degrees of it, into HumanHayStack's entry dive.)
+        name: "gauntlet G33: walking a beam 3 m up, the stick turned toward a haystack beside it: AC1's dive into it (event 22)",
+        tags: &["beam", "hay"],
+        env: &[("AC1_START", "-90.5,384,-90,3"), ("AC1_WALK", "2"), ("AC1_HEADINGS", "0,0;2.5,0;2.51,-90")],
+        secs: 4.5,
+        want: &["onto perch", "off the narrow object: into it", "-> hay via xx_h_freestep_footr_to_haystack_0"],
+        never: &["EMBED", "faith"],
+    },
+    Scenario {
         // (The kind's candidate search before its free jump, Banned445's `narrow_jump`; zone 10 reaches down only.)
         name: "gauntlet G31: stopped at a beam's end, high profile, the stick toward a block 0.6 m lower beside it: AC1's jump kind 2 onto it, not the free jump",
         tags: &["beam", "jump"],

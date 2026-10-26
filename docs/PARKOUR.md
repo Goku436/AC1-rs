@@ -1547,12 +1547,24 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
 
 Left (Banned445's port has them; ours does not yet): the kind 0 with the legs held toward a drop edge mid-beam (ours: at
 the end); the support re-found every frame (one runtime report, chains walked through); the side entry's 30/90 blend
-checked live (ours plays it, G29); two of BeamState's own branches, read but not placed (2026-10-26): event 22
-(INarrow vt +0x144 / +0x148, 0xE542D0 / 0xE555E0: with the stick stored, every beam sub-state's guard 0xF767C0 takes it
-when the way to a point the actor gives is over 150 degrees off the stick, dot < -0.866) and event 20 (vt +0x13C / +0x140:
-pad button 1 pressed within 0.2 s, 0x93F370, with the flag at the frame's +0x11; maybe the attack from above, combat's).
+checked live (ours plays it, G29); BeamState's event 20, read but not placed (vt +0x13C / +0x140: pad button 1 pressed
+within 0.2 s, 0x93F370, with the flag at the frame's +0x11; maybe the attack from above, combat's); whether a viewpoint's
+beam end dives into its hay on the stick alone (event 22 below says it does, by the code; not seen live).
 Done 2026-10-26: the beam ends extended to the drop edge (G30), the jump kinds 3 / 4
-on beams and posts (G25 high, G32). The window-box side leap through a building's corner in the same replay is the in-air wall test's
+on beams and posts (G25 high, G32), event 22's dive into a haystack (G33).
+- **The stick toward a haystack off a beam [V, ours]** 2026-10-26: event 22 (INarrow vt +0x144 / +0x148, 0xE542D0 /
+  0xE555E0) is sent by the beam interpreter every frame the stick is past 0.35 (0xEE9F13, the pad's +0x5C0; no button,
+  no free-run gate, before the jump events). BeamState's Idle, Walk and 90 degree wait take it (0xF7A4F0 / 0xF7F150 /
+  0xF7A650; not the post's wait nor the free-step arrival, whose dispatches 0xE50BF0 / 0xE4F220 have no 22), each through
+  the guard 0xF767C0: IHuman's +0xFC face vt +0x50 (0xB10AB0) runs the ledge let-go's haystack search (0xE17DA0: 1 / 5 m
+  across, 2 / 10 m along, the top (floor + 1.6) 0-100 m under the feet, opened fully at 30 m down, 90 degrees, 0.1; ours
+  `LET_GO_SEARCH`) along the stick from the actor's facing, and takes the haystack it finds when the flat way to it is
+  within 30 degrees of the stick (dot < -0.866 against the actor minus the point). The action (0xF74650 / 0xF74590 /
+  0xF74710) writes the haystack into the human's +0x1120 record (mode 1, 0xF72210) and changes to state 0x15,
+  `HumanHayStack` (ground event 122's too), whose entry 0xE42420 plays `xx_h_freestep_footr_to_haystack_01` or `_02` at
+  random (actions 0x244CD280 / 0x244CFACB), the root carried onto the haystack over the dive's length + 0.2 s (0x711130).
+  Ours (`narrow_hay_dive`, `dive_into_hay`): first in the beam's wait and walk. G2's haystack moved from 1.4 to 3.6 m past
+  its beam's end so its free run still leaps of faith (at 1.4 m the walk dived first). Banned445's port has none. The window-box side leap through a building's corner in the same replay is the in-air wall test's
 (single rays at 0.3 / 1.0 m), passed on to the wall-kick work.
 
 ## Banned445's port, 2026-10-13 round
