@@ -209,8 +209,10 @@ mixed front / left / right by the edge's side), the pull-down
   2026-10-24, by the top's height h over the feet: under 0.7 m action 0x012B291B (weight (h − 0.5) / 0.2), to 1.5 m
   0x01290ECF ((h − 0.7) / 0.8), to 2 m 0x01272A69 ((h − 1.5) × 2), to 2.5 m 0x01271639 onto the top or 0x01271631
   hanging (a target of type 8), from 2.5 m 0x0121A598 / 0x0121A8B1 hanging ((h − 2.5) × 2, full at 3 m); from 1.5 m up
-  the 0x516D52Dx set instead unless the playing action is 0x59 or 0x01099C96 (the static jump's); crouched, 0x6DA7646E
-  (or the other foot's) by (h − 0.2) / 1.1 over 0.2-1.3 m.
+  the 0x516D52Dx set instead unless the playing action is 0x59 or 0x01099C96 (the static jump's); with its third argument
+  set (only from 0xF70E50, the beam autoclimb, event 17), 0x6DA7646E (or the other foot's) by (h − 0.2) / 1.1 over
+  0.2-1.3 m. Ours plays the low bands as the obstacle's (`collide_full_footl_<050|070>cm_to_freestep_*`, the lean's
+  `_to_hangknee_footl_<070|150>cm`).
 - **Character proxy**: capsule radius 0.4 (0.35 + 0.05 keep distance), height 1.8, floating 0.37 m over the feet
   (step), stick-to-ground cast 0.58 m (0x57D240). **[V]** (radius and height 2026-10-25, below)
   **[V]** 2026-10-25: the capsule's owner (vtable 0x168A58C, ctor 0x52E700: radius +0x470 0.5, height +0x474 2.1, base
@@ -1478,8 +1480,7 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
 Left (Banned445's port has them; ours does not yet): the walk's speed ramp blending walk and jog by speed (+2 / -3 m/s²,
 the jog stop by it); the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
 jump kind on the legs held without a press; the hop off sideways in high profile before the quarter turn (ours turns
-first); the free-step stay (every free-step landing
-plays its reception in NarrowObject and may jump on from half of it; ours lands on the ground or the perch); the beam ends
+first); the beam ends
 extended to the drop edge past them and the support re-found every frame (one runtime report, chains walked through);
 the side entry's 30/90 blend checked live; the corner hop chain from the hop's end; the turn round under a beam from a free
 hang (a ledge move). The window-box side leap through a building's corner in the same replay is the in-air wall test's
