@@ -1446,6 +1446,17 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   stick's angle, 120 degrees full, at 3/s; 0xE51960); ours turned the body on the spot. **[V]** 2026-10-24: 0xE51960
   clamps the stick's signed angle off the facing to ±2.0944, eases +0x174 toward angle / 2.0944 by 3 × the step, and weighs
   the wait 1 − |lean| and one side |lean|, as ours.
+- **The beam autoclimb** (event 17) **[V, ours]** 2026-10-26: NarrowObject's event 17 (its dispatch 0xF7F3B0, guard
+  0xF7EF90 -> 0xF7DB30) takes walking into an obstacle on a beam: the obstacle guard 0xB25230 (a contact at least 0.5 m
+  over the feet within 45 degrees, not a character), then the hold edges in a box ahead (0.3 m either side, up to 0.7 m
+  on, 0.3-1.4 m up; not sub-type 7, 5 or 8) facing back within 45 degrees, each classified as the jump query does (room
+  on top from 0.5 m out and 0.3 m over it, back 1.75 m: under 0.03 m 0x40, under 0.3 m 0x10, both refused), one picked
+  (0xE97720). It schedules 0xF70E50, the standing jump 0xB21DA0 with its autoclimb flag: the height kept to 0.2-1.3 m,
+  `xx_h_beam_autoclimb_<foot>_020cm` to `_130cm` by (h - 0.2) / 1.1 by the leading foot (actions 0x6DA7646E / 0x6EFC142E,
+  their own blend 0.06 s), straight up; the arrival (0xE07D00) then plays `..._tr_freestep_entry_<foot>` (0x6DA7646F /
+  0x6EFC142F), 0.5 m on, in NarrowObject. Ours (2026-10-26) does this from the beam walk; it stopped at the obstacle.
+  Gauntlet G25. (The vertical poles' arrival, target type 0x2000, `xx_h_air_surface_tr_pole_verti_<up|down|long>_a..c`,
+  has no pole climbing after it in the game's clips: not used.)
 - **Climbing onto a narrow top**: the lean's climb needs room for the body on the top (the capsule clear of walls), as the
   plinth had none.
 - Measured on the live-log routes with a beam in them (`wall1_*`, `roof*`, `seams_free_west`, `hay70_free`): unchanged or
@@ -1456,7 +1467,7 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
 Left (Banned445's port has them; ours does not yet): the walk's speed ramp blending walk and jog by speed (+2 / -3 m/s²,
 the jog stop by it); the jump kinds 3 / 4 (high profile with the stick: the small hop box 0.45-1.3 m up) and the per-frame
 jump kind on the legs held without a press; the hop off sideways in high profile before the quarter turn (ours turns
-first); event 17 (walking into an obstacle on a beam searches a hand target); the free-step stay (every free-step landing
+first); the free-step stay (every free-step landing
 plays its reception in NarrowObject and may jump on from half of it; ours lands on the ground or the perch); the beam ends
 extended to the drop edge past them and the support re-found every frame (one runtime report, chains walked through);
 the side entry's 30/90 blend checked live; the corner hop chain from the hop's end; the turn round under a beam from a free

@@ -1021,6 +1021,12 @@ const POST_LEAN_RATE: f32 = 3.0;
 /// Not free running: a drop edge under this (m) is hopped off (kinds 1 / 2), `LOW_HOP_AHEAD` m on in low profile (mode 1).
 const LOW_HOP_DROP: f32 = 2.0;
 const LOW_HOP_AHEAD: f32 = 1.0;
+/// The beam autoclimb (`beam_autoclimb`): the contact ahead this far over the feet (m), the box ahead (m: across either
+/// side, on, from and to up), the room on top it needs, and how far its clips may land off the top (ours).
+const AUTOCLIMB_BUMP_UP: f32 = 0.5;
+const AUTOCLIMB_BOX: (f32, f32, f32, f32) = (0.3, 0.7, 0.3, 1.4);
+const AUTOCLIMB_ROOM: f32 = 0.3;
+const AUTOCLIMB_SLACK: f32 = 1.0;
 /// Along a beam the drop edge at its end counts within this of it (m: `BeamRunsAlong` 0xF78F00).
 const BEAM_RUNS_ALONG: f32 = 0.4;
 /// A free-step target this far under the start (m), the way to it blocked: AC1's beam set of takeoffs and flights
@@ -7394,6 +7400,14 @@ impl WallClimb {
                 return;
             }
         }
+        // Walking into a top in the way 0.3-1.4 m up: AC1's beam autoclimb onto it (NarrowObject event 17).
+        if let Some(cy) = &self.cycle
+            && stick.dot(cy.dir) >= BEAM_WALK_COS
+            && let Some(w) = Self::beam_autoclimb(lib, level, root, cy.dir, cy.v, cy.foot == 0, self.last.clone())
+        {
+            *self = w;
+            return;
+        }
         let Some(cy) = &mut self.cycle else { return };
         // (Stopped: crouched on the foot it was on.)
         let stop = |w: &mut Self, lib: &mut AnimLib| {
@@ -7740,6 +7754,74 @@ impl WallClimb {
             }
             None => false,
         }
+    }
+
+    /// On a beam, walking along `dir` at `speed` into a top in the way: AC1's beam autoclimb (NarrowObject event 17, its
+    /// guard 0xF7DB30, then the standing jump 0xB21DA0 with its autoclimb flag, from 0xF70E50). A contact ahead at least
+    /// 0.5 m over the feet (the obstacle guard 0xB25230), and a hold edge in a box ahead (0.3 m either side, up to 0.7 m
+    /// on, 0.3-1.4 m up) facing back within 45 degrees with at least 0.3 m of room on top (a ray 0.3 m over it from 0.5 m
+    /// out, 1.75 m back): straight up onto it, `xx_h_beam_autoclimb_<foot>_<020|130>cm` blended by its height (clamped
+    /// to 0.2-1.3 m), then the free step's entry `..._tr_freestep_entry_<foot>` 0.5 m on (0xE07D00's arrival for those
+    /// flights, 0x6DA7646F / 0x6EFC142F). Ours stopped at the obstacle.
+    #[allow(clippy::too_many_arguments)]
+    fn beam_autoclimb(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, speed: f32, left: bool, from: Option<Pose>) -> Option<WallClimb> {
+        let p = root.translation;
+        let dir = dir.with_y(0.0).normalize_or_zero();
+        if dir == Vec3::ZERO {
+            return None;
+        }
+        let face = level.raycast(p + Vec3::Y * AUTOCLIMB_BUMP_UP, dir, AUTOCLIMB_BOX.1)?;
+        if face.normal.y.abs() > 0.5 || face.normal.with_y(0.0).normalize_or_zero().dot(-dir) < std::f32::consts::FRAC_1_SQRT_2 {
+            return None;
+        }
+        let right = dir.cross(Vec3::Y);
+        let (edge, out) = level
+            .holds_of(crate::level::HoldView::Jump)
+            .iter()
+            .filter_map(|l| {
+                let out = l.out.with_y(0.0).normalize_or_zero();
+                let q = l.closest(p);
+                let d = q - p;
+                (out.dot(-dir) >= std::f32::consts::FRAC_1_SQRT_2
+                    && d.dot(right).abs() <= AUTOCLIMB_BOX.0
+                    && (0.0..=AUTOCLIMB_BOX.1).contains(&d.dot(dir))
+                    && (AUTOCLIMB_BOX.2..=AUTOCLIMB_BOX.3).contains(&d.y))
+                .then_some((q, out))
+            })
+            .min_by(|a, b| a.0.distance(p).total_cmp(&b.0.distance(p)))?;
+        let room = level.raycast(edge + out * 0.5 + Vec3::Y * 0.3, -out, 1.75).map_or(1.75, |h| h.dist) - 0.5;
+        if room < AUTOCLIMB_ROOM {
+            return None;
+        }
+        let landing = level.ground(edge - out * 0.5 + Vec3::Y * 0.3, 0.0, 0.6).filter(|g| g.normal.y > 0.7).map_or(edge - out * 0.5, |g| g.point);
+        let h = (edge.y - p.y).clamp(0.2, 1.3);
+        let w = (h - 0.2) / 1.1;
+        let foot = if left { "footl" } else { "footr" };
+        let name = |k: &str, tail: &str| format!("xx_h_beam_autoclimb_{foot}_{k}{tail}");
+        let mix_of = |tail: &str| {
+            let (low, high) = (name("020cm", tail), name("130cm", tail));
+            mix_name(&[(low.as_str(), 1.0 - w), (high.as_str(), w)])
+        };
+        let (climb, entry) = (lib.get(&mix_of(""))?, lib.get(&mix_of(&format!("_tr_freestep_entry_{foot}")))?);
+        let planned = Transform { rotation: facing(-out), ..*root };
+        let rot = world_rot(planned.rotation);
+        let motion = rot * (root_motion_at(&climb, climb.frames()) + root_motion_at(&entry, entry.frames()));
+        let correct = landing - (p + motion);
+        if correct.length() > AUTOCLIMB_SLACK {
+            debug!("climb: the beam autoclimb lands {:.2} m off the top", correct.length());
+            return None;
+        }
+        let onto = level.perch_at(landing, 0.15).filter(|(i, _)| level.perches[*i].axis() != Vec3::ZERO);
+        let last = if onto.is_some() { PERCH } else { GROUND };
+        let mut wc = WallClimb::new(VAULT, out);
+        wc.start_chain_carry(vec![climb.clone(), entry], vec![VAULT.into(), last.into()], &planned, correct, Some(0));
+        match onto {
+            Some((i, _)) => wc.perch = Some(i),
+            None => wc.exit_velocity = -out * speed,
+        }
+        wc.ease_in(from, root);
+        debug!("climb: beam autoclimb onto the top {:.2} m up at {edge:.2} ({})", edge.y - p.y, climb.name);
+        Some(wc)
     }
 
     /// AC1's free jump off a narrow object at its made-up target `ahead` m on along `dir` and `down` m below: the free-step

@@ -1714,6 +1714,16 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "tr_h_ladder_climb_up"],
     },
     Scenario {
+        // (NarrowObject event 17, its guard 0xF7DB30: a top 0.3-1.4 m up in the way, its edge facing back; the standing
+        // jump's autoclimb, then the free step's entry onto it.)
+        name: "gauntlet G25: walking along a beam into a step 1 m up: AC1's beam autoclimb onto it",
+        tags: &["beam"],
+        env: &[("AC1_START", "-90.5,294,-90"), ("AC1_WALK", "1.9"), ("AC1_STICK", "1")],
+        secs: 6.0,
+        want: &["beam autoclimb onto the top 1.00 m up", "_tr_freestep_entry_foot"],
+        never: &["EMBED", "stopped short of the beam's end"],
+    },
+    Scenario {
         // (From 3.2 m: the ladder's lowest target is 2.5 m over its foot, out of reach zone 3 from 4.6 m away.)
         name: "Damascus: a tap jump at ladder 68 from 3 m back: AC1's scorer picks the ladder (0x1000), onto it",
         tags: &["ladder", "jump"],
