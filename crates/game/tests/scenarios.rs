@@ -1752,6 +1752,15 @@ const SCENARIOS: &[Scenario] = &[
         never: &["EMBED", "to_crouchwait_90", "free jump off the narrow object"],
     },
     Scenario {
+        // (BeamState 0xEEA99E: `Pad__IsPressed`(3) toward a drop edge under 2.5 m, the free jump mode 1, before the kinds.)
+        name: "gauntlet G27 in low profile: on a beam 1.2 m up, the stick to the side and the empty hand held: AC1's hop off 1 m that way",
+        tags: &["beam", "jump"],
+        env: &[("AC1_START", "-90.5,314,-90,2"), ("AC1_WALK", "2"), ("AC1_STOP", "3.5-4.5"), ("AC1_HEADINGS", "0,0;4.4,0;4.41,-90"), ("AC1_GRASP", "4.4-6")],
+        secs: 6.5,
+        want: &["the empty hand's hop off the beam toward the low drop", "(1 m on, 3.00 m down) via xx_h_beam_freestep_right_down_050cm_"],
+        never: &["EMBED", "to_crouchwait_90", "pull down"],
+    },
+    Scenario {
         // (The jump kind 2 is picked each frame before BeamState's turns; its side takeoff turns the body.)
         name: "gauntlet G27: stopped at a beam's end 1.2 m up, high profile, the stick to the side: the hop off that way, no quarter turn first",
         tags: &["beam", "jump"],

@@ -1485,6 +1485,14 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   is kind 3 whatever is below (4 with the legs held unless a drop edge is ahead, then kind 0), in place of kind 2, its
   free jump kept for no target: ours searches the post's box every frame then (gauntlet G32: a block 1 m over a post,
   0.8 m ahead, jumped onto).
+- **The empty hand's hop off [V]** 2026-10-26 (BeamState 0xEEA99E-0xEEAA9F, not in Banned445's notes): before the jump
+  kinds, the empty hand held (`Pad__IsPressed`(3) 0x6D0F50: 0x484830 then 0x93F170, inlined), the drop edge report along
+  the stick (IHuman vt +0x90 from 0xEEA60A with −0.3 to 1.1 m on, ±0.3 m, a drop of 0.5 m, steps of 0.02: ours'
+  `DROP_EDGE_*` **[V]**) past NARROW-11's gate, a drop under 2.5 m (0x1708624), no next piece: `BuildFreeJumpTarget` mode 1
+  with no report (1 m on, 3 m down), posted, in either profile. The pull-down (event 9) wants over 2.5 m, so the empty
+  hand toward a low drop hops off where a deep one hangs. Ours (`hand_hop`, on the beam's walk and waits; scenario
+  G27 in low profile with the hand held: the side free step down 1 m that way). Ours had taken the empty hand on a beam
+  for the pull-down alone (audit NARROW-8).
 - **Jumps with no target [B]**, the target **[V]** 2026-10-26 (`BuildFreeJumpTarget` 0xB1E7F0 read: mode 1 → 1 m on,
   mode 2 → 3 m, mode 0 → the character's tuning distance (8 m by Banned445's reading), each 3 m under the feet; with the
   drop edge's report, the edge's height less min(drop + 0.25, 3), then 0xB17D50 (0.7, π/2). The character field +0x994

@@ -1028,6 +1028,8 @@ const POST_LEAN_RATE: f32 = 3.0;
 /// Not free running: a drop edge under this (m) is hopped off (kinds 1 / 2), `LOW_HOP_AHEAD` m on in low profile (mode 1).
 const LOW_HOP_DROP: f32 = 2.0;
 const LOW_HOP_AHEAD: f32 = 1.0;
+/// The empty hand's hop off a beam: toward a drop edge with less drop than this (m: 0x1708624).
+const HAND_HOP_DROP: f32 = 2.5;
 /// The beam autoclimb (`beam_autoclimb`): the contact ahead this far over the feet (m), the box ahead (m: across either
 /// side, on, from and to up), the room on top it needs, and how far its clips may land off the top (ours).
 const AUTOCLIMB_BUMP_UP: f32 = 0.5;
@@ -7332,6 +7334,10 @@ impl WallClimb {
             return;
         }
         self.beam_wall = None;
+        // (The empty hand held toward a low drop: AC1's hop off, before the jump kinds; on a beam, `hand_hop`.)
+        if axis != Vec3::ZERO && self.hand_hop(lib, level, root, dir) {
+            return;
+        }
         // High profile, not free running, the stick across the beam toward a low drop beside it: AC1's hop off (the jump
         // kind 2, picked each frame before BeamState's turns, Banned445's `beam_jump_kind`), its side takeoff turning the
         // body itself. Ours made the quarter turn first and hopped from it.
@@ -7609,7 +7615,11 @@ impl WallClimb {
             *self = w;
             return;
         }
-        // (In high profile, AC1's jump kinds 3 / 4: a top in the box ahead jumped onto, no press.)
+        // (The empty hand held toward a low drop, then the jump kinds 3 / 4 in high profile: a top in the box ahead jumped
+        // onto, no press.)
+        if self.cycle.is_some() && self.hand_hop(lib, level, root, stick) {
+            return;
+        }
         if let Some(cy) = &self.cycle
             && stick.dot(cy.dir) >= BEAM_WALK_COS
             && self.beam_box_hop(lib, level, root, stick)
@@ -7857,6 +7867,43 @@ impl WallClimb {
 
     /// Jump from a perch along `dir`: onto the nearest perch that way in reach, else onto the first
     /// walkable top at about this height, else just off it.
+    /// NARROW-11's gate on the drop edge ahead (0xEEA930-0xEEA999): the stick within 45 degrees of the facing, facing
+    /// along the beam, and the root more than 0.4 m from the drop edge at its end (`BeamRunsAlong` 0xF78F00; the end
+    /// report's point, the run's end, `beam_run`): the edge is not seen.
+    fn drop_edge_gated(&mut self, level: &Level, p: Vec3, dir: Vec3, fwd: Vec3) -> bool {
+        let forward = dir.dot(fwd) >= std::f32::consts::FRAC_1_SQRT_2;
+        let Some(line) = self.run_of(level).map(|r| r.line) else { return false };
+        let axis = line.axis();
+        if !forward || axis == Vec3::ZERO || fwd.dot(axis).abs() <= std::f32::consts::FRAC_1_SQRT_2 {
+            return false;
+        }
+        let end = if dir.dot(axis) > 0.0 { line.b } else { line.a };
+        (end - p).with_y(0.0).dot(dir) > BEAM_RUNS_ALONG
+    }
+
+    /// The empty hand held with the stick toward a drop edge under `HAND_HOP_DROP` (too low to hang from: the pull-down
+    /// wants over 2.5 m): AC1's beam interpreter takes the free jump 1 m on, 3 m down, before the jump kinds, in either
+    /// profile (0xEEA99E-0xEEAA9F: `Pad__IsPressed`(3), the drop edge report under 2.5 m past NARROW-11's gate, no next
+    /// piece; `BuildFreeJumpTarget` mode 1 with no report). Ours did nothing (audit NARROW-8 took the empty hand on a beam
+    /// for the pull-down alone).
+    fn hand_hop(&mut self, lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3) -> bool {
+        let p = root.translation;
+        let dir = dir.with_y(0.0).normalize_or_zero();
+        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        if !self.hand_held || dir == Vec3::ZERO || drop_edge_ahead(level, p, dir).is_none_or(|d| d >= HAND_HOP_DROP) || self.drop_edge_gated(level, p, dir, fwd)
+        {
+            return false;
+        }
+        match Self::narrow_free_jump(lib, level, root, dir, LOW_HOP_AHEAD, EJECT_FREE_DOWN, self.freestep_left, self.last.clone()) {
+            Some(w) => {
+                debug!("climb: the empty hand's hop off the beam toward the low drop");
+                *self = w;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// High profile on a beam with the stick and no drop edge under 2 m ahead: AC1's narrow interpreter picks the jump
     /// kind 3 (4 with the legs held) every frame, no press needed (BeamState 0xEEAAA0, Banned445's `beam_jump_kind`), and
     /// runs its candidate search with it: the free-run box ahead (`From::FreeRun`: 0.45-1.3 m up, 0.5-1.3 m on, 2 m with
@@ -7996,15 +8043,8 @@ impl WallClimb {
             return false;
         }
         let Some(d) = drop_edge_ahead(level, p, dir).filter(|d| *d < LOW_HOP_DROP) else { return false };
-        // (The end report's point: the run's end, `beam_run`.)
-        if let Some(line) = self.run_of(level).map(|r| r.line) {
-            let axis = line.axis();
-            if forward && axis != Vec3::ZERO && fwd.dot(axis).abs() > std::f32::consts::FRAC_1_SQRT_2 {
-                let end = if dir.dot(axis) > 0.0 { line.b } else { line.a };
-                if (end - p).with_y(0.0).dot(dir) > BEAM_RUNS_ALONG {
-                    return false;
-                }
-            }
+        if self.drop_edge_gated(level, p, dir, fwd) {
+            return false;
         }
         // (Its kind's candidate search first, the free jump only with no target: Banned445's `narrow_jump`. Ours went
         // straight to the free jump, over a top beside the beam. On a post in high profile the kind is 3, the box ahead,
