@@ -1331,8 +1331,8 @@ const NARROW_HAY_COS: f32 = 0.866;
 const BEAM_JUMP_ON_LEFT: f32 = 2.0;
 /// Ground this near a perch's line (m) is the perch itself, not ground to step off onto.
 const PERCH_OWN: f32 = 0.35;
-/// Crouched across a beam, another beam this near (m) running his way is a crossing to walk on along (`crossing_beam`):
-/// half a crouch step, as the walk stops where it stops (a Damascus T-crossing's beam starts 0.08 m off the other's line).
+/// Another beam piece AC1's support search finds (`beam_support`) is taken only this near the feet (m): half a crouch
+/// step, as the walk stops where it stops (a Damascus T-crossing's beam starts 0.08 m off the other's line).
 const BEAM_CROSS_NEAR: f32 = 0.5;
 /// A top is room to stand on when the body's capsule there is pushed out of walls no further than this (m).
 const TOP_ROOM_PUSH: f32 = 0.05;
@@ -2458,22 +2458,60 @@ fn feet_fit_at(level: &Level, feet: &[Vec3; 2], normal: Vec3, want: Feet, hold: 
     }
 }
 
-/// A beam crossing the one he crouches on (`own`) at `here`: within `BEAM_CROSS_NEAR` of him and about level, running
-/// his facing's way (within 30 degrees) and going on that way past where the walk would stop.
-fn crossing_beam(level: &Level, own: Option<usize>, here: Vec3, fwd: Vec3) -> Option<usize> {
-    level
-        .perches
-        .iter()
-        .enumerate()
-        .filter(|(k, l)| Some(*k) != own && l.axis().dot(fwd).abs() >= JUMP_ALONG_BEAM_COS)
-        .map(|(k, l)| (k, l, l.closest(here)))
-        .filter(|(_, _, q)| (*q - here).with_y(0.0).length() < BEAM_CROSS_NEAR && (q.y - here.y).abs() < 0.3)
-        .filter(|(_, l, q)| {
-            let end = if l.axis().dot(fwd) > 0.0 { l.b } else { l.a };
-            (end - *q).with_y(0.0).length() > BEAM_END_STOP + 0.15
-        })
-        .min_by(|a, b| (a.2 - here).length().total_cmp(&(b.2 - here).length()))
-        .map(|(k, _, _)| k)
+/// AC1's support search on a beam (`DetectBeamSegments` 0xF753A0, run every frame of BeamState's waits and walk;
+/// Banned445's port `detect_beam_segments`, its box sizes read there): three passes over the beam pieces, each a box about
+/// the feet (half sizes across, along, 0.5 m up and down): along the facing (0.5 m, 2 m, the piece within 60 degrees of
+/// that way), the same turned 90 degrees, then 1 m by 1 m with no cone. In a pass the current piece (`own`) wins when it
+/// passes, else the nearest; the first pass with any is the support. [ours: a piece whose part in the box comes no
+/// nearer the feet than `BEAM_CROSS_NEAR` is left out, as ours eases the root onto the support's line: a T's stem
+/// starting 1.5 m on would have pulled him along to it.]
+fn beam_support(level: &Level, feet: Vec3, fwd: Vec3, own: Option<usize>) -> Option<usize> {
+    let side = fwd.cross(Vec3::Y);
+    for (f, along, across, cone) in [(fwd, 2.0, 0.5, 0.5), (side, 2.0, 0.5, 0.5), (fwd, 1.0, 1.0, 0.0)] {
+        let right = f.cross(Vec3::Y);
+        let mut best: Option<(f32, usize)> = None;
+        for (k, l) in level.perches.iter().enumerate() {
+            let axis = l.axis().with_y(0.0).normalize_or_zero();
+            if axis == Vec3::ZERO || axis.dot(f).abs() < cone {
+                continue;
+            }
+            let Some(q) = segment_in_box(l.a, l.b, feet, [right, f, Vec3::Y], [across, along, 0.5]) else { continue };
+            if Some(k) == own {
+                return own;
+            }
+            let d = (q - feet).with_y(0.0).length();
+            if d < BEAM_CROSS_NEAR && best.is_none_or(|(b, _)| d < b) {
+                best = Some((d, k));
+            }
+        }
+        if let Some((_, k)) = best {
+            return Some(k);
+        }
+    }
+    None
+}
+
+/// The part of the segment `a`-`b` inside the box about `c` (axes `e`, half sizes `h`): its point nearest `c`.
+fn segment_in_box(a: Vec3, b: Vec3, c: Vec3, e: [Vec3; 3], h: [f32; 3]) -> Option<Vec3> {
+    let d = b - a;
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for (e, h) in e.into_iter().zip(h) {
+        let (p, v) = ((a - c).dot(e), d.dot(e));
+        if v.abs() < 1e-6 {
+            if p.abs() > h {
+                return None;
+            }
+            continue;
+        }
+        let (t0, t1) = ((-h - p) / v, (h - p) / v);
+        lo = lo.max(t0.min(t1));
+        hi = hi.min(t0.max(t1));
+        if lo > hi {
+            return None;
+        }
+    }
+    let (s, seg) = (a + d * lo, d * (hi - lo));
+    Some(s + seg * ((c - s).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0))
 }
 
 /// AC1's "wall under the edge" class (0x08 of the jump query's +0x54, 0xE18970): from 0.5 m out of the hold and 1 m under
@@ -7343,6 +7381,27 @@ impl WallClimb {
     /// jump on.
     fn perch_step(&mut self, lib: &mut AnimLib, level: &Level, root: &mut Transform, dt: f32) {
         let Some(line) = self.perch.and_then(|i| level.perches.get(i).copied()) else { return };
+        // AC1's support search, every frame of the beam's waits (`beam_support`): another piece found takes over; facing
+        // along it from across the old one, the 90 degree wait is a wait along it (Banned445's port, live: turned across
+        // the Bureau courtyard beam's end it walks off along the cross plank). Ours took a crossing beam only with the stick
+        // forward, by a rule of its own (at a Damascus T, user recording 142770, the quarter turns had gone round and round).
+        if line.axis() != Vec3::ZERO && self.mv.is_none() {
+            let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+            if let Some(k) = beam_support(level, root.translation, fwd, self.perch)
+                && Some(k) != self.perch
+            {
+                debug!("climb: on along the crossing beam {k} at {:.2} (the support search)", root.translation);
+                self.perch = Some(k);
+                if self.beam_stance == Some(BeamStance::Across) && level.perches[k].axis().dot(fwd).abs() > std::f32::consts::FRAC_1_SQRT_2 {
+                    self.beam_stance = Some(BeamStance::Along(0));
+                    self.wait = lib.get(BEAM_WAIT[0]).or(self.wait.take());
+                    self.wait_hold = false;
+                    self.wait_t = 0.0;
+                    self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
+                }
+                return;
+            }
+        }
         // (Held on the run, `beam_run`: on the piece's line, stopped over what it rests on, the root was pulled back to
         // the piece's end and the walk started again.)
         let run = self.run_of(level).map_or(line, |r| r.line);
@@ -7385,23 +7444,6 @@ impl WallClimb {
         // On a beam, crouched: turn round on it, or to face across it and back (AC1's beam turns), before walking or
         // jumping that way.
         if axis != Vec3::ZERO && self.beam_turn(lib, root, dir, axis) {
-            return;
-        }
-        // Facing across it where another beam crosses it his way, the stick forward: on along that one, the walk started
-        // from the crouch. (Ours turned him to face it and he stayed: at a Damascus crossing, user recording 142770, the
-        // quarter turns went round and round. AC1's corner hop is from the jog only; from the 90 wait it has no clip
-        // onto a crossing beam, so the walk's start, faded from the 90 wait.)
-        let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
-        if axis != Vec3::ZERO
-            && self.beam_stance == Some(BeamStance::Across)
-            && fwd.dot(dir) > BEAM_WALK_COS
-            && let Some(k) = crossing_beam(level, self.perch, root.translation, fwd)
-        {
-            let on = level.perches[k].axis();
-            debug!("climb: on along the crossing beam {k} at {:.2}", root.translation);
-            self.perch = Some(k);
-            self.beam_stance = Some(BeamStance::Along(0));
-            self.start_beam_walk(lib, on * on.dot(fwd).signum());
             return;
         }
         // (Free running, the stick over 30 degrees off the beam with a target that way: on at it, not along the beam. Off
@@ -13055,6 +13097,23 @@ impl WallClimb {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AC1's support search on a beam: along it, the current piece wins over a crossing one; turned across it at a T,
+    /// the stem running the facing's way is the support; a stem starting 1.5 m on is out of ours' reach; nothing under
+    /// the feet, none.
+    #[test]
+    fn the_beam_support_search_keeps_the_current_piece_and_finds_the_crossing() {
+        let along = Line { a: Vec3::new(-5.0, 2.0, 0.0), b: Vec3::new(5.0, 2.0, 0.0) };
+        let stem = Line { a: Vec3::new(0.0, 2.0, 0.08), b: Vec3::new(0.0, 2.0, 6.0) };
+        let far = Line { a: Vec3::new(3.0, 2.0, 1.5), b: Vec3::new(3.0, 2.0, 6.0) };
+        let level = Level { perches: vec![along, stem, far], ..default() };
+        let feet = Vec3::new(0.0, 2.0, 0.0);
+        assert_eq!(beam_support(&level, feet, Vec3::X, Some(0)), Some(0));
+        assert_eq!(beam_support(&level, feet, Vec3::Z, Some(0)), Some(1));
+        assert_eq!(beam_support(&level, Vec3::new(3.0, 2.0, 0.0), Vec3::Z, Some(0)), Some(0));
+        assert_eq!(beam_support(&level, Vec3::new(0.0, 2.0, -3.0), Vec3::X, Some(0)), None);
+        assert_eq!(segment_in_box(along.a, along.b, feet, [Vec3::Z, Vec3::X, Vec3::Y], [0.5, 2.0, 0.5]), Some(feet));
+    }
 
     /// The falling blend's weights: the still fall with no reach; straight ahead all front; a quarter turn right all
     /// right; half way between right and behind shared with the back right; they sum to one.

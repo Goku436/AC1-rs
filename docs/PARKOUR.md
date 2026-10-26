@@ -1545,15 +1545,29 @@ a wall face, the chest in a solid, on a perch or not) and logs `scan:` lines. It
   the plinth; `roof2_run_south` runs on over the roof's end as ground (AC1's, ours had a beam there); the high profile jog;
   the post's lean.
 
-Left (Banned445's port has them; ours does not yet): the support re-found every frame (one runtime report, chains walked through); the side entry's 30/90 blend
+Left (Banned445's port has them; ours does not yet): the support search in the walk too (ours: the waits; the walk's
+current piece always passes) and its loss of support falling (0xF808D0: no piece found, NarrowObject's mode not 8 and
++0x2A8 / +0x2F8 clear, to state 8 through 0xF6ECF0; ours keeps the piece), one runtime report with the chains walked
+through; the side entry's 30/90 blend
 checked live (ours plays it, G29); BeamState's event 20, read but not placed (vt +0x13C / +0x140: pad button 1 pressed
 within 0.2 s, 0x93F370, with the flag at the frame's +0x11; maybe the attack from above, combat's); whether a viewpoint's
 beam end dives into its hay on the stick alone (event 22 below says it does, by the code; not seen live).
 Done 2026-10-26: the beam ends extended to the drop edge (G30), the jump kinds 3 / 4
-on beams and posts (G25 high, G32), event 22's dive into a haystack (G33). The kind 0 mid-beam, read: its free mode
+on beams and posts (G25 high, G32), event 22's dive into a haystack (G33), the support search in the waits (below). The
+kind 0 mid-beam, read: its free mode
 off the forward sector over a drop of more than 1 m comes from INarrow vt +0xA4 (0xE52FC0), true on a post (+0x164 is 2)
 or with +0x881 set and NarrowObject's mode (+0x140) 10; so on a beam, free running with the stick turned to the side over
 G27's 1.2 m drop, AC1 takes no free jump (kind 4's box only), as ours (it had been listed as ours' gap).
+- **The support search [B, V, ours]** 2026-10-26: `DetectBeamSegments` (0xF753A0, called from the waits' and the walk's
+  updates, 0xF7D650 / 0xF7EED0 and others) finds the piece under the feet every frame: three passes, each a box about the
+  feet with half sizes 0.5 m across, 2 m along, 0.5 m up and down (the constants at its start), along the facing with the
+  piece within 60 degrees of it (0.5), the same turned 90 degrees, then 1 m by 1 m with no cone; in a pass the current
+  piece wins when it passes, else the nearest (Banned445's `detect_beam_segments`). Ours (`beam_support`, in the beam's
+  waits): another piece found takes over, and from across the old one facing along the new, the 90 degree wait becomes
+  the wait along it. So at the Damascus T (user recording 142770) the quarter turn to face along the crossing beam puts
+  him on it, and the stick walks on along it; ours' own rule (the stick forward, the crossing going on past the walk's
+  stop) is gone. [ours: a piece is taken only within 0.5 m of the feet, `BEAM_CROSS_NEAR`, as ours eases the root onto
+  the support's line.]
 - **The stick toward a haystack off a beam [V, ours]** 2026-10-26: event 22 (INarrow vt +0x144 / +0x148, 0xE542D0 /
   0xE555E0) is sent by the beam interpreter every frame the stick is past 0.35 (0xEE9F13, the pad's +0x5C0; no button,
   no free-run gate, before the jump events). BeamState's Idle, Walk and 90 degree wait take it (0xF7A4F0 / 0xF7F150 /
