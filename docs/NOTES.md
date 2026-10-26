@@ -1218,7 +1218,9 @@ by CRC32 of the exe's strings: `SubMesh`, `ClothRagdoll`, `ClothRagdollCapsule`,
   `hkSkeletonMapper` (21 bones to 19 bodies).
 - `Altair_ClothActionSettings`: 20 (action, strength): the wall hang 0.9, sitting 0.01 (the robe follows the
   animation), the free-hang climb 0.5, leans 0.5, collisions 0.9, the ladder 0.96, the wall run's catch 0.5, a fight
-  grab 0.6, five unknown actions 0.
+  grab 0.6 (`HumanGround_Fight`'s `xx_h_light_grab_break_02`), and 0 for five present-day scene actions
+  (`DataPC_Present_Room.forge`'s `Scene_Generic_present` desk sits and work, one `Scene_m15_present` shot: found with
+  `actions <game> find <hex>...`, 2026-10-26), none of them Altaïr's.
 `ik::cloth` steps it as AC1 does (Banned445's recreation, written fresh): Verlet with the damping (an upward-moving
 vertex by the upward damping), gravity and the wind (its part along the cloth's normal whole, 0.3 of the rest, times
 1 ± a random amount), drawn to its animated place by its own pull or the motion pull, whichever is more (the motion
