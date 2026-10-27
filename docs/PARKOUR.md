@@ -1474,8 +1474,8 @@ on hanging, so the turn on the spot back to the edge breaks into its ledge stop 
 (34 of 41, mean 0.37 m). `roof2_free_south` (0.84 to 0.58 m; at rest 1.75 to 0.09): the free-step stay with no drop
 edge ahead hops at a target, AC1's jump kind 4 with the legs held, 3 without (the narrow interpreter's request 0xEE9564,
 Banned445's `jump_kind`), from half its reception: stood up on a roof's rim with a wall's top 0.8 m higher 1.5 m on, the
-running game hopped onto it 0.13 s into the stand-up; ours stood it out and walked off the rim. A wall run comes first,
-its wall looked for along the facing too (`Human__WallingWallTest`). Left there: the jump onto that roof was a target
+running game hopped onto it 0.13 s into the stand-up; ours stood it out and walked off the rim. A wall run comes first.
+(Kind 3, without the legs, is the port's reading; the traces show only the legs held.) Left there: the jump onto that roof was a target
 jump (`run_front_050cm`, `air_front_050cm`, a soft landing), ours the free jump 8 m on (`air_down_800cm`, a hard one).
 `wall0_free` (0.92 to 0.63 m; mean 0.56 to 0.33): the wall run's kick off the top holds still 4 frames once in the air
 before it falls (`REBOUND_HOLD`; the running game's root stood at the top 0.067 s into HumanInAir, both times, then
@@ -1502,6 +1502,13 @@ reaches its edge at 5.4 m/s and runs off into the hay below, where it stopped at
 its side wants no beam piece ahead along the stick (the beam walked counts, within 45 degrees), as AC1's jump on is kind
 0 only then (IHuman vt148, Banned445's `jump_kind`); the running game went on to the beam's end, ours jumped off 2 m
 short (36 of 41, mean 0.35 m).
+`hay70_walk` and `hay70_free` (at rest 2.33 to 0.40 and 0.32 m): pulled up onto the haystack's rim with the stick away
+from the hay, the running game dived in both times, walking and free running; ours stood on the rim. It stands there
+only free running with a target for the jump on (the stay's jump on, from half, comes before its hay search from 0.6),
+as the live log of 2026-10-12 showed. (32 of 41 come to rest within 1 m.)
+`roof1_free_sw` after its beam: the free jump's fall along a wall the run meets 44-45 degrees off caught a wall hang in
+ours, where the running game slid down it into the street; Banned445's automatic catch wants a contact faced within 45
+degrees (0xE0BB70), ours tests none; a tie on the bound, left.
 The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.

@@ -8180,7 +8180,8 @@ impl WallClimb {
     /// AC1's speed ratio from the pad, which the free-step reception's quick version takes its share from (`HumanInAir`
     /// +0x16C, set every frame in the air by 0xEDBAF0; Banned445's `speed_ratio` and `reception_weights`): 0 with the
     /// stick over 60 degrees off `facing`, else by the profile, the stick past half and the legs (low 0.09 / 0.49, high
-    /// 0.19 / 0.89, 1 with the legs too). Free running, every real arrival from a free-step jump was the quick one: the stay
+    /// 0.19 / 0.89, 1 with the legs too). (Only the free-running 1 is checked against the running game; the rest are the
+    /// port's reading, unmeasured.) Free running, every real arrival from a free-step jump was the quick one: the stay
     /// jumped on 0.08 s in, half of `_fast`'s 0.13 s (the traced routes); ours played the 0.27-0.4 s one, 0.2 s behind.
     fn pad_speed_ratio(&self, facing: Vec3) -> f32 {
         let stick = self.move_dir.with_y(0.0);
@@ -9964,10 +9965,18 @@ impl WallClimb {
                 // the stick let go by then. With the stick held away from the hay (over 90 degrees off it) it stood on the
                 // rim, a narrow object, and free ran on from it, a jump at a target 4.4 m off (live log route `hay70_free`,
                 // 2026-10-12): the dive is the rim's move toward the hay or with no stick.)
-                let away = hay.is_some_and(|h| {
-                    let s = self.move_dir.with_y(0.0);
-                    s.length() > 0.3 && s.dot((h.centre - root.translation).with_y(0.0)) < 0.0
-                });
+                // (Free running only: AC1's stay looks for the hay under it from 0.6 of its reception whatever the stick,
+                // and only the jump on, from half, comes first (Banned445's `free_step.rs`); walking it with the stick
+                // away, the running game dived in all the same, 0.17 s into the stand-up, route `hay70_walk`.)
+                // (And with a target for that jump: free running with the stick away and none, the running game dived in,
+                // route `hay70_free`.)
+                let away = self.sprint
+                    && hay.is_some_and(|h| {
+                        let s = self.move_dir.with_y(0.0);
+                        s.length() > 0.3
+                            && s.dot((h.centre - root.translation).with_y(0.0)) < 0.0
+                            && jump_target(level, top.point, s.normalize(), level.perch_at(top.point, PERCH_REACH).map(|(i, _)| i)).is_some()
+                    });
                 let rim = if away { level.perch_at(top.point, PERCH_REACH) } else { None };
                 match hay.filter(|_| !away).and_then(|h| Some((h.seat(), lib.get("xx_h_freestep_footr_to_haystack_01")?))) {
                     _ if let Some((i, q)) = rim => {
@@ -12371,8 +12380,8 @@ impl WallClimb {
         }
         // The stay's target hop, from half of its reception: high profile with the stick and no drop edge ahead to jump on
         // over (or a beam piece ahead), AC1's jump kind 4 with the legs held, 3 without (the narrow interpreter's jump
-        // request 0xEE9564, Banned445's `jump_kind`): the free-run box ahead searched, a top there jumped onto by the free
-        // step. Pulled up onto a roof's rim with a wall 0.8 m higher 1.5 m on, the running game hopped onto its top 0.13 s
+        // request 0xEE9564, Banned445's `jump_kind`; the traces show only the legs held, kind 3 is the port's reading): the
+        // free-run box ahead searched, a top there jumped onto by the free step. Pulled up onto a roof's rim with a wall 0.8 m higher 1.5 m on, the running game hopped onto its top 0.13 s
         // into the stand-up (`freestep_front_front_050cm_footl_to_air`, route `roof2_free_south`); ours stood it out.
         if let Some(m) = &self.mv
             && m.clip.name.contains("_tr_freestep_entry")
@@ -12382,13 +12391,8 @@ impl WallClimb {
         {
             let dir = self.move_dir.with_y(0.0).normalize();
             let jump_on = self.sprint && drop_edge_ahead(level, root.translation, dir).is_some() && !beam_ahead(level, root.translation, dir);
-            // (A wall run first, as the interpreter takes event 15 before the jump: its wall is looked for along the
-            // facing with the stick within 60 degrees of it (`Human__WallingWallTest` 0xE18390, Banned445's `wall_ahead`).
-            // Off a stepped box beside a wall 2.4 m over it, user report 152348, he hopped onto the step instead.)
-            let facing = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
-            let wall = wall_run_wall_ahead(level, root.translation, dir)
-                || (dir.dot(facing) >= 60f32.to_radians().cos() && wall_run_wall_ahead(level, root.translation, facing));
-            if !jump_on && !(self.legs_held && wall) {
+            // (A wall run to take that way first, as the stay's wall run below.)
+            if !jump_on && !(self.legs_held && wall_run_wall_ahead(level, root.translation, dir)) {
                 let keep = self.freestep_left;
                 self.freestep_left = m.clip.name.ends_with("_footl") || m.clip.name.contains("_entry_footl_");
                 let legs = self.sprint;
