@@ -2068,8 +2068,6 @@ pub(crate) fn climb_body_free(level: &Level, root: Vec3, fwd: Vec3, side: i32) -
         && level.box_free(root + Vec3::Y * 1.4, axes, Vec3::new(0.15, 0.15, 0.4))
 }
 
-/// AC1's reach capsule (r `REACH_CAPSULE_R`, `REACH_CAPSULE_H` tall from the root) swept from `from` to `to` (roots), facing
-/// `fwd`: the box round the sweep, its rounded ends left out (`REACH_CAPSULE_R` in at the bottom and top), meets nothing.
 /// AC1's side jump's clearance (0xDDDF85): a capsule `SIDE_JUMP_R` round, `tall` m tall, from `root` 0.2625 m back along
 /// the way to `to` and 0.15 m out from the wall (`normal`), swept by the move to `to`, meets nothing (sampled every
 /// `CAPSULE_STEP`).
@@ -2085,13 +2083,18 @@ fn side_jump_free(level: &Level, root: Vec3, to: Vec3, normal: Vec3, tall: f32) 
     })
 }
 
-fn reach_sweep_free(level: &Level, from: Vec3, to: Vec3, fwd: Vec3) -> bool {
-    let right = fwd.cross(Vec3::Y).normalize_or_zero();
-    let (lo, hi) = (from.y.min(to.y) + REACH_CAPSULE_R, from.y.max(to.y) + REACH_CAPSULE_H - REACH_CAPSULE_R);
-    let mid = ((from + to) * 0.5).with_y((lo + hi) * 0.5);
-    let flat = (to - from).with_y(0.0);
-    let half = Vec3::new(REACH_CAPSULE_R + flat.dot(right).abs() * 0.5, REACH_CAPSULE_R + flat.dot(fwd).abs() * 0.5, (hi - lo) * 0.5);
-    level.box_free(mid, [right, fwd, Vec3::Y], half)
+/// AC1's reach capsule (r `REACH_CAPSULE_R`, `REACH_CAPSULE_H` tall from the root) swept from `from` to `to` (roots) meets
+/// nothing, sampled every `CAPSULE_STEP` past the start, where the body already is (0xB136E0 as Banned445's port casts it).
+/// (The capsule itself, not the box round the sweep ours tested: the box's corners reach 0.14 m past the capsule's side,
+/// and on a Damascus street wall a bracket beside the climb, 0.43 m off its line, refused the climb up the running game
+/// took there, route `street_free_east`.)
+fn reach_sweep_free(level: &Level, from: Vec3, to: Vec3) -> bool {
+    let d = to - from;
+    let n = (d.length() / CAPSULE_STEP).ceil().max(1.0) as usize;
+    (1..=n).all(|k| {
+        let c = from + d * (k as f32 / n as f32);
+        level.capsule_free(c + Vec3::Y * REACH_CAPSULE_R, c + Vec3::Y * (REACH_CAPSULE_H - REACH_CAPSULE_R), REACH_CAPSULE_R)
+    })
 }
 const REACH_CAPSULE_R: f32 = 0.35;
 const REACH_CAPSULE_H: f32 = 1.8;
@@ -2442,13 +2445,16 @@ fn feet_fit(level: &Level, feet: &[Vec3; 2], normal: Vec3, want: Feet) -> bool {
     feet_fit_at(level, feet, normal, want, None)
 }
 
-/// `feet_fit`, where the hands hold at `hold`: a wall set back from the hold line by more than `RECESS_MAX`
-/// (a pole under a cap) gives the feet nothing to stand on.
+/// `feet_fit`, where the wrists go at `hold` (`grip_target`): a wall set back from the hold line by more than
+/// `RECESS_MAX` (a pole under a cap) gives the feet nothing to stand on.
+/// (From the hold line, not the wrists 0.09 m out from it: a Damascus street wall's lip with the wall 0.2 m back under it,
+/// which the running game's wall run caught on route `street_free_east`, read 0.35 m back and was passed for a sill under
+/// it, the hang 0.7 m low.)
 fn feet_fit_at(level: &Level, feet: &[Vec3; 2], normal: Vec3, want: Feet, hold: Option<Vec3>) -> bool {
     let flush = |f: Vec3| {
         level
             .raycast(f + normal * 0.3, -normal, 0.3 + FOOT_REACH)
-            .is_some_and(|h| h.normal.dot(normal) > 0.7 && hold.is_none_or(|q| (q - h.point).dot(normal) < RECESS_MAX))
+            .is_some_and(|h| h.normal.dot(normal) > 0.7 && hold.is_none_or(|q| (grip_hold(q, normal) - h.point).dot(normal) < RECESS_MAX))
     };
     // (Between the feet too: a thin pole between them is footing.)
     let between = (feet[0] + feet[1]) * 0.5;
@@ -3278,10 +3284,14 @@ fn wall_run_options() -> Vec<GrabOpt> {
         // Banned445's `walling.rs`, audit WALL-15.)
         GrabOpt { names: entry("xx_h_wallingfront_entry_footl_tr_hangfree_250cm_swingback_min"), catch: 1, end: free, after: vec![] },
         GrabOpt { names: run(&[&format!("{step}_hangknee_250cm_footr")]), catch: 1, end: GrabEnd::Onto(2.5), after: stand_r.clone() },
-        GrabOpt { names: run(&[&format!("{step}_hangwall_251cm_000cm_a"), &format!("{step}_hangwall_251cm_000cm_b")]), catch: 2, end: wall, after: vec![] },
+        // (After the vertical step, AC1's probe C, an edge overhanging the run caught into the free hang, before probe D's
+        // wall hang (`UpdateWallingSubState` 0xE37590, Banned445's `walling.rs`): with the wall hang tried first, a wall run
+        // up the Damascus balcony's wall caught a sill under the corbels in the wall hang where the free hang took the
+        // corbel over it (scenarios for reports #7 / #8), once a wall 0.28 m back under the sill gave the feet a footing.)
         GrabOpt { names: entry("xx_h_wallingfront_entry_footl_tr_hangfree_350cm_swingback_min"), catch: 1, end: free, after: vec![] },
         GrabOpt { names: run(&[&format!("{step}_hangfree_350cm_swingback_min")]), catch: 1, end: free, after: vec![] },
         GrabOpt { names: run(&[&format!("{step}_hangfree_400cm_swingback_min")]), catch: 1, end: free, after: vec![] },
+        GrabOpt { names: run(&[&format!("{step}_hangwall_251cm_000cm_a"), &format!("{step}_hangwall_251cm_000cm_b")]), catch: 2, end: wall, after: vec![] },
         GrabOpt { names: run(&[&format!("{step}_hangwall_430cm_000cm_a"), &format!("{step}_hangwall_430cm_000cm_b")]), catch: 2, end: wall, after: vec![] },
     ]
 }
@@ -8800,18 +8810,28 @@ impl WallClimb {
         // (A haystack's rim: hopped onto with no room to stand, under its cover, as AC1 does before diving in.)
         let hay = level.haystacks.iter().any(|y| y.contains(top.point + fwd * 0.6, -0.3) && y.top() < top.point.y + 0.3);
         // From a stand or a walk: AC1's impulsion, then the free-step jump onto the top
-        // (`xx_h_impultionstraight_footr_to_ground_to_air_front_up_footl`, `xx_h_freestep_front_front_050cm_footl_to_air`,
+        // (`xx_h_impultionstraight_footr_to_ground_to_air_front_<down|up>_footl`, `xx_h_freestep_front_front_050cm_footr_to_air`,
         // its flight and `_tr_freestep_entry`: both of the running game's routes up the 1.16 m box at the Damascus bureau,
-        // audit EXTRA-5; ours vaulted it with the run's `air_up_300cm`).
+        // audit EXTRA-5; ours vaulted it with the run's `air_up_300cm`). The impulsion is cut short as the jump's is
+        // (`IMPULSION_TIME`) and the takeoff is off the right foot: in all six of the traced routes' impulsions the running
+        // game took off 0.03-0.13 s in, `_footr_to_air`; ours played the impulsion's whole 0.27 s and took off from the left,
+        // route `street_free_east` 0.3 s behind from the start.
         if speed < VAULT_STANDING_SPEED
             && !hay
-            && let Some(imp) = lib.get("xx_h_impultionstraight_footr_to_ground_to_air_front_up_footl")
-            && let Some(mut w) = Self::jump_freestep(lib, level, root, top.point + fwd * VAULT_STEP_IN, true, from.clone())
+            && let Some(imp) = {
+                let parts = crate::jump::impulsion(h, false);
+                let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
+                lib.get(&mix_name(&parts))
+            }
+            && let Some(mut w) = Self::jump_freestep(lib, level, root, top.point + fwd * VAULT_STEP_IN, false, from.clone())
             && let Some(m) = w.mv.take()
         {
             w.queue.insert(0, Queued { correct: m.correct, ..Queued::new(m.clip, m.to) });
             let r = Transform { rotation: m.start_rot, ..*root };
-            w.start(imp, JUMP.into(), &r);
+            w.start(imp.clone(), JUMP.into(), &r);
+            if let Some(m) = &mut w.mv {
+                m.rate = imp.anim.duration / IMPULSION_TIME;
+            }
             w.ease_in(from, root);
             debug!("climb: up onto the {h:.2} m top from a stand: the impulsion and the free step");
             return Some(w);
@@ -11175,7 +11195,7 @@ impl WallClimb {
             // through it and stood with the body in the planks.
             if c.table.is_none() && c.names[0].contains("_tr_climb1m_") && (c.names[0].contains("_up_") || c.names[0].contains("_down_")) {
                 let fwd = -normal.with_y(0.0).normalize_or(Vec3::NEG_Z);
-                if !reach_sweep_free(level, root.translation - fwd * 0.15, end.pos + err - fwd * 0.15, fwd) {
+                if !reach_sweep_free(level, root.translation - fwd * 0.15, end.pos + err - fwd * 0.15) {
                     if why() {
                         debug!("climb: {} : the body's sweep up or down meets something (AC1's reach capsule)", c.names[0]);
                     }

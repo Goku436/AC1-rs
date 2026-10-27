@@ -1311,7 +1311,9 @@ const SCENARIOS: &[Scenario] = &[
         ],
         secs: 8.0,
         // (On at the beam's end since 2026-10-26, AC1's mount guard: the turns come off whichever foot the walk is on.)
-        want: &["onto perch 261", "_turn_left_to_crouchwait_90 at [84.", "on along the crossing beam 262", "along the beam at the crouch walk"],
+        // (Beams 259 and 260 since 2026-10-27: two 0.16 m pieces before them were kept only by a NaN in the collision's
+        // nearest point on a triangle with no area.)
+        want: &["onto perch 259", "_turn_left_to_crouchwait_90 at [84.", "on along the crossing beam 260", "along the beam at the crouch walk"],
         never: &["EMBED"],
     },
     // (The empty hand pressed in the flight unaimed it: the swing reception was never taken and he fell 2.8 m past the
@@ -1452,7 +1454,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_LEGS", "0-5"),
         ],
         secs: 5.0,
-        want: &["onto perch 262", "-> free_1m via xx_fall_tr_hangfree_min_b"],
+        want: &["onto perch 260", "-> free_1m via xx_fall_tr_hangfree_min_b"],
         never: &["EMBED", "into the swing", "swing -> swing"],
     },
     // User report 152348 (2026-10-15): up onto a stepped box by a wall 2.4 m over its top, free running at the wall:

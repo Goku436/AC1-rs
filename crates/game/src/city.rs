@@ -471,10 +471,10 @@ fn has_holds(name: &str) -> bool {
 
 /// Meshes a city shows: the full-detail ones, but not ground clutter, a mission's dead bodies, the
 /// invisible out-of-bounds walls, gameplay map markers (`GP_MARK_HP1`, ...: big floating letters),
-/// editor helpers or light shafts (`PillarDust`).
+/// editor helpers, light shafts (`PillarDust`) or the closed bureau's hatch (`BA_Trap`, see `blocks_player`).
 fn shown_mesh(name: &str) -> bool {
     let n = name.to_lowercase();
-    !["_lod", "veg_clutter", "deadbody", "outofbound", "oob_", "gp_mark", "helper", "pillardust"].iter().any(|k| n.contains(k))
+    !["_lod", "veg_clutter", "deadbody", "outofbound", "oob_", "gp_mark", "helper", "pillardust", "ba_trap"].iter().any(|k| n.contains(k))
 }
 
 /// Wooden beams to balance on and jump between (`WoodBeam_<len>`, 0.22 m square, and the beam ends stuck out of
@@ -486,10 +486,14 @@ fn beam(name: &str) -> bool {
 
 /// Does a collision shape stop the player? Not AC1's out-of-bounds walls (`OutOfBound_*`: the locked districts it
 /// opens as the story goes on, mission-area fences `OutofBound_Invisible_*`; the game fades them in as a glitch wall
-/// instead of a solid one) or the camera's own barriers (`*CameraBarrier*`).
+/// instead of a solid one) or the camera's own barriers (`*CameraBarrier*`); nor an assassins' bureau's hatch over its
+/// roof opening (`BA_Trap`, in `BA_Trap_Group_001` in each city): it shuts the bureau while closed (the cell holds
+/// `Scene_ContextTuto_BureauClosed_Zone_01`), and the bureau is gone into and out of through that opening; the running
+/// game climbed the Damascus courtyard's wall to 0.7 m under where it lies (route `street_free_east`). [ours: always open;
+/// what opens it in AC1 is not found]
 fn blocks_player(name: &str) -> bool {
     let n = name.to_lowercase();
-    !["outofbound", "oob_", "camerabarrier", "camcollide"].iter().any(|k| n.contains(k))
+    !["outofbound", "oob_", "camerabarrier", "camcollide", "ba_trap"].iter().any(|k| n.contains(k))
 }
 
 /// Terrain, rocks and cliffs: with no rigid body of their own their meshes still collide. AC1 keeps their collision

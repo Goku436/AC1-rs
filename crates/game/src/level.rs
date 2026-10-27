@@ -2977,6 +2977,16 @@ const WALL_MAX_UP: f32 = 0.7;
 fn closest_on_triangle(p: Vec3, t: &Tri) -> Vec3 {
     let (a, b, c) = (t.a, t.b, t.c);
     let (ab, ac, ap) = (b - a, c - a, p - a);
+    // (A triangle with no area (two corners the same, or all in a line) has no inside: the nearest point on its edges.
+    // Its regions divided by zero, the point was NaN and every test against it failed: a capsule near one was never free,
+    // and AC1's reach up a Damascus octagonal tower's face was refused by a sliver 2 m off in the city's collision.)
+    if ab.cross(ac).length_squared() <= 1e-12 {
+        let on = |u: Vec3, v: Vec3| {
+            let d = v - u;
+            u + d * ((p - u).dot(d) / d.length_squared().max(f32::MIN_POSITIVE)).clamp(0.0, 1.0)
+        };
+        return [on(a, b), on(b, c), on(c, a)].into_iter().min_by(|x, y| x.distance_squared(p).total_cmp(&y.distance_squared(p))).unwrap_or(a);
+    }
     let (d1, d2) = (ab.dot(ap), ac.dot(ap));
     if d1 <= 0.0 && d2 <= 0.0 {
         return a;
@@ -3083,6 +3093,16 @@ fn segment_triangle(a: Vec3, b: Vec3, t: &Tri) -> (Vec3, Vec3) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_triangle_with_no_area_has_a_nearest_point() {
+        // (Two corners the same, as a sliver in Damascus' collision has them: no NaN, and a capsule 2 m off is free of it.)
+        let t = Tri { a: Vec3::new(2.0, 0.0, 0.0), b: Vec3::new(2.0, 0.0, 0.0), c: Vec3::new(2.0, 0.0, 4.0) };
+        let q = closest_on_triangle(Vec3::new(0.0, 0.0, 1.0), &t);
+        assert!((q - Vec3::new(2.0, 0.0, 1.0)).length() < 1e-5, "{q}");
+        let (p, q) = segment_triangle(Vec3::new(0.0, -1.0, 1.0), Vec3::new(0.0, 1.0, 1.0), &t);
+        assert!((p.distance(q) - 2.0).abs() < 1e-5, "{p} {q}");
+    }
 
     #[test]
     fn a_hold_is_met_along_the_probe_not_across() {

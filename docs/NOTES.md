@@ -1604,7 +1604,10 @@ swaps it for the inside one there). Side-by-sides of the running game, before an
 repo). The courtyard's dark vertical band (2026-10-14, look4) is a post of `BA_Bureau_Ext` (gone with that mesh left
 out, `reports/look4/bureau_ext_shown_top_left_out_bottom.png`), not in the running game's shot; leaving the whole shell
 out also takes the courtyard's walls and floor (`BA_Bureau_Int` has none of them): what AC1 hides of it there is not
-found. Also measured then (look3's matched cameras against reports/visuals): the street's sunlit wall that reads 143
+found. The bureau's roof hatch, `BA_Trap` (a Static body 3.4 by 3.5 m over the roof opening, in `BA_Trap_Group_001` in
+each city's bureau cell, beside `Scene_ContextTuto_BureauClosed_Zone_01`), is neither drawn nor collided with (`city.rs`,
+`blocks_player` / `shown_mesh`): it shuts the bureau while it is closed, and the running game climbed the courtyard wall to
+0.7 m under it (route `street_free_east`); what opens it in AC1 is not found. Also measured then (look3's matched cameras against reports/visuals): the street's sunlit wall that reads 143
 against 208 is mostly the shadow of the eaves over it (ours a wide band, the game's a thin one), not its layered
 material (its weights are read as the template's vertex shader does: the normal's and tangent's fourth bytes / 255);
 the robe's brightness, the cooler shade and the yellower haze were not changed (nothing in the data or the exe found

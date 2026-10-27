@@ -1452,7 +1452,18 @@ past the roof's rim and jumped once the ground was gone, 0.17 s into the roll (t
 `run_front_050cm` off the roll's own foot, into `air_front_050cm_*_to_freestep`); ours stopped the roll at the rim
 and played it out (0.65 s), now the same clips from the same place within 0.1 m. Each scripted run now starts from a
 fresh character (`Character::fresh_run`): the gait's phase and the feet had carried over between routes in one game,
-`roof2_run_south` 0.23 m alone and 0.64 after another. 32 of 41 within 1 m, mean 0.40 m. The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
+`roof2_run_south` 0.23 m alone and 0.64 after another. 32 of 41 within 1 m, mean 0.40 m.
+`street_free_east` (1.34 m off at the end, 0.41 now; mean 1.17 to 0.38; 33 of 41, mean 0.38 m), up the Damascus bureau's
+courtyard wall: the hop onto the box from a stand cuts its impulsion short and takes off from the right foot, as the jump's
+does (all six impulsions in the traces: `footr_..._front_down_footl`, then `freestep_front_front_050cm_footr_to_air`
+0.03-0.13 s in; ours played the whole 0.27 s, 0.3 s behind from the start); the wall run's catch measures a wall set back
+under the hold from the hold line, not the wrists 0.09 m out (`RECESS_MAX`; the lip 0.26 m proud of the wall under it read
+0.35 and was passed for a sill 0.75 m lower), and tries probe C's free hang before probe D's wall hangs, as
+`UpdateWallingSubState` does (else the Damascus balcony's wall run caught a sill under its corbels in the wall hang);
+AC1's reach capsule is a capsule, swept from past the start (the box round it reached 0.14 m past its sides and met a
+bracket beside the climb); a triangle with no area in the collision no longer makes a NaN that blocks every capsule
+near it (the octagonal tower's reach); and the bureau's roof hatch `BA_Trap` (the closed bureau's) is left out, the
+running game climbing to 0.7 m under where it lies (docs/NOTES.md). The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
 
