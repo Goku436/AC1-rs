@@ -930,7 +930,8 @@ const SCENARIOS: &[Scenario] = &[
             // (On to the platform 2.35 m off by the free-step jump at it: the perch's jumps reach as far as AC1's zone 7
             // allows, audit JUMP-7; ours' 0.8-4.5 m cut had it jump blind.)
             "free-step jump aimed at [-76.8",
-            "_tr_freestep_entry_footr at [-77.3",
+            // (The quick reception, free running: AC1's speed ratio from the pad, 2026-10-27.)
+            "_tr_freestep_entry_footr_fast at [-77.3",
         ],
         never: &["EMBED"],
     },
@@ -1475,7 +1476,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_LEGS", "0-3"),
         ],
         secs: 3.0,
-        want: &["_tr_freestep_entry_footl at [-7.16, 17.63", "-> hangknee via xx_h_wallingfront_entry_footl_a at [-6.", "-> top via"],
+        want: &["_tr_freestep_entry_footl_fast at [-7.16, 17.63", "-> hangknee via xx_h_wallingfront_entry_footl_a at [-6.", "-> top via"],
         never: &["EMBED", "the jump on from the free-step stay", "free jump off the narrow object"],
     },
     // The ejects measured in the running game at the Damascus bureau's climbable wall: from the wall hang, high profile

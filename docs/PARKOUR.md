@@ -1482,6 +1482,13 @@ before it falls (`REBOUND_HOLD`; the running game's root stood at the top 0.067 
 fell at a steady 7 m/s). Left there: it lands into the walk (`landing_straight_soft_footr_tr_l_walk_footl`) with high
 profile, the legs and W held, where AC1's speed ratio from the pad (0xEDBAF0, Banned445's `speed_ratio`) reads 1.0, the
 sprint's; ours lands into the wait, by the body's speed.
+`roof1_free_south` (0.76 to 0.43 m; at rest 10.8 to 5.6) and `roof1_free_sw` (2.82 to 1.74 m): the free-step stay with
+its jump on to come (free running at a drop edge ahead) is not left at its item's gate, which let it go 0.07 s in; it
+jumps on from half, as AC1 stays in HumanNarrowObject (off a roof onto a beam at its edge the running game jumped on
+0.1 s after landing; ours ran onto the beam crosswise and crouched). And the free-step jump's reception takes its quick
+version's share from AC1's speed ratio from the pad (`pad_speed_ratio`, HumanInAir +0x16C, 0xEDBAF0; Banned445's
+`speed_ratio` / `reception_weights`), 1 free running: every real stay after a free-step jump jumped on 0.08 s in, half
+of `_fast`'s 0.13 s; ours played the 0.27-0.4 s one.
 The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.

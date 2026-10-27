@@ -5273,14 +5273,16 @@ impl WallClimb {
     /// A jump from a free step (a post, a beam) onto `to` with AC1's free-step clips (`crate::jump::freestep`): the takeoff
     /// from the group the jump's way falls in off the facing (it turns the body toward it), then the flight and the
     /// reception, the difference to the target spread over the flight. `None` when the clips are missing, their own way
-    /// is too far off, or the way over is not clear.
-    fn jump_freestep(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, left: bool, from: Option<Pose>) -> Option<WallClimb> {
+    /// is too far off, or the way over is not clear. `fast` (0-1) is the reception's share of its quick version, AC1's
+    /// speed ratio from the pad (`pad_speed_ratio`).
+    #[allow(clippy::too_many_arguments)]
+    fn jump_freestep(lib: &mut AnimLib, level: &Level, root: &Transform, to: Vec3, left: bool, fast: f32, from: Option<Pose>) -> Option<WallClimb> {
         let p = root.translation;
         let fwd = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
         let way = (to - p).with_y(0.0);
         let aim = way.normalize_or_zero();
         let angle = aim.dot(fwd.cross(Vec3::Y)).atan2(aim.dot(fwd));
-        let j = crate::jump::freestep(to.y - p.y, (way.length() - JUMP_RECEPTION_STEP).max(0.0), angle, left, 0.0);
+        let j = crate::jump::freestep(to.y - p.y, (way.length() - JUMP_RECEPTION_STEP).max(0.0), angle, left, fast);
         let mut mix = |parts: &[(String, f32)]| {
             let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
             lib.get(&mix_name(&parts))
@@ -8136,6 +8138,38 @@ impl WallClimb {
         }
     }
 
+    /// AC1's speed ratio from the pad, which the free-step reception's quick version takes its share from (`HumanInAir`
+    /// +0x16C, set every frame in the air by 0xEDBAF0; Banned445's `speed_ratio` and `reception_weights`): 0 with the
+    /// stick over 60 degrees off `facing`, else by the profile, the stick past half and the legs (low 0.09 / 0.49, high
+    /// 0.19 / 0.89, 1 with the legs too). Free running, every real arrival from a free-step jump was the quick one: the stay
+    /// jumped on 0.08 s in, half of `_fast`'s 0.13 s (the traced routes); ours played the 0.27-0.4 s one, 0.2 s behind.
+    fn pad_speed_ratio(&self, facing: Vec3) -> f32 {
+        let stick = self.move_dir.with_y(0.0);
+        let mag = stick.length();
+        if mag > 0.35 && stick.normalize().dot(facing.normalize_or_zero()) < 0.5 {
+            return 0.0;
+        }
+        match (self.high, mag > 0.5, self.legs_held) {
+            (false, false, _) => 0.09,
+            (false, true, _) => 0.49,
+            (true, false, _) => 0.19,
+            (true, true, false) => 0.89,
+            (true, true, true) => 1.0,
+        }
+    }
+
+    /// Whether the free-step stay jumps on once half its reception is played (see the stay in `update`): free running with
+    /// the stick at a drop edge ahead, no beam piece ahead and no wall to run up.
+    fn stay_jumps_on(&self, level: &Level, root: &Transform) -> bool {
+        let dir = self.move_dir.with_y(0.0);
+        self.sprint
+            && self.high
+            && dir.length() > 0.35
+            && drop_edge_ahead(level, root.translation, dir.normalize()).is_some()
+            && !beam_ahead(level, root.translation, dir.normalize())
+            && !wall_run_wall_ahead(level, root.translation, dir.normalize())
+    }
+
     /// High profile on a beam with the stick and no drop edge under 2 m ahead: AC1's narrow interpreter picks the jump
     /// kind 3 (4 with the legs held) every frame, no press needed (BeamState 0xEEAAA0, Banned445's `beam_jump_kind`), and
     /// runs its candidate search with it: the free-run box ahead (`From::FreeRun`: 0.45-1.3 m up, 0.5-1.3 m on, 2 m with
@@ -8162,7 +8196,8 @@ impl WallClimb {
             *self = w;
             return true;
         }
-        match Self::jump_freestep(lib, level, root, to, self.freestep_left, self.last.clone()) {
+        let fast = self.pad_speed_ratio((to - root.translation).with_y(0.0));
+        match Self::jump_freestep(lib, level, root, to, self.freestep_left, fast, self.last.clone()) {
             Some(w) => {
                 debug!("climb: the narrow object's target jump (kind {kind}) onto {to:.2}");
                 *self = w;
@@ -8196,7 +8231,7 @@ impl WallClimb {
         // To a target: AC1's free-step jump, the takeoff group by the way it goes off the facing (sideways or back off a
         // post without turning first: the takeoff turns the body).
         if let Some(to) = to
-            && let Some(w) = Self::jump_freestep(lib, level, root, to, self.freestep_left, self.last.clone())
+            && let Some(w) = Self::jump_freestep(lib, level, root, to, self.freestep_left, self.pad_speed_ratio((to - from).with_y(0.0)), self.last.clone())
         {
             *self = w;
             return true;
@@ -8835,7 +8870,7 @@ impl WallClimb {
                 let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
                 lib.get(&mix_name(&parts))
             }
-            && let Some(mut w) = Self::jump_freestep(lib, level, root, top.point + fwd * VAULT_STEP_IN, false, from.clone())
+            && let Some(mut w) = Self::jump_freestep(lib, level, root, top.point + fwd * VAULT_STEP_IN, false, 0.0, from.clone())
             && let Some(m) = w.mv.take()
         {
             w.queue.insert(0, Queued { correct: m.correct, ..Queued::new(m.clip, m.to) });
@@ -12440,6 +12475,11 @@ impl WallClimb {
             // wanted speed of 0 there, no move to leave for; left for running, ours stopped against the wall over and over.
             // Walking, the walk goes on into the lean on it.)
             && !(self.sprint && crate::character::wall_head_on(level, root.translation, self.move_dir))
+            // (Nor the free-step stay with its jump on to come: free running at a drop edge ahead, AC1 stays in
+            // HumanNarrowObject and jumps on from half of it (below). Off a roof onto the beam at its edge the running
+            // game jumped on 0.1 s after landing; ours' gate let it go 0.07 s in, and it ran onto the beam crosswise and
+            // crouched there, route `roof1_free_south`.)
+            && !(m.clip.name.contains("_tr_freestep_entry") && self.stay_jumps_on(level, root))
             && lib.graph.gate(&m.clip.name).is_some_and(|g| g.may_leave(true, self.high))
         {
             debug!("climb: {} left for running (its gate allows it)", m.clip.name);
