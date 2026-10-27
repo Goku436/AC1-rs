@@ -1421,7 +1421,8 @@ The 41 Damascus routes recorded in the running game as frame traces (ac1-hook's 
 context, actions; the keys from the hook log's frames, matched to each trace by its first frame, as the hook's frame
 count restarts with the game) replayed in ours in headless control mode (`AC1_CONTROL` + `AC1_HEADLESS`, the city from
 its cache, three games at once: the 41 in about three minutes; `AC1_TRACE=<file>` on a `run` line, the path with no
-spaces, as a control line splits on whitespace). Scripts and traces outside the repo (game data). Ending within 1 m of
+spaces, as a control line splits on whitespace). The scripts are `tools/routes/` (`routes.py ours`, `report`, `side`,
+`diff`; `real` records the running game's runs through ac1-hook); the traces go to its git-ignored `lib/` (game data). Ending within 1 m of
 the running game: 29 of 41 on dev 9ce9dc2 (mean path gap 0.47 m), 31 with AC1's mount guard above (0.50 m: `roof2_free_nw`
 above), 32 (0.47 m) with a running jump's reception handing over to the ground at the walk, as the free-step jump's does:
 in all 15 running-jump receptions onto a top in the traces the running game went into HumanGround on `walk_slow` at
