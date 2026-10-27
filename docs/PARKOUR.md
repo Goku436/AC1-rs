@@ -1443,8 +1443,9 @@ the takeoff makes the rise, 0.55 m over the takeoff each, the flight leaving at 
 -5.6, -8.0, -8.5 m/s over its 0.1 s steps, every one within 0.4 (about 13 m/s² down to 3.3 m/s, then 30 to 8.5, held:
 `FREE_JUMP_UP`, `FREE_JUMP_GRAVITY_EARLY`, `FREE_JUMP_HEAVY_FROM`, `FREE_JUMP_GRAVITY`, `FREE_JUMP_FAST`). Ours had
 launched it at 3 m/s up on top of the takeoff (0.4 m higher, at its top 0.2 s later) and come down at 20 m/s² from the
-top: on `roof1_free_east` its height off by up to 1.4 m, now 0.3. Mean path gap 0.42 to 0.41 m. Its flat speed is still
-under the running game's (6.2-6.5 m/s against 6.8-8.5 over the flight). The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
+top: on `roof1_free_east` its height off by up to 1.4 m, now 0.3. Mean path gap 0.42 to 0.41 m. Its flat speed is the
+takeoff's own (`run_front_550cm` leaves at 7.2 m/s, the running game's flew at 7.0-7.8), not held to the run's 6.5 as
+other jumps' are: `roof1_free_east`'s flight within 0.15 m along. The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
 

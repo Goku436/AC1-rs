@@ -12649,7 +12649,11 @@ impl WallClimb {
                         Vec3::ZERO
                     };
                     // (Takeoff clips leave faster than the run; jumps carry the run's speed at most.)
-                    let v = v.with_y(0.0).clamp_length_max(MAX_JUMP_SPEED).with_y(v.y.min(0.0) + std::mem::take(&mut self.launch));
+                    // (Not the free jump: it carries its takeoff's own speed, as the running game's seven in the traced
+                    // routes flew at 7.0-7.8 m/s, `run_front_550cm` leaving at 7.2; held to the run's, ours came down 0.4 m
+                    // short.)
+                    let max = if self.free_jump { f32::INFINITY } else { MAX_JUMP_SPEED };
+                    let v = v.with_y(0.0).clamp_length_max(max).with_y(v.y.min(0.0) + std::mem::take(&mut self.launch));
                     self.fall_v = Some(self.fall_with.take().unwrap_or(v));
                     self.state = FALL.into();
                 }
