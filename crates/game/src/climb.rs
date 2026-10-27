@@ -896,6 +896,12 @@ const BEAM_CHAIN_COS: f32 = 0.82;
 
 /// A beam this close to the jump's way (cos 30 degrees) is along it, not across.
 const JUMP_ALONG_BEAM_COS: f32 = 0.866;
+/// AC1's step off a beam's end onto the floor past it (`CanStepOffBeamEnd` 0xF77C00: from 0.4 m short of the end, 0.8 m
+/// on along the beam): handed to the ground this far past the end (m). The running game went 0.45 m past the end of a
+/// Damascus beam onto a roof before it turned (route `roof1_free_sw`).
+const BEAM_STEP_OFF_PAST: f32 = 0.4;
+/// Within this of the end walked to (m), with ground past it, no step off sideways: the step off the end takes it.
+const BEAM_STEP_OFF_NEAR: f32 = 1.0;
 /// The way forward comes near a beam along it when it passes this close to the beam's line (m).
 const JUMP_ALONG_BEAM_MEET: f32 = 0.6;
 
@@ -7818,10 +7824,19 @@ impl WallClimb {
         if self.cycle.is_some() && self.narrow_hay_dive(lib, level, root) {
             return;
         }
-        // (Walking it with the stick over 30 degrees off, a roof beside it that way: off onto it, as `perch_step`.)
+        // (Walking it with the stick over 30 degrees off, a roof beside it that way: off onto it, as `perch_step`. Not near
+        // the end walked to, with ground past it: that is AC1's step off the end, along the beam (below). Walking a
+        // Damascus beam onto a roof with the stick 45 degrees off, the running game went on along it 0.45 m past its end
+        // before turning; ours turned off it 0.4 m short, route `roof1_free_sw`.)
         let stick = self.move_dir.with_y(0.0).normalize_or_zero();
         let beside = root.translation + stick * 0.5;
+        let near_end = self.cycle.as_ref().is_some_and(|cy| {
+            let end = if cy.dir.dot(line.axis()) > 0.0 { line.b } else { line.a };
+            (end - root.translation).with_y(0.0).dot(cy.dir) < BEAM_STEP_OFF_NEAR
+                && level.ground(end + cy.dir * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8)
+        });
         if self.cycle.is_some()
+            && !near_end
             && stick != Vec3::ZERO
             && stick.dot(line.axis()).abs() <= JUMP_ALONG_BEAM_COS
             && level.perch_at(beside, PERCH_OWN).is_none()
@@ -7945,9 +7960,19 @@ impl WallClimb {
             stop(self, lib);
             return;
         }
+        // (AC1's step off the end onto the floor past it (`CanStepOffBeamEnd` 0xF77C00, Banned445's port): from 0.4 m short
+        // of the end it goes on 0.8 m along the beam, still on it, then the ground; ours handed over at the end itself.)
+        let past = (next - q).with_y(0.0).dot(cy.dir);
+        let chained = |q: Vec3, dir: Vec3| {
+            level.perches.iter().enumerate().any(|(k, l)| {
+                Some(k) != self.perch && l.axis().dot(dir).abs() > BEAM_CHAIN_COS && (l.a.distance(q) < BEAM_CHAIN_GAP || l.b.distance(q) < BEAM_CHAIN_GAP)
+            })
+        };
+        let carry =
+            past > 1e-3 && past < BEAM_STEP_OFF_PAST && level.ground(q + cy.dir * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8) && !chained(q, cy.dir);
         // (Any step past the end, along the beam: a fixed margin pinned a slow walk at high frame rates, each step shorter
         // than it; and the root a centimetre off the line is not past an end.)
-        if (next - q).with_y(0.0).dot(cy.dir) > 1e-3 {
+        if past > 1e-3 && !carry {
             // Off the end onto the next beam going on from it, walked on (a plank bridge bent in the middle, two beams:
             // AC1 walked it as one narrow object, ours stepped off onto "ground" between them).
             let on = level.perches.iter().enumerate().find(|(k, l)| {
@@ -7963,24 +7988,29 @@ impl WallClimb {
             }
             // Off the end: onto ground that carries on at this height, else wait there.
             let (dir, speed) = (cy.dir, cy.v);
-            root.translation = q;
+            // (From where the step off carried it, past the end.)
+            let from = if (here - q).with_y(0.0).dot(dir) > 1e-3 { here } else { q };
+            root.translation = from;
             if level.ground(q + dir * 0.5, 0.4, 0.4).is_some_and(|g| g.normal.y > 0.8) {
                 // (Onto the first ground ahead, at its height: handed over at the end itself, over the gap, ours fell
                 // a frame before the roof 0.16 m up caught it; AC1 walks on off the beam's end, its root rising onto the
                 // roof (0xF77C00, Mode 8, audit NARROW-17).)
-                if let Some(g) = (0..=10).map(|k| q + dir * (k as f32 * 0.05)).find_map(|p| level.ground(p, 0.4, 0.4).filter(|g| g.normal.y > 0.8)) {
+                if let Some(g) = (0..=10).map(|k| from + dir * (k as f32 * 0.05)).find_map(|p| level.ground(p, 0.4, 0.4).filter(|g| g.normal.y > 0.8)) {
                     root.translation = g.point;
                 }
                 debug!("climb: off the beam's end onto the ground at {:.2}", root.translation);
                 self.cycle = None;
-                self.exit_velocity = dir * speed;
+                // (On at the walk at most, which the run then speeds up, as the free-step arrivals: off a Damascus beam's
+                // end onto a roof the running game went into HumanGround on `xx_l_walk_slow_hipm_footl` at 3.9 m/s,
+                // 6.2 m/s 0.6 s later; ours ran on at once, route `roof1_free_sw`.)
+                self.exit_velocity = dir * speed.min(PERCH_OFF_WALK);
                 self.finished = true;
             } else if !(self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir))) {
                 stop(self, lib);
             }
             return;
         }
-        root.translation = next;
+        root.translation = if carry { level.ground(next, 0.4, 0.4).filter(|g| g.normal.y > 0.8).map_or(next, |g| next.with_y(g.point.y)) } else { next };
         if let Some((c, t, _)) = &mut cy.intro {
             *t += dt;
             if *t >= c.anim.duration {
