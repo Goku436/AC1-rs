@@ -1255,9 +1255,11 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,none=1.6,up=2.3"),
         ],
         secs: 5.0,
+        // (Stood 0.1 m in from the top's edge since 2026-10-27, AC1's knee point: 0.12 m nearer it than 0.265 m in from the
+        // wrists, which on route `roof2_run_east` stood short of where the running game did.)
         want: &[
-            "free-step stay at [30.93, 3.59, 19.64]",
-            "via xx_h_freestep_backright_front_550cm_footl_to_air at [30.93, 3.59, 19.64] yaw -0",
+            "free-step stay at [30.93, 3.59, 19.76]",
+            "via xx_h_freestep_backright_front_550cm_footl_to_air at [30.93, 3.59, 19.76] yaw -0",
             "xx_h_air_down_800cm_footl_to_freestep_down at [31.5",
         ],
         never: &["EMBED", "_to_freestep_down at [29."],

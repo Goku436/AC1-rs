@@ -367,11 +367,13 @@ const STRAIGHT_JUMP_UP_SPEED: f32 = 4.43;
 /// 0xDE2EE0, as Banned445's port reads it; the stand into the wait is only listed in the move graph), 0.27 s in place,
 /// as the running game did topping out at the bureau; ours' stand into the wait took 0.87 s.
 const STAND_UP: &str = "xx_h_hangknee_footl_tr_freestep_entry_footl";
-/// Onto a narrow top's edge (a parapet): AC1's stand on the right foot, and where: this far in from the wrists as the
-/// pull-up starts (m: they hold 0.15 m out from the edge, AC1's knee point 0.1 m in from it; the running game's stand
-/// at wall1 started 0.265 m in from them), the floor behind lower than the grip by over `TOP_OUT_NARROW_STEP` (m).
+/// Onto a narrow top's edge (a parapet): AC1's stand on the right foot out of the climbing stance (`STAND_UP`, the left
+/// foot's, out of a hang), and where: this far in from the hold's edge (m:
+/// AC1's knee point 0.1 m in from it; the running game's stand at wall1 started 0.265 m in from the wrists, 0.15 m out
+/// from the edge, and on route `roof2_run_east` 0.094 m in from the rim's edge, where ours' wrists held 0.05 m out and
+/// 0.265 m in from them stood 0.12 m short), the floor behind lower than the grip by over `TOP_OUT_NARROW_STEP` (m).
 const STAND_UP_NARROW: &str = "xx_h_hangknee_footr_tr_freestep_entry_footr";
-const TOP_OUT_NARROW_IN: f32 = 0.265;
+const TOP_OUT_NARROW_IN: f32 = 0.1;
 const TOP_OUT_NARROW_STEP: f32 = 0.1;
 const TOP_OUT_NARROW_DEPTH: f32 = 0.8;
 /// Topped out, the root stands this far in from where the hands held (m). (Not further: on `hay70`'s narrow box rim the
@@ -1301,6 +1303,10 @@ const HAY_ARRIVAL_DIVE: f32 = 0.6;
 /// The free-step stay takes the jump on from this far into its reception (AC1's `StateMovement_GuardJump` 0xE4C700:
 /// phase 0.5, dword_17028A8; Banned445's port `free_step.rs`).
 const FREESTEP_STAY_JUMP: f32 = 0.5;
+/// The free-step stay with no beam ahead hands over to the ground from half its reception with the stick pointing back
+/// over the edge, further than this cosine from the way in (140 degrees; `CheckSupportAndFall` 0xE51190, Banned445's port
+/// `free_step.rs`), else once the reception is done.
+const FREESTEP_STAY_BACK_COS: f32 = -0.766_044_4;
 /// AC1's anti-stuck nudge in the air: under this speed (m/s) for this long (s), nudged; the push with no spot (m/s).
 const STUCK_SPEED: f32 = 0.25;
 const STUCK_TIME: f32 = 0.5;
@@ -9769,6 +9775,7 @@ impl WallClimb {
         // wall hang holds 0.15 m lower), else in from the wrists and over them.
         let line = wrist - self.normal * GRIP_OUT + Vec3::Y * GRIP_DOWN;
         let edge = nearest_hold(level, wrist, self.normal).filter(|h| h.2 < TOP_OUT_EDGE_REACH).map_or(line, |(l, _, _)| l.closest(line));
+        let hold_edge = edge;
         // Top surface just behind the holds, level with them (nearer in on a thin top: a haystack's rim, round hay that is
         // not solid; the running game pulled up onto it). None found: the edge itself, a top too thin to probe (AC1 tests
         // no floor, only room, below; audit CLIMB-E6).
@@ -9906,20 +9913,31 @@ impl WallClimb {
                         // the edge itself, 0.1 m in from the hands, through the right foot's stand (0x248E9731, as a
                         // narrow object), and steps down off it after; ours came down onto the floor behind, 0.11 m
                         // further in. Audit CLIMB-E5, the wall1 recordings.)
-                        // (Narrow: a top at the grip, the floor behind it lower within `TOP_OUT_NARROW_DEPTH`.)
-                        let grip = wrist.y + GRIP_DOWN;
+                        // (Narrow: a top at the grip, the floor behind it lower within `TOP_OUT_NARROW_DEPTH`. The grip
+                        // is the hold's own height: the wrists of a hang sink, 0.12 m under the rim on route
+                        // `roof2_run_east`, where the roof 0.15 m under the rim then read as level with it.)
+                        let grip = hold_edge.y;
                         let lower_behind = level
                             .ground(wrist - self.normal * TOP_OUT_NARROW_DEPTH + Vec3::Y * 0.5, 0.0, 3.0)
                             .is_none_or(|g| grip - g.point.y > TOP_OUT_NARROW_STEP);
-                        let narrow = Some(top).filter(|g| (g.point.y - grip).abs() < TOP_OUT_NARROW_STEP).filter(|_| {
+                        // (The top at the grip may be a nearer probe's than the one stood on: a Damascus roof's 0.3 m rim
+                        // at the grip with the roof 0.15 m lower behind it, which the 0.45 m probe found; the running game
+                        // stood on the rim, ours came down onto the roof 0.15 m further in and was late to the next ledge
+                        // stop, route `roof2_run_east`.)
+                        let at_grip = probes.iter().find(|g| (g.point.y - grip).abs() < TOP_OUT_NARROW_STEP).copied();
+                        let narrow = at_grip.filter(|_| {
                             lower_behind
                                 && level.raycast(Vec3::new(wrist.x, grip + 0.3, wrist.z) - self.normal * 0.12, -self.normal, TOP_OUT_NARROW_DEPTH).is_none()
                         });
-                        match (narrow, lib.get(STAND_UP_NARROW)) {
+                        // (The right foot's stand from the climbing stance only: in the traces every stand-up from
+                        // `xx_l_climb_1m_tr_hangknee_footl` was 0x248E9731 (wall1, twice), every one from the wall hang
+                        // or a wall run 0x248E9730, the left foot's, on that same parapet too (`roof1_run_west`).)
+                        let stand_name = if matches!(self.state.as_str(), "1m" | "2m") { STAND_UP_NARROW } else { STAND_UP };
+                        match (narrow, lib.get(stand_name)) {
                             (Some(g), Some(stand)) => {
                                 let mut clips = clips;
                                 *clips.last_mut().expect("top-out clips") = stand;
-                                let at = Vec3::new(wrist.x, g.point.y, wrist.z) - self.normal * TOP_OUT_NARROW_IN;
+                                let at = Vec3::new(hold_edge.x, g.point.y, hold_edge.z) - self.normal * TOP_OUT_NARROW_IN;
                                 debug!("climb: top-out onto a narrow top's edge at {at:.2}");
                                 (clips.clone(), at - (root.translation + travel(&clips)), ON_TOP)
                             }
@@ -12281,6 +12299,28 @@ impl WallClimb {
         {
             debug!("climb: the wall run from the free-step stay at {:.2}", root.translation);
             *self = w;
+            return;
+        }
+        // The stay onto a top with the stick pointing back over the edge: on the ground from half of its reception (AC1's
+        // `CheckSupportAndFall` 0xE51190, `FREESTEP_STAY_BACK_COS`). Climbed up onto the roof with the stick turned back,
+        // the running game went into HumanGround 0.13 s into the 0.27 s stand-up and turned there; ours stood it out,
+        // 0.15 s behind into the turn (route `roof2_run_east`).
+        if let Some(m) = &self.mv
+            && m.clip.name.contains("_tr_freestep_entry")
+            && self.queue.is_empty()
+            && m.to != PERCH
+            && self.perch.is_none()
+            && m.t >= FREESTEP_STAY_JUMP * m.clip.anim.duration
+            && self.move_dir.with_y(0.0).length() > 0.1
+            && self.move_dir.with_y(0.0).normalize().dot((root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero()) <= FREESTEP_STAY_BACK_COS
+            && level.ground(root.translation, 0.3, 0.3).is_some()
+        {
+            debug!("climb: {} left for the ground at half, the stick back over the edge", m.clip.name);
+            self.last_clip = Some(m.clip.name.clone());
+            self.exit_velocity = Vec3::ZERO;
+            self.mv = None;
+            self.state = GROUND.into();
+            self.finished = true;
             return;
         }
         // An eject asked for during a leap: when the move lands on a hold, within the Legs buffer.

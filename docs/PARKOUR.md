@@ -1237,7 +1237,7 @@ brackets:
 | `ladder68_walk` | 0.47 (0.52) | 0.28 | onto the ladder from its foot always with the high profile's entry; now AC1's by profile and foot (`HumanLadderData` 7 / 8: walking, `xx_l_wait_hipm_footl_tr_l_ladder_climb_up_r`). Left: the running game's root goes 0.5 m in toward the wall over the 8 m climb (a leaning ladder?), ours' stays out |
 | `hay70_free` | 1.08 (0.54) | 1.08 | pulled up onto the haystack's rim with the stick held away from the hay, the running game stood on it (NarrowObject) and free ran on at a target 4.4 m off; ours dove back in (the dive is right with the stick let go, the 2026-10-10 recording). Now on the rim as a perch; left: from it ours' query picks the box's own far rim 0.9 m off where AC1 jumps 4.4 m |
 | `wall1_hang_up2` | (mis-cut) | 0.17 | the run's start had a 0.2 s stick blip; cut after it |
-| `roof2_run_east` | 0.73 | 0.73 | the second ledge stop: after pulling up, the running game's turn broke into the ledge stop 0.09 s in and pulled down again before W was let go; ours turned round into the run first and stopped 0.35 s later, too late for the pull-down. Not changed (ground turns) |
+| `roof2_run_east` | 0.73 -> 0.25 | 0.73 -> 0.09 | (fixed 2026-10-27: the narrow rim's stand, the edge lock let go on hanging) the second ledge stop: after pulling up, the running game's turn broke into the ledge stop 0.09 s in and pulled down again before W was let go; ours turned round into the run first and stopped 0.35 s later, too late for the pull-down. Not changed (ground turns) |
 | `ladder68_free` | 0.98 | 0.98 | the running game stumbled over something at 35.5 m (`xx_stumble_sprint_right`, 1.7 s lost; not in ours' city), then the same wall run and rebound loop |
 | `wall1_*` others, `wall0_*`, `crate_climb`, roof runs | 0.05-0.42 | same | |
 
@@ -1463,7 +1463,15 @@ under the hold from the hold line, not the wrists 0.09 m out (`RECESS_MAX`; the 
 AC1's reach capsule is a capsule, swept from past the start (the box round it reached 0.14 m past its sides and met a
 bracket beside the climb); a triangle with no area in the collision no longer makes a NaN that blocks every capsule
 near it (the octagonal tower's reach); and the bureau's roof hatch `BA_Trap` (the closed bureau's) is left out, the
-running game climbing to 0.7 m under where it lies (docs/NOTES.md). The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
+running game climbing to 0.7 m under where it lies (docs/NOTES.md). `roof2_run_east` (1.07 to 0.25 m) and
+`roof1_run_west` (0.91 to 0.35 m), a pull-up onto a roof's rim with the roof lower behind it: the narrow top is told by
+the hold's own height (the hang's wrists sink 0.12 m under the rim, and the roof 0.15 m lower read as level with them),
+stood on 0.1 m in from the hold's edge (AC1's knee point; the running game 0.094 m in, ours had stood 0.265 m in from
+the wrists, 0.12 m short), through the left foot's stand out of a hang (`hangknee_footl_tr_freestep_entry_footl`, the
+right foot's only out of the climbing stance, as in every trace); the stand hands over to the ground from half its
+reception with the stick back over the edge (`CheckSupportAndFall`), and the edge lock of the ledge stop before is let go
+on hanging, so the turn on the spot back to the edge breaks into its ledge stop at once, as the running game's did
+(34 of 41, mean 0.37 m). The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
 

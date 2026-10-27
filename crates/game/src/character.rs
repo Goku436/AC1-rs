@@ -1741,6 +1741,12 @@ pub fn locomotion(
             }
             if let Some(w) = &ch.wall {
                 embed_check(&level, tf.translation, &w.state);
+                // (Hanging or climbing, over the edge: the ledge stop that locked it is done. Kept through the pull-down,
+                // the climb back up and the turn there, the lock held off the turn's own ledge stop, which the running
+                // game took 0.08 s into the turn, route `roof2_run_east`.)
+                if !w.follows_camera() {
+                    ch.edge_lock = None;
+                }
             }
             if let Some(w) = &mut ch.wall {
                 w.health = ch.health;
