@@ -12285,6 +12285,36 @@ impl WallClimb {
                 (self.freestep_left, self.perch) = keep;
             }
         }
+        // The stay's target hop, from half of its reception: high profile with the stick and no drop edge ahead to jump on
+        // over (or a beam piece ahead), AC1's jump kind 4 with the legs held, 3 without (the narrow interpreter's jump
+        // request 0xEE9564, Banned445's `jump_kind`): the free-run box ahead searched, a top there jumped onto by the free
+        // step. Pulled up onto a roof's rim with a wall 0.8 m higher 1.5 m on, the running game hopped onto its top 0.13 s
+        // into the stand-up (`freestep_front_front_050cm_footl_to_air`, route `roof2_free_south`); ours stood it out.
+        if let Some(m) = &self.mv
+            && m.clip.name.contains("_tr_freestep_entry")
+            && m.t >= FREESTEP_STAY_JUMP * m.clip.anim.duration
+            && self.high
+            && self.move_dir.with_y(0.0).length() > 0.35
+        {
+            let dir = self.move_dir.with_y(0.0).normalize();
+            let jump_on = self.sprint && drop_edge_ahead(level, root.translation, dir).is_some() && !beam_ahead(level, root.translation, dir);
+            // (A wall run first, as the interpreter takes event 15 before the jump: its wall is looked for along the
+            // facing with the stick within 60 degrees of it (`Human__WallingWallTest` 0xE18390, Banned445's `wall_ahead`).
+            // Off a stepped box beside a wall 2.4 m over it, user report 152348, he hopped onto the step instead.)
+            let facing = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+            let wall = wall_run_wall_ahead(level, root.translation, dir)
+                || (dir.dot(facing) >= 60f32.to_radians().cos() && wall_run_wall_ahead(level, root.translation, facing));
+            if !jump_on && !(self.legs_held && wall) {
+                let keep = self.freestep_left;
+                self.freestep_left = m.clip.name.ends_with("_footl") || m.clip.name.contains("_entry_footl_");
+                let legs = self.sprint;
+                if self.narrow_target_hop(lib, level, root, dir, crate::jump_query::From::FreeRun { legs }, if legs { 4 } else { 3 }) {
+                    debug!("climb: the target hop from the free-step stay at {:.2}", root.translation);
+                    return;
+                }
+                self.freestep_left = keep;
+            }
+        }
         // The stay's wall run, likewise from half of its reception (`StateMovement_GuardWallRun` 0xE503D0's first test,
         // sub_E4C630: a free-step entry at least half played; Banned445's 5d5b570, live: refused from the stay's first
         // frame till 0.5, then the wall run): ours waited for the stay to end into the run, which ran up it.

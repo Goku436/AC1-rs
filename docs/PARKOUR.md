@@ -1471,7 +1471,13 @@ the wrists, 0.12 m short), through the left foot's stand out of a hang (`hangkne
 right foot's only out of the climbing stance, as in every trace); the stand hands over to the ground from half its
 reception with the stick back over the edge (`CheckSupportAndFall`), and the edge lock of the ledge stop before is let go
 on hanging, so the turn on the spot back to the edge breaks into its ledge stop at once, as the running game's did
-(34 of 41, mean 0.37 m). The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
+(34 of 41, mean 0.37 m). `roof2_free_south` (0.84 to 0.58 m; at rest 1.75 to 0.09): the free-step stay with no drop
+edge ahead hops at a target, AC1's jump kind 4 with the legs held, 3 without (the narrow interpreter's request 0xEE9564,
+Banned445's `jump_kind`), from half its reception: stood up on a roof's rim with a wall's top 0.8 m higher 1.5 m on, the
+running game hopped onto it 0.13 s into the stand-up; ours stood it out and walked off the rim. A wall run comes first,
+its wall looked for along the facing too (`Human__WallingWallTest`). Left there: the jump onto that roof was a target
+jump (`run_front_050cm`, `air_front_050cm`, a soft landing), ours the free jump 8 m on (`air_down_800cm`, a hard one).
+The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
 
