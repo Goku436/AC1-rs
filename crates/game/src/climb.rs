@@ -7621,6 +7621,11 @@ impl WallClimb {
             && axis != Vec3::ZERO
             && dir.dot(axis).abs() <= JUMP_ALONG_BEAM_COS
             && left_along < BEAM_JUMP_ON_LEFT
+            // (No beam piece ahead along the stick, the one walked included, within 45 degrees: AC1's jump on is kind 0 only
+            // then, else kind 4's box (IHuman vt148 0xB15DE0, Banned445's `jump_kind`). Walking a Damascus beam with the
+            // stick 45 degrees off it, the running game went on to its end, 2 m on; ours jumped off it at a roof beside,
+            // route `roof2_free_nw`.)
+            && !beam_ahead(level, root.translation, dir)
             && jump_target(level, root.translation, dir, self.perch).is_some()
             && self.perch_jump(lib, level, root, dir)
         {

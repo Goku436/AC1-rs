@@ -1498,6 +1498,10 @@ goes on at the beam's speed and gets up to the run at `BEAM_OFF_ACCEL` (4.5 m/sÂ
 0.1 s; ours at `RUN_ACCEL`'s 13), turning meanwhile at free running's full 2.6 rad/s to within 8 degrees as the running
 game did, not eased in (35 of 41; `seams_free_north` 0.86 to 0.71). (Gauntlet G5's run off the beam onto the box now
 reaches its edge at 5.4 m/s and runs off into the hay below, where it stopped at the edge and dived.)
+`roof2_free_nw` (2.66 to 0.23 m): free running along a beam with the stick 45 degrees off it, the jump at a target off
+its side wants no beam piece ahead along the stick (the beam walked counts, within 45 degrees), as AC1's jump on is kind
+0 only then (IHuman vt148, Banned445's `jump_kind`); the running game went on to the beam's end, ours jumped off 2 m
+short (36 of 41, mean 0.35 m).
 The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
