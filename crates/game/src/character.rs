@@ -169,6 +169,8 @@ pub struct Character {
     pub landings: u32,
     /// Stopped at the edge of a big drop: its outward direction; walking on over it is held back.
     pub edge_lock: Option<Vec3>,
+    /// Off a beam's end: getting up to the run at `BEAM_OFF_ACCEL`, not `RUN_ACCEL`, until there.
+    pub slow_ramp: bool,
     /// Where the stick asks to go (horizontal, zero when let go): the locomotion banks toward it (`Animator::advance`).
     pub want_dir: Vec3,
     /// Walking with a crowd it blends into (legs held, no direction): the crowd's velocity.
@@ -642,6 +644,7 @@ pub fn spawn_character_shared(
         blend: false,
         follow: None,
         edge_lock: None,
+        slow_ramp: false,
         want_dir: Vec3::ZERO,
         last_landing: None,
         landings: 0,
@@ -733,6 +736,7 @@ impl Character {
         self.dead_time = 0.0;
         self.ragdoll = None;
         self.edge_lock = None;
+        self.slow_ramp = false;
         self.exit_fade = None;
         self.follow = None;
         self.want_dir = Vec3::ZERO;
@@ -1287,6 +1291,10 @@ const WALL_SLIDE_REACH: f32 = 0.1;
 /// Getting up to a speed over `RUN_START_MIN` (m/s), the body speeds up at `RUN_ACCEL` (m/s²).
 const RUN_START_MIN: f32 = 2.5;
 const RUN_ACCEL: f32 = 13.0;
+/// Off a beam's end onto the floor past it, from the beam's speed up to the run at this (m/s²): the running game went
+/// on at the crouch jog's 3.7 m/s, 4.0, 4.4, 4.8, 5.3, 5.8 and 6.0 over the next 0.6 s, three times (routes
+/// `roof1_free_sw`, `roof2_free_nw`, `seams_free_north`), where after a free-step arrival it was at 6 within 0.1 s.
+const BEAM_OFF_ACCEL: f32 = 4.5;
 /// Running at least this fast vaults low obstacles on its own.
 const RUN_VAULT_SPEED: f32 = 2.5;
 const HANG_DROP: f32 = 1.75;
@@ -1775,6 +1783,7 @@ pub fn locomotion(
                     // picking up on the foot (or into the gait) the last clip ends on.
                     ch.exit_fade = w.last_pose().cloned().map(|p| (p, 0.25, 0.25));
                     ch.velocity = w.exit_velocity;
+                    ch.slow_ramp = w.off_beam;
                     // (A free-step reception, `..._tr_freestep_entry_<foot>`: the next jump takes off from that foot.)
                     if let Some(name) = w.last_clip.as_deref() {
                         if name.contains("freestep_entry_footr") {
@@ -2104,7 +2113,14 @@ pub fn locomotion(
         // running game turned 3.98 rad/s walking and 2.58 free running, its motion within 1-5 degrees of its facing all
         // the while; ours moved the stick's way at once and the facing caught up, and turned a run at 6.3 rad/s.
         let heading = (tf.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(Vec3::NEG_Z);
-        let speed = if want.length() > RUN_START_MIN && want.length() > cur.length() + 0.01 && heading.dot(want.normalize()) > 0.707 {
+        // (Off a beam's end, slowly up from the beam's speed whatever the way: see `BEAM_OFF_ACCEL`. Turning meanwhile,
+        // free running, at the full rate to the way wanted: off two Damascus beams' ends at 3.6-3.7 m/s the running game
+        // turned 45 degrees at 2.6 rad/s to within 8 degrees, routes `roof1_free_sw`, `roof2_free_nw`; the eased turns
+        // were at the sprint.)
+        ch.slow_ramp &= want.length() > cur.length() + 0.01;
+        let speed = if ch.slow_ramp {
+            (cur.length() + BEAM_OFF_ACCEL * dt).min(want.length())
+        } else if want.length() > RUN_START_MIN && want.length() > cur.length() + 0.01 && heading.dot(want.normalize()) > 0.707 {
             // Getting up to a run: at a steady rate, as the running game's free-run starts (about 13 m/s² from a standstill
             // to 5.6 m/s in 0.45 s; ours, easing in, took 0.65 s).
             (cur.length() + RUN_ACCEL * dt).min(want.length())
@@ -2118,7 +2134,9 @@ pub fn locomotion(
             // (0xD94F30, the band at the ground's +0x6E0 / +0x6E4); from standing and in high profile the running game turned
             // at the full rate to within a few degrees, live comparisons 2026-10-16.)
             let near = ((angle - TURN_BAND_IN) / (TURN_BAND_OUT - TURN_BAND_IN)).clamp(0.0, 1.0);
-            let rate = if ctl.free_run {
+            let rate = if ctl.free_run && ch.slow_ramp {
+                TURN_RATE_FREE
+            } else if ctl.free_run {
                 TURN_RATE_FREE_NEAR + (TURN_RATE_FREE - TURN_RATE_FREE_NEAR) * near
             } else if ctl.high || speed < STOP_SPEED {
                 TURN_RATE

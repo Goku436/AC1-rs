@@ -1704,6 +1704,8 @@ pub struct WallClimb {
     catch_push: Vec3,
     /// Ground velocity to hand back to locomotion when finished (running landings).
     pub exit_velocity: Vec3,
+    /// Finished off a beam's end onto the floor past it (the ground speeds up from there slowly).
+    pub off_beam: bool,
     /// Wanted world direction of travel (set by the caller; length 0..1), and sprinting.
     pub move_dir: Vec3,
     pub sprint: bool,
@@ -4506,6 +4508,7 @@ impl WallClimb {
             catch_hold: None,
             catch_push: Vec3::ZERO,
             exit_velocity: Vec3::ZERO,
+            off_beam: false,
             move_dir: Vec3::ZERO,
             sprint: false,
             high: false,
@@ -8000,10 +8003,11 @@ impl WallClimb {
                 }
                 debug!("climb: off the beam's end onto the ground at {:.2}", root.translation);
                 self.cycle = None;
-                // (On at the walk at most, which the run then speeds up, as the free-step arrivals: off a Damascus beam's
-                // end onto a roof the running game went into HumanGround on `xx_l_walk_slow_hipm_footl` at 3.9 m/s,
-                // 6.2 m/s 0.6 s later; ours ran on at once, route `roof1_free_sw`.)
-                self.exit_velocity = dir * speed.min(PERCH_OFF_WALK);
+                // (On at the beam's speed, which the ground then raises slowly (`character::BEAM_OFF_ACCEL`): off a Damascus
+                // beam's end onto a roof the running game went into HumanGround on `xx_l_walk_slow_hipm_footl` at 3.7 m/s
+                // and was at 6 m/s 0.6 s later; ours ran on at once, route `roof1_free_sw`.)
+                self.exit_velocity = dir * speed;
+                self.off_beam = true;
                 self.finished = true;
             } else if !(self.sprint && (self.perch_faith(lib, level, root, dir) || self.perch_jump(lib, level, root, dir))) {
                 stop(self, lib);

@@ -994,7 +994,11 @@ const SCENARIOS: &[Scenario] = &[
             "aimed at [-82.20, 2.00, 74.00]",
             "aimed at [-80.00, 2.00, 75.00]",
             "onto perch 20",
-            "dive into the haystack at [-70.10",
+            // (Off the beam's end at its own speed since 2026-10-27, AC1's step off and the slow ramp after it (route
+            // `roof1_free_sw`): the run comes to the box's edge at 5.4 m/s and runs off it into the hay below, where at the
+            // walk it stopped at the edge and dived.)
+            "off the beam's end onto the ground",
+            "-> hay via xx_h_air_to_haystack",
         ],
         never: &["EMBED"],
     },

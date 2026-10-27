@@ -1492,10 +1492,12 @@ of `_fast`'s 0.13 s; ours played the 0.27-0.4 s one.
 `roof1_free_sw` (1.74 to 0.78 m): walking a beam onto a roof with the stick 45 degrees off, the running game went on
 along it 0.45 m past its end (AC1's step off the end, `CanStepOffBeamEnd` 0xF77C00: from 0.4 m short, 0.8 m on) and
 into HumanGround on `xx_l_walk_slow_hipm_footl` before turning; ours stepped off sideways 0.4 m short and hopped. Now
-the walk carries `BEAM_STEP_OFF_PAST` past the end, no side step off within `BEAM_STEP_OFF_NEAR` of it, and hands over
-at the walk at most, as the free-step arrivals (35 of 41). The real ground then held the beam's 3.8 m/s for 0.3 s and
-reached 6 m/s 0.5 s later; ours' ground ramps from 1.9 to 6.2 m/s in 0.3 s (`seams_free_north`, 0.5 m behind on its
-beam already, rests 1.66 m off, 0.93 before).
+the walk carries `BEAM_STEP_OFF_PAST` past the end, no side step off within `BEAM_STEP_OFF_NEAR` of it, and the ground
+goes on at the beam's speed and gets up to the run at `BEAM_OFF_ACCEL` (4.5 m/s²: the running game at 3.7, 4.0, 4.4,
+4.8, 5.3, 5.8, 6.0 m/s over the next 0.6 s off all three beams' ends, where after a free-step arrival it was at 6 within
+0.1 s; ours at `RUN_ACCEL`'s 13), turning meanwhile at free running's full 2.6 rad/s to within 8 degrees as the running
+game did, not eased in (35 of 41; `seams_free_north` 0.86 to 0.71). (Gauntlet G5's run off the beam onto the box now
+reaches its edge at 5.4 m/s and runs off into the hay below, where it stopped at the edge and dived.)
 The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
