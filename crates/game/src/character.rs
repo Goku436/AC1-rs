@@ -714,6 +714,54 @@ pub fn spawn_character_shared(
 }
 
 impl Character {
+    /// Back to how it came into the world, standing at `at` (a scripted run's start, `control_runs`): nothing of the run
+    /// before left over. (The traced routes run one after another in one game; the gait's phase and the feet carried over,
+    /// route `roof2_run_south` scored 0.23 m alone and 0.64 after another.)
+    pub fn fresh_run(&mut self, lib: Option<&mut crate::animation::AnimLib>, at: Vec3) {
+        if self.animator.is_some()
+            && let Some(lib) = lib
+        {
+            self.animator = crate::animation::Animator::new_for(lib, self.rig_id);
+        }
+        self.pose = self.idle.clone();
+        self.anim_pose = self.idle.clone();
+        self.playing.clear();
+        self.wall = None;
+        self.velocity = Vec3::ZERO;
+        self.fall_v = 0.0;
+        self.health = 1.0;
+        self.dead_time = 0.0;
+        self.ragdoll = None;
+        self.edge_lock = None;
+        self.exit_fade = None;
+        self.follow = None;
+        self.want_dir = Vec3::ZERO;
+        self.last_landing = None;
+        self.freestep_left = true;
+        self.limp = false;
+        self.gait = Default::default();
+        self.wall_feet = [None; 2];
+        self.wall_goal_off = [Vec3::ZERO; 4];
+        self.wall_hand_w = [0.0; 2];
+        self.wall_foot_w = [0.0; 2];
+        self.still_t = 0.0;
+        self.ground_t = 0.0;
+        self.halt_t = 0.0;
+        self.looking_down = false;
+        self.look_edge = None;
+        self.reverse_pending = false;
+        self.reverse_hold = 0.0;
+        self.wall_hand_t = [None; 2];
+        self.foot_ik_w = 0.0;
+        self.wall_ik_w = 0.0;
+        self.lean_ik_w = 0.0;
+        self.feet = [Foot { planted: at, normal: Vec3::Y, swing: None }; 2];
+        self.pelvis = 0.0;
+        self.look_weight = 0.0;
+        self.arm_push = [Vec3::ZERO; 2];
+        self.climb = None;
+    }
+
     /// Where the character came into the world (a desynchronised player starts again there, `combat`).
     pub fn spawn_point(&self) -> Vec3 {
         self.spawn
@@ -1536,6 +1584,7 @@ pub fn locomotion(
                 w.move_dir = ctl.move_dir.with_y(0.0).clamp_length_max(1.0);
                 w.sprint = ctl.speed > SPRINT_SPEED;
                 w.high = ctl.high;
+                w.free_run = ctl.free_run;
             }
             // Steering out of a run stop, or the legs during a ground action: back to moving.
             // (A turn round follows the stick wherever it goes, bending the turn toward it (`WallClimb::update`);
@@ -1670,6 +1719,21 @@ pub fn locomotion(
                 }
                 ch.wall = Some(w);
                 ch.edge_lock = lock.or(ch.edge_lock);
+            }
+            // (A free-running landing roll carried over a city's edge: AC1 jumps once the ground is gone under it, the roll's
+            // item locked or not, not at the edge ahead as running does. Off the bureau's roof east the running game came
+            // down 4.5 m into `xx_h_landing_damage_footl_roll`, rolled 0.2 m past the rim and jumped 0.17 s into the roll
+            // (`run_front_050cm_footl_to_air`), route `roof1_free_east`; ours held the roll at the rim and played it out, 0.65 s.)
+            if ctl.free_run
+                && level.guided()
+                && toward != Vec3::ZERO
+                && let Some((speed, left)) = ch.wall.as_ref().and_then(|w| w.landing_roll())
+                && level.ground(tf.translation, 0.3, 0.3).is_none()
+                && let Some(w) =
+                    crate::climb::WallClimb::jump_aimed(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward * speed, left, Some(ch.anim_pose.clone()))
+            {
+                debug!("ground: the free run's edge jump out of the landing roll at {:.2}", tf.translation);
+                ch.wall = Some(w);
             }
             if let Some(l) = ch.wall.as_mut().and_then(|w| w.landed.take()) {
                 ch.last_landing = Some(l);

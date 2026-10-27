@@ -762,6 +762,7 @@ fn control_runs(
     mut state: Local<Control>,
     mut recorder: ResMut<recorder::Recorder>,
     mut sweep: ResMut<climb_sweep::Sweep>,
+    mut lib: Option<ResMut<animation::AnimLib>>,
 ) {
     static FILE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     let file = FILE.get_or_init(|| std::env::var("AC1_CONTROL").ok().map(PathBuf::from));
@@ -841,14 +842,7 @@ fn control_runs(
                 tf.rotation = Quat::from_rotation_y(start.get(2).copied().unwrap_or(0.0).to_radians());
             }
             // (Fresh: as the climbing probe starts each spot.)
-            ch.wall = None;
-            ch.velocity = Vec3::ZERO;
-            ch.fall_v = 0.0;
-            ch.health = 1.0;
-            ch.dead_time = 0.0;
-            ch.ragdoll = None;
-            ch.edge_lock = None;
-            ch.exit_fade = None;
+            ch.fresh_run(lib.as_deref_mut(), tf.translation);
             // (Every input fresh too: a script sets the profile and free running only when it holds them, and a walk
             // after a free run went on free running, off a roof.)
             *ctl = Controller::default();

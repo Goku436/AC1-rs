@@ -1446,7 +1446,13 @@ the takeoff makes the rise, 0.55 m over the takeoff each, the flight leaving at 
 launched it at 3 m/s up on top of the takeoff (0.4 m higher, at its top 0.2 s later) and come down at 20 m/s² from the
 top: on `roof1_free_east` its height off by up to 1.4 m, now 0.3. Mean path gap 0.42 to 0.41 m. Its flat speed is the
 takeoff's own (`run_front_550cm` leaves at 7.2 m/s, the running game's flew at 7.0-7.8), not held to the run's 6.5 as
-other jumps' are: `roof1_free_east`'s flight within 0.15 m along. The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
+other jumps' are: `roof1_free_east`'s flight within 0.15 m along. The free-running landing roll in a city
+(`xx_h_landing_damage_<foot>_roll`, over 3 m) is not held at a rim: on `roof1_free_east` the running game rolled 0.2 m
+past the roof's rim and jumped once the ground was gone, 0.17 s into the roll (the roll's item is locked; the jump is
+`run_front_050cm` off the roll's own foot, into `air_front_050cm_*_to_freestep`); ours stopped the roll at the rim
+and played it out (0.65 s), now the same clips from the same place within 0.1 m. Each scripted run now starts from a
+fresh character (`Character::fresh_run`): the gait's phase and the feet had carried over between routes in one game,
+`roof2_run_south` 0.23 m alone and 0.64 after another. 32 of 41 within 1 m, mean 0.40 m. The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
 

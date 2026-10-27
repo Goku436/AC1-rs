@@ -1692,6 +1692,8 @@ pub struct WallClimb {
     pub sprint: bool,
     /// High profile held (the ladder's `xx_h_` set).
     pub high: bool,
+    /// Free running held (a landing's roll goes on over a city's edge, AC1's).
+    pub free_run: bool,
     /// Perch stood on, and the walk along it (beams).
     perch: Option<usize>,
     /// On a beam, crouched: along it or across (`None`: balancing as on a post, just landed).
@@ -4479,6 +4481,7 @@ impl WallClimb {
             move_dir: Vec3::ZERO,
             sprint: false,
             high: false,
+            free_run: false,
             perch: None,
             beam_stance: None,
             freestep_left: true,
@@ -6861,6 +6864,14 @@ impl WallClimb {
     pub fn clip_name(&self) -> Option<&str> {
         let cycle = self.cycle.as_ref().map(|c| c.intro.as_ref().map_or(c.step().name.as_str(), |i| i.0.name.as_str()));
         cycle.or(self.mv.as_ref().map(|m| m.clip.name.as_str())).or(self.wait.as_ref().map(|w| w.name.as_str()))
+    }
+
+    /// In a landing's roll (`xx_h_landing_damage_<foot>_roll`): the roll's own speed along (m/s) and whether it is the
+    /// left foot's, for AC1's free-run edge jump out of it (the running game took off from the roll's foot).
+    pub fn landing_roll(&self) -> Option<(f32, bool)> {
+        let m = self.mv.as_ref().filter(|m| m.to == LAND && m.clip.name.ends_with("_roll"))?;
+        let d = m.clip.anim.duration;
+        (d > 0.0).then(|| (root_motion_at(&m.clip, m.clip.frames()).with_z(0.0).length() / d, m.clip.name.contains("_footl")))
     }
 
     /// Velocity in the air (m/s), if falling.
@@ -12434,7 +12445,11 @@ impl WallClimb {
                 // (Not the hop out of the hay at a wall: it goes over the hiding place's own rim, 1.07 m up, its room
                 // tested before it starts; stopped by that rim at the root's height, he stayed inside the box.)
                 let slide = (next - root.translation).with_y(0.0);
+                // (Not a free-running landing roll in a city: AC1 rolled on 0.2 m past a roof's rim and jumped from there,
+                // route `roof1_free_east`; held at it, ours played the roll out on the rim.)
+                let roll_over = self.free_run && level.guided() && m.to == LAND && m.clip.name.ends_with("_roll");
                 let ledge = m.to != JUMP
+                    && !roll_over
                     && level.ground(root.translation, 0.3, 0.3).is_some()
                     && level.ground(next + slide.normalize_or_zero() * 0.25, 0.3, GROUND_MOVE_DROP).is_none();
                 if slide.length() > 1e-4 && ((m.to != HAY_OUT && blocked(level, root.translation, slide)) || ledge) {
