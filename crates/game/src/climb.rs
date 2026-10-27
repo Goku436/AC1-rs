@@ -630,6 +630,9 @@ const WALL_RUN_LEAD_IN: &str = "xx_h_impultionstraight_footl_to_wallingfront_ste
 const REBOUND_OFF_SPEED: f32 = 2.3;
 /// And down (m/s; the same clip's 3 m in 0.47 s).
 const REBOUND_DROP_SPEED: f32 = 6.4;
+/// How long the kick off holds still at the top once in the air, before it moves (s: the running game's root stood 4
+/// frames at the top of `wall0` after going into HumanInAir, twice, then fell at a steady 7 m/s; route `wall0_free`).
+const REBOUND_HOLD: f32 = 4.0 / 60.0;
 /// The wall run's top with nothing to grab and the legs held: the kick off backwards (AC1, seen in the running game).
 const WALL_RUN_REBOUND: [&str; 3] =
     ["xx_h_wallingfront_step1_footr_tr_rebound_footr_a", "xx_h_wallingfront_step1_footr_tr_rebound_footr_b", "xx_h_rebound_footr_tr_fall"];
@@ -1619,6 +1622,8 @@ pub struct WallClimb {
     descend: Option<Arc<Clip>>,
     /// Velocity to start the next fall with, instead of the previous clip's (rebound, leap of faith).
     fall_with: Option<Vec3>,
+    /// Seconds the next fall holds the root still before it moves (the wall run's kick off the top, `REBOUND_HOLD`).
+    fall_hold: f32,
     /// Coming down in a leap of faith (lands in the hay with the faith landing).
     faith: bool,
     /// The faith dive is a let-go's over a haystack (`let_go_dive`): it enters the hay as a side jump.
@@ -4460,6 +4465,7 @@ impl WallClimb {
             cuts: vec![],
             descend: None,
             fall_with: None,
+            fall_hold: 0.0,
             faith: false,
             let_go_dive: false,
             fall_top: f32::NEG_INFINITY,
@@ -11813,6 +11819,10 @@ impl WallClimb {
         }
         self.fall_top = self.fall_top.max(root.translation.y);
         let Some(v) = &mut self.fall_v else { return };
+        if self.fall_hold > 0.0 {
+            self.fall_hold -= dt;
+            return;
+        }
         // (A free jump comes down harder until it falls at `FREE_JUMP_FAST`: off the Damascus bureau's roof the running
         // game's went from 1.9 to 8.6 m/s down in 0.33 s past its top, and ours, under gravity, landed 1.3 m further.)
         // (A free jump flies at its target 3 m down: falling, it comes down at `FREE_JUMP_GRAVITY` to `FREE_JUMP_FAST` and
@@ -12711,6 +12721,7 @@ impl WallClimb {
                 // (Flying off backwards and down as `rebound_footr_tr_fall` moves, 0.8 m back and 3 m down in 0.47 s: AC1
                 // lands 0.65 m out, 1.96 m down in 0.27 s, falling at a steady 7 m/s; from rest ours took 0.65 s.)
                 self.fall_with = Some(self.normal.with_y(0.0).normalize_or_zero() * REBOUND_OFF_SPEED + Vec3::NEG_Y * REBOUND_DROP_SPEED);
+                self.fall_hold = REBOUND_HOLD;
                 debug!("climb: the wall run tops out with nothing to grab: rebound off it");
             }
             if !self.queue.is_empty() {

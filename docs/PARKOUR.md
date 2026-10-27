@@ -1477,6 +1477,11 @@ Banned445's `jump_kind`), from half its reception: stood up on a roof's rim with
 running game hopped onto it 0.13 s into the stand-up; ours stood it out and walked off the rim. A wall run comes first,
 its wall looked for along the facing too (`Human__WallingWallTest`). Left there: the jump onto that roof was a target
 jump (`run_front_050cm`, `air_front_050cm`, a soft landing), ours the free jump 8 m on (`air_down_800cm`, a hard one).
+`wall0_free` (0.92 to 0.63 m; mean 0.56 to 0.33): the wall run's kick off the top holds still 4 frames once in the air
+before it falls (`REBOUND_HOLD`; the running game's root stood at the top 0.067 s into HumanInAir, both times, then
+fell at a steady 7 m/s). Left there: it lands into the walk (`landing_straight_soft_footr_tr_l_walk_footl`) with high
+profile, the legs and W held, where AC1's speed ratio from the pad (0xEDBAF0, Banned445's `speed_ratio`) reads 1.0, the
+sprint's; ours lands into the wait, by the body's speed.
 The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
