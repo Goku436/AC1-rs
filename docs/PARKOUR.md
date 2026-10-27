@@ -1437,7 +1437,14 @@ within 1 m (`roof1_free_east`, `seams_free_west` jumped onto the new ones).
 from where he stands, and ours' own `beam_step_on` (a beam's end just ahead at an edge, walked onto) is off in the cities;
 at roof2's north-west and west rims the running game jumped where ours walked onto a beam sticking out under the rim
 (`roof2_free_nw` 5.3 m off at the end, 2.4 now; `roof2_free_west` 2.8, 0.4 now). The traces hold no poses (path, yaw,
-context and actions only); the hook's live log has the bones and IK goals, so a pose comparison is the next step. The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
+context and actions only); the hook's live log has the bones and IK goals, so a pose comparison is the next step.
+The free jump (2026-10-27): the running game's seven in the traces (`xx_h_beam_air_front_*`, no target) are one shape:
+the takeoff makes the rise, 0.55 m over the takeoff each, the flight leaving at about 0.3 m/s up; then -0.3, -1.5, -2.9,
+-5.6, -8.0, -8.5 m/s over its 0.1 s steps, every one within 0.4 (about 13 m/s² down to 3.3 m/s, then 30 to 8.5, held:
+`FREE_JUMP_UP`, `FREE_JUMP_GRAVITY_EARLY`, `FREE_JUMP_HEAVY_FROM`, `FREE_JUMP_GRAVITY`, `FREE_JUMP_FAST`). Ours had
+launched it at 3 m/s up on top of the takeoff (0.4 m higher, at its top 0.2 s later) and come down at 20 m/s² from the
+top: on `roof1_free_east` its height off by up to 1.4 m, now 0.3. Mean path gap 0.42 to 0.41 m. Its flat speed is still
+under the running game's (6.2-6.5 m/s against 6.8-8.5 over the flight). The largest left: `roof2_free_ne` (8.3 m): running north-east at exactly 45 degrees past a beam's side edge, ours'
 jump query takes the edge (it faces the run at exactly 45 degrees, the bound of "faces the jumper within 45"), the running
 game jumped on into the street; a run scripted at 45.0 degrees cannot tell which side of the bound AC1 is on.
 
@@ -1728,7 +1735,7 @@ way: each rule rewritten here, credited in the comments. His README still calls 
 | 4c9b126 | a swing started again from a still hang plays the momentum build-up first | ported (`SWING_MOMENTUM`) |
 | 9390e4e, afa4e0f | the wall hang's body axis from the foot records: the root 1.1 m down it and 0.5 m out square to it; the body box on that pose | ported for the hang at rest (`wall_hang_lean`, the body tilted by `tilt`, kept along its shimmies); where the leaned box meets the wall ours stays upright (gauntlet G24's upper row); his entries' support boxes and step roots not yet |
 | 73c8329, 693de57, a49244e, 3c2e51b (A01), 4257ced, 922c701 | shimmy across a bend, the wall-free hang, its switch clip, wall run from the lean, beam step-off, the free-step stay | already ours |
-| 6f0bfae, 9199a0e | the free jump falls from rest at its target | open: ours' live fit (`FREE_JUMP_FAST`, audit AIR-5) disagrees; needs a live check |
+| 6f0bfae, 9199a0e | the free jump falls from rest at its target | ours' fit to the running game's seven free jumps in the traced routes (2026-10-27, below): the flight leaves the takeoff at its top (0.3 m/s up), 13 m/s² down to 3.3 m/s, then 30 to 8.5 m/s, held; no fall from rest seen |
 | 2764d9f, ad6f172, e0cf444 | the long free-hang catch to the side, one hand, then the second hand's reach | open: his notes and constants disagree on which clip is which side, the side comes from a stale record, and ours has no second-hand reach |
 | b284b1e | the wall run's width check off a jut | skipped: ours' `wall_spans` is fitted to live runs (7813d93) |
 | 5d5b570 | the free-step stay's wall run from half of its reception (0xE503D0's first test) | ported (ours waited for the stay to end); the take-off foot from the pose skipped |

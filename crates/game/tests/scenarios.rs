@@ -1143,9 +1143,10 @@ const SCENARIOS: &[Scenario] = &[
         env: &[("AC1_START", "-98,114,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-14"), ("AC1_LEGS", "0-14"), ("AC1_CLIMB", "nograb,wait=3,leap-up=8")],
         secs: 12.0,
         want: &[
-            // (Onto the thin wall's top, then AC1's free jump off it catches the wall of holds in the air.)
+            // (Onto the thin wall's top, then AC1's free jump off it catches the wall of holds in the air: in the wall
+            // hang since the free jump flies as the running game's, its top 0.55 m over the takeoff.)
             "tr_hangknee_131cm_footl",
-            "-> 2m via xx_fall_tr_climb_min_b",
+            "-> hangwall_open via xx_fall_tr_hangwall_straight_min_b at [-86.6",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl",
             "running jump aimed at [-79.00, 2.00, 114.00]",
             "freestep_down_tr_freestep_entry",
@@ -1962,7 +1963,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,left=1.2"),
         ],
         secs: 4.5,
-        want: &["rebound pose off the right foot (0.00 m lower)", "back eject, 89 degrees off straight away", "the run ends at [21.3", "0.00, 7.8"],
+        want: &["rebound pose off the right foot (0.00 m lower)", "back eject, 89 degrees off straight away", "the run ends at [21.3", "0.00, 7.7"],
         never: &["EMBED"],
     },
     Scenario {
@@ -1978,7 +1979,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,right=1.2"),
         ],
         secs: 4.5,
-        want: &["rebound pose off the left foot (0.30 m lower)", "back eject, -89 degrees off straight away", "the run ends at [21.3", "0.00, 22.61] (game"],
+        want: &["rebound pose off the left foot (0.30 m lower)", "back eject, -89 degrees off straight away", "the run ends at [21.3", "0.00, 22.70] (game"],
         never: &["EMBED"],
     },
     // User report #11 (Damascus, by a market stall): the running jump at a house's roof edge flew the surface flight into
@@ -2112,7 +2113,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,downleft=1.2"),
         ],
         secs: 4.5,
-        want: &["via xx_h_hangwall_tr_rebound_footr", "back eject, 45 degrees off straight away", "the run ends at [16.5", "0.00, 10.36] (game"],
+        want: &["via xx_h_hangwall_tr_rebound_footr", "back eject, 45 degrees off straight away", "the run ends at [16.4", "0.00, 10.28] (game"],
         never: &["EMBED"],
     },
     // The eject goes by the stick as the camera sees it, not the climbing stick in the character's frame (AC1's jump off a
@@ -2132,7 +2133,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_CLIMB", "nograb,wait=2.4,down=1.2"),
         ],
         secs: 4.5,
-        want: &["back eject, 45 degrees off straight away", "-> land via xx_h_landing_damage_footl_roll at [16.5", "0.00, 10.36] yaw 45"],
+        want: &["back eject, 45 degrees off straight away", "-> land via xx_h_landing_damage_footl_roll at [16.4", "0.00, 10.28] yaw 45"],
         never: &["EMBED"],
     },
     // User report #1 (2026-10-12): stuck in a Damascus rooftop hiding place. The hop out's room was tested along a ray
@@ -3174,15 +3175,16 @@ const SCENARIOS: &[Scenario] = &[
         never: &["came down on an edge", "landing_damage", "EMBED"],
     },
     // User report 46392: running off B4 toward B5's north-west corner, 1.2 m up and 4 m on (outside AC1's reach zone 1,
-    // so no target): AC1's free jump flies the stick's way (Banned445's port 1753486, live), its feet meet the corner,
-    // and the edge landing steps off over B5's west edge the way he was going, facing the drop, as AC1's does; never
-    // back over the edge he came from.
+    // so no target): AC1's free jump flies the stick's way (Banned445's port 1753486, live); never back over the edge he
+    // came from. Since the free jump flies as the running game's (its top 0.55 m over the takeoff, the seven in the
+    // traced Damascus routes) the feet pass under the corner, and the catch in the air takes B5's edge in the wall hang
+    // (before, launched 3 m/s up, they met the corner and the edge landing stepped off over B5's west edge).
     Scenario {
-        name: "rooftops: B4 at B5's corner out of reach: the free jump, the edge landing over the far edge, not back (report 46392)",
+        name: "rooftops: B4 at B5's corner out of reach: the free jump catches B5's edge, never back (report 46392)",
         tags: &["jump"],
         env: &[("AC1_START", "68.9,31.5,50,5"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-3")],
         secs: 2.5,
-        want: &["came down on an edge at [63.9", "step off it (back)"],
+        want: &["found the hold at [64.08, 5.69, 27.56]", "-> hangwall_open via xx_fall_tr_hangwall_straight_min_b"],
         never: &["step off it (front)", "EMBED"],
     },
     // User report 423408: a wall run's eject back at a hold on the wall behind flew at the hold's hang, and the fall's catch

@@ -1128,8 +1128,14 @@ const CATCH_BEHIND_COS: f32 = -0.5;
 const CATCH_SIDE_REACH: f32 = 1.2;
 /// A jump with no target comes down at this (m/s²) until falling at `FREE_JUMP_FAST` (m/s), held there till its free
 /// target, then under gravity: the running game's, measured off Damascus roofs (20 m/s², about 8 m/s).
-const FREE_JUMP_GRAVITY: f32 = 20.0;
-const FREE_JUMP_FAST: f32 = 8.0;
+const FREE_JUMP_GRAVITY: f32 = 30.0;
+const FREE_JUMP_FAST: f32 = 8.5;
+/// Before that, down to `FREE_JUMP_HEAVY_FROM` (m/s), at this (m/s²): the 41 traced Damascus routes' seven free jumps
+/// fell at -0.3, -1.5, -2.9, -5.6, -8.0, -8.5 m/s over the 0.1 s steps from the flight's start, every one within 0.4.
+const FREE_JUMP_GRAVITY_EARLY: f32 = 13.0;
+/// A free jump's flight leaves the takeoff at this up (m/s).
+const FREE_JUMP_UP: f32 = 0.35;
+const FREE_JUMP_HEAVY_FROM: f32 = 3.3;
 /// The way over a jump must be clear this high (m) above the higher of its two ends.
 const JUMP_AC1_CLEAR: f32 = 0.6;
 /// At this speed (m/s, the sprint) the reception is all its quick version.
@@ -4622,7 +4628,10 @@ impl WallClimb {
             _ => {
                 let rate = air.anim.duration / jump_airtime();
                 w.queue = vec![Queued { rate, ..Queued::new(air, FALL) }];
-                w.launch = JUMP_UP_SPEED;
+                // (The free jump's flight leaves at its top: the takeoff has made the rise, as the running game's seven in
+                // the traced routes, 0.55 m over the takeoff each, at 0.3 m/s up; ours launched it at 3 m/s up on top of the
+                // takeoff, 0.4 m higher and 0.2 s later.)
+                w.launch = if bar.is_none() { FREE_JUMP_UP } else { JUMP_UP_SPEED };
             }
         }
         w.can_catch = true;
@@ -11761,7 +11770,17 @@ impl WallClimb {
         // holds that speed till it is 3 m under its top, then falls under gravity; the running game's levelled off at
         // about 8 m/s for 0.3 s before its free target, three times, where ours went on to 11 m/s: audit AIR-5.)
         let to_target = self.free_jump && self.fall_top - root.translation.y < FREE_JUMP_DOWN;
-        let g = if to_target && v.y < 0.0 { if v.y > -FREE_JUMP_FAST { FREE_JUMP_GRAVITY } else { 0.0 } } else { GRAVITY };
+        let g = if to_target && v.y < 0.0 {
+            if v.y > -FREE_JUMP_HEAVY_FROM {
+                FREE_JUMP_GRAVITY_EARLY
+            } else if v.y > -FREE_JUMP_FAST {
+                FREE_JUMP_GRAVITY
+            } else {
+                0.0
+            }
+        } else {
+            GRAVITY
+        };
         // (A let-go's fall action, `xx_h_hang<wall|free>_tr_fall_a` then `_b`, is FROMANIM: its root motion carries the
         // fall to its end (0xE0F47A takes the whole action), then `xx_h_jumpfalling01` falls from rest; Banned445's
         // b31c01f / 3c2e51b, 14 of 14 of his recordings of the running game. Ours fell under gravity from `_a`'s end speed.
