@@ -844,6 +844,8 @@ const REVERSE_LATCH: f32 = 0.3;
 /// Letting go of the direction above this speed stops with a stop clip (m/s): past the walk band's top (AC1's run stop
 /// wants the speed value over 0.25, 1.9 m/s).
 const STOP_SPEED: f32 = 1.9;
+/// The stick let go faster than this (m/s) in low profile, the run eases down to it before the jog stop.
+const JOG_STOP_FROM: f32 = 2.5;
 /// AC1 takes an empty hand pressed within this long (s) for the pull-down (`sub_ED4A20(3, 0.2)`, Banned445's port).
 pub const HAND_DROP_BUFFER: f32 = 0.2;
 /// The ledge stop starts with the edge this close ahead (m), or as far as a run goes in `LEDGE_STOP_FRAME` (s). (AC1's
@@ -959,8 +961,10 @@ fn ground_move(
                 (w, None)
             });
         }
-        if !wants {
-            // (Low profile faster than a walk: the jog stop.)
+        // (Low profile faster than a walk: the jog stop, once the run has eased down to `JOG_STOP_FROM`. Let go at 5-6.5
+        // m/s, the running game slowed to about 2 m/s over 0.15 s before its 0.2 s jog stop began, 1.15 m in all where
+        // ours, stopping at once, went 0.33 m, four traced routes (`seams_free_north`, `roof2_free_east`, ...).)
+        if !wants && speed <= JOG_STOP_FROM {
             let names = vec![format!("xx_h_jogstop_{f}")];
             return act(lib, names, Vec3::ZERO, false).map(|w| (w, None));
         }

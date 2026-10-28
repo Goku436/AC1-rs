@@ -1491,6 +1491,10 @@ gate, and the wall run starts off it, 0.35 s after landing as the running game's
 ledge 1.3 m down under the roof's overhang and hung on its edge in the air 0.8 s before falling to the street; ours'
 candidate query drops that ledge (no room on top behind it, the port's room ray), aims at a diagonal beam 1.2 m on and
 stands on it. Left.
+The low-profile jog stop (`roof2_free_east`, `seams_free_north`, `seams_free_west`, `wall1_climb`; at rest 1.08 to 0.45,
+1.52 to 1.07, 0.74 to 0.12 and 0.86 to 0.23 m): let go at 5-6.5 m/s, the running game eased down to about 2 m/s over
+0.15 s before its 0.2 s `xx_h_jogstop_<foot>` began, 1.15 m in all, mostly on the right foot; ours played it at once and
+went 0.33 m. The run now eases down to 2.5 m/s first (`JOG_STOP_FROM`), the foot the cycle has then (33 of 41 at rest).
 `roof1_free_south` (0.76 to 0.43 m; at rest 10.8 to 5.6) and `roof1_free_sw` (2.82 to 1.74 m): the free-step stay with
 its jump on to come (free running at a drop edge ahead) is not left at its item's gate, which let it go 0.07 s in; it
 jumps on from half, as AC1 stays in HumanNarrowObject (off a roof onto a beam at its edge the running game jumped on
