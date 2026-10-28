@@ -329,6 +329,16 @@ def ours_settings(r, trace, name=""):
     """The route's inputs as ours' script settings (AC1_WALK, AC1_HIGH, ..., AC1_CLIMB)."""
     i, secs = as_pressed(r["inputs"], name), r["secs"]
     x, y, z = r["at"]
+    # (From where the real run's recording starts: the camera's align step before it can leave him a little on, 0.4 m on
+    # `wall1_hang_up`, and ours then ran 0.15 s behind all the way.)
+    try:
+        with open(os.path.join(LIB, f"{name}.real.tsv")) as f:
+            first = next(l for l in f if l[:1].isdigit()).split("	")
+        fx, fy, fz = float(first[2]), float(first[3]), float(first[4])
+        if math.hypot(fx - x, fy - y) < 1.0:
+            x, y = fx, fy
+    except (OSError, StopIteration, IndexError, ValueError):
+        pass
     yaw = real_heading(r, name)
     st = {"AC1_START": f"{x},{-y},{yaw - 90:.2f},{z + 1.5}", "AC1_TRACE": trace}
     covers = lambda k, span: k in i and i[k][0] <= span[0] and i[k][1] >= span[1]
