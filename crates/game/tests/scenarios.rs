@@ -2013,8 +2013,9 @@ const SCENARIOS: &[Scenario] = &[
     },
     // User report #13 (Damascus): a wall run up nothing drawn, on the collision of a scaffold (`Scaffold_2x3x8_01A01`, a
     // skinned prop with 69 bones) left undrawn as a character. Now drawn; no entity is collided with and not drawn. (Since
-    // 2026-10-27 the free-step stay on the first crate hops onto the next, AC1's jump kind 4, and he climbs onto the
-    // scaffold from there.)
+    // 2026-10-27 the free-step stay on the first crate hops onto the next, AC1's jump kind 4; since 2026-10-28 the stay
+    // on that one, played out as AC1 does, runs up the scaffold from it and tops out, where the ground took over early
+    // and climbed 1 m.)
     Scenario {
         name: "Damascus report #13: the wall run by the crates runs up the scaffold, drawn (nothing collided with is undrawn)",
         tags: &["wallrun"],
@@ -2030,7 +2031,7 @@ const SCENARIOS: &[Scenario] = &[
             ("AC1_NO_CACHE", "1"),
         ],
         secs: 3.0,
-        want: &["0 entities collided with and none of their meshes drawn", "via xx_h_wait_hipm_footl_tr_climbing_1m at [226."],
+        want: &["0 entities collided with and none of their meshes drawn", "the wall run from the free-step stay at [225.", "hangknee -> top via"],
         never: &["EMBED"],
     },
     // User report #6 (Damascus): free running off a roof at a building's ledge 7.8 m up, he took a window 2 m below it (the

@@ -171,6 +171,8 @@ pub struct Character {
     pub edge_lock: Option<Vec3>,
     /// Off a beam's end: getting up to the run at `BEAM_OFF_ACCEL`, not `RUN_ACCEL`, until there.
     pub slow_ramp: bool,
+    /// Off a free-step reception played out: getting up to the run at once, easing in over `QUICK_RAMP_TAU`.
+    pub quick_ramp: bool,
     /// Where the stick asks to go (horizontal, zero when let go): the locomotion banks toward it (`Animator::advance`).
     pub want_dir: Vec3,
     /// Walking with a crowd it blends into (legs held, no direction): the crowd's velocity.
@@ -645,6 +647,7 @@ pub fn spawn_character_shared(
         follow: None,
         edge_lock: None,
         slow_ramp: false,
+        quick_ramp: false,
         want_dir: Vec3::ZERO,
         last_landing: None,
         landings: 0,
@@ -737,6 +740,7 @@ impl Character {
         self.ragdoll = None;
         self.edge_lock = None;
         self.slow_ramp = false;
+        self.quick_ramp = false;
         self.exit_fade = None;
         self.follow = None;
         self.want_dir = Vec3::ZERO;
@@ -1299,6 +1303,10 @@ const RUN_ACCEL: f32 = 13.0;
 /// on at the crouch jog's 3.7 m/s, 4.0, 4.4, 4.8, 5.3, 5.8 and 6.0 over the next 0.6 s, three times (routes
 /// `roof1_free_sw`, `roof2_free_nw`, `seams_free_north`), where after a free-step arrival it was at 6 within 0.1 s.
 const BEAM_OFF_ACCEL: f32 = 4.5;
+/// Off a free-step reception played out (s): the free run comes back as the reception's 0.2 s blend into the gait carries
+/// it, easing in by this time constant. In the traces, every time (routes `seams_free_south`, `seams_free_east`,
+/// `roof2_free_*`, `roof1_free_*`), 2.0, 4.7, 5.4, 6.0 and 6.5 m/s at 0.025-0.225 s; ours took `RUN_ACCEL`'s 0.5 s.
+const QUICK_RAMP_TAU: f32 = 0.065;
 /// Running at least this fast vaults low obstacles on its own.
 const RUN_VAULT_SPEED: f32 = 2.5;
 const HANG_DROP: f32 = 1.75;
@@ -1788,6 +1796,7 @@ pub fn locomotion(
                     ch.exit_fade = w.last_pose().cloned().map(|p| (p, 0.25, 0.25));
                     ch.velocity = w.exit_velocity;
                     ch.slow_ramp = w.off_beam;
+                    ch.quick_ramp = w.last_clip.as_deref().is_some_and(|n| n.contains("_tr_freestep_entry"));
                     // (A free-step reception, `..._tr_freestep_entry_<foot>`: the next jump takes off from that foot.)
                     if let Some(name) = w.last_clip.as_deref() {
                         if name.contains("freestep_entry_footr") {
@@ -2122,8 +2131,11 @@ pub fn locomotion(
         // turned 45 degrees at 2.6 rad/s to within 8 degrees, routes `roof1_free_sw`, `roof2_free_nw`; the eased turns
         // were at the sprint.)
         ch.slow_ramp &= want.length() > cur.length() + 0.01;
+        ch.quick_ramp &= want.length() > cur.length() + 0.05;
         let speed = if ch.slow_ramp {
             (cur.length() + BEAM_OFF_ACCEL * dt).min(want.length())
+        } else if ch.quick_ramp {
+            cur.length() + (want.length() - cur.length()) * (1.0 - (-dt / QUICK_RAMP_TAU).exp())
         } else if want.length() > RUN_START_MIN && want.length() > cur.length() + 0.01 && heading.dot(want.normalize()) > 0.707 {
             // Getting up to a run: at a steady rate, as the running game's free-run starts (about 13 m/s² from a standstill
             // to 5.6 m/s in 0.45 s; ours, easing in, took 0.65 s).

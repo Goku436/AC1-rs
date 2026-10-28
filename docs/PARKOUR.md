@@ -1525,7 +1525,14 @@ running game ran up the wall onto the ladder (`xx_h_wallingfront_entry_footl_b`,
 missed the rungs, so it stepped on at the foot; a ladder up the wall there now waives it. Left there: off the ladder's
 top the running game ran at 3.0-3.6 m/s for a second (the speed of the run without the legs, `wall1_hang_up`) before
 it free ran again, where off the wall hang's top-out it free ran at 5.5 m/s at once (`wall1_climb`); ours free runs
-at once, so the end went 1.16 to 2.26 m. One trace; parked. The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
+at once, so the end went 1.16 to 2.26 m. One trace; parked.
+`seams_free_east` (1.53 to 0.22 m), `seams_free_south` (0.39 to 0.11 m), `roof2_free_west` (0.32 to 0.15 m); 37 of 41
+end within 1 m, mean path gap 0.22 m: in every traced free run going on to the ground off a free-step reception, the
+running game stayed in `HumanNarrowObject` 0.15-0.2 s, the reception played out (still from 0.08 s), and only left it
+early to jump on (0.08 s) or run up a wall (0.09 s); ours' ground gate let it go 0.07 s in and ran 0.3-0.5 m ahead.
+Played out, the free run then comes back at once (2.0, 4.7, 5.4, 6.0, 6.5 m/s at 0.025-0.225 s, the reception's 0.2 s
+blend into the gait: `QUICK_RAMP_TAU`), not at `RUN_ACCEL`'s start from rest. Left: after that the running game holds
+6.5-7 m/s for a while, ours' run 6.2, so `roof2_free_east` and `roof1_free_south` trail by 0.3-0.4 m. The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
 0.39 m): the running game came to the bar 0.4 m out from the wall's line both times, near the point ours' jump query picks
 (0.5 m in from the hold's end, 0.2 m short of it); ours' eject aims along the wall at the crossing. Left: the query has no
 zones for a jump off the wall.

@@ -8234,18 +8234,6 @@ impl WallClimb {
         }
     }
 
-    /// Whether the free-step stay jumps on once half its reception is played (see the stay in `update`): free running with
-    /// the stick at a drop edge ahead, no beam piece ahead and no wall to run up.
-    fn stay_jumps_on(&self, level: &Level, root: &Transform) -> bool {
-        let dir = self.move_dir.with_y(0.0);
-        self.sprint
-            && self.high
-            && dir.length() > 0.35
-            && drop_edge_ahead(level, root.translation, dir.normalize()).is_some()
-            && !beam_ahead(level, root.translation, dir.normalize())
-            && !wall_run_wall_ahead(level, root.translation, dir.normalize())
-    }
-
     /// High profile on a beam with the stick and no drop edge under 2 m ahead: AC1's narrow interpreter picks the jump
     /// kind 3 (4 with the legs held) every frame, no press needed (BeamState 0xEEAAA0, Banned445's `beam_jump_kind`), and
     /// runs its candidate search with it: the free-run box ahead (`From::FreeRun`: 0.45-1.3 m up, 0.5-1.3 m on, 2 m with
@@ -12557,11 +12545,12 @@ impl WallClimb {
             && !(self.sprint
                 && crate::character::wall_head_on(level, root.translation, self.move_dir)
                 && !(self.legs_held && wall_run_wall_spans(level, root.translation, self.move_dir)))
-            // (Nor the free-step stay with its jump on to come: free running at a drop edge ahead, AC1 stays in
-            // HumanNarrowObject and jumps on from half of it (below). Off a roof onto the beam at its edge the running
-            // game jumped on 0.1 s after landing; ours' gate let it go 0.07 s in, and it ran onto the beam crosswise and
-            // crouched there, route `roof1_free_south`.)
-            && !(m.clip.name.contains("_tr_freestep_entry") && self.stay_jumps_on(level, root))
+            // (Nor a free-step reception before its end: AC1 plays it in HumanNarrowObject's stay, which jumps on from
+            // half of it or runs up a wall (below) and else hands it to the ground only once played out. In every traced
+            // free run going on to the ground the stay lasted 0.15-0.2 s, still from 0.08 s; ours' gate let it go 0.07 s
+            // in, 0.3-0.5 m ahead, routes `seams_free_south`, `seams_free_east`, `roof2_free_east`; and off a roof onto the
+            // beam at its edge it ran onto the beam crosswise, route `roof1_free_south`.)
+            && !(m.clip.name.contains("_tr_freestep_entry") && m.t + 1.0 / 60.0 < m.clip.anim.duration)
             && lib.graph.gate(&m.clip.name).is_some_and(|g| g.may_leave(true, self.high))
         {
             debug!("climb: {} left for running (its gate allows it)", m.clip.name);
