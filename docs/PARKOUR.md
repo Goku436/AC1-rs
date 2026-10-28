@@ -1504,6 +1504,15 @@ the checklist for live comparisons.
 that the forward line misses, the candidate query's "faces the jumper within 45 degrees" tie went to taking it, and ours
 aimed 37 degrees off the way at the edge and walked the beam; the running game made its free jump on into the street.
 An exact 45 now stays out (`FACING_45_COS`). (36 of 41, 34 at rest, mean path gap 0.23 m.)
+`street_run_east` (0.37 to 0.08 m): walking into a 0.66 m step 0.2 m deep with more risers over it, the running game put
+a hand on it (`xx_h_collide_full_hand_070cm`); ours' foot-up collide stepped onto it and went 0.36 m further. The foot-up
+collide now wants its top 0.3 m deep (`COLLIDE_FOOT_ROOM`), else the lean's hands. Not changed: off the street the running
+game got onto the 1.16 m box with the impulsion and the free step at 3.2 m/s too (and at 3.5 and 5.7 m/s in other routes);
+ours takes that only under 1.9 m/s, as taking it at any speed, or at any top nearer than the takeoff's 1.3 m, broke five
+roof routes. The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
+0.39 m): the running game came to the bar 0.4 m out from the wall's line both times, near the point ours' jump query picks
+(0.5 m in from the hold's end, 0.2 m short of it); ours' eject aims along the wall at the crossing. Left: the query has no
+zones for a jump off the wall.
 `roof1_free_south` (0.76 to 0.43 m; at rest 10.8 to 5.6) and `roof1_free_sw` (2.82 to 1.74 m): the free-step stay with
 its jump on to come (free running at a drop edge ahead) is not left at its item's gate, which let it go 0.07 s in; it
 jumps on from half, as AC1 stays in HumanNarrowObject (off a roof onto a beam at its edge the running game jumped on

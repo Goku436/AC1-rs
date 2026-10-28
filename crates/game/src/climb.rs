@@ -797,6 +797,8 @@ impl TurnPath {
 /// Pseudo-states: a clip chain on the ground (stops, turns, ledge stops, rolls), and leaning on a wall.
 const GROUND_ACT: &str = "ground_act";
 const LEAN: &str = "lean";
+/// The foot-up collide wants its top this deep past the face (m).
+const COLLIDE_FOOT_ROOM: f32 = 0.3;
 /// Stopped against a low obstacle with a foot on it (`xx_h_collide_full_footl_<050|070>cm_wait`, see `collide`).
 const COLLIDE: &str = "collide";
 /// The lean clips come for walls with the hands at 70 cm and at 150 cm (`{h}` is `070` or `150`); AC1 mixes
@@ -7013,6 +7015,13 @@ impl WallClimb {
         let top = level.ground(hit.point.with_y(p.y + STEP_UP_MAX + 0.2) - normal * 0.08, 0.0, STEP_UP_MAX + 0.2)?;
         let h = top.point.y - p.y;
         if !(*VAULT_HEIGHT.start()..=STEP_UP_MAX).contains(&h) || top.normal.y < 0.8 || rise(level, p, dir, hit.dist, top.point.y) < *VAULT_HEIGHT.start() {
+            return None;
+        }
+        // (Room on it for the foot, `COLLIDE_FOOT_ROOM` on at its height: else the hands go on it, the lean's. Walking into
+        // a 0.66 m step 0.2 m deep with more risers over it, the running game put a hand on it
+        // (`xx_h_collide_full_hand_070cm`); ours stepped a foot up and went 0.36 m further, route `street_run_east`.)
+        if level.ground(top.point.with_y(top.point.y + 0.3) + dir * COLLIDE_FOOT_ROOM, 0.0, 0.35).is_none_or(|g| (g.point.y - top.point.y).abs() > 0.1) {
+            debug!("climb: no foot-up collide: the {h:.2} m top is too shallow for the foot");
             return None;
         }
         let mix = ((h - 0.5) / 0.2).clamp(0.0, 1.0);
