@@ -8978,7 +8978,13 @@ impl WallClimb {
         }
         // (Not a step up further on, with room to stand on it: off the open roof's south side, a top with a second step
         // 0.3 m higher 0.8 m past its edge, which the running game free-stepped onto.)
-        let step_past = |d: f32| level.ground(p.with_y(top.point.y + STEP_PAST_UP) + fwd * (d + 0.15), 0.0, STEP_PAST_UP).is_some_and(|g| g.normal.y > 0.8);
+        // (Higher than the top: probed from inside a taller block standing on it, the probe met the top under the block,
+        // and a vault up a Damascus step ran on into a 0.83 m block on it, climbing sweep `w25-run`.)
+        let step_past = |d: f32| {
+            level
+                .ground(p.with_y(top.point.y + STEP_PAST_UP) + fwd * (d + 0.15), 0.0, STEP_PAST_UP)
+                .is_some_and(|g| g.normal.y > 0.8 && g.point.y > top.point.y + 0.05)
+        };
         let (rose, blocked) = (
             rise(level, p, fwd, hit.dist, top.point.y),
             level.raycast(p.with_y(top.point.y + 0.3), fwd, hit.dist + 1.0).filter(|b| !hay && !step_past(b.dist)),
