@@ -6834,7 +6834,7 @@ impl WallClimb {
             let up = p.y - h.top();
             (h.centre - p).with_y(0.0).length() < h.half + HAY_DIVE_REACH && (-0.3..FAITH_MIN_DROP).contains(&up)
         }) {
-            let w = Self::dive_into_hay(lib, root, hay, from)?;
+            let w = Self::dive_into_hay(lib, root, hay, false, from)?;
             debug!("climb: dive into the haystack at {:.2} from a top {:.2} m above it", hay.centre, p.y - hay.top());
             return Some(w);
         }
@@ -6842,17 +6842,21 @@ impl WallClimb {
         // dive, turned to face the haystack (`xx_h_air_to_haystack` is its side hit from the air).
         let _ = high;
         let hay = level.haystacks.iter().find(|h| (h.centre - p).with_y(0.0).length() < h.half + HAY_REACH && (p.y - h.centre.y).abs() < 0.5)?;
-        let w = Self::dive_into_hay(lib, root, hay, from)?;
+        let w = Self::dive_into_hay(lib, root, hay, true, from)?;
         debug!("climb: into the haystack at {:.2}", hay.seat());
         Some(w)
     }
 
     /// `HumanHayStack`'s entry (0xE42420, from the ground and the narrow objects alike): `xx_h_freestep_footr_to_haystack_
-    /// 01` or `_02` (actions 0x244CD280 / 0x244CFACB, AC1 picks at random, ours in turn), turned to face the haystack, the
-    /// root carried onto its seat over the dive (AC1's interpolator, 0x711130, over the dive's length and 0.2 s).
-    fn dive_into_hay(lib: &mut AnimLib, root: &Transform, hay: &crate::level::HayStack, from: Option<Pose>) -> Option<WallClimb> {
+    /// 01` or `_02` (actions 0x244CD280 / 0x244CFACB, AC1 picks at random, ours in turn), turned to face the haystack when
+    /// `turn`, the root carried onto its seat over the dive (AC1's interpolator, 0x711130, over the dive's length and 0.2 s).
+    /// (From a top or a narrow object, not turned: in all four of the traced routes' dives, off a haystack's rim, the
+    /// running game kept its facing while the root went to the seat as much as 34 degrees off it, routes `hay70_walk` and
+    /// `hay70_free`; ours turned to the hay. From the ground the traces have none.)
+    fn dive_into_hay(lib: &mut AnimLib, root: &Transform, hay: &crate::level::HayStack, turn: bool, from: Option<Pose>) -> Option<WallClimb> {
         let p = root.translation;
-        let dir = (hay.centre - p).with_y(0.0).normalize_or(root.rotation * Vec3::NEG_Z);
+        let ahead = (root.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or_zero();
+        let dir = if turn { (hay.centre - p).with_y(0.0).normalize_or(ahead) } else { ahead };
         let at = Transform { rotation: facing(dir), ..*root };
         let n = HAY_DIVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 2 + 1;
         let dive = lib.get(&format!("xx_h_freestep_footr_to_haystack_0{n}"))?;
@@ -6881,7 +6885,7 @@ impl WallClimb {
         if (hay.centre - p).with_y(0.0).normalize_or_zero().dot(d) < NARROW_HAY_COS {
             return false;
         }
-        let Some(w) = Self::dive_into_hay(lib, root, hay, self.last.clone()) else { return false };
+        let Some(w) = Self::dive_into_hay(lib, root, hay, false, self.last.clone()) else { return false };
         debug!("climb: the stick toward the haystack at {:.2} off the narrow object: into it", hay.centre);
         *self = w;
         true
