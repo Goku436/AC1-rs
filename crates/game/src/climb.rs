@@ -12251,12 +12251,23 @@ impl WallClimb {
         let _ = along;
         let pitch = (-v.y).atan2(v.with_y(0.0).length());
         let forward = v.with_y(0.0).length() > 0.3 && pitch < LAND_FORWARD_COS.acos();
-        // (With the stick held, into the walk whatever the speed or the profile: every landing of the 41 traced Damascus
-        // routes with it held went into `..._tr_l_walk_footl`, from 1.1 m/s straight off a wall run's rebound to 8.1 m/s
-        // forward free running and 3.3 m/s in high profile, the speed kept running in. Banned445's port reads AC1's
-        // buckets by the pad's speed ratio (< 0.2 the wait, < 0.5 the walk, < 0.9 the jog, else the sprint's takeoff),
-        // which would give the jog or the sprint for all four; ours took them by the body's speed.)
-        let into = if stick.length() > 0.3 { LandInto::Walk } else { LandInto::from(false, self.high, self.sprint) };
+        // (With the stick held, by the pad's speed ratio (`pad_speed_ratio`): under 0.2 the wait, under 0.5 the walk, under
+        // 0.9 the jog, else the sprint's takeoff (AC1's buckets as Banned445's port reads them). The traces name only the
+        // landing action's first clip, the soft walk one, whichever of its six (soft / hard by the walk, jog and sprint)
+        // play; its length tells them apart: free running off a wall run's rebound at 1.1 m/s, the running game left the
+        // landing 0.317 s in, the hard sprint takeoff's 0.33 s `_a` mixed, where the walk's mix would give 0.267 s (the
+        // stick let go, into the wait, 0.267 s), route `wall0_free`, three times.)
+        let fwd_now = (root.rotation * Vec3::NEG_Z).with_y(0.0);
+        let into = if stick.length() > 0.3 {
+            match self.pad_speed_ratio(fwd_now) {
+                r if r < 0.2 => LandInto::Wait,
+                r if r < 0.5 => LandInto::Walk,
+                r if r < 0.9 => LandInto::Jog,
+                _ => LandInto::Sprint,
+            }
+        } else {
+            LandInto::from(false, self.high, self.sprint)
+        };
         // (Over 3 m, AC1's damage landing or its roll whatever the damage (0xE05940); the hurt-fall clips are the drop
         // sub-state's, not a landing's.)
         let hurt = drop > SAFE_DROP;
