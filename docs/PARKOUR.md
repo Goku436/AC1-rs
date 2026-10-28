@@ -1330,7 +1330,9 @@ Fixed, by AC1's rule:
   the swing back's 2 s (62377).
 - **The stance's hands reach AC1's goals** (the grid cell's holds, up to 0.3 m along and 0.15 up or down off the clip's
   hands): ours pulled a hand onto a hold only within 0.2 m; on a Damascus window box's frame both gripped the air (85785).
-  A goal within 0.5 m is reached, eased from the nearest hold.
+  A goal within 0.5 m is reached, eased from the nearest hold. The hand takes the hold nearest it once its pull is under 0.1 (it was
+  only at 0, which the pull never reached between grid moves: along a Damascus wall a hand kept a hold 1.2 m back for
+  four moves and was pulled 0.2 m off every hold for 2 s, the sweep's `w27-side`), the offset taken at once on a switch.
 
 Not done: the climbing stance's hang round a corner (TrySideLedgeGrab 0xDF22C0, its side columns' hand row into a hang
 on the side wall, the hang's boxes and the path round the corner, 0xB2A410): no test spot with a side wall's ledge and
@@ -1370,7 +1372,9 @@ free-on-wall 0.
   as the running AC1 did at the bureau's wall (route `wall1_hang_right`). Not a fault.
 - **`e5`**: round an inside corner in the wall hang, then into a free hang; back toward the corner the next face has a wall
   under the feet, and ours has no corner from the free hang into the wall hang (`xx_h_hangfree_corner_*` wants free feet
-  on both faces) while the switch's slide runs into the corner's other wall. What AC1 does there wants a live look.
+  on both faces) while the switch's slide runs into the corner's other wall. What AC1 does there wants a live look. `e4` (2026-10-28) is
+  the same: round the inside corner, down a row into the free hang (`xx_l_climb_1m_ul_hangfree`), and every move back
+  toward the corner meets its other face 0.17 m along.
 - **`e13`, a free hang against a wall** [V]: the climbing stance's ledge grab (TryLedgeGrab 0xDF0980) takes the wall hang
   when its foot probe (0xB16130 -> 0x11718B0) meets a wall: a box 0.5 m wide and 0.3 m high, 1 m under the hold, swept
   from 0.5 m out to 0.75 m behind it, at the side and the middle; else (or with no room for the wall hang's box and

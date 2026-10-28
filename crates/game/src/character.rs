@@ -1217,6 +1217,10 @@ const FOOT_IK_OUT: f32 = 0.6;
 const IK_OUT_RATE: f32 = 5.0;
 /// How fast a climbing hand's pull onto a hold may change (per second), for clips without AC1's contact tags.
 const HAND_IK_RATE: f32 = 6.0;
+/// A climbing hand takes the hold nearest it as its own once its pull is down to this (its IK at 3% after the smoothstep).
+/// (Between two grid moves the pull bottoms out at 0.07-0.08, the next move's contact taking it again: switched only at
+/// 0, the hand kept a hold 1.2 m back over four moves along a Damascus wall, pulled 0.2 m off every hold.)
+const HAND_SWITCH_W: f32 = 0.1;
 /// With the clip's contact tags (`WallClimb::contacts`): a limb's pull rises this fast while its contact bit is set and
 /// falls this fast once it is released (per second; AC1's `LimbIK` 0xE57570, 0.25 s in, 0.2 s out, audit ANIM-10).
 const CONTACT_IK_IN: f32 = 4.0;
@@ -2936,7 +2940,8 @@ pub fn animate(
                     ch.wall_hand_t[i] = near.map(|(l, _, _)| l);
                 }
                 let switching = matches!((&ch.wall_hand_t[i], &near), (Some(t), Some((l, _, _))) if !same(t, l));
-                if ch.wall_hand_t[i].is_none() || (switching && ch.wall_hand_w[i] <= 0.0) {
+                let switched = ch.wall_hand_t[i].is_none() || (switching && ch.wall_hand_w[i] <= HAND_SWITCH_W);
+                if switched {
                     ch.wall_hand_t[i] = near.map(|(l, _, _)| l);
                 }
                 // (In the climbing stance, AC1 puts the hand on its goal, the grid cell's hold, wherever the clip holds it:
@@ -2967,7 +2972,12 @@ pub fn animate(
                     (Some(h), Some(g)) if g.distance(h) < STANCE_GOAL_REACH || goal.is_some() => g - h,
                     _ => Vec3::ZERO,
                 };
-                ch.wall_goal_off[i] += (off - ch.wall_goal_off[i]).clamp_length_max(STANCE_GOAL_RATE * dt);
+                // (Onto another hold, the offset is from its point: taken at once, the old one measured from the hold left.)
+                if switched {
+                    ch.wall_goal_off[i] = off;
+                } else {
+                    ch.wall_goal_off[i] += (off - ch.wall_goal_off[i]).clamp_length_max(STANCE_GOAL_RATE * dt);
+                }
                 if let Some(hold) = hold.map(|h| h + ch.wall_goal_off[i]) {
                     let wgt = ch.wall_hand_w[i];
                     if wgt > 0.0 {
