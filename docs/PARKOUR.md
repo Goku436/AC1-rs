@@ -1106,7 +1106,10 @@ Fixed from it and from the user's recordings of 2026-10-13:
 - The switch from the wall hang into the free hang (`TrySwitchHangType` 0xDE1060) and the climbing stance's ledge grab
   into a free hang (`TryLedgeGrab` 0xDF0980) test AC1's free-hang body boxes (0xB2DD50: 0.75 x 0.5 x 2.4 m 0.5 m out and
   1.2 m up, 0.75 x 0.44 x 1.2 m 0.25 m out and 0.8 m up) at its pose (0xB15AD0: the root 2.4 m under the hands' middle),
-  and put the root there, under the holds: at a wall's end the clip had carried the legs into its corner. On the
+  and put the root there, under the holds: at a wall's end the clip had carried the legs into its corner. The climbing
+  stance's leaps into the free hang (`xx_h_climbing_climb1m_tr_hangfree_*`, their length mixes too) do the same since
+  2026-10-28: left out, a leap down a Damascus wall kept the clip's way out and hung the hands 0.4 m out from the holds
+  (climbing sweep `w18-side`). On the
   octagonal tower the swing off the wall at the next angled corner is now turned down, the climb going on round it.
 - A free hang under a cornice 0.8 m deep (test level, the slab at (-92.9, 164)) pulls up onto it: ours' inside-a-solid
   guard on the top-out probed 0.95 m in from the wrists, inside the wall behind; it now probes where he stands up. Its
@@ -1360,7 +1363,8 @@ no-grab 8 (two walls never reached from their starts, all four programs each), e
 `w25-run`, not seen again on a replay), flipflop 1, free-on-wall 1, no-hold 1.
 Damascus on dev 2026-10-28 (152 runs, after the impulsion's own-rate play, 6598c4c): pop 0, stuck 4 (the hangs `e0`, `e2`,
 `e4`, `e5`), no-grab 8 (the same two walls), hands-off 2 (`w15-run`, `w27-side`), embed 1 and flipflop 1 (`w25-run`), no-hold 1,
-free-on-wall 0.
+free-on-wall 0. After the day's hand, wall-hang and leap fixes (6031670 on): no-grab 8, stuck 4, embed and
+flipflop 1 (`w25-run`), nothing else.
 - **`e0`, the free hang in a recess** [V the box]: under a Damascus ledge the wall below is set back; the free hang hangs in
   the recess and its side wall stops the shimmy back toward the wall it came from. AC1's switch onto the wall (0xDE1060)
   tests the wall hang's box (0xB2DC80) under the lead hand's hold as it is now (0xB157B0 is handed +0x5F0 / +0x600, the

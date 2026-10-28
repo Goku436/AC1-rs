@@ -11005,8 +11005,13 @@ impl WallClimb {
             // there (0xB15AD0: the root 2.4 m under the hands' middle, at the higher hand, facing the wall) must have room
             // for the body (0xB2DD50); a wall's end with the wall under the hands' new hold stops the hang there.
             // (And a free hang's corner: TryTurnCorner 0xDD3BB0 tests the free hang's boxes at the root on the new face.)
+            // (And the climbing stance's leaps into the free hang, `xx_h_climbing_climb1m_tr_hangfree_*`: left out, the
+            // root kept the clip's way out from the wall, and a leap down onto a Damascus wall's lower holds hung its hands
+            // 0.4 m out from them, every strafe on keeping that, climbing sweep `w18-side`.)
             let off_wall_into_free = c.feet == Feet::ToFree
-                || (is_free(&c.to) && is_climb_stance(&self.state) && c.names[0].starts_with("xx_l_climb_1m_"))
+                || (is_free(&c.to)
+                    && is_climb_stance(&self.state)
+                    && (c.names[0].starts_with("xx_l_climb_1m_") || c.names[0].contains("xx_h_climbing_climb1m_tr_hangfree_")))
                 || (corner && is_free(&self.state) && is_free(&c.to));
             // (Ours' grid hand steps in a free hang, after AC1's vertical rows (`hang_row_step`, which tests AC1's boxes):
             // the hands' way from the edge held to the new one clear, 0.1 m out from them. [ours] Up past a block sticking out
