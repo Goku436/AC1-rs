@@ -119,11 +119,13 @@ impl Default for Gait {
 }
 
 impl Gait {
-    /// Landed in high profile, not free running, `since` s ago: back to the jog, held as after a start from standing for
-    /// what is left of `HIGH_START_HOLD`. Running off a 0.72 m step in high profile (route `roof2_run_south`), the running
-    /// game came down at 3.4-3.9 m/s, held that to 0.65 s after the touchdown and was back at the run's 5.1 m/s 0.85 s
-    /// after it; ours went back to the run as the reception ended, 0.25 s after it, and led by 0.9 m.
-    pub fn landed_high(&mut self, since: f32) {
+    /// Back on the ground in high profile, not free running, off a move begun `since` s ago (a landing's touchdown; 0
+    /// for the rest): back to the jog, held as after a start from standing for what is left of `HIGH_START_HOLD`. Running
+    /// off a 0.72 m step in high profile (route `roof2_run_south`), the running game came down at 3.4-3.9 m/s, held that
+    /// to 0.65 s after the touchdown and was back at the run's 5.1 m/s 0.85 s after it; ours went back to the run as the
+    /// reception ended, 0.25 s after it, and led by 0.9 m. Up a wall and over its top (route `wall1_hang_up`), it ran
+    /// on at 3.6-3.7 m/s for 0.8 s; ours at the run's 5.1.
+    pub fn regained_high(&mut self, since: f32) {
         self.value = self.value.min(BAND_JOG);
         self.hold = (HIGH_START_HOLD - since).max(0.0);
         self.since = 0.0;

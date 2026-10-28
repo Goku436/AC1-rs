@@ -173,7 +173,7 @@ pub struct Character {
     pub slow_ramp: bool,
     /// Off a free-step reception played out: getting up to the run at once, easing in over `QUICK_RAMP_TAU`.
     pub quick_ramp: bool,
-    /// Time (s) since a landing's touchdown, for the high profile's jog hold after it (`Gait::landed_high`).
+    /// Time (s) since a landing's touchdown, for the high profile's jog hold after it (`Gait::regained_high`).
     pub land_time: f32,
     /// Where the stick asks to go (horizontal, zero when let go): the locomotion banks toward it (`Animator::advance`).
     pub want_dir: Vec3,
@@ -1810,8 +1810,8 @@ pub fn locomotion(
                     ch.velocity = w.exit_velocity;
                     ch.slow_ramp = w.off_beam;
                     ch.quick_ramp = w.last_clip.as_deref().is_some_and(|n| n.contains("_tr_freestep_entry"));
-                    if ch.land_time > 0.0 && ctl.high && !ctl.free_run {
-                        ch.gait.landed_high(ch.land_time);
+                    if ctl.high && !ctl.free_run {
+                        ch.gait.regained_high(ch.land_time);
                     }
                     ch.land_time = 0.0;
                     // (A free-step reception, `..._tr_freestep_entry_<foot>`: the next jump takes off from that foot.)

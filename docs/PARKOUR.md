@@ -1552,7 +1552,11 @@ runs 0.01 nearer): measured at 0.05 s on the three traced starts, the running ga
 s, was at 4.5 at 0.8 and 5.0 at 0.9; ours held it to 0.8 s and reached 5.0 at 1.05 (`gait::HIGH_START_HOLD` 0.8 to
 0.7). After a landing in high profile (a 0.72 m step off) it came down at 3.4-3.9 m/s, held that to 0.65 s after the
 touchdown and was back at 5.1 0.85 s after it, as after a start; ours went back to the run as the reception ended.
-Ours now holds the jog after such a landing for what is left of the start's hold (`Gait::landed_high`). Not AC1's
+Ours now holds the jog after such a landing for what is left of the start's hold, and after any move handing back
+to the ground in high profile (`Gait::regained_high`): over a wall's top on route `wall1_hang_up` the running game ran
+on at 3.6-3.7 m/s for 0.75 s before rising, ours at the run's 5.1 (the route's window ends before; measured past it).
+Free running is left as it was: off ladder 68's top the running game held the jog 0.8 s, over wall 1's top it went
+straight to 6.4-6.9 (one trace each). Not AC1's
 mechanism (unknown: 0xD7D6B0's test of +0x5B0 is only the ground's entry time, 0xD98D90), its numbers.
 The step off's flight (`roof2_run_south` mean 0.15 to 0.09 m; mean path gap 0.18 m): **[V]** 2026-10-28 the step
 off's enter (0xDA5D70 -> 0xD9D1F0) aims `1 + 2 · [+0x5E8] · a` m on along the facing clamped to within 60 degrees of it
