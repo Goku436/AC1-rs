@@ -4588,14 +4588,18 @@ impl WallClimb {
         let fwd = root.rotation * Vec3::NEG_Z;
         // (Within AC1's grab probe, 0.75 m round the body (IHuman vt136): further off, a press jumps at the wall's hold;
         // the running game's tap 1.25 m from the bureau's wall did.)
-        let Some(hit) = level.raycast(root.translation + Vec3::Y * 1.2, fwd, if moving { CLIMB_START_REACH } else { CLIMB_START_STILL }) else {
+        // (Probed at three heights, the first that meets a wall taken: AC1's probe is a box round the body, where one ray at
+        // 1.2 m grazed the underside of a moulding on a Damascus wall and saw no wall, climbing sweep `w23`.)
+        let reach = if moving { CLIMB_START_REACH } else { CLIMB_START_STILL };
+        let hits: Vec<_> = [1.2, 0.9, 1.5].iter().filter_map(|h| level.raycast(root.translation + Vec3::Y * *h, fwd, reach)).collect();
+        if hits.is_empty() {
             info!("climb: no wall ahead");
             return None;
-        };
-        if hit.normal.y.abs() > 0.3 {
+        }
+        let Some(hit) = hits.into_iter().find(|h| h.normal.y.abs() <= 0.3) else {
             info!("climb: surface ahead is not a wall");
             return None;
-        }
+        };
         let normal = Vec3::new(hit.normal.x, 0.0, hit.normal.z).normalize();
         // (Off the leading foot: AC1 has the entry for each, `xx_h_wait_hipm_foot<l|r>_tr_climbing_1m`, audit CLIMB-E15.)
         let clip = lib.get(if left { ENTRY } else { ENTRY_FOOTR }).or_else(|| lib.get(ENTRY))?;
@@ -4616,7 +4620,11 @@ impl WallClimb {
         let hold = grip_hold(target, normal);
         let higher =
             up > 0.3 && hold.y - root.translation.y <= CLIMB_START_TOP && (target - reach).with_y(0.0).length() <= 0.8 && foot_cell(level, hold, normal);
-        if !higher && (up.abs() > 0.3 || d > 0.8) {
+        // (And lower, down to the stance's two rows over the feet: the guard's hand hold is 1.2 m over a foot hold, 0.3 m
+        // either way, the ground one. A hold 1.5 m over a Damascus street, 0.31 m under the clip's reach, was turned down,
+        // climbing sweep `w8`.)
+        let lower = up < -0.3 && hold.y - root.translation.y >= FOOT_ROWS && (target - reach).with_y(0.0).length() <= 0.8 && foot_cell(level, hold, normal);
+        if !higher && !lower && (up.abs() > 0.3 || d > 0.8) {
             info!("climb: nearest hold {target} is out of reach of the jump ({reach}, {d:.2} m)");
             return None;
         }

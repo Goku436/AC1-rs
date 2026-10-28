@@ -1367,7 +1367,10 @@ free-on-wall 0. After the day's hand, wall-hang and leap fixes (6031670 on): no-
 flipflop 1 (`w25-run`), nothing else. Then `w25-run` too: a vault up a 0.85 m step ran on into a 0.83 m block standing
 on it, the vault's "more top past it" probe (`STEP_PAST_UP`, for a second step up to 0.6 m higher) starting inside the block
 and meeting the step's top under it; the step past must now be higher than the top, and the run goes up the block as a
-wall run. Left: no-grab 8 (`w8`, `w23`) and the four stuck hangs.
+wall run. Then the no-grabs: the climb start probes for the wall at 1.2, 0.9 and 1.5 m, the first wall taken (one ray at
+1.2 m grazed a moulding's underside at `w23` and saw no wall; AC1's probe is a box round the body), and takes a hold down
+to two rows (1.2 m) over the feet with a foot cell under it, as its guard 0xB2E860 does (a foot hold, the hand hold 1.2 m
+over it 0.3 m either way; `w8`'s hold 1.5 m up was 0.31 m under the entry clip's reach). Left: the four stuck hangs.
 - **`e0`, the free hang in a recess** [V the box]: under a Damascus ledge the wall below is set back; the free hang hangs in
   the recess and its side wall stops the shimmy back toward the wall it came from. AC1's switch onto the wall (0xDE1060)
   tests the wall hang's box (0xB2DC80) under the lead hand's hold as it is now (0xB157B0 is handed +0x5F0 / +0x600, the
