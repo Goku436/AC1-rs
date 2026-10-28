@@ -1131,7 +1131,8 @@ pub const IMPULSION_WITHIN: f32 = 0.45;
 /// A start from standing this far through (its normalised time) still jumps with the impulsion (0xD83830): the jog's
 /// start, 0.67 s, until 0.50 s (the routes: 0.32 s did, 0.59 s took the running takeoff).
 pub const IMPULSION_PHASE: f32 = 0.75;
-/// The impulsion plays this long (s) before the takeoff: the running game cut it 0.03-0.13 s in.
+/// The impulsion plays this long (s) before the takeoff: the running game cut it 0.03-0.13 s in. (Left there at its own
+/// rate: played whole in that time, 2.7 times over, its hands and feet popped 0.2-0.26 m a frame into the takeoff.)
 const IMPULSION_TIME: f32 = 0.1;
 /// Topping out into the walk or the jog hands over at their speeds (m/s).
 const TOP_OUT_WALK: f32 = 1.9;
@@ -5222,7 +5223,7 @@ impl WallClimb {
         };
         let planned = Transform { rotation: frame, ..*root };
         let rot = world_rot(aimed);
-        let pushed = impulsion.as_ref().map_or(Vec3::ZERO, |c| root_motion_at(c, c.frames()));
+        let pushed = impulsion.as_ref().map_or(Vec3::ZERO, |c| root_motion_at(c, (IMPULSION_TIME * FPS).min(c.frames())));
         // (Where the reception's step ends, handed over to the run: see `cut` below.)
         let cut = (speed > RECEPTION_CUT_SPEED).then(|| reception_cut(&reception, speed)).flatten();
         // The reception's own step lands on the target, as AC1 aims it: in the running game the reception starts about
@@ -5255,9 +5256,7 @@ impl WallClimb {
             Some(imp) => {
                 let chain = vec![imp.clone(), takeoff.clone(), flight.clone(), reception];
                 w.start_chain_carry(chain, vec![VAULT.into(), VAULT.into(), VAULT.into(), last.into()], &planned, correct, Some(2));
-                if let Some(m) = &mut w.mv {
-                    m.rate = imp.anim.duration / IMPULSION_TIME;
-                }
+                w.cuts.push((imp.name.clone(), IMPULSION_TIME));
             }
             None => {
                 w.start_chain_carry(
@@ -8972,9 +8971,7 @@ impl WallClimb {
             w.queue.insert(0, Queued { correct: m.correct, ..Queued::new(m.clip, m.to) });
             let r = Transform { rotation: m.start_rot, ..*root };
             w.start(imp.clone(), JUMP.into(), &r);
-            if let Some(m) = &mut w.mv {
-                m.rate = imp.anim.duration / IMPULSION_TIME;
-            }
+            w.cuts.push((imp.name.clone(), IMPULSION_TIME));
             w.ease_in(from, root);
             debug!("climb: up onto the {h:.2} m top from a stand: the impulsion and the free step");
             return Some(w);
