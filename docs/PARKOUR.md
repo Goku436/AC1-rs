@@ -1374,7 +1374,10 @@ over it 0.3 m either way; `w8`'s hold 1.5 m up was 0.31 m under the entry clip's
 Damascus `AC1_SWEEP_SEED=2` and Masyaf (seed 1) on 7037471, after it: a wall hang's step out that gains under 5 cm
 (`SHIMMY_MIN`) is not taken (Masyaf `e14` strafed in place, 0.01 m a step, at a ledge's end; it now looks round); a
 free hang's turn onto a face at an angle puts the hands on the holds in depth before turning about them (Masyaf `w6`: kept
-as far out, the hands stayed 0.36 m off a tower face's hold 30 degrees round, and slipped off). Open:
+as far out, the hands stayed 0.36 m off a tower face's hold 30 degrees round, and slipped off); the standing foot IK
+leaves the feet as animated where the two grounds differ by over 0.6 m and one lies over 0.5 m under its foot (AC1's
+`IKGroundBiped` 0x432AC0; a foot over a top's edge pulled the pelvis 0.18 m down in a frame toward the street, Damascus
+seed 2 `w9` / `w13` and two hangs' pops, 19 runs flagged to 8). Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;

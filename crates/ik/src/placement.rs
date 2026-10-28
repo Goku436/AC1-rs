@@ -45,6 +45,11 @@ fn is_under(rig: &Rig, mut b: usize, ancestor: usize) -> bool {
     }
 }
 
+/// The most the two feet's grounds may differ (m) and the furthest a ground may lie under its animated foot for the feet
+/// to be placed on them (AC1's `IKGroundBiped`).
+const MAX_STEP: f32 = 0.6;
+const MAX_UNDER: f32 = 0.5;
+
 /// Foot placement: drops the pelvis so the lower foot can reach the ground, then puts each foot on
 /// the ground under it with two-bone IK and tilts it to the slope. Smoothed over time.
 #[derive(Debug, Clone)]
@@ -89,6 +94,7 @@ impl FootPlacement {
         let k = 1.0 - (-self.sharpness * dt).exp();
         let mut want = [0.0f32; 2];
         let mut normal = [Vec3::Z; 2];
+        let mut under = [0.0f32; 2];
         for (i, leg) in self.legs.iter().enumerate() {
             let ankle = pose.model_of(rig, leg.foot).pos;
             // How high the animation lifts this foot above its floor (swing phase).
@@ -96,10 +102,18 @@ impl FootPlacement {
             let probe_from = Vec3::new(ankle.x, ankle.y, floor + self.probe);
             if let Some(hit) = ground(probe_from).filter(|h| (h.point.z - floor).abs() <= self.probe) {
                 want[i] = hit.point.z - floor;
+                under[i] = ankle.z - leg.ankle_height - hit.point.z;
                 // Fade tilt out while the foot is in the air.
                 let air = (lift / 0.15).clamp(0.0, 1.0);
                 normal[i] = hit.normal.normalize_or(Vec3::Z).lerp(Vec3::Z, air).normalize();
             }
+        }
+        // Grounds too far apart to stand on both (one foot over an edge): the feet stay as animated, as AC1's
+        // `IKGroundBiped` places them only with the two grounds within `MAX_STEP` of each other, or each at most
+        // `MAX_UNDER` under its animated foot.
+        if (want[0] - want[1]).abs() > MAX_STEP && under.iter().any(|&u| u > MAX_UNDER) {
+            want = [0.0; 2];
+            normal = [Vec3::Z; 2];
         }
         // Lower the pelvis for the lower foot; never raise it (the leg would overextend).
         let pelvis_want = want[0].min(want[1]).min(0.0);
@@ -212,6 +226,24 @@ mod tests {
         assert!((l - 0.2).abs() < 0.01, "left foot at {l}");
         assert!((r + 0.1).abs() < 0.01, "right foot at {r}");
         assert!((fp.pelvis_offset() + 0.1).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_foot_over_an_edge_is_not_placed() {
+        let rig = biped();
+        let mut fp = FootPlacement::new(&rig).unwrap();
+        // The right foot over an edge, the ground 0.85 m under it.
+        let floor = rig.rest_pose().model(&rig)[3].pos.z - fp.legs[0].ankle_height;
+        let ground = |p: Vec3| Some(GroundHit { point: Vec3::new(p.x, p.y, floor + if p.y > 0.0 { 0.0 } else { -0.85 }), normal: Vec3::Z });
+        let mut pose = rig.rest_pose();
+        for _ in 0..200 {
+            pose = rig.rest_pose();
+            fp.solve(&mut pose, &rig, floor, 1.0 / 60.0, 1.0, ground);
+        }
+        let m = pose.model(&rig);
+        let r = m[fp.legs[1].foot].pos.z - fp.legs[1].ankle_height - floor;
+        assert!(r.abs() < 0.01, "right foot at {r}");
+        assert!(fp.pelvis_offset().abs() < 0.01, "pelvis at {}", fp.pelvis_offset());
     }
 
     #[test]
