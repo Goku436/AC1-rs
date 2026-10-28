@@ -1532,7 +1532,10 @@ running game stayed in `HumanNarrowObject` 0.15-0.2 s, the reception played out 
 early to jump on (0.08 s) or run up a wall (0.09 s); ours' ground gate let it go 0.07 s in and ran 0.3-0.5 m ahead.
 Played out, the free run then comes back at once (2.0, 4.7, 5.4, 6.0, 6.5 m/s at 0.025-0.225 s, the reception's 0.2 s
 blend into the gait: `QUICK_RAMP_TAU`), not at `RUN_ACCEL`'s start from rest. Left: after that the running game holds
-6.5-7 m/s for a while, ours' run 6.2, so `roof2_free_east` and `roof1_free_south` trail by 0.3-0.4 m. The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
+6.5-7 m/s for a while, ours' run 6.2, so `roof2_free_east` and `roof1_free_south` trail by 0.3-0.4 m.
+`street_free_east` (mean 0.54 to 0.44 m): the impulsion hop up a box free running took the slow reception (speed ratio
+0), so its stay's wall run, from half of it, came 0.25 s after the running game's (its stay 0.1 s); now the free run's
+quick one. High profile alone keeps the slow one (the port's ratios there are unmeasured). The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
 0.39 m): the running game came to the bar 0.4 m out from the wall's line both times, near the point ours' jump query picks
 (0.5 m in from the hold's end, 0.2 m short of it); ours' eject aims along the wall at the crossing. Left: the query has no
 zones for a jump off the wall.

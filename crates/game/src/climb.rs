@@ -8878,7 +8878,7 @@ impl WallClimb {
     /// its top at the run's speed (the root follows a steady path, `VaultPath`, the clips timed to it). (AC1 has no
     /// vault: its `passover` clips go over a ledge's edge downward. Its step-up, `collide_full_*_to_freestep`, starts
     /// from stopping against the obstacle, see `collide`.)
-    pub fn vault(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, speed: f32, from: Option<Pose>) -> Option<WallClimb> {
+    pub fn vault(lib: &mut AnimLib, level: &Level, root: &Transform, dir: Vec3, speed: f32, free_run: bool, from: Option<Pose>) -> Option<WallClimb> {
         let dir = dir.with_y(0.0).normalize_or_zero();
         let p = root.translation;
         // (Down the middle, then at the body's sides: running past a corner, the middle missed it while the body ran into
@@ -8931,6 +8931,9 @@ impl WallClimb {
         // up in the traced routes were onto tops 1.05-1.32 m up, at 2.3-3.3 m/s as well as from a stand; ours flew the run's
         // `air_up_300cm` straight off the street onto the bureau's 1.16 m box, route `street_run_east`. Lower tops it ran
         // over otherwise: taken at those, five roof routes broke.)
+        // (Its reception by the pad's speed ratio, the free run's 1 the quick one: free running up the bureau's box, the
+        // running game's stay lasted 0.1 s and it ran up the wall from it; ours' slow one put the wall run 0.25 s late,
+        // route `street_free_east`. High profile alone keeps the slow one, unmeasured (`pad_speed_ratio`).)
         if (speed < VAULT_STANDING_SPEED || (hit.dist < VAULT_TAKEOFF_MIN && h > VAULT_IMPULSION_OVER))
             && !hay
             && let Some(imp) = {
@@ -8938,7 +8941,7 @@ impl WallClimb {
                 let parts: Vec<(&str, f32)> = parts.iter().map(|(n, w)| (n.as_str(), *w)).collect();
                 lib.get(&mix_name(&parts))
             }
-            && let Some(mut w) = Self::jump_freestep(lib, level, root, top.point + fwd * VAULT_STEP_IN, false, 0.0, from.clone())
+            && let Some(mut w) = Self::jump_freestep(lib, level, root, top.point + fwd * VAULT_STEP_IN, false, if free_run { 1.0 } else { 0.0 }, from.clone())
             && let Some(m) = w.mv.take()
         {
             w.queue.insert(0, Queued { correct: m.correct, ..Queued::new(m.clip, m.to) });

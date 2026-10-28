@@ -2238,9 +2238,9 @@ pub fn locomotion(
                 kiosk
             } else if ctl.free_run {
                 WallClimb::hay_dive_ahead(lib, &level, &tf, toward, Some(ch.anim_pose.clone()))
-                    .or_else(|| WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.anim_pose.clone())))
+                    .or_else(|| WallClimb::vault(lib, &level, &tf, toward, v.length(), ctl.free_run, Some(ch.anim_pose.clone())))
             } else if ctl.high && hop(toward) {
-                WallClimb::vault(lib, &level, &tf, toward, v.length(), Some(ch.anim_pose.clone()))
+                WallClimb::vault(lib, &level, &tf, toward, v.length(), ctl.free_run, Some(ch.anim_pose.clone()))
                     .or_else(|| WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.anim_pose.clone())))
             } else {
                 WallClimb::collide(lib, &level, &tf, &ch.rig, &ch.base, ch.climb_rig, toward, Some(ch.anim_pose.clone()))
