@@ -1266,11 +1266,12 @@ const LADDER_LEAP_REACH: f32 = 0.8;
 /// (The high stand's entry, rising 0.5 m onto the first rungs, in either profile: the running game walked up to ladder 68
 /// in low profile and got on with it; ours' low one rose nothing and climbed a step behind, audit LADDER-2.)
 const LADDER_ON: &str = "xx_h_wait_hipm_footl_tr_h_ladder_climb_up_r";
-/// The step onto a ladder from its foot by the profile and the foot, [low, high] x [left, right] (`HumanLadderData`'s
-/// enter-from-ground actions, MvtAnimState 7 / 8, as Banned445's port lists them; their first clip the straight
-/// approach): walking onto ladder 68 the running game played the low profile's `xx_l_wait_hipm_footl_tr_l_ladder_climb_up_r`
-/// (0x010A34A7), standing at the foot 0.4 s before it rose; ours, the high profile's always, rose at once.
-const LADDER_ON_GROUND: [[u32; 2]; 2] = [[0x010A_34A7, 0x010A_34A6], [0x010A_251E, 0x010A_2520]];
+/// The step onto a ladder from its foot by the foot, [left, right]: the high profile's enter-from-ground actions
+/// (`HumanLadderData`'s MvtAnimState 8; their first clip the straight approach), in either profile. Walking onto ladder
+/// 68 in low profile, the running game played `xx_h_wait_hipm_footl_tr_h_ladder_climb_up_r` (0x010A251E) and rose 0.5 m
+/// onto the rungs at once, route `ladder68_walk`; ours played the low profile's (0x010A34A7, as Banned445's port picks
+/// by the profile), which rises nothing, and climbed 0.3 m lower all the way up.
+const LADDER_ON_GROUND: [u32; 2] = [0x010A_251E, 0x010A_2520];
 /// Low profile climbs a ladder at half rate with the stick pushed this far or less (AC1's `ChooseClimbAnim` 0xE24540,
 /// 0xE2490B: chosen every frame, the stick let go playing it at the full rate, 0xE24AD3; Banned445's f246687).
 const LADDER_SLOW_STICK: f32 = 0.5;
@@ -9065,7 +9066,7 @@ impl WallClimb {
         w.ladder = Some(i);
         if (p.y - l.base.y).abs() < 0.4 {
             // From the foot: the step on ends with the rungs in reach.
-            let id = LADDER_ON_GROUND[high as usize][!left as usize];
+            let id = LADDER_ON_GROUND[!left as usize];
             let name = lib.graph.action_clips(id).and_then(|items| items.first().and_then(|c| c.first()).cloned());
             let clip = name.and_then(|n| lib.get(&n)).or_else(|| lib.get(LADDER_ON))?;
             let at = Transform { translation: spot.with_y(p.y) - world_rot(rot) * root_motion_at(&clip, clip.frames()).with_z(0.0), rotation: rot, ..*root };

@@ -1711,15 +1711,15 @@ const SCENARIOS: &[Scenario] = &[
         want: &["crouched for the static jump", "-> leap via xx_h_jumpstraight_footl_to_hangwall_"],
         never: &["EMBED"],
     },
-    // Live log route ladder68_walk: walking onto ladder 68 in low profile, the running game stepped on with the low
-    // profile's entry (0x010A34A7); ours played the high profile's.
+    // Route ladder68_walk: walking onto ladder 68 in low profile, the running game stepped on with the high profile's
+    // entry (0x010A251E), rising 0.5 m onto the rungs at once; ours played the low profile's and climbed 0.3 m lower.
     Scenario {
-        name: "Damascus: walking onto a ladder in low profile steps on with AC1's low profile entry",
+        name: "Damascus: walking onto a ladder in low profile steps on with the high profile's entry, as the running game did",
         tags: &["ladder"],
         env: &[("AC1_LEVEL", "damascus"), ("AC1_NO_CROWD", "1"), ("AC1_START", "33.6,-16.82,-90,5.5"), ("AC1_WALK", "1.9"), ("AC1_STICK", "1")],
         secs: 4.0,
-        want: &["via xx_l_wait_hipm_footl_tr_l_ladder_climb_up_r", "onto ladder 68"],
-        never: &["EMBED", "tr_h_ladder_climb_up"],
+        want: &["via xx_h_wait_hipm_footl_tr_h_ladder_climb_up_r", "onto ladder 68"],
+        never: &["EMBED", "tr_l_ladder_climb_up"],
     },
     Scenario {
         // (The hop's landing takes event 7 again past half of it, its guard 0xF6FA50.)
