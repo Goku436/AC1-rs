@@ -6,7 +6,9 @@
 //! steering more than 45 degrees off the facing holds the speed back while turning.
 //!
 //! Model and numbers from Banned445's AC1-Movement-Rewritten (MIT, Copyright (c) 2026 Banned445), rewritten
-//! here; the speeds in m/s are those of AC1's blended locomotion clips (`move_blend`).
+//! here; the speeds in m/s are those of AC1's blended locomotion clips (`move_blend`). Checked against the running game
+//! on the traced routes (`tools/routes`): the high profile's jog held after a start, a landing or a climb
+//! (`HIGH_START_HOLD`, `Gait::regained_high`) is measured there, not the port's.
 
 /// Upper ends of the walk, jog and run bands.
 pub const BAND_WALK: f32 = 0.25;

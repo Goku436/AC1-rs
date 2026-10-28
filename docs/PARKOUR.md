@@ -1356,6 +1356,9 @@ Damascus again on dev 2026-10-24 (152 runs, after the day's seam, ladder and cor
 (4 of them hangs with the stick held along a wall's end: the free hang's `e0` / `e5`, the wall hang's look-round at `e2`),
 no-grab 8 (two walls never reached from their starts, all four programs each), embed 1 (a sprint stop into a wall,
 `w25-run`, not seen again on a replay), flipflop 1, free-on-wall 1, no-hold 1.
+Damascus on dev 2026-10-28 (152 runs, after the impulsion's own-rate play, 6598c4c): pop 0, stuck 4 (the hangs `e0`, `e2`,
+`e4`, `e5`), no-grab 8 (the same two walls), hands-off 2 (`w15-run`, `w27-side`), embed 1 and flipflop 1 (`w25-run`), no-hold 1,
+free-on-wall 0.
 - **`e0`, the free hang in a recess** [V the box]: under a Damascus ledge the wall below is set back; the free hang hangs in
   the recess and its side wall stops the shimmy back toward the wall it came from. AC1's switch onto the wall (0xDE1060)
   tests the wall hang's box (0xB2DC80) under the lead hand's hold as it is now (0xB157B0 is handed +0x5F0 / +0x600, the
