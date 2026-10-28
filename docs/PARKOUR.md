@@ -1386,8 +1386,15 @@ set out from the holds left the hands 0.16 m off a Masyaf wall's top, `w20`). Op
 - Masyaf `e14`: the hang takes a hold 0.34 m under the top's own edge (a cornice), from which the climb-out box meets the
   top; the edge's hold is in reach;
 - the standing impulsion's crouch out of the walk's crossfade, 0.1-0.19 m a frame (Masyaf `w26` / `w27` run, before
-  6598c4c too); Masyaf `w13` side, the hips 0.08 m into a plinth 1 m up; `w2` / `w5` run's flipflop is a run stop and the
-  stance change after it, not a fault.
+  6598c4c too); `w2` / `w5` run's flipflop is a run stop and the stance change after it, not a fault;
+- sweep noise: Masyaf `w13` side's embed is a point 1.2 m over the root in the open, 0.43-1.37 m off a wall whose faces
+  are met from behind (wound inward: `inside_solid` reads the space in front of it as inside); `w26` side's is the hips
+  0.09 m into an eave's underside in the wall hang's look-round (the threshold 0.08); Damascus seed 2 `w22` run is a
+  pick on a post's corner, the capsule stopped on it beside the run with nothing ahead (the run probe sees no wall).
+- Masyaf `e8`'s `free-on-wall`: the pull-down under a cornice (its wall 0.53 m behind the hold, past `RECESS_MAX`) hangs
+  free with both foot rays on the wall. Choosing the pull-down's hang by the foot rays (either, as Banned445's port's
+  `hang_type_at`) broke four scenarios that pull down into the free hang where both rays meet the wall and switch to the
+  wall hang on `up` (CanPullup); which AC1's reception takes there wants a live look.
 - **`e0`, the free hang in a recess** [V the box]: under a Damascus ledge the wall below is set back; the free hang hangs in
   the recess and its side wall stops the shimmy back toward the wall it came from. AC1's switch onto the wall (0xDE1060)
   tests the wall hang's box (0xB2DC80) under the lead hand's hold as it is now (0xB157B0 is handed +0x5F0 / +0x600, the
