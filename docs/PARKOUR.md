@@ -1372,7 +1372,9 @@ wall run. Then the no-grabs: the climb start probes for the wall at 1.2, 0.9 and
 to two rows (1.2 m) over the feet with a foot cell under it, as its guard 0xB2E860 does (a foot hold, the hand hold 1.2 m
 over it 0.3 m either way; `w8`'s hold 1.5 m up was 0.31 m under the entry clip's reach). Left: the four stuck hangs.
 Damascus `AC1_SWEEP_SEED=2` and Masyaf (seed 1) on 7037471, after it: a wall hang's step out that gains under 5 cm
-(`SHIMMY_MIN`) is not taken (Masyaf `e14` strafed in place, 0.01 m a step, at a ledge's end; it now looks round). Open:
+(`SHIMMY_MIN`) is not taken (Masyaf `e14` strafed in place, 0.01 m a step, at a ledge's end; it now looks round); a
+free hang's turn onto a face at an angle puts the hands on the holds in depth before turning about them (Masyaf `w6`: kept
+as far out, the hands stayed 0.36 m off a tower face's hold 30 degrees round, and slipped off). Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;

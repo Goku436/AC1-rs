@@ -11312,7 +11312,11 @@ impl WallClimb {
             let (err, turn, normal) = match face_turn(level, &targets, normal).filter(|_| !corner) {
                 Some(q) => {
                     let hands = (targets[0] + targets[1]) * 0.5;
-                    let to = hands + q * (end.pos + err - hands);
+                    // (It turns about the holds, so between free hangs the hands go onto them in depth first: kept as far
+                    // out as before, the hands stayed 0.36 m off a hold on a Masyaf tower's face 30 degrees round, in the
+                    // stone, and slipped off (climbing sweep `w6`).)
+                    let depth = if on_wall { Vec3::ZERO } else { normal * (hands - (end.hands[0] + end.hands[1]) * 0.5 - err).dot(normal) };
+                    let to = hands + q * (end.pos + err + depth - hands);
                     debug!("climb: {} : onto holds on a face {:.0} degrees round, turning to it", c.names[0], q.to_axis_angle().1.to_degrees());
                     (to - end.pos, q, q * normal)
                 }
