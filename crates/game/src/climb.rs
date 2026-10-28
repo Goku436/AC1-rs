@@ -3404,6 +3404,27 @@ fn jump_airtime() -> f32 {
     2.0 * JUMP_UP_SPEED / GRAVITY
 }
 
+/// Time (s) a free jump launched at `up` (m/s) takes to come `down` (m) under its start, as ours flies one: under gravity
+/// to its top, then `FREE_JUMP_GRAVITY_EARLY` to `FREE_JUMP_HEAVY_FROM`, `FREE_JUMP_GRAVITY` to `FREE_JUMP_FAST`, held.
+fn free_jump_fall_time(up: f32, down: f32) -> f32 {
+    let (mut y, mut v, mut t, dt) = (0.0f32, up, 0.0f32, 1.0 / 240.0);
+    while y > -down && t < 5.0 {
+        let g = if v >= 0.0 {
+            GRAVITY
+        } else if v > -FREE_JUMP_HEAVY_FROM {
+            FREE_JUMP_GRAVITY_EARLY
+        } else if v > -FREE_JUMP_FAST {
+            FREE_JUMP_GRAVITY
+        } else {
+            0.0
+        };
+        v = (v - g * dt).max(-FREE_JUMP_FAST);
+        y += v * dt;
+        t += dt;
+    }
+    t
+}
+
 /// Where a running jump along `dir` from `from` flies to catch a hold, when no top is in reach: the nearest hold within
 /// AC1's 45 degree cone and reach, facing the jumper, `JUMP_HOLD_RISE` of the feet; the point the body hangs from it.
 /// A running flight's slots as the beam set's (`xx_h_air_<way>_<dist>` -> `xx_h_beam_air_...`), which has only the front
@@ -4715,10 +4736,14 @@ impl WallClimb {
         let (takeoff, air) = mix(&j.takeoff).zip(mix(&j.flight))?;
         let planned = Transform { rotation: facing(dir), ..*root };
         let mut w = WallClimb::new(JUMP, planned.rotation * Vec3::Z);
-        // (In the air from its first frame, at the speed carried: the takeoff clip is the flight's start, as AC1's
-        // 0.27 s in the air off a 0.72 m drop, 1.07 m on; played out first on its own root motion, ours went 3.4 m.)
-        debug!("climb: step off the edge ({ahead:.1} m on, {drop:.1} m down) via {}", takeoff.name);
-        w.let_fall(takeoff, &planned, dir * v.with_y(0.0).length().min(MAX_JUMP_SPEED) + Vec3::Y * STEP_OFF_UP);
+        // (In the air from its first frame: the takeoff clip is the flight's start, as AC1's 0.27 s in the air off a 0.72 m
+        // drop, 1.07 m on; played out first on its own root motion, ours went 3.4 m.)
+        // (Across at the speed that reaches AC1's aim, `ahead` on and `FREE_JUMP_DOWN` under the takeoff (0xD9D1F0 aims
+        // 3 m down, not at the ground there), as the free jump falls: running off a 0.72 m step in high profile the
+        // running game flew 1.15 m in 0.30 s at 3.4-4.7 m/s, route `roof2_run_south`; ours carried the run's 5.1.)
+        let across = ahead / free_jump_fall_time(STEP_OFF_UP, FREE_JUMP_DOWN);
+        debug!("climb: step off the edge ({ahead:.1} m on, {drop:.1} m down, {across:.2} m/s) via {}", takeoff.name);
+        w.let_fall(takeoff, &planned, dir * across.min(MAX_JUMP_SPEED) + Vec3::Y * STEP_OFF_UP);
         w.queue = vec![Queued::new(air, FALL)];
         w.can_catch = true;
         w.free_jump = true;

@@ -1554,11 +1554,13 @@ s, was at 4.5 at 0.8 and 5.0 at 0.9; ours held it to 0.8 s and reached 5.0 at 1.
 touchdown and was back at 5.1 0.85 s after it, as after a start; ours went back to the run as the reception ended.
 Ours now holds the jog after such a landing for what is left of the start's hold (`Gait::landed_high`). Not AC1's
 mechanism (unknown: 0xD7D6B0's test of +0x5B0 is only the ground's entry time, 0xD98D90), its numbers.
-Left, the step off's flight: **[V]** 2026-10-28 the step off's enter (0xDA5D70 -> 0xD9D1F0) aims `1 + 2 · [+0x5E8] · a` m
-on along the facing clamped to within 60 degrees of it (past 120 degrees it turns instead), the ground searched to 3 m
-under; +0x5E8 is the speed value (0xD83510 reads the speed table by it), `a` the event's float (+0x44: 1.0 with
-+0x112B, high profile). So 2.5 m at the run, as Banned445's port reads it, yet the running game flew 1.15 m in 0.30 s,
-3.4-4.7 m/s; ours carries the run's 5.1 and lands 0.4 m further on. The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
+The step off's flight (`roof2_run_south` mean 0.15 to 0.09 m; mean path gap 0.18 m): **[V]** 2026-10-28 the step
+off's enter (0xDA5D70 -> 0xD9D1F0) aims `1 + 2 · [+0x5E8] · a` m on along the facing clamped to within 60 degrees of it
+(past 120 degrees it turns instead) and **3 m under** the takeoff, not at the ground there; +0x5E8 is the speed value
+(0xD83510 reads the speed table by it), `a` the event's float (+0x44: 1.0 with +0x112B, high profile). At the run, 2.5 m
+on: falling as the free jump does, 3 m takes 0.65 s, so 3.8 m/s across, and the roof 0.72 m down is met 1.2 m on; the
+running game flew 1.15 m in 0.30 s at 3.4-4.7 m/s. Ours had carried the run's 5.1; it now flies across at the aim's
+speed (`free_jump_fall_time`). (The jog held after that landing still rises 0.1 s after the running game's.) The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
 0.39 m): the running game came to the bar 0.4 m out from the wall's line both times, near the point ours' jump query picks
 (0.5 m in from the hold's end, 0.2 m short of it); ours' eject aims along the wall at the crossing. Left: the query has no
 zones for a jump off the wall.

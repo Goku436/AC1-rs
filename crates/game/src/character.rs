@@ -173,7 +173,7 @@ pub struct Character {
     pub slow_ramp: bool,
     /// Off a free-step reception played out: getting up to the run at once, easing in over `QUICK_RAMP_TAU`.
     pub quick_ramp: bool,
-    /// Time (s) in the climb's landing state (`land`), for the high profile's jog hold after it (`Gait::landed_high`).
+    /// Time (s) since a landing's touchdown, for the high profile's jog hold after it (`Gait::landed_high`).
     pub land_time: f32,
     /// Where the stick asks to go (horizontal, zero when let go): the locomotion banks toward it (`Animator::advance`).
     pub want_dir: Vec3,
@@ -1799,8 +1799,10 @@ pub fn locomotion(
                 }
                 // (A reversal's run stop played out: the skid turn may follow, `ground_move` on the next frame.)
                 ch.reverse_pending = w.finished && w.reverse_turn;
-                // (From the touchdown to the move's end: its reception's second half is the climb's `ground`.)
-                ch.land_time = if w.state == "land" || (ch.land_time > 0.0 && w.state == "ground") { ch.land_time + dt } else { 0.0 };
+                // (From the touchdown to the move's end: a landing's first half plays in the climb's `fall`, its second in
+                // `ground`.)
+                ch.land_time =
+                    if w.clip_name().is_some_and(|n| n.contains("_landing_")) || (ch.land_time > 0.0 && w.state == "ground") { ch.land_time + dt } else { 0.0 };
                 if w.finished {
                     // Back on our feet (on top, or landed): ground locomotion, fading from the last climb pose,
                     // picking up on the foot (or into the gait) the last clip ends on.
