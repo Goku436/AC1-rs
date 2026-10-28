@@ -9220,6 +9220,18 @@ impl WallClimb {
         // (Low profile with the stick in the walk band climbs at half rate, AC1's; audit LADDER-10. Kept up to date over
         // the step, `ladder_rate`.)
         let rate = ladder_rate(self.high, self.move_dir);
+        // (Straight off a move onto the ladder (its entry, a catch, the climb down onto it), AC1 goes through the state's
+        // wait for a frame and steps from it with the wait's blend, `ASTOP_BSTOP` 0.15 s, the step held on its first pose
+        // meanwhile: walking onto ladder 68 the running game stood 0.14 s at the entry's end (`xx_l_ladder_wait_r`, then the
+        // climb) before rising; ours stepped from the entry with the default blend and climbed 0.15 s ahead all the way
+        // up, route `ladder68_walk`.)
+        let on_ladder = |n: &str| ["xx_l_ladder_", "xx_h_ladder_"].iter().any(|k| n.starts_with(k));
+        if (input.y.abs() > 0.3)
+            && self.shown.as_ref().is_some_and(|s| !on_ladder(&s.clip.name))
+            && let Some(w) = lib.get(&format!("xx_{p}_ladder_wait_{hand}")).or_else(|| lib.get(&format!("xx_l_ladder_wait_{hand}")))
+        {
+            self.shown = Some(Shown { clip: w, t: 0.0, rate: 1.0, looping: true, mirrored: false, fading: false });
+        }
         let play = |w: &mut Self, clip: Arc<Clip>, to: &str, correct: Vec3| {
             w.start(clip, to.into(), root);
             if let Some(m) = &mut w.mv {
