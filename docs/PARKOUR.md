@@ -1560,7 +1560,13 @@ off's enter (0xDA5D70 -> 0xD9D1F0) aims `1 + 2 · [+0x5E8] · a` m on along the 
 (0xD83510 reads the speed table by it), `a` the event's float (+0x44: 1.0 with +0x112B, high profile). At the run, 2.5 m
 on: falling as the free jump does, 3 m takes 0.65 s, so 3.8 m/s across, and the roof 0.72 m down is met 1.2 m on; the
 running game flew 1.15 m in 0.30 s at 3.4-4.7 m/s. Ours had carried the run's 5.1; it now flies across at the aim's
-speed (`free_jump_fall_time`). (The jog held after that landing still rises 0.1 s after the running game's.) The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
+speed (`free_jump_fall_time`). (The jog held after that landing still rises 0.1 s after the running game's.)
+Off a free-step reception onto the ground (`roof2_free_east` mean 0.25 to 0.16 m, `roof1_free_south` 0.23 to 0.17):
+stepping off a roof's rim beam onto the roof, the running game was at 3.4, 5.0, 5.6 and 6.3 m/s 0.05-0.2 s after, then
+6.5-7.0 to 0.5 s and 6.3 again by 0.6 (seven times in the traced routes, within 0.4 m/s of each other): it kept its
+speed value. Ours held the value down to the run's (the speed it had, not under the run free running) and came back at
+1/s, 5.5 m/s at 0.2 s, 0.3 m behind each time; off a free-step reception it now keeps it. (The 6.5-7.0 surge over the
+sprint's 6.3 is not ours: the clips' root motion, likely.) The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
 0.39 m): the running game came to the bar 0.4 m out from the wall's line both times, near the point ours' jump query picks
 (0.5 m in from the hold's end, 0.2 m short of it); ours' eject aims along the wall at the crossing. Left: the query has no
 zones for a jump off the wall.

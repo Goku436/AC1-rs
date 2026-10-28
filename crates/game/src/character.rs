@@ -1922,7 +1922,10 @@ pub fn locomotion(
         // there until the body caught up). Landings hand on the speed they land with.
         if let Some(stick) = ctl.stick {
             let have = ch.velocity.with_y(0.0).length();
-            if crate::gait::speed(ch.gait.value) > have + GAIT_RESYNC {
+            // (Not off a free-step reception: there the running game kept its speed value, back at the sprint's 6.3 m/s
+            // 0.2 s after stepping off a beam onto a roof and 6.5-7.0 to 0.5 s, seven times in the traced routes; held
+            // down to the run's 5.1, ours came back at 1/s and lost 0.3 m each time.)
+            if crate::gait::speed(ch.gait.value) > have + GAIT_RESYNC && !ch.quick_ramp {
                 // (Not under where a start from standing goes, the jog in high profile.)
                 let start = if ctl.free_run {
                     crate::gait::BAND_RUN
