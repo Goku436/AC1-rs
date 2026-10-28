@@ -25,8 +25,9 @@ const RISE: f32 = 1.0;
 /// run: the running game's high profile starts reach the jog's 3.5 m/s in 0.3 s, hold it to 0.7 s and reach the run's
 /// 5.1 at 0.9 s (three runs off the Damascus bureau's roofs); ours rose at once and was 0.5-1 m ahead from then on.
 /// (0.8 s from the start: held 0.6 s, ours left the jog at 0.55 s and ran 5.1 m/s at 0.8 s, where the running game holds
-/// 3.5-3.8 to 0.8 s and reaches 5.1 at 1.0 s; audit GROUND-11.)
-const HIGH_START_HOLD: f32 = 0.8;
+/// 3.5-3.8 to 0.8 s and reaches 5.1 at 1.0 s; audit GROUND-11. Measured again 2026-10-28 on the three traced routes,
+/// at 0.05 s: the jog held at 3.5-3.9 m/s to 0.7 s, 4.5 at 0.8 and 5.0 at 0.9; held 0.8 s, ours reached 5.0 at 1.05 s.)
+const HIGH_START_HOLD: f32 = 0.7;
 /// Fall per second toward a slower value, by the value now (piecewise linear): quick out of a walk, slow through
 /// the jog and run, quick again out of a sprint.
 const FALL: [(f32, f32); 5] = [(0.0, 1.0), (0.333, 1.0), (0.4, 0.3), (0.666, 0.2), (1.0, 1.0)];
@@ -118,6 +119,16 @@ impl Default for Gait {
 }
 
 impl Gait {
+    /// Landed in high profile, not free running, `since` s ago: back to the jog, held as after a start from standing for
+    /// what is left of `HIGH_START_HOLD`. Running off a 0.72 m step in high profile (route `roof2_run_south`), the running
+    /// game came down at 3.4-3.9 m/s, held that to 0.65 s after the touchdown and was back at the run's 5.1 m/s 0.85 s
+    /// after it; ours went back to the run as the reception ended, 0.25 s after it, and led by 0.9 m.
+    pub fn landed_high(&mut self, since: f32) {
+        self.value = self.value.min(BAND_JOG);
+        self.hold = (HIGH_START_HOLD - since).max(0.0);
+        self.since = 0.0;
+    }
+
     /// One step: `stick` 0..1, `off` the angle (rad) between where the stick points and the facing. Returns the
     /// ground speed (m/s).
     pub fn update(&mut self, stick: f32, off: f32, high: bool, free_run: bool, dt: f32) -> f32 {

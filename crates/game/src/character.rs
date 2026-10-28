@@ -173,6 +173,8 @@ pub struct Character {
     pub slow_ramp: bool,
     /// Off a free-step reception played out: getting up to the run at once, easing in over `QUICK_RAMP_TAU`.
     pub quick_ramp: bool,
+    /// Time (s) in the climb's landing state (`land`), for the high profile's jog hold after it (`Gait::landed_high`).
+    pub land_time: f32,
     /// Where the stick asks to go (horizontal, zero when let go): the locomotion banks toward it (`Animator::advance`).
     pub want_dir: Vec3,
     /// Walking with a crowd it blends into (legs held, no direction): the crowd's velocity.
@@ -648,6 +650,7 @@ pub fn spawn_character_shared(
         edge_lock: None,
         slow_ramp: false,
         quick_ramp: false,
+        land_time: 0.0,
         want_dir: Vec3::ZERO,
         last_landing: None,
         landings: 0,
@@ -741,6 +744,7 @@ impl Character {
         self.edge_lock = None;
         self.slow_ramp = false;
         self.quick_ramp = false;
+        self.land_time = 0.0;
         self.exit_fade = None;
         self.follow = None;
         self.want_dir = Vec3::ZERO;
@@ -1795,6 +1799,8 @@ pub fn locomotion(
                 }
                 // (A reversal's run stop played out: the skid turn may follow, `ground_move` on the next frame.)
                 ch.reverse_pending = w.finished && w.reverse_turn;
+                // (From the touchdown to the move's end: its reception's second half is the climb's `ground`.)
+                ch.land_time = if w.state == "land" || (ch.land_time > 0.0 && w.state == "ground") { ch.land_time + dt } else { 0.0 };
                 if w.finished {
                     // Back on our feet (on top, or landed): ground locomotion, fading from the last climb pose,
                     // picking up on the foot (or into the gait) the last clip ends on.
@@ -1802,6 +1808,10 @@ pub fn locomotion(
                     ch.velocity = w.exit_velocity;
                     ch.slow_ramp = w.off_beam;
                     ch.quick_ramp = w.last_clip.as_deref().is_some_and(|n| n.contains("_tr_freestep_entry"));
+                    if ch.land_time > 0.0 && ctl.high && !ctl.free_run {
+                        ch.gait.landed_high(ch.land_time);
+                    }
+                    ch.land_time = 0.0;
                     // (A free-step reception, `..._tr_freestep_entry_<foot>`: the next jump takes off from that foot.)
                     if let Some(name) = w.last_clip.as_deref() {
                         if name.contains("freestep_entry_footr") {

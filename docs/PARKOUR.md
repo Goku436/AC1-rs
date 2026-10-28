@@ -1546,7 +1546,19 @@ The free run's start (mean path gap 0.20 to 0.19 m; `seams_free_west` 0.21 to 0.
 `roof2_free_south` 0.24 to 0.17): from a standstill the running game was at 0.5, 1.6, 2.9, 4.7, 5.5, 5.8, 6.2 and 6.4
 m/s at 0.05-0.75 s (eight free runs in the traced routes, within 0.3 m/s of each other), easing into its top speed; ours
 reached 6.3 by 0.55 s at the steady 13 m/s² and ran 0.2 m ahead. Past 5.5 m/s it now eases in (0.17 s), 0.02-0.12 m
-off the real distance at 1 and 1.5 s. (The first 0.15 s is still 0.4 m/s quicker than AC1's: one stride, left.) The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
+off the real distance at 1 and 1.5 s. (The first 0.15 s is still 0.4 m/s quicker than AC1's: one stride, left.)
+The high profile's jog (`roof2_run_south` mean 0.23 to 0.15 m, its largest gap 0.94 to 0.54; the other high-profile
+runs 0.01 nearer): measured at 0.05 s on the three traced starts, the running game held the jog at 3.5-3.9 m/s to 0.7
+s, was at 4.5 at 0.8 and 5.0 at 0.9; ours held it to 0.8 s and reached 5.0 at 1.05 (`gait::HIGH_START_HOLD` 0.8 to
+0.7). After a landing in high profile (a 0.72 m step off) it came down at 3.4-3.9 m/s, held that to 0.65 s after the
+touchdown and was back at 5.1 0.85 s after it, as after a start; ours went back to the run as the reception ended.
+Ours now holds the jog after such a landing for what is left of the start's hold (`Gait::landed_high`). Not AC1's
+mechanism (unknown: 0xD7D6B0's test of +0x5B0 is only the ground's entry time, 0xD98D90), its numbers.
+Left, the step off's flight: **[V]** 2026-10-28 the step off's enter (0xDA5D70 -> 0xD9D1F0) aims `1 + 2 · [+0x5E8] · a` m
+on along the facing clamped to within 60 degrees of it (past 120 degrees it turns instead), the ground searched to 3 m
+under; +0x5E8 is the speed value (0xD83510 reads the speed table by it), `a` the event's float (+0x44: 1.0 with
++0x112B, high profile). So 2.5 m at the run, as Banned445's port reads it, yet the running game flew 1.15 m in 0.30 s,
+3.4-4.7 m/s; ours carries the run's 5.1 and lands 0.4 m further on. The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
 0.39 m): the running game came to the bar 0.4 m out from the wall's line both times, near the point ours' jump query picks
 (0.5 m in from the hold's end, 0.2 m short of it); ours' eject aims along the wall at the crossing. Left: the query has no
 zones for a jump off the wall.
