@@ -1192,6 +1192,8 @@ const SHIMMY_SWEEP_LEN: f32 = 1.55;
 const SHIMMY_REACH_WALL: f32 = 0.4;
 const SHIMMY_SPAN: f32 = 1.0;
 const SHIMMY_CLOSE: f32 = 0.15;
+/// A wall hang's step out shorter than this (m, the root's way along) is not taken.
+const SHIMMY_MIN: f32 = 0.05;
 /// A climb start from the ground reaches a wall this far in front of the root (m), running; standing, a little further.
 const CLIMB_START_REACH: f32 = 1.0;
 /// The climb start takes a hold up to this far over the feet (m) with a foot hold under it (AC1's guard 0xB2E860).
@@ -11247,6 +11249,15 @@ impl WallClimb {
             } else {
                 Vec3::ZERO
             };
+            // (A step out that gains nothing is not taken: with no room past the lead hand, AC1's lateral probe gives no
+            // step, and the hang stops and looks round. Ours played the open strafe in place again and again, the root
+            // moving 0.01 m a step, at a Masyaf ledge's end, climbing sweep `e14`.)
+            if c.names[0].ends_with("_open") && shimmy_next.is_some_and(|(_, _, _, want)| want < SHIMMY_MIN) {
+                if why() {
+                    debug!("climb: {} : no room for the lead hand past {:.2} m", c.names[0], shimmy_next.map_or(0.0, |s| s.1));
+                }
+                continue;
+            }
             // (Into the climbing stance: the root `CLIMB_ROOT_OUT` out from the holds the hands take, AC1's
             // `ComputeRootFromMove`, audit CLIMB-E2.)
             let stance = if crate::climb_table::pose_of(&c.to).is_some() {

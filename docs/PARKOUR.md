@@ -1371,6 +1371,16 @@ wall run. Then the no-grabs: the climb start probes for the wall at 1.2, 0.9 and
 1.2 m grazed a moulding's underside at `w23` and saw no wall; AC1's probe is a box round the body), and takes a hold down
 to two rows (1.2 m) over the feet with a foot cell under it, as its guard 0xB2E860 does (a foot hold, the hand hold 1.2 m
 over it 0.3 m either way; `w8`'s hold 1.5 m up was 0.31 m under the entry clip's reach). Left: the four stuck hangs.
+Damascus `AC1_SWEEP_SEED=2` and Masyaf (seed 1) on 7037471, after it: a wall hang's step out that gains under 5 cm
+(`SHIMMY_MIN`) is not taken (Masyaf `e14` strafed in place, 0.01 m a step, at a ledge's end; it now looks round). Open:
+- the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
+  `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
+  body there wants a live look;
+- Masyaf `e14`: the hang takes a hold 0.34 m under the top's own edge (a cornice), from which the climb-out box meets the
+  top; the edge's hold is in reach;
+- the standing impulsion's crouch out of the walk's crossfade, 0.1-0.19 m a frame (Masyaf `w26` / `w27` run, before
+  6598c4c too); Masyaf `w13` side, the hips 0.08 m into a plinth 1 m up; `w2` / `w5` run's flipflop is a run stop and the
+  stance change after it, not a fault.
 - **`e0`, the free hang in a recess** [V the box]: under a Damascus ledge the wall below is set back; the free hang hangs in
   the recess and its side wall stops the shimmy back toward the wall it came from. AC1's switch onto the wall (0xDE1060)
   tests the wall hang's box (0xB2DC80) under the lead hand's hold as it is now (0xB157B0 is handed +0x5F0 / +0x600, the
