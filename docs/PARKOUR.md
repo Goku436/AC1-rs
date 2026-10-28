@@ -1516,7 +1516,16 @@ the running game went along it at 3.7 m/s at once; ours stood a moment and start
 brought on carries into the walk along it (`beam_carry`), up to the crouch jog's own. Not after a side entry: the
 running game went on from it at 2 m/s, rising to 3.6 by 0.6 s, but 0.1-0.2 s later than ours' entry starts (ours'
 reception before it is the `_fast` one), so carried there the routes `roof2_free_nw` and `roof1_free_sw` went 0.4 m
-ahead. The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
+ahead.
+`ladder68_walk` (0.53 to 0.23 m): walking onto ladder 68 in low profile, the running game stepped on with the high
+profile's entry (`xx_h_wait_hipm_footl_tr_h_ladder_climb_up_r`, rising 0.5 m at once), not the low one the port picks by
+profile; ours climbed 0.3 m lower all the way up. `ladder68_free` (climb 0.37 to 0.27 m mean): free running at it, the
+running game ran up the wall onto the ladder (`xx_h_wallingfront_entry_footl_b`, then
+`xx_h_wallingfront_step1_footr_tr_h_ladder_up_l`) where ours' wall-run width test (the wall going on 0.5 m to both sides)
+missed the rungs, so it stepped on at the foot; a ladder up the wall there now waives it. Left there: off the ladder's
+top the running game ran at 3.0-3.6 m/s for a second (the speed of the run without the legs, `wall1_hang_up`) before
+it free ran again, where off the wall hang's top-out it free ran at 5.5 m/s at once (`wall1_climb`); ours free runs
+at once, so the end went 1.16 to 2.26 m. One trace; parked. The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
 0.39 m): the running game came to the bar 0.4 m out from the wall's line both times, near the point ours' jump query picks
 (0.5 m in from the hold's end, 0.2 m short of it); ours' eject aims along the wall at the crossing. Left: the query has no
 zones for a jump off the wall.

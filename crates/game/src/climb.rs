@@ -5553,7 +5553,14 @@ impl WallClimb {
         // (AC1's test 0xE149E0, Banned445's port: the wall goes on 0.5 m to both sides of where the run meets it. Free running
         // at the Damascus bureau's west wall 0.15 m from its corner, the running game stopped at it (its run stop); ours
         // ran up into the recess past the corner, live comparison run3, 2026-10-16.)
-        if !wall_spans(level, hit.point, n) {
+        // (Not with a ladder up the wall there: free running at ladder 68, the running game ran up the wall onto it,
+        // `xx_h_wallingfront_entry_footl_b` then `xx_h_wallingfront_step1_footr_tr_h_ladder_up_l`, where the side probes
+        // miss its rungs; ours stepped on at the foot and climbed 0.5 m lower, route `ladder68_free`.)
+        let ladder_on_wall = level.ladders.iter().any(|l| {
+            let along = Vec3::Y.cross(n).normalize_or_zero();
+            l.out.dot(n) > 0.9 && (l.base - hit.point).dot(along).abs() < 0.5 && (l.base - hit.point).dot(n).abs() < 0.5
+        });
+        if !ladder_on_wall && !wall_spans(level, hit.point, n) {
             debug!("climb: no wall run: the wall ends within 0.5 m of where the run meets it");
             return None;
         }
