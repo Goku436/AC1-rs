@@ -218,8 +218,6 @@ const STEP_OFF_MAX: f32 = 0.95;
 const STEP_OFF_STAND_OUT: f32 = 0.35;
 /// A landing is a forward one when the impact velocity comes in within 75 degrees of level (cos 75 degrees, AC1's 0xE05940).
 const LAND_FORWARD_COS: f32 = 0.258_819;
-/// The speed a landing's speed bucket is measured against (m/s, the sprint's).
-const LAND_SPRINT_SPEED: f32 = 6.2;
 
 /// What a landing goes on into, by the stick and the profile (AC1's `xx_h_landing_..._tr_<wait|walk|jog|sprint>`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -419,6 +417,13 @@ fn wall_run_wall_ahead(level: &Level, feet: Vec3, dir: Vec3) -> bool {
             let n = h.normal.with_y(0.0).normalize_or_zero();
             !fuzzy && h.normal.y.abs() < WALL_RUN_MAX_UP && run.dot(-n) >= WALL_RUN_ANGLE.cos() && wall_slope(level, h.point, n).is_some()
         })
+}
+
+/// `wall_run_wall_ahead`, and the wall going on to both sides where the run meets it, as the wall run's own start wants.
+fn wall_run_wall_spans(level: &Level, feet: Vec3, dir: Vec3) -> bool {
+    let run = dir.with_y(0.0).normalize_or_zero();
+    wall_run_wall_ahead(level, feet, run)
+        && level.raycast(feet + Vec3::Y, run, WALL_RUN_REACH).is_some_and(|h| h.normal.y.abs() < WALL_RUN_MAX_UP && wall_spans(level, h.point, h.normal))
 }
 
 /// Whether the wall met at `hit` (outward normal `n`) goes on `WALL_SPAN` to both sides: a face there facing within 30
@@ -12220,18 +12225,12 @@ impl WallClimb {
         let _ = along;
         let pitch = (-v.y).atan2(v.with_y(0.0).length());
         let forward = v.with_y(0.0).length() > 0.3 && pitch < LAND_FORWARD_COS.acos();
-        // (The straight one with the stick held goes on by the speed too: off a wall run's rebound, slow, AC1 landed straight
-        // into the walk, `..._straight_soft_footr_tr_l_walk_footl`, free running, seen in the running game.)
-        let into = if stick.length() > 0.3 {
-            match flat_speed / LAND_SPRINT_SPEED {
-                r if r < 0.2 => LandInto::Wait,
-                r if r < 0.5 => LandInto::Walk,
-                r if r < 0.9 => LandInto::Jog,
-                _ => LandInto::Sprint,
-            }
-        } else {
-            LandInto::from(false, self.high, self.sprint)
-        };
+        // (With the stick held, into the walk whatever the speed or the profile: every landing of the 41 traced Damascus
+        // routes with it held went into `..._tr_l_walk_footl`, from 1.1 m/s straight off a wall run's rebound to 8.1 m/s
+        // forward free running and 3.3 m/s in high profile, the speed kept running in. Banned445's port reads AC1's
+        // buckets by the pad's speed ratio (< 0.2 the wait, < 0.5 the walk, < 0.9 the jog, else the sprint's takeoff),
+        // which would give the jog or the sprint for all four; ours took them by the body's speed.)
+        let into = if stick.length() > 0.3 { LandInto::Walk } else { LandInto::from(false, self.high, self.sprint) };
         // (Over 3 m, AC1's damage landing or its roll whatever the damage (0xE05940); the hurt-fall clips are the drop
         // sub-state's, not a landing's.)
         let hurt = drop > SAFE_DROP;
@@ -12517,7 +12516,12 @@ impl WallClimb {
             // (Nor free running with the stick into a wall within 45 degrees of square: AC1's wall slide hands the ground a
             // wanted speed of 0 there, no move to leave for; left for running, ours stopped against the wall over and over.
             // Walking, the walk goes on into the lean on it.)
-            && !(self.sprint && crate::character::wall_head_on(level, root.translation, self.move_dir))
+            // (Unless the legs are held toward a wall to run up: AC1 takes the wall run off the landing, its event 15. Free
+            // running off a roof onto another against a wall, the running game ran up it 0.35 s after landing, route
+            // `roof2_free_south`; ours played the landing out.)
+            && !(self.sprint
+                && crate::character::wall_head_on(level, root.translation, self.move_dir)
+                && !(self.legs_held && wall_run_wall_spans(level, root.translation, self.move_dir)))
             // (Nor the free-step stay with its jump on to come: free running at a drop edge ahead, AC1 stays in
             // HumanNarrowObject and jumps on from half of it (below). Off a roof onto the beam at its edge the running
             // game jumped on 0.1 s after landing; ours' gate let it go 0.07 s in, and it ran onto the beam crosswise and

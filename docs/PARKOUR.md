@@ -427,8 +427,10 @@ from the four holds (`sub_B1CC20`); the hangs, corners, leaps and reaches keep t
   Damage: the player is the flagged mode (+0xE2 & 8): a fixed table, over 8 m 10, 10 m 20, 12 m 40, 14 m 80, 16 m 120,
   18 m 160, fatal over 20 m (of 200); the 6.3 / 7.0 m limits (0xE00FE0) are the non-player default (audit AIR-1, AIR-18).
   Up to 3 m: forward when the impact velocity comes in within 75° of level, else straight (not by the stick, AIR-15)
-  (`landing_forward_{soft,hard}`, by the speed bucket [< 0.2, < 0.5, < 0.9, else] into walk, jog or sprint impulsion,
-  or into the wait when slow). **[B, ours]**
+  (`landing_forward_{soft,hard}`; the port reads them going on by the pad's speed bucket [< 0.2, < 0.5, < 0.9, else]
+  into the wait, walk, jog or sprint impulsion. The traces disagree: every landing in them with the stick held goes
+  into the walk, from 1.1 to 8.1 m/s, high profile with or without the legs, so ours does that, the speed kept running
+  in; let go, the wait). **[B, traces]**
 - **Catching** while falling (0xE0A990 / 0xE0AC70): a hand box 0.4 × 0.3 m, edges within 70°, reach +1.4 m (the ledge
   search, giving the wall hang when the feet find the wall) / +1.95 m (the free-hang search); posts and beams are caught
   too (0xE0BB70); ladders (0xE04100); the knee catch (`xx_fall_tr_hangknee_*`); the edge landing (a lip with a drop past
@@ -1479,9 +1481,16 @@ running game hopped onto it 0.13 s into the stand-up; ours stood it out and walk
 jump (`run_front_050cm`, `air_front_050cm`, a soft landing), ours the free jump 8 m on (`air_down_800cm`, a hard one).
 `wall0_free` (0.92 to 0.63 m; mean 0.56 to 0.33): the wall run's kick off the top holds still 4 frames once in the air
 before it falls (`REBOUND_HOLD`; the running game's root stood at the top 0.067 s into HumanInAir, both times, then
-fell at a steady 7 m/s). Left there: it lands into the walk (`landing_straight_soft_footr_tr_l_walk_footl`) with high
-profile, the legs and W held, where AC1's speed ratio from the pad (0xEDBAF0, Banned445's `speed_ratio`) reads 1.0, the
-sprint's; ours lands into the wait, by the body's speed.
+fell at a steady 7 m/s). It lands into the walk (`landing_straight_soft_footr_tr_l_walk_footl`) with high profile, the
+legs and W held, where AC1's speed ratio from the pad (0xEDBAF0, Banned445's `speed_ratio`) reads 1.0, the sprint's;
+all four landings with the stick held in the traces go into the walk (1.1 to 8.1 m/s), so ours lands into it whatever the
+speed, no longer into the wait by the body's speed. `roof2_free_south` (0.58 to 0.45 m): landing free running head-on
+against a wall to run up (the legs held, the wall going on 0.5 m both sides), the landing is left for running at its
+gate, and the wall run starts off it, 0.35 s after landing as the running game's; ours played the landing out first.
+`roof1_free_east` (2.79 m) after the roll onto the lower roof: the running game jumped 0.4 m (`run_front_050cm`) onto a
+ledge 1.3 m down under the roof's overhang and hung on its edge in the air 0.8 s before falling to the street; ours'
+candidate query drops that ledge (no room on top behind it, the port's room ray), aims at a diagonal beam 1.2 m on and
+stands on it. Left.
 `roof1_free_south` (0.76 to 0.43 m; at rest 10.8 to 5.6) and `roof1_free_sw` (2.82 to 1.74 m): the free-step stay with
 its jump on to come (free running at a drop edge ahead) is not left at its item's gate, which let it go 0.07 s in; it
 jumps on from half, as AC1 stays in HumanNarrowObject (off a roof onto a beam at its edge the running game jumped on
