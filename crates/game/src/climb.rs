@@ -531,6 +531,8 @@ const HANG_CORNER_UP: f32 = 1.06;
 /// Getting onto a low top slower than this (m/s: the walk band's top) is AC1's impulsion and free step, landing this
 /// far onto it (m).
 const VAULT_STANDING_SPEED: f32 = 1.9;
+/// ...or at any speed onto a top higher than this (m), nearer than `VAULT_TAKEOFF_MIN`.
+const VAULT_IMPULSION_OVER: f32 = 1.0;
 const VAULT_STEP_IN: f32 = 0.4;
 /// The climbing stance's root rests this far out from its holds (m).
 const CLIMB_ROOT_OUT: f32 = 0.5;
@@ -8917,7 +8919,11 @@ impl WallClimb {
         // (`IMPULSION_TIME`) and the takeoff is off the right foot: in all six of the traced routes' impulsions the running
         // game took off 0.03-0.13 s in, `_footr_to_air`; ours played the impulsion's whole 0.27 s and took off from the left,
         // route `street_free_east` 0.3 s behind from the start.
-        if speed < VAULT_STANDING_SPEED
+        // (Moving faster too, at a top over `VAULT_IMPULSION_OVER` too near for the takeoff: the running game's four impulsions
+        // up in the traced routes were onto tops 1.05-1.32 m up, at 2.3-3.3 m/s as well as from a stand; ours flew the run's
+        // `air_up_300cm` straight off the street onto the bureau's 1.16 m box, route `street_run_east`. Lower tops it ran
+        // over otherwise: taken at those, five roof routes broke.)
+        if (speed < VAULT_STANDING_SPEED || (hit.dist < VAULT_TAKEOFF_MIN && h > VAULT_IMPULSION_OVER))
             && !hay
             && let Some(imp) = {
                 let parts = crate::jump::impulsion(h, false);
