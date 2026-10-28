@@ -1299,6 +1299,11 @@ const WALL_SLIDE_REACH: f32 = 0.1;
 /// Getting up to a speed over `RUN_START_MIN` (m/s), the body speeds up at `RUN_ACCEL` (m/s²).
 const RUN_START_MIN: f32 = 2.5;
 const RUN_ACCEL: f32 = 13.0;
+/// Past this (m/s) a run getting up to the free run's speed eases into it, by `RUN_EASE_TAU` (s): from a standstill the
+/// running game was at 0.5, 1.6, 2.9, 4.7, 5.5, 5.8, 6.2 and 6.4 m/s at 0.05-0.75 s (eight free runs in the traced
+/// routes, within 0.3 each), ours at 6.3 by 0.55 s at the steady rate and 0.2 m ahead.
+const RUN_EASE_FROM: f32 = 5.5;
+const RUN_EASE_TAU: f32 = 0.17;
 /// Off a beam's end onto the floor past it, from the beam's speed up to the run at this (m/s²): the running game went
 /// on at the crouch jog's 3.7 m/s, 4.0, 4.4, 4.8, 5.3, 5.8 and 6.0 over the next 0.6 s, three times (routes
 /// `roof1_free_sw`, `roof2_free_nw`, `seams_free_north`), where after a free-step arrival it was at 6 within 0.1 s.
@@ -2138,8 +2143,12 @@ pub fn locomotion(
             cur.length() + (want.length() - cur.length()) * (1.0 - (-dt / QUICK_RAMP_TAU).exp())
         } else if want.length() > RUN_START_MIN && want.length() > cur.length() + 0.01 && heading.dot(want.normalize()) > 0.707 {
             // Getting up to a run: at a steady rate, as the running game's free-run starts (about 13 m/s² from a standstill
-            // to 5.6 m/s in 0.45 s; ours, easing in, took 0.65 s).
-            (cur.length() + RUN_ACCEL * dt).min(want.length())
+            // to 5.6 m/s in 0.45 s; ours, easing in, took 0.65 s), easing in over the last of it (`RUN_EASE_FROM`).
+            if cur.length() < RUN_EASE_FROM {
+                (cur.length() + RUN_ACCEL * dt).min(want.length())
+            } else {
+                cur.length() + (want.length() - cur.length()) * (1.0 - (-dt / RUN_EASE_TAU).exp())
+            }
         } else {
             cur.length() + (want.length() - cur.length()) * k
         };

@@ -1541,7 +1541,12 @@ running game went through the ladder's wait for a frame (`xx_l_ladder_wait_r`) a
 blend, `ASTOP_BSTOP` 0.15 s, which holds the step on its first pose: it stood 0.14 s at the entry's end before rising.
 Ours stepped from the entry with the default blend and climbed 0.15 s ahead all the way up; a step off a move that is
 not the ladder's own now takes the wait's blend. (The climb action holds both hands' steps as items, picked by the
-feet, so the trace's `climb_up_l` names only its first item.) The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
+feet, so the trace's `climb_up_l` names only its first item.)
+The free run's start (mean path gap 0.20 to 0.19 m; `seams_free_west` 0.21 to 0.12, `seams_free_north` 0.18 to 0.12,
+`roof2_free_south` 0.24 to 0.17): from a standstill the running game was at 0.5, 1.6, 2.9, 4.7, 5.5, 5.8, 6.2 and 6.4
+m/s at 0.05-0.75 s (eight free runs in the traced routes, within 0.3 m/s of each other), easing into its top speed; ours
+reached 6.3 by 0.55 s at the steady 13 m/s² and ran 0.2 m ahead. Past 5.5 m/s it now eases in (0.17 s), 0.02-0.12 m
+off the real distance at 1 and 1.5 s. (The first 0.15 s is still 0.4 m/s quicker than AC1's: one stride, left.) The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
 0.39 m): the running game came to the bar 0.4 m out from the wall's line both times, near the point ours' jump query picks
 (0.5 m in from the hold's end, 0.2 m short of it); ours' eject aims along the wall at the crossing. Left: the query has no
 zones for a jump off the wall.

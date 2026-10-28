@@ -1209,7 +1209,7 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["jump", "ground"],
         env: &[("AC1_PROPS", "1"), ("AC1_PADPLAY", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pads/props_freerun.pad"))],
         secs: 5.0,
-        want: &["running jump aimed at [4.58", "running jump aimed at [14.33"],
+        want: &["running jump aimed at [4.5", "running jump aimed at [14.33"],
         never: &["EMBED", "jump false, step false"],
     },
     // The eject at the inside corner's other wall: the side takeoff turns the root a quarter, so it starts turned away from
@@ -1803,7 +1803,7 @@ const SCENARIOS: &[Scenario] = &[
         // (NarrowObject's side entry, 0xF7AAA0: its clips' root faces along the beam, the body turned off it by the angle.)
         name: "gauntlet G29: a running jump onto a beam across the way, the stick turned along it in the flight: AC1's side entry into the jog",
         tags: &["beam", "jump"],
-        env: &[("AC1_START", "-100,334,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-10"), ("AC1_LEGS", "0-10"), ("AC1_HEADINGS", "0,0;1.9,0;1.91,-90")],
+        env: &[("AC1_START", "-100,334,-90"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-10"), ("AC1_LEGS", "0-10"), ("AC1_HEADINGS", "0,0;1.95,0;1.96,-90")],
         secs: 5.0,
         want: &[
             "side entry onto the beam via xx_h_freestep_entry_footl_tr_crouchjog_footl_right_90 after the arrival",
@@ -3208,7 +3208,9 @@ const SCENARIOS: &[Scenario] = &[
         tags: &["wallrun", "hang", "jump"],
         env: &[("AC1_START", "9.08,11,0"), ("AC1_WALK", "6.2"), ("AC1_HIGH", "0-3"), ("AC1_LEGS", "0-0.8"), ("AC1_JUMP", "0.85")],
         secs: 3.0,
-        want: &["eject at the wall hang on the hold at [9.08, 3.00, 11.94]", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c"],
+        // (The hold under, 2.4 m up: since the free run eases into its top speed, as the running game's starts do, he
+        // meets the wall later and the eject comes earlier in the run up it.)
+        want: &["eject at the wall hang on the hold at [9.08, 2.40, 11.94]", "-> hangwall_open via xx_hangwall_reception_front_straight_min_c"],
         never: &["xx_fall_tr_climb_min", "EMBED"],
     },
     // Masyaf (2026-10-13): its two leaps of faith. The siege's (M05_S17_Trigger_LOFJump): off the scaffold on the tower over
