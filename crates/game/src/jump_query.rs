@@ -20,6 +20,9 @@
 use crate::level::{Level, Line};
 use bevy::prelude::*;
 
+/// Within 45 degrees, an exact 45 left out (the cosine a hair over it).
+const FACING_45_COS: f32 = std::f32::consts::FRAC_1_SQRT_2 + 1e-3;
+
 /// The reach zones (horizontal distance, height above the feet), by slot.
 const ZONES: [&[[f32; 2]]; 13] = [
     &[[0.5, -5.0], [0.5, 0.2], [3.5, 0.6], [4.7, 0.3], [6.0, -0.8], [7.5, -3.0], [7.5, -5.0]],
@@ -341,9 +344,11 @@ pub fn query(level: &Level, pos: Vec3, dir: Vec3, from: From, skip: Option<usize
         // (A kiosk's piece is aimed at its middle, 0xE18970 in Banned445's port.)
         let g = if piece.kiosk { (piece.a + piece.b) * 0.5 } else { g };
         let w = piece.wall;
-        // (Off the forward line, it must face the jumper within 45 degrees.)
+        // (Off the forward line, it must face the jumper within 45 degrees, exactly 45 out: free running at 45 degrees
+        // across a beam's side edge that the line misses, the running game made its free jump on, route `roof2_free_ne`;
+        // ours, the tie taken, aimed 37 degrees off the way at the edge and walked the beam.)
         let (sa, sb) = ((piece.a - centre).dot(right), (piece.b - centre).dot(right));
-        if sa * sb > 0.0 && dir.dot(w) > -std::f32::consts::FRAC_1_SQRT_2 {
+        if sa * sb > 0.0 && dir.dot(w) > -FACING_45_COS {
             continue;
         }
         let (zone1, zone2) = if in1(g) {

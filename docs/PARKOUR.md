@@ -1500,6 +1500,10 @@ recording can show it, and the traces have overruled it before (the landings' go
 wall test along the facing). `py tools/portonly.py` lists the comment blocks that cite the port and nothing from the
 running game (174 of 239 on 2026-10-28, 111 of them in `climb.rs`), the item each documents and the address it cites:
 the checklist for live comparisons.
+`roof2_free_ne` (10.70 to 1.96 m; at rest 13.64 to 0.80): free running at exactly 45 degrees across a beam's side edge
+that the forward line misses, the candidate query's "faces the jumper within 45 degrees" tie went to taking it, and ours
+aimed 37 degrees off the way at the edge and walked the beam; the running game made its free jump on into the street.
+An exact 45 now stays out (`FACING_45_COS`). (36 of 41, 34 at rest, mean path gap 0.23 m.)
 `roof1_free_south` (0.76 to 0.43 m; at rest 10.8 to 5.6) and `roof1_free_sw` (2.82 to 1.74 m): the free-step stay with
 its jump on to come (free running at a drop edge ahead) is not left at its item's gate, which let it go 0.07 s in; it
 jumps on from half, as AC1 stays in HumanNarrowObject (off a roof onto a beam at its edge the running game jumped on
