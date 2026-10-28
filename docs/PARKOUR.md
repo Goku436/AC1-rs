@@ -1510,7 +1510,13 @@ collide now wants its top 0.3 m deep (`COLLIDE_FOOT_ROOM`), else the lean's hand
 0.09): off the street the running game got onto the 1.16 m box with the impulsion and the free step at 2.3 m/s too, as
 in all four impulsions up in the traces (tops 1.05-1.32 m up); ours took it only under 1.9 m/s and flew the run's
 `air_up_300cm`. It now takes it at any speed onto a top over 1 m too near for the takeoff (`VAULT_IMPULSION_OVER`); at
-lower tops, or at any speed and distance, five roof routes broke. The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
+lower tops, or at any speed and distance, five roof routes broke.
+`seams_free_north` (0.71 to 0.26 m; 35 of 41 at rest, mean path gap 0.22 m): mounted onto a beam from the roof at 6 m/s,
+the running game went along it at 3.7 m/s at once; ours stood a moment and started again from 2.1 m/s. The speed
+brought on carries into the walk along it (`beam_carry`), up to the crouch jog's own. Not after a side entry: the
+running game went on from it at 2 m/s, rising to 3.6 by 0.6 s, but 0.1-0.2 s later than ours' entry starts (ours'
+reception before it is the `_fast` one), so carried there the routes `roof2_free_nw` and `roof1_free_sw` went 0.4 m
+ahead. The eject sideways onto the bar off the bureau wall (`wall1_eject_right`, `wall1_runeject_right`, 0.56 and
 0.39 m): the running game came to the bar 0.4 m out from the wall's line both times, near the point ours' jump query picks
 (0.5 m in from the hold's end, 0.2 m short of it); ours' eject aims along the wall at the crossing. Left: the query has no
 zones for a jump off the wall.

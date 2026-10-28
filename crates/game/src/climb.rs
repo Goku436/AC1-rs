@@ -1715,6 +1715,9 @@ pub struct WallClimb {
     pub exit_velocity: Vec3,
     /// Finished off a beam's end onto the floor past it (the ground speeds up from there slowly).
     pub off_beam: bool,
+    /// The speed brought onto a beam (m/s; 0 for none): the free-running walk along it starts there, not at
+    /// `BEAM_SPRINT_START`, up to the crouch jog's own.
+    pub beam_carry: f32,
     /// Wanted world direction of travel (set by the caller; length 0..1), and sprinting.
     pub move_dir: Vec3,
     pub sprint: bool,
@@ -4518,6 +4521,7 @@ impl WallClimb {
             catch_push: Vec3::ZERO,
             exit_velocity: Vec3::ZERO,
             off_beam: false,
+            beam_carry: 0.0,
             move_dir: Vec3::ZERO,
             sprint: false,
             high: false,
@@ -7833,7 +7837,11 @@ impl WallClimb {
         // (Free running, from `BEAM_SPRINT_START` up to the jog's own speed at `BEAM_ACCEL`: the running game went along
         // a Damascus beam from 2.1 to 3.7 m/s at about 2.4 m/s² (roof1_free_sw), then held the crouch jog's 3.7 m/s
         // (AC1's beam speed model: up at 2 m/s², down at 3, Banned445's reanalysis NARROW-1).)
-        let v = if jog { BEAM_SPRINT_START.min(speed) } else { speed };
+        // (Stepped on running, it goes on at the speed brought (`beam_carry`): off a Damascus roof onto a beam beside it at
+        // 6 m/s, the running game went along at 3.7 m/s at once; ours stood a moment and started again at 2.1, 0.5 m
+        // behind, route `seams_free_north`.)
+        let v = if jog { self.beam_carry.min(speed).max(BEAM_SPRINT_START.min(speed)) } else { speed };
+        self.beam_carry = 0.0;
         self.cycle = Some(Cycle { clips: [a, b], jog: [ja, jb], foot, phase: 0.0, dir, speed: speeds, v, intro: intro.map(|(_, c, v)| (c, 0.0, v)) });
         self.fade = self.last.clone().map(|p| Fade::new(p, ENTER_FADE));
     }

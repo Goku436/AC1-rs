@@ -2484,6 +2484,7 @@ pub fn locomotion(
                 );
                 if let Some(w) = &mut ch.wall {
                     w.freestep_left = ch.freestep_left;
+                    w.beam_carry = ch.velocity.with_y(0.0).length();
                     ch.velocity = Vec3::ZERO;
                     continue;
                 }
@@ -2507,6 +2508,7 @@ pub fn locomotion(
                 );
                 if let Some(w) = &mut ch.wall {
                     w.freestep_left = ch.freestep_left;
+                    w.beam_carry = ch.velocity.with_y(0.0).length();
                     ch.velocity = Vec3::ZERO;
                     continue;
                 }
