@@ -1495,6 +1495,11 @@ The low-profile jog stop (`roof2_free_east`, `seams_free_north`, `seams_free_wes
 1.52 to 1.07, 0.74 to 0.12 and 0.86 to 0.23 m): let go at 5-6.5 m/s, the running game eased down to about 2 m/s over
 0.15 s before its 0.2 s `xx_h_jogstop_<foot>` began, 1.15 m in all, mostly on the right foot; ours played it at once and
 went 0.33 m. The run now eases down to 2.5 m/s first (`JOG_STOP_FROM`), the foot the cycle has then (33 of 41 at rest).
+Banned445's port is a lead, not AC1: a rule resting on it alone is checked against the running game when a trace or a
+recording can show it, and the traces have overruled it before (the landings' going-on buckets, the free-step stay's
+wall test along the facing). `py tools/portonly.py` lists the comment blocks that cite the port and nothing from the
+running game (174 of 239 on 2026-10-28, 111 of them in `climb.rs`), the item each documents and the address it cites:
+the checklist for live comparisons.
 `roof1_free_south` (0.76 to 0.43 m; at rest 10.8 to 5.6) and `roof1_free_sw` (2.82 to 1.74 m): the free-step stay with
 its jump on to come (free running at a drop edge ahead) is not left at its item's gate, which let it go 0.07 s in; it
 jumps on from half, as AC1 stays in HumanNarrowObject (off a roof onto a beam at its edge the running game jumped on
