@@ -1243,6 +1243,8 @@ const STANCE_GOAL_RATE: f32 = 0.6;
 const STANCE_GOAL_REACH: f32 = 0.4;
 /// A climbing stance's hand goal this close to the wrist (m) is held whatever hold the wrist is nearest.
 const STANCE_GOAL_GRAB: f32 = 0.5;
+/// In a climbing stance, a hand within this of its hold (m) is put on it (AC1's grid cell takes holds 0.3 m along).
+const STANCE_CELL: f32 = 0.3;
 /// The capsule moves in steps no longer than this (m).
 const CAPSULE_STEP: f32 = 0.15;
 
@@ -2949,6 +2951,7 @@ pub fn animate(
                 // the hand only onto a hold within 0.2 m of it: on a Damascus window box's frame, a knob 0.18 m over the
                 // clip's hand and a bar 0.3 m over the other, both hands gripped the air, user report 85785.)
                 let goal = w.limb_goal(i).filter(|_| grip.is_none()).map(|g| crate::climb::grip_target(g, n)).filter(|t| t.distance(wrist) < STANCE_GOAL_GRAB);
+                let in_stance = crate::climb_table::pose_of(&w.state).is_some();
                 let held = match grip {
                     Some(g) => Some((g, 0.0)),
                     None => ch.wall_hand_t[i].as_ref().map(|l| crate::climb::hold_on(l, wrist)),
@@ -2958,6 +2961,10 @@ pub fn animate(
                     // (The corner's targets are the reach itself: held to them whatever the clip's contacts.)
                     Some(_) if grip.is_some() => 1.0,
                     Some(_) if goal.is_some() && holds([contact::LEFT_HAND, contact::RIGHT_HAND][i]) => 1.0,
+                    // (In a climbing stance with no goals (no frame: a foot's cell without a hold), the hand still goes onto
+                    // the hold its cell takes: the stance's root is set out from the hands' holds, the clip's hands short of
+                    // them, and the near-hold weight left them 0.16 m off a Masyaf wall's top (climbing sweep `w20`).)
+                    Some((_, d)) if !switching && in_stance && d <= STANCE_CELL && holds([contact::LEFT_HAND, contact::RIGHT_HAND][i]) => 1.0,
                     Some((_, d)) if !switching && holds([contact::LEFT_HAND, contact::RIGHT_HAND][i]) => 1.0 - ((d - 0.06) / 0.14).clamp(0.0, 1.0),
                     _ => 0.0,
                 };
