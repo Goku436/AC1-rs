@@ -13091,7 +13091,12 @@ impl WallClimb {
                 .min_by(|a, b| a.distance(probe).total_cmp(&b.distance(probe)));
             match hold.and_then(|q| wall_hang_lean(level, q, n)) {
                 Some((to, lean)) => {
-                    root.translation += (to - root.translation).clamp_length_max(HANG_SETTLE_SPEED * dt);
+                    // (Not along the wall: the hold is the point nearest a probe off the root, which on a sloping hold
+                    // lies to one side, and the root followed it down a Damascus gable's edge 0.77 m at rest, the hands
+                    // off its end (climbing sweep `w15-run`). AC1's root comes from hand goals that stay put.)
+                    let along = Vec3::Y.cross(n).normalize_or_zero();
+                    let step = to - root.translation;
+                    root.translation += (step - along * step.dot(along)).clamp_length_max(HANG_SETTLE_SPEED * dt);
                     self.tilt_to = lean;
                     self.tilt_rate = HANG_LEAN_RATE;
                 }
