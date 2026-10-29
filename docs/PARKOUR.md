@@ -1456,6 +1456,10 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
 - Seed 9: Damascus `e14` (hang): the wall hang's switch into the free hang at a sloped roof corner, the wall's normal
   tilted 28 degrees up: the switch's root under the holds was set along that normal, 0.56 m up and 1 m along past the
   hold's end (`no-hold`, 1.15 m); now across the ground.
+  `e5` (hang): the climbing stance's settle took a cornice 0.4 m proud of the holds, 2.07 m over the root, and stood
+  0.5 m out from it, the hands off their holds; it counts holds up to the higher hand's row now (1.9 m).
+  `w13` (up): onto a beam across it off a climb's top-out, the root turned 46 degrees to face across in a frame (head
+  0.39 m); it eases round now (`EASE_TURN`). The side entry's turned-back fade was also replaced by `start`'s own.
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;

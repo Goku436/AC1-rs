@@ -604,9 +604,11 @@ const HOLD_TOLERANCE_UP: f32 = 0.35;
 const GRID_ALONG: f32 = 0.375;
 const GRID_UP: f32 = 0.3;
 const GRID_DEPTH: f32 = 1.0;
-/// The climbing stance at rest, with no four holds found, settles out from the holds round the body down to this far
-/// under its root (m).
+/// The climbing stance at rest, with no four holds found, settles out from the holds round the body from this far
+/// under its root (m)...
 const STANCE_SETTLE_UNDER: f32 = 0.4;
+/// ... and up to this far over it (m: the higher hand's row in `1lu` / `1ru`, 1.8 m).
+const STANCE_SETTLE_OVER: f32 = 1.9;
 /// A free hang's move onto another free hang takes holds at most this far in or out of where its clip puts the hands (m).
 const FREE_STEP_DEPTH: f32 = 0.5;
 /// AC1's grid columns are this wide (m, `GridTileWidth`).
@@ -1546,11 +1548,19 @@ struct Fade {
     roll: Option<Shown>,
     /// Not yet run down by a frame (`update`): started after that point of the frame, so shown one frame on (`weight`).
     fresh: bool,
+    /// `from` turned back by a turn of the root (`turned_back`): A is not played on under the blend, whose samples would
+    /// show it unturned.
+    turned: bool,
 }
 
 impl Fade {
     fn new(from: Pose, len: f32) -> Self {
-        Fade { from, t: len, len, blend: None, roll: None, fresh: true }
+        Fade { from, t: len, len, blend: None, roll: None, fresh: true, turned: false }
+    }
+
+    /// A fade from `from` turned back by the root's turn (`turned_back`), not rolled on by the move graph's blend.
+    fn turned(from: Pose, len: f32) -> Self {
+        Fade { turned: true, ..Fade::new(from, len) }
     }
 
     /// B's weight now, shown after a frame of `dt`: a fade started after `update` ran its time down is a frame on when
@@ -2790,10 +2800,10 @@ const SEAM_OVER_MAX: f32 = 1.0 / 30.0;
 /// for AROLLB* kinds (unless a fade ran over it: then it is frozen, as Banned445's port does), and bounding the
 /// blend's length by what is left of it for clamped blends. `gap`: how far the move's first pose is from `from`
 /// (`seam_gap`), asked for a cut only (see `CUT_GAP`); a cut that does not line up fades over `ours(gap)` instead.
-fn graph_fade(from: Pose, b: Blend, a: Option<Shown>, gap: impl FnOnce(&Pose) -> f32, ours: impl FnOnce(f32) -> f32) -> Option<Fade> {
+fn graph_fade(from: Pose, turned: bool, b: Blend, a: Option<Shown>, gap: impl FnOnce(&Pose) -> f32, ours: impl FnOnce(f32) -> f32) -> Option<Fade> {
     if b.is_cut() {
         let gap = gap(&from);
-        return (gap > CUT_GAP).then(|| Fade::new(from, ours(gap)));
+        return (gap > CUT_GAP).then(|| Fade { turned, ..Fade::new(from, ours(gap)) });
     }
     let mut len = b.time();
     if b.clamps()
@@ -2801,7 +2811,7 @@ fn graph_fade(from: Pose, b: Blend, a: Option<Shown>, gap: impl FnOnce(&Pose) ->
     {
         len = len.min((a.clip.anim.duration - a.t).max(0.0) / a.rate.max(1e-3));
     }
-    (len > 0.01).then(|| Fade { from, t: len, len, blend: Some(b), roll: a.filter(|a| b.rolls_a() && !a.fading), fresh: true })
+    (len > 0.01).then(|| Fade { from, t: len, len, blend: Some(b), roll: a.filter(|a| b.rolls_a() && !a.fading && !turned), fresh: true, turned })
 }
 
 fn smoothstep(t: f32) -> f32 {
@@ -7558,16 +7568,14 @@ impl WallClimb {
             // (The root along the beam, the clip's frame: from the facing he met it with, its 1.7-2.7 m on went across the
             // beam and off it.)
             let r = Transform { translation: line.closest(root.translation), rotation: facing(way), ..*root };
-            // (The pose faded from turned back by the root's turn, so it shows where it was.)
-            w.fade = arrive_from.clone().map(|p| Fade::new(turned_back(p, rig, cr, root.rotation, r.rotation), ENTER_FADE));
             // (Ending on the beam: the clip's own way, played from wherever it met it, walked him 1.4 m off a Damascus
             // parapet into the air, and the perch pulled him back onto it when it ended: user report, 2026-10-12.)
             let end = r.translation + world_rot(r.rotation) * root_motion_at(&clip, clip.frames());
             let correct = line.closest(end) - end;
             w.start_chain(vec![clip], vec![PERCH.to_string()], &r, correct);
-            if w.fade.is_none() {
-                w.fade = arrive_from.map(|p| Fade::new(p, ENTER_FADE));
-            }
+            // (The pose faded from turned back by the root's turn, so it shows where it was; set after the start, which
+            // fades from the climb's own last pose, none here.)
+            w.fade = arrive_from.map(|p| Fade::turned(turned_back(p, rig, cr, root.rotation, r.rotation), ENTER_FADE));
             return Some(w);
         }
         // AC1's arrival by how it meets the line (`TryMountBeam` 0xE52AD0, Banned445's port, audit NARROW-1): along a beam
@@ -7597,6 +7605,12 @@ impl WallClimb {
             if let Some(c) = lib.get(&format!("xx_h_freestep_entry_{}_tr_beam_air_90", feet[landed])) {
                 let r = Transform { rotation: facing(across), ..r };
                 w.start_chain(vec![c], vec![PERCH.to_string()], &r, Vec3::ZERO);
+                // (The root eased round to face across from the way it came, as the ground's entries turn it
+                // (`EASE_TURN`): set at once, off a climb's top-out onto a Damascus beam it turned 46 degrees in a frame
+                // and the head jumped 0.39 m, the climbing sweep's seed 9 `w13`.)
+                if let Some(m) = &mut w.mv {
+                    m.ease_rot = root.rotation * r.rotation.inverse();
+                }
             }
         }
         // (From the pose shown: `start` fades from the climb's own last pose, which a new one has none of.)
@@ -12774,7 +12788,7 @@ impl WallClimb {
                 // (A cut that does not line up keeps the fade the code asked for.)
                 self.fade = self.fade.take().and_then(|f| {
                     let len = f.len;
-                    graph_fade(f.from, b, a, |from| seam_gap(rig, cr, from, &first), |_| len)
+                    graph_fade(f.from, f.turned, b, a, |from| seam_gap(rig, cr, from, &first), |_| len)
                 });
                 debug!(
                     "climb: blend into {}: kind {} {:.2} s -> {:?}",
@@ -13102,8 +13116,8 @@ impl WallClimb {
                     let gap = |from: &Pose| seam_gap(rig, cr, from, &next_pose);
                     let ours = |gap: f32| (gap * 0.3).clamp(0.05, 0.25);
                     self.fade = match lib.graph.blend_into(Some(&done.clip.name), &next.clip.name).filter(|_| listed) {
-                        Some(b) if b.clamps() => graph_fade(last.clone(), Blend::default(), None, gap, ours),
-                        Some(b) => graph_fade(last.clone(), b, None, gap, ours),
+                        Some(b) if b.clamps() => graph_fade(last.clone(), false, Blend::default(), None, gap, ours),
+                        Some(b) => graph_fade(last.clone(), false, b, None, gap, ours),
                         None => Some(Fade::new(last.clone(), ours(gap(last)))),
                     };
                     if let (Some(len), Some(f)) = (next.fade, &mut self.fade) {
@@ -13291,7 +13305,9 @@ impl WallClimb {
         // round the body is not one of them where a sill sticks out under the feet, and ours slid 0.2 m out on `wall1`.)
         // (Not a hold further under the feet than `STANCE_SETTLE_UNDER`: AC1's root is out from the feet's holds, and over
         // a Damascus plinth 0.2 m proud of the wall 0.67 m under the feet, in a stance on the ground, ours eased 0.4 m
-        // out, the hands off their holds, the climbing sweep's seed 7 `w10`.)
+        // out, the hands off their holds, the climbing sweep's seed 7 `w10`. Nor one over the higher hand's row, past
+        // `STANCE_SETTLE_OVER`: under a cornice 0.4 m proud of the holds, 2.07 m over the root, the stance stood 0.5 m out
+        // from it, the hands 0.5 m off their holds, seed 9 `e5`.)
         if crate::climb_table::pose_of(&self.state).is_some()
             && self.mv.is_none()
             && let Some(to) = self.stance_root
@@ -13306,7 +13322,7 @@ impl WallClimb {
                 .iter()
                 .filter(|l| l.out.dot(n) > 0.7)
                 .map(|l| l.closest(p + Vec3::Y * 0.5))
-                .filter(|q| (q.y - p.y) > -STANCE_SETTLE_UNDER && (q.y - p.y) < 2.2 && (*q - p).dot(along).abs() < 0.6 && (*q - p).dot(-n) > 0.0)
+                .filter(|q| (q.y - p.y) > -STANCE_SETTLE_UNDER && (q.y - p.y) < STANCE_SETTLE_OVER && (*q - p).dot(along).abs() < 0.6 && (*q - p).dot(-n) > 0.0)
                 .map(|q| (q - p).dot(-n))
                 .collect();
             if let Some(d) = depths.iter().copied().reduce(f32::min) {
