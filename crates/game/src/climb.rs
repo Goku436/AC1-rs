@@ -10934,9 +10934,8 @@ impl WallClimb {
             // than `FREE_STEP_DEPTH`: off a Masyaf ledge's end the shimmy took a block's front 0.7 m out from the ledge for the
             // lead hand's hold and rested with both hands in the air between the two, the climbing sweep's seed 6 `e11`. Up,
             // the pavilion's knob is 0.54 m out from the arch's hold under it.)
-            let sideways = c.names.first().is_some_and(|n| !["_u_", "_d_", "_up", "_down"].iter().any(|d| n.contains(d)));
-            if !corner && sideways && is_free(&self.state) && is_free(&c.to) && (0..2).any(|k| (targets[k] - end.hands[k]).dot(normal).abs() > FREE_STEP_DEPTH)
-            {
+            let along = c.names.first().is_some_and(|n| !["_u_", "_d_", "_up", "_down"].iter().any(|d| n.contains(d)));
+            if !corner && along && is_free(&self.state) && is_free(&c.to) && (0..2).any(|k| (targets[k] - end.hands[k]).dot(normal).abs() > FREE_STEP_DEPTH) {
                 if why() {
                     debug!(
                         "climb: {} : a hold too far in or out of the free hang's ({:.2?})",
@@ -10994,8 +10993,11 @@ impl WallClimb {
             }
             // A plain move needs a hold for each foot two rows (1.2 m) under its hand's, as AC1's grid cells go
             // (`IsGridMoveValid`), or the ground there: off the bureau's hang the holds 9.3 and 9.9 m up had nothing at 8.7
-            // for the feet; the running game reached past them, ours stepped up them.
-            let grid = plain && c.names.first().is_some_and(|n| n.starts_with("xx_l_climb_"));
+            // for the feet; the running game reached past them, ours stepped up them. (Not a ledge grab into a hang,
+            // `xx_l_climb_1m_<way>_hangwall`: AC1's `TryLedgeGrab` 0xDF0980, no grid cells for the feet. Under a Damascus
+            // cornice, the hold 0.5 m over the stance's hands with nothing 1.2 m under it, he looked up and stayed, the
+            // climbing sweep's seed 6 `w11`.)
+            let grid = plain && c.names.first().is_some_and(|n| n.starts_with("xx_l_climb_")) && is_climb_stance(&c.to);
             if grid && !targets.iter().all(|t| foot_cell(level, *t, normal)) {
                 if why() {
                     debug!(
@@ -11741,6 +11743,11 @@ impl WallClimb {
         // The hand step goes onto the edge AC1's vertical rows find, before ours' hand steps by the climbing stance's grid box
         // (1 m deep, 0.3 m up or down of where the clip puts the hands: under an awning's frame they took a beam 0.13 m up for
         // a 0.6 m step, the hands in the air over it, and did not find the beams down; user report 2026-10-13).
+        // (The climbing stance's ledge grab into a hang, `xx_l_climb_1m_<way>_hang<wall|free>`, comes after the reaches:
+        // AC1's ChooseMove 0xDFDE90 tries TryLedgeGrab 0xDF0980 once the grid moves and the reach toward the stick
+        // (0xDF9B30) have failed.)
+        let ledge_grab = |c: &Cand| c.names[0].starts_with("xx_l_climb_1m_") && (c.names[0].ends_with("_hangwall") || c.names[0].ends_with("_hangfree"));
+        let (grabs, cands): (Vec<Cand>, Vec<Cand>) = cands.into_iter().partition(|c| is_climb_stance(&self.state) && ledge_grab(c));
         let cands = if vertical && matches!(self.state.as_str(), FREE | FREE_OPEN) {
             let (climb, step): (Vec<Cand>, Vec<Cand>) = cands.into_iter().partition(|c| c.to == "1m");
             if self.take_first(lib, level, root, rig, base, cr, climb)
@@ -11773,10 +11780,15 @@ impl WallClimb {
         if !vertical && matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.hang_corner(lib, level, root, rig, cr, dir == "r", false) {
             return true;
         }
-        if is_rest(&self.state) || leap {
-            let cands = self.leap_candidates(lib, dir, input);
+        // (The reaches onto climbing holds, then the ledge grab, then those into a hang: ChooseMove calls 0xDF9B30 before
+        // TryLedgeGrab and again after it, with its two flags swapped. [ours: which reaches each call takes is our reading.])
+        let leaps = if is_rest(&self.state) || leap { self.leap_candidates(lib, dir, input) } else { vec![] };
+        let (onto_climb, onto_hang): (Vec<Cand>, Vec<Cand>) = leaps.into_iter().partition(|c| c.names[0].contains("_tr_climb"));
+        for (k, cands) in [onto_climb, grabs, onto_hang].into_iter().enumerate() {
             if self.take_first(lib, level, root, rig, base, cr, cands) {
-                debug!("climb: out of reach: jump to the next hold");
+                if k != 1 {
+                    debug!("climb: out of reach: jump to the next hold");
+                }
                 return true;
             }
         }

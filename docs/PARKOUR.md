@@ -1424,7 +1424,17 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   ledge for the lead hand's hold and rested 0.44 m off both (`no-hold`); a sideways move between free hangs now takes
   holds within 0.5 m in or out of its clip's hands (`FREE_STEP_DEPTH`; up, the pavilion's knob is 0.54 m out), and he
   switches into the wall hang there and pulls up. Damascus `w22` was the sweep's: a climbing stance on small authored
-  holds with no face behind them where the foot rays run, the feet on their holds (no `feet-air` then).
+  holds with no face behind them where the foot rays run, the feet on their holds (no `feet-air` then). Damascus `w11` (up):
+  under a cornice, the next hold 0.7 m over the stance's hands with no hold 1.2 m under it, he looked up and stayed:
+  ours asked the ledge grab (`xx_l_climb_1m_<way>_hang<wall|free>`, TryLedgeGrab 0xDF0980) for the grid's foot cells,
+  which it does not test, and tried it before the reaches. ChooseMove (0xDFDE90) runs, after the grid moves, the reach
+  (0xDF9B30), then TryLedgeGrab, then the reach again with its two flags swapped; ours: the reaches onto climbing holds,
+  the ledge grab, then the reaches into a hang (which reach goes in which call is our reading). TryLedgeGrab goes up or
+  down only from a level pose (the pose table's stagger, +0xC, 0; `1m` / `2m`), sideways from any. Seed 6's
+  others: Damascus `e1` (the pull-down's free hang at its edge's end, no room round the outside corner: legit);
+  Masyaf `e3` and `e10`, the pull-down off a tower's top into the wall hang: at `e3` the shimmy right stops 0.58 m from
+  a face beside, 24 degrees off square (the inside corner finds no hold on it where it looks, 0.6 m on and out), at `e10`, round the inside corner left and back right, the lead hand's sweep is blocked 1.6 m from the
+  corner (open, the hit not looked at yet).
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;

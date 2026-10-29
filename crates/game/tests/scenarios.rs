@@ -2300,7 +2300,8 @@ const SCENARIOS: &[Scenario] = &[
         secs: 16.0,
         // (Round the next angled corner: past it on the climbing holds, as AC1's free-hang body boxes (0xB2DD50) turn down the
         // swing off the wall into a free hang there, the next face in the way.)
-        want: &["onto holds on a face 34 degrees round, turning to it", "via xx_l_climb_2m_r_1m at [286.56, 21.14"],
+        // (Up at the top, the ledge grab into the cornice's wall hang, then right off it round the faces.)
+        want: &["degrees round, turning to it", "-> hangwall_open via xx_l_climb_1m_u_hangwall", "via xx_l_climb_2m_r_1m at [286.56, 21.14"],
         never: &["EMBED", "stepped off the wall sideways"],
     },
     // User report #3: the minaret by the viewpoint at (128, -12) (`Minaret_M_02a`, the wooden balcony on its corbel). The jump
