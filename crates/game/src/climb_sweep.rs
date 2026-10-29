@@ -15,7 +15,8 @@
 //!   `letgo-down`: the stick down lets go more than 1.2 m over the ground.
 //! - `hands-off`: resting (a hang's wait loop, 0.3 s in), a hand's knuckle (AC1's hand effector) over 0.15 m from every hold for
 //!   0.25 s; `no-hold`: over 0.4 m (climbed up into nothing).
-//! - `embed`: the hips or the chest over 0.08 m inside a solid (`Level::inside_solid`) 3 frames running.
+//! - `embed`: the hips or the chest over 0.08 m inside a solid (`Level::inside_solid`) 3 frames running (not on the out
+//!   side of the wall climbed, by its nearest hold).
 //! - `pop`: the pose check's pop (`recorder`, as `AC1_POP_CHECK`) over 0.15 m.
 //! - `flipflop`: four state changes going back and forth between two states inside 3 s with the root staying within
 //!   0.25 m.
@@ -102,6 +103,8 @@ const SPACING: f32 = 8.0;
 
 /// How deep inside a solid counts as in it (m: grazing a face is not).
 const EMBED_DEPTH: f32 = 0.08;
+/// A point this near a hold of the wall climbed (m), on its out side, is in front of that wall (`embed`).
+const EMBED_WALL_NEAR: f32 = 1.2;
 
 /// How far `p` is inside a solid (`Level::inside_solid`): the nearest way out, along the six axes (m); 0 outside.
 /// (Inside: five of the six axis rays meet faces from behind, not only three of the four level ones: a Damascus house's
@@ -445,7 +448,10 @@ pub fn sweep_measure(
     }
     // Inside a solid.
     let hips = bone("Hips").unwrap_or(root + Vec3::Y);
-    if [hips, root + Vec3::Y * 1.2].iter().any(|p| depth_inside(&level, *p) > EMBED_DEPTH) {
+    // (Not in front of the wall climbed, on the out side of its nearest hold: a wall wound inward (Masyaf's ruins) meets every
+    // ray from behind, and the body climbing it read as inside, seed 1 `w13`, seed 2 `w26`.)
+    let in_front = |p: Vec3| ch.wall.is_some() && hold_dist(&level, holds, p, n).1.is_some_and(|c| c.distance(p) < EMBED_WALL_NEAR && (p - c).dot(n) > 0.0);
+    if [hips, root + Vec3::Y * 1.2].iter().any(|p| !in_front(*p) && depth_inside(&level, *p) > EMBED_DEPTH) {
         m.embed_frames += 1;
         if m.embed_frames >= 3 {
             m.add("embed", t, root, format!("{state} {clip}"));
