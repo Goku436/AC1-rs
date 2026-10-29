@@ -1412,6 +1412,14 @@ the hang leaned 26 degrees, stood up again after a shimmy with the hands 0.45 m 
 edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the holds broken 0.7 m round it), `e12`
 (the shimmy's sweep meets something 0.57 m on), `e7` (the free hang's side meets the face of an inside corner 0.72 m on); Damascus
 `e13` is the pull-down's free hang with both foot rays on the wall, below. Open:
+- Damascus seed 5 `w9` (run): up a wall at 45 degrees with rows 0.75 m apart (10.15 and 10.89 m), the wall run's
+  `430cm` catch matches each hand to its own nearest hold, one on each row, and hangs at their middle, from neither,
+  until the rest settles it up (`hands-off`). Probe D's blend (edges 1-2.8 m over the step, the 10.15 row in it) finds
+  none: the run's clips end 0.74 m short of those holds, past its 0.6 m. Holding the hands to one row alone leaves no
+  catch (a rebound): the wall run's distance to this wall wants looking at first. Seed 5's other flags: `w20` down
+  (the next row 1.05 m down, past the hang's 0.6 m hand steps: the leap, not held by the sweep), `e9` (a 1m stance
+  taken from the ground on a low narrow top with no wall under it, `feet-air`, topped out at once), `w10` (the
+  impulsion's swing), Masyaf `e5` (the pull-down's free hang on the wall, below).
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
