@@ -498,10 +498,12 @@ fn blocks_player(name: &str) -> bool {
 
 /// Terrain, rocks and cliffs: with no rigid body of their own their meshes still collide. AC1 keeps their collision
 /// in data not loaded here (Masyaf's ground, rocks and cliffs, 3.1 M triangles, in the Kingdom's world; Damascus'
-/// outskirt mountains), and nothing else would hold the player up there.
+/// outskirt mountains), and nothing else would hold the player up there. (Not a wall named for the ground: Masyaf's
+/// `Paradise_GroundWallA`, a 10 m block reaching 2.5 m out in front of the garden wall's own collision, enclosed the
+/// climbers on it; a rock wall stays a rock.)
 fn terrain(name: &str) -> bool {
     let n = name.to_lowercase();
-    ["terrain", "ground", "rock", "cliff", "roche", "mountain"].iter().any(|k| n.contains(k))
+    ["terrain", "ground", "rock", "cliff", "roche", "mountain"].iter().any(|k| n.contains(k)) && (!n.contains("wall") || n.contains("rock"))
 }
 
 /// Water surfaces (AC1 draws them with its own water shader; here translucent, not solid).

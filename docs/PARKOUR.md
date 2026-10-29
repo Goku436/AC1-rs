@@ -1381,7 +1381,10 @@ seed 2 `w9` / `w13` and two hangs' pops, 19 runs flagged to 8); in a climbing st
 without a hold, so no stance goals) a hand within 0.3 m of its hold is put on it (`STANCE_CELL`, AC1's cell; the stance root
 set out from the holds left the hands 0.16 m off a Masyaf wall's top, `w20`); a wall hang's pull-up takes the edge held as
 the nearest hold to its wait's hands, not its own first frame's, 0.16 m lower (Masyaf `e14`: under a cornice, a row
-0.33 m under the top's edge read as the edge, the top 0.42 m over it and no room). Open:
+0.33 m under the top's edge read as the edge, the top 0.42 m over it and no room); a drawn wall named for the ground is
+no terrain stand-in (Masyaf's `Paradise_GroundWallA`, no rigid body in AC1, a 10 m block 2.5 m out in front of the garden
+wall's collision: the climbers on that wall were inside it and every stand spot read as solid, seed 2 `w2` up and
+down). Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
