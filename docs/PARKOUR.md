@@ -1497,6 +1497,9 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   hold shorter than the open wait's spread (as the wall hang on a cap), and from the closed hang it switches onto the wall.
   Legit: Damascus `e2`, Masyaf `e4` (walls across the way, 0.6-0.9 m along). Masyaf `e3` clean on the recheck; `e9`
   the `free-on-wall` family (a leap into the free hang, one foot 0.23 m from the wall).
+- Seed 14: Damascus `w29` (side; a wall across the way 0.9 m along) and `e3` (the hold's end) legit; `w27` is seed 9's
+  `w26`, the flipflops seed 11's walls; `w13` the `free-on-wall` family. Not yet read: Masyaf `e6`, `e10` (the wall hang
+  stuck going right).
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
