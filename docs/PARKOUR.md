@@ -1483,7 +1483,10 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   way by the side rays (the step's 0.5 m and `BODY_SIDE`); a close from the open hang only brings the trailing hand up to
   the lead, which the open step's reach put there, and is not tested now. Legit: `e13` (the hold runs diagonally over a
   wall corner, the other wall's face 0.17 m along at the chest), `w5` (a beam out of the wall 0.6 m under the hold, as
-  stopped the running game's shimmy at the bureau).
+  stopped the running game's shimmy at the bureau). Masyaf: `e14` legit (the free hang at its hold's end, the hold round the inside
+  corner 0.69 m higher); `w26`/`w27` (`flipflop`) a sweep artifact, the run program's profile toggles at a wall with
+  something overhead playing AC1's standing profile change; `w6` a start 1.7 m over the ground; `e3` the known
+  `free-on-wall`.
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
