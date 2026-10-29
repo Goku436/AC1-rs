@@ -604,6 +604,8 @@ const HOLD_TOLERANCE_UP: f32 = 0.35;
 const GRID_ALONG: f32 = 0.375;
 const GRID_UP: f32 = 0.3;
 const GRID_DEPTH: f32 = 1.0;
+/// A free hang's move onto another free hang takes holds at most this far in or out of where its clip puts the hands (m).
+const FREE_STEP_DEPTH: f32 = 0.5;
 /// AC1's grid columns are this wide (m, `GridTileWidth`).
 const GRID_COL: f32 = 0.75;
 /// A hold snapped to a grid cell is kept within this of the cell's middle along the wall (m, `BuildHoldGrid` 0xDF6A40).
@@ -10928,6 +10930,22 @@ impl WallClimb {
                 }
                 continue;
             };
+            // (Sideways between free hangs the hands keep their depth, so not onto a hold further in or out
+            // than `FREE_STEP_DEPTH`: off a Masyaf ledge's end the shimmy took a block's front 0.7 m out from the ledge for the
+            // lead hand's hold and rested with both hands in the air between the two, the climbing sweep's seed 6 `e11`. Up,
+            // the pavilion's knob is 0.54 m out from the arch's hold under it.)
+            let sideways = c.names.first().is_some_and(|n| !["_u_", "_d_", "_up", "_down"].iter().any(|d| n.contains(d)));
+            if !corner && sideways && is_free(&self.state) && is_free(&c.to) && (0..2).any(|k| (targets[k] - end.hands[k]).dot(normal).abs() > FREE_STEP_DEPTH)
+            {
+                if why() {
+                    debug!(
+                        "climb: {} : a hold too far in or out of the free hang's ({:.2?})",
+                        c.names[0],
+                        (0..2).map(|k| (targets[k] - end.hands[k]).dot(normal)).collect::<Vec<_>>()
+                    );
+                }
+                continue;
+            }
             // A leap between its short and long variant's reach: AC1 mixes the two to land on the hold.
             let (c, clips, end) = match leap.then(|| self.leap_mix(lib, root, rig, base, cr, &c, &end, &targets)).flatten() {
                 Some((mixed, clips, end)) => (mixed, clips, end),

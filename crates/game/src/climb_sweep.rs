@@ -490,7 +490,10 @@ pub fn sweep_measure(
         let along = Vec3::Y.cross(n).normalize_or_zero();
         let ray = |s: f32| level.raycast(hold - Vec3::Y + n * 0.5 + along * (0.1 * s), -n, 1.2).is_some_and(|h| h.normal.y.abs() < 0.7);
         let walls = usize::from(ray(-1.0)) + usize::from(ray(1.0));
-        if wall_stance(&state) && walls == 0 {
+        // (A climbing stance's feet stand on holds of their own, AC1's grid cells: on a Damascus wall of small authored
+        // holds 0.6 m apart, with no face behind them where the rays run, the feet stood on them, seed 6 `w22`.)
+        let footed = [bone("LeftFoot"), bone("RightFoot")].iter().all(|f| f.is_some_and(|f| hold_dist(&level, holds, f, n).0 < 0.3));
+        if wall_stance(&state) && walls == 0 && !footed {
             m.add("feet-air", t, root, format!("{state} {clip}"));
         }
         if state.starts_with("free_") && walls == 2 {

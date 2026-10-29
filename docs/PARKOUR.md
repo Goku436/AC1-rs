@@ -1420,6 +1420,11 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   (the next row 1.05 m down, past the hang's 0.6 m hand steps: the leap, not held by the sweep), `e9` (a 1m stance
   taken from the ground on a low narrow top with no wall under it, `feet-air`, topped out at once), `w10` (the
   impulsion's swing), Masyaf `e5` (the pull-down's free hang on the wall, below).
+- Seed 6: Masyaf `e11` (hang): off a ledge's end the free hang's shimmy right took a block's front 0.7 m out from the
+  ledge for the lead hand's hold and rested 0.44 m off both (`no-hold`); a sideways move between free hangs now takes
+  holds within 0.5 m in or out of its clip's hands (`FREE_STEP_DEPTH`; up, the pavilion's knob is 0.54 m out), and he
+  switches into the wall hang there and pulls up. Damascus `w22` was the sweep's: a climbing stance on small authored
+  holds with no face behind them where the foot rays run, the feet on their holds (no `feet-air` then).
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
