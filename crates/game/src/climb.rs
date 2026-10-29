@@ -496,6 +496,8 @@ const HANGWALL_HOLD_UP: f32 = 1.13;
 const HANGWALL_HOLD_IN: f32 = 0.62;
 /// A ledge shorter than this (m) is hung from with the hands together.
 const NARROW_LEDGE: f32 = 1.0;
+/// A hand this near its hold's grip target is on it (`settle_hang`).
+const HANDS_ON_HOLD: f32 = 0.15;
 /// A ground move stops rather than step off a drop deeper than this (m).
 const GROUND_MOVE_DROP: f32 = 0.6;
 /// Running at a low obstacle (see `collide`): spotted this far ahead, met head on this squarely (cosine) or else
@@ -9837,9 +9839,13 @@ impl WallClimb {
             };
             let (a, b) = (off(pair[0].1), off(pair[1].1));
             self.state = (if a <= b { pair[0].0 } else { pair[1].0 }).to_string();
-            // From a pole's cap the hands hang together (where they hold, from a wall hang's root).
+            // From a pole's cap the hands hang together (where they hold, from a wall hang's root). Not with a hold under
+            // each hand: on two stones 0.6 m apart on a Damascus wall the hands closed onto the gap between them, both
+            // 0.2 m off, climbing sweep seed 3 `e6`.
             let hold = root.translation + Vec3::Y * HANGWALL_HOLD_UP - self.normal * HANGWALL_HOLD_IN;
-            if self.state == HANGWALL_OPEN && on_narrow_ledge(level, hold, Some(self.normal)) {
+            let held = cr.hands.map(|h| nearest_hold(level, root.translation + world_rot(root.rotation) * last.model(rig)[h].pos, self.normal));
+            let apart = matches!(&held, [Some((l, _, dl)), Some((r, _, dr))] if *dl < HANDS_ON_HOLD && *dr < HANDS_ON_HOLD && l.a != r.a);
+            if self.state == HANGWALL_OPEN && !apart && on_narrow_ledge(level, hold, Some(self.normal)) {
                 self.state = HANGWALL.into();
             }
         }

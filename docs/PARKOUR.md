@@ -1393,7 +1393,9 @@ wall hang's hand step down tests its body box on the row the moving hand goes to
 climb start takes a wall leaning out up to 30 degrees, as the wall hang's `30_out` receptions (seed 3 `w25`: a face
 overhanging 25 degrees under a hold 1.8 m up read as no wall in all four programs); a shimmy onto a face at an angle
 keeps the hands' pull along the holds (seed 3 `e9`: round a roof's polygonal edge the hang ended turned short, the hands
-0.45 m off the hold, and never pulled up). Open:
+0.45 m off the hold, and never pulled up); a wall hang settles with the hands together on a short ledge (a pole's cap)
+only when the hands aren't each on a hold of their own (seed 3 `e6`: after a leap onto two stones 0.6 m apart the hands
+closed onto the gap, 0.27 m off; Masyaf seed 1 `e14`'s stuck went with it). Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
