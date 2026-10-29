@@ -1221,6 +1221,21 @@ const HAND_IK_RATE: f32 = 6.0;
 /// (Between two grid moves the pull bottoms out at 0.07-0.08, the next move's contact taking it again: switched only at
 /// 0, the hand kept a hold 1.2 m back over four moves along a Damascus wall, pulled 0.2 m off every hold.)
 const HAND_SWITCH_W: f32 = 0.1;
+/// A hand within this of the hold its hang move aimed it at (m, as the near-hold pull's reach) lands on that hold, not
+/// the nearest (`Climb::aimed_hold`).
+const AIMED_HOLD_NEAR: f32 = 0.2;
+
+/// The hold hand `i`'s IK takes at `wrist` in a hang: the one its move aimed it at within `AIMED_HOLD_NEAR`, else the
+/// nearest (`climb::nearest_hold`): the hold, the grip target on it and its distance.
+fn aimed_or_nearest(w: &crate::climb::WallClimb, level: &Level, i: usize, wrist: Vec3, n: Vec3) -> Option<(Ledge, Vec3, f32)> {
+    w.aimed_hold(i)
+        .map(|l| {
+            let (t, d) = crate::climb::hold_on(&l, wrist);
+            (l, t, d)
+        })
+        .filter(|a| a.2 <= AIMED_HOLD_NEAR)
+        .or_else(|| crate::climb::nearest_hold(level, wrist, n))
+}
 /// With the clip's contact tags (`WallClimb::contacts`): a limb's pull rises this fast while its contact bit is set and
 /// falls this fast once it is released (per second; AC1's `LimbIK` 0xE57570, 0.25 s in, 0.2 s out, audit ANIM-10).
 const CONTACT_IK_IN: f32 = 4.0;
@@ -2898,7 +2913,8 @@ pub fn animate(
             for i in 0..2 {
                 let arm = b.arms[i];
                 let wrist = world_from_model.transform_point3(pose.model_of(rig, arm.hand).pos);
-                let Some((_, target, d)) = crate::climb::nearest_hold(&level, wrist, n) else { continue };
+                // (Toward the hold the move aimed the hand at, as the arm's pull below.)
+                let Some((_, target, d)) = aimed_or_nearest(w, &level, i, wrist, n) else { continue };
                 if d > 0.2 {
                     continue;
                 }
@@ -2926,7 +2942,10 @@ pub fn animate(
             for i in 0..2 {
                 let arm = b.arms[i];
                 let wrist = world_from_model.transform_point3(pose.model_of(rig, arm.hand).pos);
-                let near = crate::climb::nearest_hold(&level, wrist, n);
+                // (Landing near the hold its move aimed it at, that hold: where two holds meet, off a Damascus wall hang's
+                // end into the free hang onto a piece 0.17 m higher 0.08 m on, the nearest changed from frame to frame and
+                // the hand jumped 0.26 m along and back, the climbing sweep's seed 9 `e8`.)
+                let near = aimed_or_nearest(w, &level, i, wrist, n);
                 // Full correction near a hold, none while the hand travels between holds; changed no faster than
                 // `HAND_IK_RATE` (a hand passing a hold on a 1.2 m reach was pulled onto it and let go in a frame or two,
                 // 10-16 cm).

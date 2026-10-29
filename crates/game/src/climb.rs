@@ -619,6 +619,8 @@ const GRID_CELL_ALONG: f32 = 0.3;
 const GRID_ROW_MIN: f32 = 0.3;
 /// Room the body needs beside it climbing sideways (m), to its side's wall.
 const BODY_SIDE: f32 = 0.3;
+/// How far out from the hold line the free hang's body hangs (m: hips 0.06, head 0.13), where its side rays start.
+const FREE_BODY_OUT: f32 = 0.1;
 /// Corner moves steer onto the next face's holds this far from where their clips put the hands (m): a sidestep moves the
 /// hands 0.375 m, so they stop up to that far short of the corner. (Corners are tried only once no sidestep fits.)
 const CORNER_TOLERANCE: f32 = 0.6;
@@ -1790,6 +1792,9 @@ pub struct WallClimb {
     /// The wall hang's hand goals along its hold after a shimmy step (left, right), and the root that step ends on: the
     /// next step starts from them while the root is still there (AC1's `ProbeLateral` 0xDD9640 steps from the hands).
     shimmy_hands: Option<([Vec3; 2], Vec3)>,
+    /// A hang move's holds for each hand (left, right), while one of its chain's clips (named) plays: the hand lands on
+    /// the hold the move aimed it at (`aimed_hold`), as AC1's hand goals are its move's, not the hold nearest the wrist.
+    aim: Option<(Vec<String>, [Option<Ledge>; 2])>,
 }
 
 pub fn grip_target(ledge_point: Vec3, out: Vec3) -> Vec3 {
@@ -4588,6 +4593,7 @@ impl WallClimb {
             free_wait: None,
             rest_hold: None,
             shimmy_hands: None,
+            aim: None,
         }
     }
 
@@ -11261,9 +11267,14 @@ impl WallClimb {
             // over a recess under the ledge carries the root in past the line, and back out of the recess its side was in
             // the rays' way where AC1's lateral sweep, out from the hands, passes it, the climbing sweep's Masyaf seed 7
             // `e11`, seed 8 `e7`.)
-            let from = if self.state.starts_with(HANGWALL) {
+            // (In the free hang, from the body's own depth out from the line, `FREE_BODY_OUT`: from the root on the line, on
+            // the plane of a wall's face beside under the same line, the rays grazed its end, and the close back toward it
+            // was refused where AC1 steps (the closing step keeps the free hang, 0xDE1060), the climbing sweep's Damascus
+            // seed 9 `e8`.)
+            let from = if self.state.starts_with(HANGWALL) || is_free(&self.state) {
                 let line = (grip_hold(targets[0], normal) + grip_hold(targets[1], normal)) * 0.5;
-                root.translation + normal * (HANG_CORNER_IN - (root.translation - line).dot(normal)).max(0.0)
+                let out = if is_free(&self.state) { FREE_BODY_OUT } else { HANG_CORNER_IN };
+                root.translation + normal * (out - (root.translation - line).dot(normal)).max(0.0)
             } else {
                 root.translation
             };
@@ -11533,6 +11544,8 @@ impl WallClimb {
             }
             let tos = chain_states(clips.len(), &self.state, &c.to);
             let span: f32 = clips.iter().map(|c| c.anim.duration).sum();
+            let names = clips.iter().map(|c| c.name.clone()).collect();
+            self.aim = Some((names, targets.map(|t| hold_of(level, t, normal).map(|h| h.1))));
             self.start_chain_turned(clips, tos, root, err, None, turn);
             self.shimmy_hands = shimmy_next.map(|(trail, lead, left_first, mid)| {
                 let to = end.pos + err;
@@ -13576,6 +13589,13 @@ impl WallClimb {
     /// Limb `i`'s IK goal in the climbing stance (0 left hand, 1 right hand, 2 left foot, 3 right foot): the hold point
     /// AC1's grid gives it (`StanceFrame::goals`), for the hand's knuckle or the foot's toe; at rest, and through the next
     /// move until the limb's clip lets go of it. `None`: the limb finds its own hold.
+    /// The hold the playing hang move aimed hand `i` (0 left, 1 right) at (`aim`).
+    pub fn aimed_hold(&self, i: usize) -> Option<Ledge> {
+        let (names, holds) = self.aim.as_ref()?;
+        self.mv.as_ref().filter(|m| names.contains(&m.clip.name))?;
+        holds[i.min(1)]
+    }
+
     pub fn limb_goal(&self, i: usize) -> Option<Vec3> {
         let i = i.min(3);
         match &self.mv {

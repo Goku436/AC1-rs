@@ -1460,6 +1460,11 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   0.5 m out from it, the hands off their holds; it counts holds up to the higher hand's row now (1.9 m).
   `w13` (up): onto a beam across it off a climb's top-out, the root turned 46 degrees to face across in a frame (head
   0.39 m); it eases round now (`EASE_TURN`). The side entry's turned-back fade was also replaced by `start`'s own.
+  `e8` (hang): off a wall hang's end into the free hang onto a piece 0.17 m higher, 0.08 m on, the hand's IK took the
+  hold nearest the wrist each frame, and the shoulder's reach toward it swung the hand 0.26 m along and back as the
+  nearest changed; a hand now lands on the hold its move aimed it at (`aimed_hold`, within 0.2 m). Then, the stick back
+  toward the wall, the free hang's side rays from its root on the hold line grazed the wall's end on the same plane and
+  refused the close AC1 takes (stuck); they start from the body's depth now (`FREE_BODY_OUT`, 0.1 m).
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
