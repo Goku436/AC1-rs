@@ -1452,7 +1452,7 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
 - Seed 8: Masyaf `w28` was the sweep's start (a strip at the wall's foot the capsule is pushed off, a 2 m drop);
   Damascus `w16` (up) legit (something over the edge: no room for the top-out boxes nor the reach up); `w29` (run) the
   free-hang catch off AC1's search at the feet + 1.95 m over a wall, its swing taking the hips 0.15 m into it (the
-  free hang on the wall item, below); Masyaf `e7` the recess of seed 7's `e11` (fixed with it).
+  free hang on the wall item, below); Masyaf `e7` and `e10` the recess of seed 7's `e11` (fixed with it).
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
