@@ -1441,7 +1441,12 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   beside`). Open: whether AC1 leans into such a recess. (A limit on the holds' depth does not touch it: the holds are
   all at one depth.) Damascus `w10` (side): a 2m stance on the ground round a 45-degree corner (no four holds, so
   the rest's fallback settle) eased 0.4 m out from a plinth 0.2 m proud of the wall 0.67 m under the feet, the hands
-  off their holds (`no-hold`); the settle now counts holds down to `STANCE_SETTLE_UNDER` (0.4 m) under the root.
+  off their holds (`no-hold`); the settle now counts holds down to `STANCE_SETTLE_UNDER` (0.4 m) under the root. Seed 7's
+  others: Masyaf `e10` (as seed 6's `e3`): the pull-down off a tower's top into a crenel's wall hang, the shimmy stopped
+  0.58 m on by a face at the top's height (a merlon on the lip: legit by the look of it); Damascus `w12` (side) an
+  embed of 0.17 m as the turned step-off's clip swings the hips round a wall's end (the root clear); `w27` (side) the
+  hold's end, the climbing holds on from it with no footholds (legit); `e1` the pull-down's free hang on the wall
+  (below); pops (`w3`, `e6`, Masyaf `w11`, `w23`) 0.15-0.2 m in 0.1 s blends.
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
