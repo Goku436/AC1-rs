@@ -11043,7 +11043,7 @@ impl WallClimb {
                 let (from, to) = (root.translation + Vec3::Y * SHIMMY_CHEST, end.pos + land + Vec3::Y * SHIMMY_CHEST);
                 let way = (to - from).with_y(0.0);
                 if let Some(h) = level.raycast(from, way.normalize_or_zero(), way.length() + SHIMMY_ROOM).filter(|h| h.normal.dot(normal) < 0.7) {
-                    debug!("climb: {} : something in the way {:.2} m along", c.names[0], h.dist);
+                    debug!("climb: {} : something in the way {:.2} m along (at {:.2}, normal {:.2})", c.names[0], h.dist, h.point, h.normal);
                     continue;
                 }
                 // The lead hand's reach (the strafe's `_open`): AC1 sweeps a capsule (r 0.15) from 0.2 m over the lead
@@ -11290,7 +11290,12 @@ impl WallClimb {
             } else {
                 root.translation
             };
-            if !corner && c.table.is_none() && side.length() > 0.05 {
+            // (Not a closing step from the open hang: the trailing hand comes up to the lead, which the open step's reach
+            // (AC1's lateral probe) put there, and the body goes no further than it; ours refused it 0.77 m from a wall
+            // across the way, the step's 0.5 m and `BODY_SIDE`, and the free hang was held in the open, the climbing
+            // sweep's Damascus seed 11 `e1`.)
+            let closing = c.names[0].ends_with("_050cm_close") && matches!(self.state.as_str(), HANGWALL_OPEN | FREE_OPEN);
+            if !corner && !closing && c.table.is_none() && side.length() > 0.05 {
                 let into = [0.5, 1.2]
                     .iter()
                     .any(|h| level.raycast(from + Vec3::Y * *h, side.normalize(), side.length() + BODY_SIDE).is_some_and(|w| w.normal.y.abs() < 0.5));

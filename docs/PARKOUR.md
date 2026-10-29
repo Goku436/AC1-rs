@@ -1479,6 +1479,11 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   with it now. Legit: `e6` (a wall 0.74 m along the free hang, no hold on it at hand height; AC1's lateral sweep finds
   no room), `e11` (a slab 1 m over the top in AC1's climb-out room box). Left: `e8`'s lean pop (0.16 m), `w5`'s run onto
   a perch.
+- Seed 11: Damascus `e1` (hang, stuck in the open free hang): the closing step was refused 0.77 m from a wall across the
+  way by the side rays (the step's 0.5 m and `BODY_SIDE`); a close from the open hang only brings the trailing hand up to
+  the lead, which the open step's reach put there, and is not tested now. Legit: `e13` (the hold runs diagonally over a
+  wall corner, the other wall's face 0.17 m along at the chest), `w5` (a beam out of the wall 0.6 m under the hold, as
+  stopped the running game's shimmy at the bureau).
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
