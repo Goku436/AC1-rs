@@ -604,6 +604,9 @@ const HOLD_TOLERANCE_UP: f32 = 0.35;
 const GRID_ALONG: f32 = 0.375;
 const GRID_UP: f32 = 0.3;
 const GRID_DEPTH: f32 = 1.0;
+/// The climbing stance at rest, with no four holds found, settles out from the holds round the body down to this far
+/// under its root (m).
+const STANCE_SETTLE_UNDER: f32 = 0.4;
 /// A free hang's move onto another free hang takes holds at most this far in or out of where its clip puts the hands (m).
 const FREE_STEP_DEPTH: f32 = 0.5;
 /// AC1's grid columns are this wide (m, `GridTileWidth`).
@@ -13273,6 +13276,9 @@ impl WallClimb {
         // `wall1` and `street_free_east`), eased there. The holds' plane: the nearest holds round the body, facing out.
         // (Where the move into it found its four holds, the root AC1 computes from them, `climb_frame`: the nearest hold
         // round the body is not one of them where a sill sticks out under the feet, and ours slid 0.2 m out on `wall1`.)
+        // (Not a hold further under the feet than `STANCE_SETTLE_UNDER`: AC1's root is out from the feet's holds, and over
+        // a Damascus plinth 0.2 m proud of the wall 0.67 m under the feet, in a stance on the ground, ours eased 0.4 m
+        // out, the hands off their holds, the climbing sweep's seed 7 `w10`.)
         if crate::climb_table::pose_of(&self.state).is_some()
             && self.mv.is_none()
             && let Some(to) = self.stance_root
@@ -13287,7 +13293,7 @@ impl WallClimb {
                 .iter()
                 .filter(|l| l.out.dot(n) > 0.7)
                 .map(|l| l.closest(p + Vec3::Y * 0.5))
-                .filter(|q| (q.y - p.y) > -1.6 && (q.y - p.y) < 2.2 && (*q - p).dot(along).abs() < 0.6 && (*q - p).dot(-n) > 0.0)
+                .filter(|q| (q.y - p.y) > -STANCE_SETTLE_UNDER && (q.y - p.y) < 2.2 && (*q - p).dot(along).abs() < 0.6 && (*q - p).dot(-n) > 0.0)
                 .map(|q| (q - p).dot(-n))
                 .collect();
             if let Some(d) = depths.iter().copied().reduce(f32::min) {

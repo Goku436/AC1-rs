@@ -1435,6 +1435,13 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   Masyaf `e3` and `e10`, the pull-down off a tower's top into the wall hang: at `e3` the shimmy right stops 0.58 m from
   a face beside, 24 degrees off square (the inside corner finds no hold on it where it looks, 0.6 m on and out), at `e10`, round the inside corner left and back right, the lead hand's sweep is blocked 1.6 m from the
   corner (open, the hit not looked at yet).
+- Seed 7: Masyaf `e11` (hang): the pull-down's wall hang shimmies left over a recess under the ledge (the wall 0.6 m
+  back past z 42); the leaned rest (`wall_hang_lean`, the feet's support in the recess) carries the root 0.6 m in,
+  inside the hold's line, and back right the recess's side face is in the body's way (`the body would go into a wall
+  beside`). Open: whether AC1 leans into such a recess. (A limit on the holds' depth does not touch it: the holds are
+  all at one depth.) Damascus `w10` (side): a 2m stance on the ground round a 45-degree corner (no four holds, so
+  the rest's fallback settle) eased 0.4 m out from a plinth 0.2 m proud of the wall 0.67 m under the feet, the hands
+  off their holds (`no-hold`); the settle now counts holds down to `STANCE_SETTLE_UNDER` (0.4 m) under the root.
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
