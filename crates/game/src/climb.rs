@@ -9880,6 +9880,9 @@ impl WallClimb {
             let apart = matches!(&held, [Some((l, _, dl)), Some((r, _, dr))] if *dl < HANDS_ON_HOLD && *dr < HANDS_ON_HOLD && l.a != r.a);
             if self.state == HANGWALL_OPEN && !apart && on_narrow_ledge(level, hold, Some(self.normal)) {
                 self.state = HANGWALL.into();
+                // (The hands together as the state now says: the open step's hands kept 1.0 m apart, the next step out had
+                // no span left to reach and was refused, held for ever, the climbing sweep's Masyaf seed 10 `e4`.)
+                self.shimmy_hands = None;
             }
         }
     }

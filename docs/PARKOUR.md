@@ -1474,6 +1474,11 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   and box allow it), the stick down only looks down; the release is the way off. Masyaf `e10` (hang, embed): a stance
   move with no footholds turned into the hang skipped AC1's wall-hang body box, and off a pillar's face onto the ledge
   0.6 m up and 0.8 m back over its top the body hung inside the pillar; the box is tested after the turn now.
+  `e4` (hang, stuck): an open hang on a ledge `on_narrow_ledge` takes for a cap, both hands on one hold, is set closed;
+  the open step's hands were kept 1.0 m apart (`shimmy_hands`) and the next step out had no span left; they are cleared
+  with it now. Legit: `e6` (a wall 0.74 m along the free hang, no hold on it at hand height; AC1's lateral sweep finds
+  no room), `e11` (a slab 1 m over the top in AC1's climb-out room box). Left: `e8`'s lean pop (0.16 m), `w5`'s run onto
+  a perch.
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
