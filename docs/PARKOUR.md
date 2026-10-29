@@ -1487,6 +1487,11 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   corner 0.69 m higher); `w26`/`w27` (`flipflop`) a sweep artifact, the run program's profile toggles at a wall with
   something overhead playing AC1's standing profile change; `w6` a start 1.7 m over the ground; `e3` the known
   `free-on-wall`.
+- Seed 12: Damascus legit `e12` (a slab 0.9 m over the top in the climb-out room box) and `e14` (the hold's end).
+  `w11` (run, embed): the free jump off a narrow object's made-up target fell on to a free-hang catch under an eave, the
+  hips swinging 0.28 m in behind the hold line over the wall set back under it: the `free-on-wall` family. Open: `e6`
+  (the free hang stuck going right near a roof's corner, not yet read). Left: jump takeoff hand pops of 0.15-0.17 m
+  (`w20`, `w28`), `w10`'s embeds at a vault.
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
