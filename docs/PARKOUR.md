@@ -1438,15 +1438,21 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
 - Seed 7: Masyaf `e11` (hang): the pull-down's wall hang shimmies left over a recess under the ledge (the wall 0.6 m
   back past z 42); the leaned rest (`wall_hang_lean`, the feet's support in the recess) carries the root 0.6 m in,
   inside the hold's line, and back right the recess's side face is in the body's way (`the body would go into a wall
-  beside`). Open: whether AC1 leans into such a recess. (A limit on the holds' depth does not touch it: the holds are
-  all at one depth.) Damascus `w10` (side): a 2m stance on the ground round a 45-degree corner (no four holds, so
+  beside`, its rays from the root). AC1's lateral sweep runs 0.75 m out from the hands, past the recess: the wall
+  hang's side rays now start no deeper than `HANG_CORNER_IN` out from the hold line (also seed 8 `e7`). (A limit on the
+  holds' depth did not touch it: the holds are all at one depth.) Damascus `w10` (side): a 2m stance on the ground round a 45-degree corner (no four holds, so
   the rest's fallback settle) eased 0.4 m out from a plinth 0.2 m proud of the wall 0.67 m under the feet, the hands
   off their holds (`no-hold`); the settle now counts holds down to `STANCE_SETTLE_UNDER` (0.4 m) under the root. Seed 7's
   others: Masyaf `e10` (as seed 6's `e3`): the pull-down off a tower's top into a crenel's wall hang, the shimmy stopped
   0.58 m on by a face at the top's height (a merlon on the lip: legit by the look of it); Damascus `w12` (side) an
   embed of 0.17 m as the turned step-off's clip swings the hips round a wall's end (the root clear); `w27` (side) the
   hold's end, the climbing holds on from it with no footholds (legit); `e1` the pull-down's free hang on the wall
-  (below); pops (`w3`, `e6`, Masyaf `w11`, `w23`) 0.15-0.2 m in 0.1 s blends.
+  (below); pops (`w3`, `e6`, Masyaf `w11`, `w23`) 0.15-0.2 m in 0.1 s blends. Masyaf `e8` is `e11`'s cornice: the recess 0.6 m deep under
+  it leaves the hang changing between free and wall hang along it, stuck at the recess's side.
+- Seed 8: Masyaf `w28` was the sweep's start (a strip at the wall's foot the capsule is pushed off, a 2 m drop);
+  Damascus `w16` (up) legit (something over the edge: no room for the top-out boxes nor the reach up); `w29` (run) the
+  free-hang catch off AC1's search at the feet + 1.95 m over a wall, its swing taking the hips 0.15 m into it (the
+  free hang on the wall item, below); Masyaf `e7` the recess of seed 7's `e11` (fixed with it).
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;

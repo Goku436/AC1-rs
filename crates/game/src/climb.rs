@@ -11243,15 +11243,25 @@ impl WallClimb {
             let slide = (end.pos + land - root.translation).with_y(0.0);
             let side = slide - normal * slide.dot(normal);
             // (A table move: AC1's body boxes where it ends, below, in place of these rays.)
+            // (From the wall hang's root no deeper than the hang's own distance out from the hold line: the leaned rest
+            // over a recess under the ledge carries the root in past the line, and back out of the recess its side was in
+            // the rays' way where AC1's lateral sweep, out from the hands, passes it, the climbing sweep's Masyaf seed 7
+            // `e11`, seed 8 `e7`.)
+            let from = if self.state.starts_with(HANGWALL) {
+                let line = (grip_hold(targets[0], normal) + grip_hold(targets[1], normal)) * 0.5;
+                root.translation + normal * (HANG_CORNER_IN - (root.translation - line).dot(normal)).max(0.0)
+            } else {
+                root.translation
+            };
             if !corner && c.table.is_none() && side.length() > 0.05 {
-                let into = [0.5, 1.2].iter().any(|h| {
-                    level.raycast(root.translation + Vec3::Y * *h, side.normalize(), side.length() + BODY_SIDE).is_some_and(|w| w.normal.y.abs() < 0.5)
-                });
+                let into = [0.5, 1.2]
+                    .iter()
+                    .any(|h| level.raycast(from + Vec3::Y * *h, side.normalize(), side.length() + BODY_SIDE).is_some_and(|w| w.normal.y.abs() < 0.5));
                 if into {
                     if why() {
-                        let hit = [0.5, 1.2].iter().find_map(|h| {
-                            level.raycast(root.translation + Vec3::Y * *h, side.normalize(), side.length() + BODY_SIDE).filter(|w| w.normal.y.abs() < 0.5)
-                        });
+                        let hit = [0.5, 1.2]
+                            .iter()
+                            .find_map(|h| level.raycast(from + Vec3::Y * *h, side.normalize(), side.length() + BODY_SIDE).filter(|w| w.normal.y.abs() < 0.5));
                         let hit = hit.map(|w| (w.dist, w.point, w.normal));
                         debug!("climb: {} : the body would go into a wall beside (along, at, normal: {hit:.2?})", c.names[0]);
                     }
