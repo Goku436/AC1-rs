@@ -11104,9 +11104,13 @@ impl WallClimb {
             // (A hand step's first half tests the row both hands end on, as AC1's FindVerticalRows tests its step row before
             // the step starts: tested at the half's own holds, one hand up, one down, the first half passed under a Damascus
             // awning's planks and the second was refused for ever, the body held in the half step, user report 116822.)
-            let row = match c.to.strip_prefix("hangwall_") {
-                Some("1lu") => [targets[0], targets[1].with_y(targets[0].y)],
-                Some("1ru") => [targets[0].with_y(targets[1].y), targets[1]],
+            // (The row of the hand that moves: up to `1lu` the left, down to it the right, the left staying up. Down, the
+            // first half tested the row held, and under a Damascus wall's sloped sill the second half was refused for ever,
+            // held in the half step, climbing sweep seed 3 `w19`.)
+            let down = c.names[0].contains("_climb_1m_d_");
+            let row = match (c.to.strip_prefix("hangwall_"), down) {
+                (Some("1lu"), false) | (Some("1ru"), true) => [targets[0], targets[1].with_y(targets[0].y)],
+                (Some("1ru"), false) | (Some("1lu"), true) => [targets[0].with_y(targets[1].y), targets[1]],
                 _ => targets,
             };
             // (The sideways switch from the free hang tests it under the lead hand where it holds now: 0xDE1060 hands

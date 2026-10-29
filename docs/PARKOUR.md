@@ -1387,7 +1387,9 @@ the nearest hold to its wait's hands, not its own first frame's, 0.16 m lower (M
 no terrain stand-in (Masyaf's `Paradise_GroundWallA`, no rigid body in AC1, a 10 m block 2.5 m out in front of the garden
 wall's collision: the climbers on that wall were inside it and every stand spot read as solid, seed 2 `w2` up and
 down); a shimmy step corrects the hands onto the holds only out and up, its step setting where along it ends (at a
-ledge's end the pull back onto the hold undid the step, 0.07 m on and back, seed 2 `w19`; two embeds went with it). Open:
+ledge's end the pull back onto the hold undid the step, 0.07 m on and back, seed 2 `w19`; two embeds went with it); a
+wall hang's hand step down tests its body box on the row the moving hand goes to, not the row held (Damascus seed 3
+`w19`: under a sloped sill the second half was refused for ever, the body held in the half step; now it looks down). Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
