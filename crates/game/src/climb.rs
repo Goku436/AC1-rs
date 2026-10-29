@@ -11346,14 +11346,17 @@ impl WallClimb {
             // (Off a wall into the free hang: the root goes under the hands' holds, AC1's free-hang pose
             // (0xB15AD0, interpolated to over the switch's action): the clip, made for a flat wall, carried it 0.06 m past
             // the hold line into the wall under it, and at a wall's end the legs hung inside its corner.)
+            // (Across the ground: the wall's normal tilted 28 degrees up off a Damascus roof's sloped corner carried the
+            // body 0.56 m up and 1 m along, past the hold's end, the hands 1.15 m off it, the climbing sweep's seed 9 `e14`.)
+            let flat_n = normal.with_y(0.0).normalize_or_zero();
             let under = if off_wall_into_free {
                 let held = (grip_hold(targets[0], normal) + grip_hold(targets[1], normal)) * 0.5;
-                normal * (held - (end.pos + flat + normal * out)).dot(normal)
+                flat_n * (held - (end.pos + flat + normal * out)).dot(flat_n)
             } else if free_step {
                 // (Out under an edge further out; never in, toward the wall under a recessed one: a Damascus balcony's
                 // corbels' wall, the body put into it. That one is the switch onto the wall's, `free_to_wall_hang`.)
                 let held = (grip_hold(targets[0], normal) + grip_hold(targets[1], normal)) * 0.5;
-                normal * ((held - root.translation).dot(normal).max(0.0) - (end.pos + flat - root.translation).dot(normal))
+                flat_n * ((held - root.translation).dot(flat_n).max(0.0) - (end.pos + flat - root.translation).dot(flat_n))
             } else {
                 Vec3::ZERO
             };
