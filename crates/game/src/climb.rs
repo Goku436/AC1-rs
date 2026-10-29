@@ -11312,10 +11312,13 @@ impl WallClimb {
             // (A shimmy's step sets where along the wall it ends, from AC1's hand goals: the hands onto the holds only in the
             // other two ways. Both along, at a ledge's end, with the hold stopping just past the lead hand, the hands' pull
             // back onto it undid the step, and the hang went 0.07 m on and back for as long as the stick was held, the
-            // climbing sweep's `flipflop` (Masyaf seed 2 `w19`).)
+            // climbing sweep's `flipflop` (Masyaf seed 2 `w19`). Not onto a face at an angle: that turn pivots about the
+            // holds, the hands on them (round a Damascus roof's polygonal edge the hang ended turned short, the hands 0.45 m
+            // off the hold, seed 3 `e9`).)
+            let turning = !corner && face_turn(level, &targets, normal).is_some();
             let flat = match step.normalize_or_zero() {
-                Vec3::ZERO => flat,
-                d => flat - d * flat.dot(d),
+                d if d != Vec3::ZERO && !turning => flat - d * flat.dot(d),
+                _ => flat,
             };
             let err = flat + keep + normal * out - Vec3::Y * down + to_hang + step + stance + under;
             // (Where AC1's root stands further out than that, a hold row under the feet sticking out from the hands' (the
