@@ -7484,10 +7484,18 @@ impl WallClimb {
             // (their bones keep the body facing the drop while the root comes round). The shortest way round is either way
             // at 180 degrees: off a Damascus post it went with the clip's turn, the body spinning a whole extra turn in
             // 0.2 s, the hands 0.2 m a frame.)
+            // (The pose faded from is turned by what that leaves the root off where it stood: off a Masyaf post 173 degrees
+            // round, eased from 179.4 the other way, the body turned 7.6 degrees in the first frame, a hand 0.15 m,
+            // climbing sweep seed 2 `w3`.)
             if let Some(m) = w.mv.as_mut()
                 && m.ease_rot.angle_between(Quat::IDENTITY) > PULL_DOWN_HALF_TURN
             {
+                let was = m.ease_rot * m.start_rot;
                 m.ease_rot = Quat::from_rotation_y(-(std::f32::consts::PI - PULL_DOWN_TURN_BIAS));
+                let now = m.ease_rot * m.start_rot;
+                if let (Some(r), Some(f)) = (cr.reference, w.fade.as_mut()) {
+                    f.from.rotate_model(rig, r, model_to_bevy().inverse() * now.inverse() * was * model_to_bevy());
+                }
             }
             debug!("climb: pulling down ({to}), steering {:.2} m", err.length());
             return Some(w);

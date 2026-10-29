@@ -1397,7 +1397,11 @@ keeps the hands' pull along the holds (seed 3 `e9`: round a roof's polygonal edg
 only when the hands aren't each on a hold of their own (seed 3 `e6`: after a leap onto two stones 0.6 m apart the hands
 closed onto the gap, 0.27 m off; Masyaf seed 1 `e14`'s stuck went with it); a chain's seam blends from A's last pose
 pitched as it is shown (seed 3 `e13`: along a wall hang leaning 10 degrees, both leaps' landings began from the body
-straightened, the head 0.19 and 0.35 m in a frame). Open:
+straightened, the head 0.19 and 0.35 m in a frame); a pull-down's half turn eased round from AC1's clips' side turns
+the pose faded from by what that leaves the root off where it stood (Masyaf seed 2 `w3`: off a post 173 degrees round,
+the body turned 7.6 degrees in the first frame; the clip's own fast start under the ease is still a 0.16 m hand).
+Legit ends: Damascus seed 3 `e8` (a 2 m stance at a sparse grid's end: no foot cell up, the cornice 0.26 m out, under
+the back eject's 0.8 m). Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
