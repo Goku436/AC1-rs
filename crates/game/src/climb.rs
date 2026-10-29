@@ -11302,6 +11302,14 @@ impl WallClimb {
             // the holds, as the climbing moves on from there were tuned (the routes round the octagonal tower's cornice,
             // the balcony's corbels and the gauntlet's block took other ways from AC1's root, some through them).]
             let frame = crate::climb_table::pose_of(&c.to).and_then(|p| Some((StanceFrame::find(level, &targets, normal)?, p)));
+            // (A shimmy's step sets where along the wall it ends, from AC1's hand goals: the hands onto the holds only in the
+            // other two ways. Both along, at a ledge's end, with the hold stopping just past the lead hand, the hands' pull
+            // back onto it undid the step, and the hang went 0.07 m on and back for as long as the stick was held, the
+            // climbing sweep's `flipflop` (Masyaf seed 2 `w19`).)
+            let flat = match step.normalize_or_zero() {
+                Vec3::ZERO => flat,
+                d => flat - d * flat.dot(d),
+            };
             let err = flat + keep + normal * out - Vec3::Y * down + to_hang + step + stance + under;
             // (Where AC1's root stands further out than that, a hold row under the feet sticking out from the hands' (the
             // bureau's ledge 0.2 m out under its first row), the move ends that far out: there ours' hands and feet went
