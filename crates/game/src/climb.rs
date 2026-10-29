@@ -13019,6 +13019,9 @@ impl WallClimb {
                 let a_end = (!self.mirrored && self.fade.as_ref().is_none_or(|f| f.roll.is_none())).then(|| {
                     let mut p = base.clone();
                     sample(&done.clip, end * FPS, &mut p, cr.reference);
+                    // (Pitched as `pose` shows it: upright, along a wall hang leaning 10 degrees a leap's landing began from
+                    // the body straightened, the head and a hand 0.19 m in a frame, climbing sweep seed 3 `e13`.)
+                    self.tilted(&mut p, cr, rig);
                     // (A fade still running into A, as `pose` shows it this frame.)
                     match &self.fade {
                         Some(f) => {
