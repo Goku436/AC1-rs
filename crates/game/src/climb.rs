@@ -11257,6 +11257,15 @@ impl WallClimb {
                 to_hang = world_rot(end.rot) * (mid(&stance) - mid(&hang));
                 debug!("climb: {} : no holds for the feet there, into the hang", c.names[0]);
                 c.to = HANGWALL_OPEN.into();
+                // (Into the hang so, AC1's body box for the hang it goes into (`wall_hang_body_free`), as for a move into it
+                // named so: untested, off a Masyaf pillar's face onto the ledge 0.6 m up and 0.8 m back over its top the
+                // body hung inside the pillar, the climbing sweep's seed 10 `e10`.)
+                if !wall_hang_body_free(level, targets.map(|t| grip_hold(t, normal)), normal) {
+                    if why() {
+                        debug!("climb: {} : no room for the wall hang's body there (AC1's box), into the hang", c.names[0]);
+                    }
+                    continue;
+                }
             }
             // Sideways along the wall, the body must fit where it ends: not into a wall meeting this one (an inside
             // corner; the holds run on to its end, under the other wall). Climbing jumps too. (Corners go round.)

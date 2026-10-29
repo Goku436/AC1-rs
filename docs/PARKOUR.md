@@ -1470,6 +1470,10 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   the 1 cm point AC1's probes leave of a piece the depth filter cut short (`authored_piece`), our near-hold weight
   fading the pull at that distance. Left: hand pops of 0.15-0.16 m in a jump's takeoff (`w10`) and a damage landing
   (`w2`).
+- Seed 10: Damascus `w18` (down, stuck in the wall hang) legit: the hang over a floor 0.1 m under its feet (AC1's root
+  and box allow it), the stick down only looks down; the release is the way off. Masyaf `e10` (hang, embed): a stance
+  move with no footholds turned into the hang skipped AC1's wall-hang body box, and off a pillar's face onto the ledge
+  0.6 m up and 0.8 m back over its top the body hung inside the pillar; the box is tested after the turn now.
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
