@@ -81,7 +81,8 @@ impl FootPlacement {
             knee_forward: Vec3::X,
             max_tilt: 0.6,
             sharpness: 14.0,
-            probe: 0.9,
+            // (AC1's foot ray: from 0.5 m over the foot to 0.5 m under it, 0x432940 -> 0x432570.)
+            probe: 0.5,
             pelvis: 0.0,
             foot_offset: [0.0; 2],
             foot_normal: [Vec3::Z; 2],

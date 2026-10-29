@@ -1377,7 +1377,9 @@ free hang's turn onto a face at an angle puts the hands on the holds in depth be
 as far out, the hands stayed 0.36 m off a tower face's hold 30 degrees round, and slipped off); the standing foot IK
 leaves the feet as animated where the two grounds differ by over 0.6 m and one lies over 0.5 m under its foot (AC1's
 `IKGroundBiped` 0x432AC0; a foot over a top's edge pulled the pelvis 0.18 m down in a frame toward the street, Damascus
-seed 2 `w9` / `w13` and two hangs' pops, 19 runs flagged to 8); in a climbing stance with no frame (a foot's cell
+seed 2 `w9` / `w13` and two hangs' pops, 19 runs flagged to 8), and its foot rays reach AC1's 0.5 m over and under the
+foot, not 0.9 (0x432940 -> 0x432570; standing on an edge before a fall, both feet found the ground 0.85 m down and the
+pelvis dived 0.18 m a frame, Masyaf seed 2 `w16` down); in a climbing stance with no frame (a foot's cell
 without a hold, so no stance goals) a hand within 0.3 m of its hold is put on it (`STANCE_CELL`, AC1's cell; the stance root
 set out from the holds left the hands 0.16 m off a Masyaf wall's top, `w20`); a wall hang's pull-up takes the edge held as
 the nearest hold to its wait's hands, not its own first frame's, 0.16 m lower (Masyaf `e14`: under a cornice, a row
