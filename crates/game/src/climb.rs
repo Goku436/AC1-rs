@@ -4598,7 +4598,10 @@ impl WallClimb {
             info!("climb: no wall ahead");
             return None;
         }
-        let Some(hit) = hits.into_iter().find(|h| h.normal.y.abs() <= 0.3) else {
+        // (A wall leaning out over the feet up to 30 degrees too, as AC1's wall hang takes (its `30_out` receptions): under a
+        // Damascus hold 1.8 m up, the wall overhung 25 degrees from 0.6 m to 1.5 m, and the climb start saw no wall,
+        // climbing sweep seed 3 `w25`.)
+        let Some(hit) = hits.into_iter().find(|h| (-0.5..=0.3).contains(&h.normal.y)) else {
             info!("climb: surface ahead is not a wall");
             return None;
         };

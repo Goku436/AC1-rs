@@ -1389,7 +1389,9 @@ wall's collision: the climbers on that wall were inside it and every stand spot 
 down); a shimmy step corrects the hands onto the holds only out and up, its step setting where along it ends (at a
 ledge's end the pull back onto the hold undid the step, 0.07 m on and back, seed 2 `w19`; two embeds went with it); a
 wall hang's hand step down tests its body box on the row the moving hand goes to, not the row held (Damascus seed 3
-`w19`: under a sloped sill the second half was refused for ever, the body held in the half step; now it looks down). Open:
+`w19`: under a sloped sill the second half was refused for ever, the body held in the half step; now it looks down); the
+climb start takes a wall leaning out up to 30 degrees, as the wall hang's `30_out` receptions (seed 3 `w25`: a face
+overhanging 25 degrees under a hold 1.8 m up read as no wall in all four programs). Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
