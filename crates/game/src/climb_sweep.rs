@@ -451,7 +451,10 @@ pub fn sweep_measure(
     // (Not in front of the wall climbed, on the out side of its nearest hold: a wall wound inward (Masyaf's ruins) meets every
     // ray from behind, and the body climbing it read as inside, seed 1 `w13`, seed 2 `w26`.)
     let in_front = |p: Vec3| ch.wall.is_some() && hold_dist(&level, holds, p, n).1.is_some_and(|c| c.distance(p) < EMBED_WALL_NEAR && (p - c).dot(n) > 0.0);
-    if [hips, root + Vec3::Y * 1.2].iter().any(|p| !in_front(*p) && depth_inside(&level, *p) > EMBED_DEPTH) {
+    // (The chest, the spine's top bone: the root 1.2 m up was off the body while a pull-up's root motion led it, 0.8 m over
+    // the hips as the free hang's waist pull-up ended.)
+    let chest = bone("Spine2").unwrap_or(root + Vec3::Y * 1.2);
+    if [hips, chest].iter().any(|p| !in_front(*p) && depth_inside(&level, *p) > EMBED_DEPTH) {
         m.embed_frames += 1;
         if m.embed_frames >= 3 {
             m.add("embed", t, root, format!("{state} {clip}"));

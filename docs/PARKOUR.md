@@ -1401,12 +1401,17 @@ straightened, the head 0.19 and 0.35 m in a frame); a pull-down's half turn ease
 the pose faded from by what that leaves the root off where it stood (Masyaf seed 2 `w3`: off a post 173 degrees round,
 the body turned 7.6 degrees in the first frame; the clip's own fast start under the ease is still a 0.16 m hand).
 Legit ends: Damascus seed 3 `e8` (a 2 m stance at a sparse grid's end: no foot cell up, the cornice 0.26 m out, under
-the back eject's 0.8 m). Open:
+the back eject's 0.8 m); Masyaf seed 3 `e0` (a free hang under a rock lip 0.4 m thick over a recess: the waist pull-up
+lifts the hips straight up through the lip, 0.13 m behind the edge and at most 0.09 m in, the clip's own path from
+hands on the edge). The sweep's chest is the `Spine2` bone (the root 1.2 m up was off the body while a pull-up's root
+motion led it). Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
 - the standing impulsion's crouch out of the walk's crossfade, 0.1-0.19 m a frame (Masyaf `w26` / `w27` run, before
-  6598c4c too); `w2` / `w5` run's flipflop is a run stop and the stance change after it, not a fault;
+  6598c4c too; seed 1 `w27`, recorded: off a post's reception the root's turn eases at 3 degrees a frame and the left
+  hand swings 0.9 m through AC1's own 0.1 s blend (kind 2) from the arms-out landing into the crouch, 0.03 then
+  0.2-0.26 m a frame: fast but smooth, the check's ratio met as the blend leaves its slow start); `w2` / `w5` run's flipflop is a run stop and the stance change after it, not a fault;
 - sweep noise: Masyaf `w13` side's embed is a point 1.2 m over the root in the open, 0.43-1.37 m off a wall whose faces
   are met from behind (wound inward: `inside_solid` reads the space in front of it as inside); `w26` side's is the hips
   0.09 m into an eave's underside in the wall hang's look-round (the threshold 0.08); Damascus seed 2 `w22` run is a
