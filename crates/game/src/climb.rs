@@ -9936,7 +9936,20 @@ impl WallClimb {
         // The edge the hands hold: the hold's line (from the clip's first frame the wrists may be off it: the hands-together
         // wall hang holds 0.15 m lower), else in from the wrists and over them.
         let line = wrist - self.normal * GRIP_OUT + Vec3::Y * GRIP_DOWN;
-        let edge = nearest_hold(level, wrist, self.normal).filter(|h| h.2 < TOP_OUT_EDGE_REACH).map_or(line, |(l, _, _)| l.closest(line));
+        // (In a wall hang, the hold is the one nearest the hands as its wait holds them: the pull-up's first frame has them
+        // 0.16 m lower, and under a Masyaf cornice, a row 0.33 m under the top's edge, the pull-up took that row for the
+        // edge held, found the top 0.42 m over it and no room, and the hang looked up at the edge it held (climbing sweep
+        // `e14`).)
+        let held = match (&self.wait, matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN)) {
+            (Some(w), true) => {
+                let mut pose = base.clone();
+                sample(w, 0.0, &mut pose, cr.reference);
+                let m = pose.model(rig);
+                root.translation + world_rot(root.rotation) * ((m[cr.hands[0]].pos + m[cr.hands[1]].pos) * 0.5)
+            }
+            _ => wrist,
+        };
+        let edge = nearest_hold(level, held, self.normal).filter(|h| h.2 < TOP_OUT_EDGE_REACH).map_or(line, |(l, _, _)| l.closest(line));
         let hold_edge = edge;
         // Top surface just behind the holds, level with them (nearer in on a thin top: a haystack's rim, round hay that is
         // not solid; the running game pulled up onto it). None found: the edge itself, a top too thin to probe (AC1 tests

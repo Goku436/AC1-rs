@@ -1379,12 +1379,12 @@ leaves the feet as animated where the two grounds differ by over 0.6 m and one l
 `IKGroundBiped` 0x432AC0; a foot over a top's edge pulled the pelvis 0.18 m down in a frame toward the street, Damascus
 seed 2 `w9` / `w13` and two hangs' pops, 19 runs flagged to 8); in a climbing stance with no frame (a foot's cell
 without a hold, so no stance goals) a hand within 0.3 m of its hold is put on it (`STANCE_CELL`, AC1's cell; the stance root
-set out from the holds left the hands 0.16 m off a Masyaf wall's top, `w20`). Open:
+set out from the holds left the hands 0.16 m off a Masyaf wall's top, `w20`); a wall hang's pull-up takes the edge held as
+the nearest hold to its wait's hands, not its own first frame's, 0.16 m lower (Masyaf `e14`: under a cornice, a row
+0.33 m under the top's edge read as the edge, the top 0.42 m over it and no room). Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
-- Masyaf `e14`: the hang takes a hold 0.34 m under the top's own edge (a cornice), from which the climb-out box meets the
-  top; the edge's hold is in reach;
 - the standing impulsion's crouch out of the walk's crossfade, 0.1-0.19 m a frame (Masyaf `w26` / `w27` run, before
   6598c4c too); `w2` / `w5` run's flipflop is a run stop and the stance change after it, not a fault;
 - sweep noise: Masyaf `w13` side's embed is a point 1.2 m over the root in the open, 0.43-1.37 m off a wall whose faces
