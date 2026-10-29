@@ -1406,7 +1406,12 @@ lifts the hips straight up through the lip, 0.13 m behind the edge and at most 0
 hands on the edge). The sweep's chest is the `Spine2` bone (the root 1.2 m up was off the body while a pull-up's root
 motion led it). Seed 4: a grid move into the climbing stance is not refused by ours' foot wall ray once its foot cells hold
 (AC1's IsGridMoveValid asks no more; Masyaf `w0`: under a top's lip, the wall set back 0.41 m under the top hold, the
-last step up from `1ru` was refused for ever); a swing bar counts as held in the sweep (Damascus `w5`). Open:
+last step up from `1ru` was refused for ever); a swing bar counts as held in the sweep (Damascus `w5`); the wall hang at rest finds its hold over a leaned root too, and
+the pull-up takes the hold from the wait's hands leaned as shown (Masyaf `e14`: under a roof's lip, the wall 0.6 m back,
+the hang leaned 26 degrees, stood up again after a shimmy with the hands 0.45 m into the recess, and the pull-up took its
+edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the holds broken 0.7 m round it), `e12`
+(the shimmy's sweep meets something 0.57 m on), `e7` (the free hang's side meets the face of an inside corner 0.72 m on); Damascus
+`e13` is the pull-down's free hang with both foot rays on the wall, below. Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;

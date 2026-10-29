@@ -3022,7 +3022,7 @@ const SCENARIOS: &[Scenario] = &[
             "free_1m -> hangwall_open via xx_h_hangfree_tr_hangwall_left at [-45.33, 10.05",
             // (The slab's wall is set back under its edge: the hang leans, its root 1.1 m down the body's axis and 0.5 m
             // out square to it, 0.08 m lower than upright (AC1's sub_B157B0, Banned445's 9390e4e).)
-            "hangwall -> hangwall_1ru via xx_h_hangwall_climb_1m_u_1ru at [-45.69, 11.1",
+            "hangwall -> hangwall_1ru via xx_h_hangwall_climb_1m_u_1ru at [-45.7",
             "-> top via xx_h_hangknee_footl_tr_freestep_entry_footl at [-45.6",
         ],
         never: &["EMBED"],

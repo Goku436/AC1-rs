@@ -9957,10 +9957,14 @@ impl WallClimb {
         // 0.16 m lower, and under a Masyaf cornice, a row 0.33 m under the top's edge, the pull-up took that row for the
         // edge held, found the top 0.42 m over it and no room, and the hang looked up at the edge it held (climbing sweep
         // `e14`).)
+        // (Leaned as the hang is shown: a hang leaned 26 degrees under a Masyaf roof's lip had its upright wait's hands 0.5 m
+        // into the recess under it, found no hold there, took the edge there too and no room over it, climbing sweep seed 4
+        // `e14`.)
         let held = match (&self.wait, matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN)) {
             (Some(w), true) => {
                 let mut pose = base.clone();
                 sample(w, 0.0, &mut pose, cr.reference);
+                self.tilted(&mut pose, cr, rig);
                 let m = pose.model(rig);
                 root.translation + world_rot(root.rotation) * ((m[cr.hands[0]].pos + m[cr.hands[1]].pos) * 0.5)
             }
@@ -13168,14 +13172,20 @@ impl WallClimb {
         // hands off the hold.)
         if matches!(self.state.as_str(), HANGWALL | HANGWALL_OPEN) && self.mv.is_none() {
             let n = self.normal.with_y(0.0).normalize_or_zero();
-            let probe = root.translation + Vec3::Y * HANGWALL_HOLD_UP - n * HANGWALL_HOLD_IN;
-            let hold = level
-                .ledges
-                .iter()
-                .filter(|l| l.out.dot(n) > 0.7)
-                .map(|l| l.closest(probe))
-                .filter(|q| q.distance(probe) < HANG_ROOT_HOLD_REACH)
-                .min_by(|a, b| a.distance(probe).total_cmp(&b.distance(probe)));
+            // (Over the root too, where a leaned hang's root stands under its hold: probed only from the upright hang's hands,
+            // a hang leaned 26 degrees under a Masyaf roof's lip, the wall 0.6 m back, found no hold at rest after a shimmy and
+            // stood up again, the hands 0.45 m into the recess and no pull-up, climbing sweep seed 4 `e14`.)
+            let near = |probe: Vec3| {
+                level
+                    .ledges
+                    .iter()
+                    .filter(|l| l.out.dot(n) > 0.7)
+                    .map(|l| l.closest(probe))
+                    .filter(|q| q.distance(probe) < HANG_ROOT_HOLD_REACH)
+                    .min_by(|a, b| a.distance(probe).total_cmp(&b.distance(probe)))
+            };
+            let over = root.translation + Vec3::Y * HANGWALL_HOLD_UP;
+            let hold = near(over - n * HANGWALL_HOLD_IN).or_else(|| near(over).filter(|q| wall_hang_lean(level, *q, n).is_some()));
             match hold.and_then(|q| wall_hang_lean(level, q, n)) {
                 Some((to, lean)) => {
                     // (Not along the wall: the hold is the point nearest a probe off the root, which on a sloping hold
