@@ -1404,7 +1404,9 @@ Legit ends: Damascus seed 3 `e8` (a 2 m stance at a sparse grid's end: no foot c
 the back eject's 0.8 m); Masyaf seed 3 `e0` (a free hang under a rock lip 0.4 m thick over a recess: the waist pull-up
 lifts the hips straight up through the lip, 0.13 m behind the edge and at most 0.09 m in, the clip's own path from
 hands on the edge). The sweep's chest is the `Spine2` bone (the root 1.2 m up was off the body while a pull-up's root
-motion led it). Open:
+motion led it). Seed 4: a grid move into the climbing stance is not refused by ours' foot wall ray once its foot cells hold
+(AC1's IsGridMoveValid asks no more; Masyaf `w0`: under a top's lip, the wall set back 0.41 m under the top hold, the
+last step up from `1ru` was refused for ever); a swing bar counts as held in the sweep (Damascus `w5`). Open:
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;

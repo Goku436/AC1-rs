@@ -11157,7 +11157,12 @@ impl WallClimb {
                 }
                 continue;
             }
-            if !feet_fit_at(level, &end.feet.map(|f| f + land), normal, c.feet, Some((targets[0] + targets[1]) * 0.5)) {
+            // (A grid move into the climbing stance has its feet on the foot cells it was tested for, all AC1's
+            // IsGridMoveValid 0xDECD70 asks of them: under a Masyaf top's lip, the rows below 0.16 m out from the wall set
+            // back 0.41 m under the top hold, the stance's last step up onto the top was refused by the wall ray, held
+            // in `1ru` for ever, climbing sweep seed 4 `w0`.)
+            let on_cells = grid && is_climb_stance(&c.to);
+            if !on_cells && !feet_fit_at(level, &end.feet.map(|f| f + land), normal, c.feet, Some((targets[0] + targets[1]) * 0.5)) {
                 if corner || why() {
                     // (What is there: each foot's wall, how far in from the foot and how far behind the hold line.)
                     let hold = (targets[0] + targets[1]) * 0.5;

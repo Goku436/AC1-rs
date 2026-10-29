@@ -467,7 +467,9 @@ pub fn sweep_measure(
     // wait, `..._tr_l_ladder_wait_r_left`, nor a look round, which takes a hand off.)
     let resting = hanging(&state) && clip.contains("wait") && !clip.contains("_tr_") && !clip.contains("lookaround") && t - m.clip_since > 0.3;
     if resting && let [Some(l), Some(r)] = knuckles {
-        let worst = [l, r].iter().map(|k| hold_dist(&level, holds, *k, n).0).fold(0.0, f32::max);
+        // (A swing bar is held too: off a post, a jump caught one and hung from it still, Damascus seed 4 `w5`.)
+        let bar = |k: Vec3| level.bars.iter().map(|b| b.closest(k).distance(k)).fold(f32::MAX, f32::min);
+        let worst = [l, r].iter().map(|k| hold_dist(&level, holds, *k, n).0.min(bar(*k))).fold(0.0, f32::max);
         if worst > 0.15 {
             m.hands_bad += dt;
             m.hands_worst = m.hands_worst.max(worst);
