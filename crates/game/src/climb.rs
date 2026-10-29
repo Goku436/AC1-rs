@@ -9884,6 +9884,19 @@ impl WallClimb {
                 // no span left to reach and was refused, held for ever, the climbing sweep's Masyaf seed 10 `e4`.)
                 self.shimmy_hands = None;
             }
+            // (The free hang the same on a hold shorter than its open hands' spread, both hands nearest it: off a pull-down
+            // onto a Damascus rooftop corner's 0.63 m edge, the open wait's hands wider, one hung 0.31 m past its end, the
+            // climbing sweep's seed 13 `e4`.)
+            let same = matches!(&held, [Some((l, _, _)), Some((r, _, _))] if l.a == r.a);
+            // (By the open wait's own spread, which it plays next: the pull-down's last pose had them 0.6 m apart.)
+            let open_wide = lib.get(pair[1].1).map_or(now, |c| {
+                let mut p = base.clone();
+                sample(&c, 0.0, &mut p, cr.reference);
+                width(&p).max(now)
+            });
+            if self.state == FREE_OPEN && same && held[0].as_ref().is_some_and(|(l, _, _)| l.a.distance(l.b) < open_wide) {
+                self.state = FREE.into();
+            }
         }
     }
 

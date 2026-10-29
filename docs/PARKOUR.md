@@ -1491,7 +1491,10 @@ edge there). Legit ends: Masyaf seed 4 `e1` (a buttress under the hold line, the
   `w11` (run, embed): the free jump off a narrow object's made-up target fell on to a free-hang catch under an eave, the
   hips swinging 0.28 m in behind the hold line over the wall set back under it: the `free-on-wall` family. Open: `e6`
   (the free hang stuck going right near a roof's corner, not yet read). Left: jump takeoff hand pops of 0.15-0.17 m
-  (`w20`, `w28`), `w10`'s embeds at a vault.
+  (`w20`, `w28`), `w10`'s embeds (the step-off's landing passes the room tests: the sweep's inward-face noise).
+- Seed 13: Damascus `e4` (hang: free-on-wall, hands-off 0.31 m, stuck): a pull-down onto a rooftop corner's 0.63 m edge
+  ended in the open free hang, whose wait holds the hands wider than the edge; set closed now when both hands share a
+  hold shorter than the open wait's spread (as the wall hang on a cap), and from the closed hang it switches onto the wall.
 - the 1lu stance's lower hand short of a hold 0.16-0.2 m deeper in the wall than the upper one's (Damascus seed 2 `w24`,
   `w27` down, 0.17 m): the stance root 0.5 m out from the shallower holds, the arm 0.23 m short; whether AC1 pitches the
   body there wants a live look;
